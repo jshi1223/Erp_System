@@ -1,0 +1,398 @@
+﻿<!DOCTYPE html>
+<html lang="tl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KVSK CCTV & IT Solution - Transaction Status</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/user-style.css" />
+</head>
+<body>
+
+<header class="public-header">
+  <div class="header-left">
+    <button class="brand-link brand-link-light" type="button" onclick="window.location.href='/status'" aria-label="Go to transaction status">
+      <div class="header-logo">KVSK CCTV & IT Solution</div>
+      <div class="header-sub">Customer Transaction Portal</div>
+    </button>
+  </div>
+
+  <div class="header-right">
+    <span id="welcome-msg" class="welcome-chip"></span>
+    <button class="btn btn-logout btn-sm" onclick="logout()">Logout</button>
+  </div>
+</header>
+
+<main>
+  <section class="portal-hero">
+    <div>
+      <div class="page-title">Transaction Status</div>
+      <div class="page-sub">Review receipts, invoices, balances, and attached documents in one secure portal.</div>
+    </div>
+    <div class="portal-note">
+      Keep this page open to quickly review payment status and download your transaction PDFs.
+    </div>
+  </section>
+
+  <section class="summary-grid" aria-label="Transaction summary">
+    <article class="summary-card">
+      <div class="summary-label">Total Records</div>
+      <div class="summary-value" id="summary-total">0</div>
+    </article>
+    <article class="summary-card">
+      <div class="summary-label">Receipts</div>
+      <div class="summary-value" id="summary-receipts">0</div>
+    </article>
+    <article class="summary-card">
+      <div class="summary-label">Invoices</div>
+      <div class="summary-value" id="summary-invoices">0</div>
+    </article>
+    <article class="summary-card">
+      <div class="summary-label">Outstanding Balance</div>
+      <div class="summary-value currency" id="summary-balance">PHP 0.00</div>
+    </article>
+  </section>
+
+  <section class="portal-shell">
+    <div class="portal-shell-head">
+      <div>
+        <h2 class="section-title">Records</h2>
+        <p class="section-copy">Filter by type, search by document number, and open attached PDFs when available.</p>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('all', this)">All</button>
+      <button class="tab-btn" onclick="switchTab('receipt', this)">Receipts</button>
+      <button class="tab-btn" onclick="switchTab('invoice', this)">Invoices</button>
+    </div>
+
+    <div class="toolbar">
+      <div class="search-wrap">
+        <span class="search-icon">Search</span>
+        <input id="search-input" type="text" placeholder="Search doc no. or description..." oninput="renderTable()" />
+      </div>
+      <div class="toolbar-actions">
+        <select class="filter-select" id="filter-status" onchange="renderTable()">
+          <option value="">All Status</option>
+          <option value="paid">Paid</option>
+          <option value="unpaid">Unpaid</option>
+          <option value="partial">Partial</option>
+        </select>
+        <button class="btn btn-secondary" type="button" onclick="loadRecords()">Refresh</button>
+        <button class="btn btn-secondary" type="button" onclick="exportVisibleRowsCsv()">Export CSV</button>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table class="public-table">
+        <thead>
+          <tr>
+            <th>Doc No.</th>
+            <th class="text-center" style="width: 180px;">Type</th>
+            <th>Client</th>
+            <th>Description</th>
+            <th class="text-right">Total Amount</th>
+            <th class="text-right">DP</th>
+            <th class="text-right">Balance</th>
+            <th class="text-center" style="width: 100px;">Date</th>
+            <th class="text-center" style="width: 100px;">Status</th>
+            <th class="text-center" style="width: 80px;">PDF</th>
+          </tr>
+        </thead>
+        <tbody id="table-body">
+          <tr class="empty-row"><td colspan="10">Loading records...</td></tr>
+        </tbody>
+      </table>
+      <div class="pagination">
+        <span id="page-info"></span>
+        <div class="page-btns" id="page-btns"></div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="public-footer">
+    &copy; 2026 KVSK CCTV & IT Solution | Security, Surveillance and IT Services
+  </footer>
+</main>
+
+<div id="pdf-viewer-backdrop">
+  <div class="pdf-viewer-bar">
+    <div class="pdf-viewer-title" id="pdf-viewer-title">Document Viewer</div>
+    <div class="pdf-bar-actions">
+      <a id="pdf-dl-btn" href="#" download class="pdf-bar-btn">Download</a>
+      <button class="pdf-bar-btn close-btn" onclick="closePdfViewer()">Close</button>
+    </div>
+  </div>
+  <iframe id="pdf-frame" title="PDF Viewer"></iframe>
+  <div class="pdf-fallback" id="pdf-fallback" style="display:none">
+    <div class="pdf-fallback-icon">PDF</div>
+    <div>Hindi ma-display inline ang PDF sa browser na ito.</div>
+    <a id="pdf-fallback-dl" href="#" download class="pdf-bar-btn" style="margin-top:8px">
+      I-download ang PDF
+    </a>
+  </div>
+</div>
+
+<script>
+fetch('/api/me')
+  .then(res => {
+    if (!res.ok) {
+      window.location.href = '/';
+      return;
+    }
+    return res.json();
+  })
+  .then(data => {
+    if (!data || !data.loggedIn) {
+      window.location.href = '/';
+      return;
+    }
+
+    if (data.csrfToken) {
+      window.__CSRF_TOKEN__ = data.csrfToken;
+    }
+
+    document.getElementById('welcome-msg').textContent =
+      'Signed in as ' + (data.fullname || data.username);
+    loadRecords();
+  })
+  .catch(() => {
+    window.location.href = '/';
+  });
+  
+let publicDb = [];
+let currentPage = 1;
+let activeTab = 'all';
+const PAGE_SIZE = 10;
+
+function loadRecords() {
+  fetch('/api/public/transactions')
+    .then(res => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    })
+    .then(data => {
+      publicDb = data;
+      renderSummary();
+      renderTable();
+    })
+    .catch((err) => {
+      console.error('Load error:', err);
+      document.getElementById('table-body').innerHTML =
+        '<tr class="empty-row"><td colspan="10">Hindi ma-load ang records: ' + err.message + '</td></tr>';
+    });
+}
+
+function renderSummary() {
+  const total = publicDb.length;
+  const receipts = publicDb.filter(r => r.type === 'receipt').length;
+  const invoices = publicDb.filter(r => r.type === 'invoice').length;
+  const outstanding = publicDb.reduce((sum, r) => {
+    const amount = parseFloat(r.amount || 0);
+    const downpayment = parseFloat(r.downpayment || 0);
+    return sum + Math.max(0, amount - downpayment);
+  }, 0);
+
+  document.getElementById('summary-total').textContent = total;
+  document.getElementById('summary-receipts').textContent = receipts;
+  document.getElementById('summary-invoices').textContent = invoices;
+  document.getElementById('summary-balance').textContent =
+    'PHP ' + outstanding.toLocaleString('en-PH', { minimumFractionDigits: 2 });
+}
+
+function downloadCsv(filename, headers, rows) {
+  const escapeCsv = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+  const lines = [headers.join(',')];
+  rows.forEach((row) => {
+    lines.push(headers.map((header) => escapeCsv(row[header])).join(','));
+  });
+
+  const blob = new Blob([`\ufeff${lines.join('\r\n')}`], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function exportVisibleRowsCsv() {
+  const rows = getFiltered().map((record) => ({
+    docno: record.docno || '',
+    type: record.type || '',
+    client: record.client || '',
+    description: record.description || '',
+    amount: record.amount || 0,
+    downpayment: record.downpayment || 0,
+    balance: Math.max(0, Number(record.amount || 0) - Number(record.downpayment || 0)).toFixed(2),
+    date: record.date || '',
+    status: record.status || ''
+  }));
+
+  if (!rows.length) {
+    return;
+  }
+
+  downloadCsv('transaction-status.csv', ['docno', 'type', 'client', 'description', 'amount', 'downpayment', 'balance', 'date', 'status'], rows);
+}
+
+function openPdfViewer(id) {
+  const record = publicDb.find(item => item.id === id);
+  if (!record || !record.pdfFilename) return;
+
+  const pdfUrl = `/api/public/transactions/${record.id}/pdf`;
+
+  document.getElementById('pdf-viewer-title').textContent =
+    '#' + record.docno + ' - ' + (record.pdfFilename || 'Document.pdf');
+
+  const dlBtn = document.getElementById('pdf-dl-btn');
+  dlBtn.href = pdfUrl;
+  dlBtn.download = record.pdfFilename;
+
+  const fallbackBtn = document.getElementById('pdf-fallback-dl');
+  fallbackBtn.href = pdfUrl;
+  fallbackBtn.download = record.pdfFilename;
+
+  const frame = document.getElementById('pdf-frame');
+  const fallback = document.getElementById('pdf-fallback');
+  frame.style.display = 'block';
+  fallback.style.display = 'none';
+  frame.src = pdfUrl;
+  frame.onerror = () => {
+    frame.style.display = 'none';
+    fallback.style.display = 'flex';
+  };
+
+  document.getElementById('pdf-viewer-backdrop').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closePdfViewer() {
+  document.getElementById('pdf-viewer-backdrop').classList.remove('open');
+  document.getElementById('pdf-frame').src = 'about:blank';
+  document.body.style.overflow = '';
+}
+
+function logout() {
+  if (confirm('Sigurado ka bang gusto mong mag-logout?')) {
+    fetch('/logout', {
+      method: 'POST',
+      headers: { 'X-CSRF-Token': window.__CSRF_TOKEN__ || '' }
+    }).finally(() => {
+      window.location.href = '/';
+    });
+  }
+}
+
+function escHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function highlight(text, q) {
+  if (!q) return escHtml(text);
+  const re = new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+  return escHtml(text).replace(re, '<mark>$1</mark>');
+}
+
+function switchTab(tab, btn) {
+  activeTab = tab;
+  currentPage = 1;
+  document.querySelectorAll('.tab-btn').forEach(button => button.classList.remove('active'));
+  btn.classList.add('active');
+  renderTable();
+}
+
+function getFiltered() {
+  const q = document.getElementById('search-input').value.toLowerCase().trim();
+  const status = document.getElementById('filter-status').value;
+
+  return publicDb.filter(record => {
+    const tabMatch = activeTab === 'all' || record.type === activeTab;
+    const searchSource = (
+      (record.docno ?? '') + ' ' +
+      (record.description ?? '') + ' ' +
+      (record.checkno ?? '') + ' ' +
+      (record.pono ?? '') + ' ' +
+      (record.phone ?? '')
+    ).toLowerCase();
+    const searchMatch = !q || searchSource.includes(q);
+    const statusMatch = !status || record.status === status;
+    return tabMatch && searchMatch && statusMatch;
+  });
+}
+
+function renderTable() {
+  const q = document.getElementById('search-input').value.trim();
+  const filtered = getFiltered();
+  const total = filtered.length;
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  if (currentPage > pages) currentPage = pages;
+
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const slice = filtered.slice(start, start + PAGE_SIZE);
+  const tbody = document.getElementById('table-body');
+
+  if (!slice.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="10">Walang records na nahanap.</td></tr>';
+  } else {
+    tbody.innerHTML = slice.map(record => {
+      const hDocno = highlight('#' + record.docno, q);
+      const hClient = highlight(record.client || '', q);
+      const hDesc = highlight(record.description || '', q);
+
+      const amount = parseFloat(record.amount || 0);
+      const downpayment = parseFloat(record.downpayment || 0);
+      const balance = amount - downpayment;
+
+      const pdfCell = record.pdfFilename
+        ? `<button class="btn btn-pdf btn-sm" onclick="openPdfViewer(${record.id})" title="View PDF">View PDF</button>`
+        : `<span class="pdf-empty">N/A</span>`;
+
+      return `
+        <tr>
+          <td data-label="Doc No."><span class="doc-link">${hDocno}</span></td>
+          <td class="text-center" data-label="Type"><span class="type-pill type-${record.type}">${record.type === 'receipt' ? 'Collection Receipt' : 'Charge Sales Invoice'}</span></td>
+          <td class="client-cell" data-label="Client">${hClient}</td>
+          <td data-label="Description">${hDesc}${record.qty > 1 ? `<span class="qty-note"> x${record.qty}</span>` : ''}</td>
+          <td class="amount-cell" data-label="Total Amount">PHP ${amount.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</td>
+          <td class="amount-cell accent-amount" data-label="DP">PHP ${downpayment.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</td>
+          <td class="amount-cell" data-label="Balance" style="color:${balance > 0 ? 'var(--danger)' : 'var(--success)'}">PHP ${balance.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</td>
+          <td class="text-center date-cell" data-label="Date">${record.date}</td>
+          <td class="text-center" data-label="Status"><span class="status-pill status-${record.status}">${highlight(record.status || '', q)}</span></td>
+          <td class="text-center" data-label="PDF">${pdfCell}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  document.getElementById('page-info').textContent = total
+    ? `Showing ${start + 1}-${Math.min(start + PAGE_SIZE, total)} of ${total}`
+    : 'Walang results';
+
+  const pageButtons = document.getElementById('page-btns');
+  pageButtons.innerHTML = '';
+  for (let i = 1; i <= pages; i++) {
+    const button = document.createElement('button');
+    button.className = 'page-btn' + (i === currentPage ? ' active' : '');
+    button.textContent = i;
+    button.onclick = () => {
+      currentPage = i;
+      renderTable();
+    };
+    pageButtons.appendChild(button);
+  }
+}
+</script>
+</body>
+</html>
+
+
+

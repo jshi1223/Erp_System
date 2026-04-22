@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KVSK CCTV & IT Solution - Procurement</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <script src="assets/js/auth-guard.js?v=20260423"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/admin-style.css?v=20260429" />
+  <style>
+    .status-chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 24px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      font-size: 0.62rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .status-draft { color:#475569; background:#e2e8f0; border-color:#cbd5e1; }
+    .status-submitted { color:#854d0e; background:#fef3c7; border-color:#fcd34d; }
+    .status-approved { color:#166534; background:#dcfce7; border-color:#86efac; }
+    .status-ordered { color:#1d4ed8; background:#dbeafe; border-color:#93c5fd; }
+    .status-received { color:#0f766e; background:#ccfbf1; border-color:#5eead4; }
+    .status-cancelled { color:#991b1b; background:#fee2e2; border-color:#fca5a5; }
+    .status-rejected { color:#991b1b; background:#fee2e2; border-color:#fca5a5; }
+    .proc-summary { margin-bottom: 18px; }
+    .proc-toolbar { display:flex; flex-wrap:wrap; gap:12px; justify-content:space-between; align-items:center; }
+    .proc-search {
+      min-width: 280px;
+      flex: 1;
+      border: 1.5px solid var(--primary);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: white;
+    }
+    .proc-search input {
+      width: 100%;
+      border: none;
+      background: transparent;
+      padding: 8px 12px;
+      font-size: 0.85rem;
+    }
+    .proc-help {
+      font-size: 0.72rem;
+      color: var(--muted);
+      margin-top: 6px;
+    }
+    .modal-grid-compact {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .modal-grid-compact .field.full { grid-column: 1 / -1; }
+    @media (max-width: 860px) {
+      .modal-grid-compact { grid-template-columns: 1fr; }
+      .proc-search { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-left" style="display:flex; align-items:center; gap:15px;">
+      <button class="btn-icon" onclick="toggleSidebar()" title="Menu" style="background:none; border:none; font-size:0.78rem; cursor:pointer; color:var(--primary); text-transform:uppercase; letter-spacing:0.08em;">Menu</button>
+      <button class="brand-link" type="button" onclick="window.location.href='/admin?view=dashboard'" aria-label="Go back to dashboard">
+        <div class="brand-lockup">
+          <img class="brand-mark" src="assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+          <div class="brand-copy">
+            <div class="header-logo">KVSK CCTV & IT Solution</div>
+            <div class="header-sub">Procurement</div>
+          </div>
+        </div>
+      </button>
+    </div>
+    <div class="header-right">
+      <span class="admin-badge">Procurement Module</span>
+      <div class="notification-wrap">
+        <button class="btn-icon notification-btn" type="button" onclick="toggleNotificationsPanel()" aria-label="Notifications" title="Notifications">
+          <svg viewBox="0 0 24 24" aria-hidden="true" class="notification-icon">
+            <path d="M12 22a2.3 2.3 0 0 0 2.2-1.6h-4.4A2.3 2.3 0 0 0 12 22zm7-5.5V11a7 7 0 0 0-5-6.7V3.5a2 2 0 1 0-4 0v.8A7 7 0 0 0 5 11v5.5l-1.7 1.7a1 1 0 0 0 .7 1.7h15a1 1 0 0 0 .7-1.7L19 16.5z"></path>
+          </svg>
+          <span class="notification-badge" id="notification-count">0</span>
+        </button>
+        <div class="notifications-panel is-hidden" id="notifications-panel">
+          <div class="notifications-panel-head">
+            <div>
+              <div class="notifications-title">Notifications</div>
+              <div class="notifications-sub">Pending, due soon, expired, and completed project alerts</div>
+            </div>
+            <div class="notifications-panel-actions">
+              <button class="notifications-mark" type="button" onclick="markNotificationsAsRead(); loadNotifications();">Mark as read</button>
+              <button class="notifications-close" type="button" onclick="toggleNotificationsPanel(false)">×</button>
+            </div>
+          </div>
+          <div class="notifications-list" id="notifications-list">
+            <div class="notifications-empty">Loading notifications...</div>
+          </div>
+        </div>
+      </div>
+      <button class="btn btn-logout btn-sm" onclick="doLogout()">Logout</button>
+    </div>
+  </header>
+
+  <main id="procurement-page">
+    <div class="page-hero">
+      <div class="page-hero-copy" style="max-width:none;">
+        <div class="page-title">Procurement Management</div>
+        <div class="page-sub">Handle requisitions, purchase orders, and goods receipts in one clean flow.</div>
+      </div>
+    </div>
+
+    <div class="module-summary-grid proc-summary">
+      <div class="module-summary-card">
+        <span class="module-summary-label">Requisitions</span>
+        <div class="module-summary-value" id="metric-pr-count">0</div>
+      </div>
+      <div class="module-summary-card">
+        <span class="module-summary-label">Purchase Orders</span>
+        <div class="module-summary-value" id="metric-po-count">0</div>
+      </div>
+      <div class="module-summary-card">
+        <span class="module-summary-label">Goods Receipts</span>
+        <div class="module-summary-value" id="metric-grn-count">0</div>
+      </div>
+      <div class="module-summary-card">
+        <span class="module-summary-label">Total Commitments</span>
+        <div class="module-summary-value" id="metric-total-commitment">PHP 0.00</div>
+      </div>
+    </div>
+
+    <div class="section-topbar">
+      <button class="btn btn-cancel btn-sm section-back-btn" type="button" onclick="window.location.href='/admin?view=dashboard'">Back to Dashboard</button>
+    </div>
+
+    <div class="module-tabs">
+      <div class="module-tab active" onclick="switchProcTab('requisitions', this)">Requisitions</div>
+      <div class="module-tab" onclick="switchProcTab('purchase-orders', this)">Purchase Orders</div>
+      <div class="module-tab" onclick="switchProcTab('goods-receipts', this)">Goods Receipts</div>
+    </div>
+
+    <div id="requisitions" class="content-section active">
+      <div class="module-panel-head">
+        <div>
+          <div class="section-title">Purchase Requisitions</div>
+          <div class="proc-help">Request, estimate, and route internal needs before buying.</div>
+        </div>
+        <div class="section-head-actions">
+          <div class="proc-search"><input id="pr-search" type="text" placeholder="Search PR no., department, item, or status..." oninput="renderRequisitions()" /></div>
+          <button class="btn btn-add btn-sm" type="button" onclick="openRequisitionModal()">Add Requisition</button>
+        </div>
+      </div>
+      <div class="table-wrap" style="margin-top: 12px;">
+        <table class="registry-table">
+          <thead>
+            <tr>
+              <th>PR No.</th>
+              <th>Request Date</th>
+              <th>Department</th>
+              <th>Requested By</th>
+              <th>Needed By</th>
+              <th>Status</th>
+              <th>Item</th>
+              <th class="text-right">Qty</th>
+              <th class="text-right">Unit Price</th>
+              <th class="text-right">Total</th>
+              <th class="text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="pr-body">
+            <tr class="empty-row"><td colspan="11">Loading requisitions...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="purchase-orders" class="content-section">
+      <div class="module-panel-head">
+        <div>
+          <div class="section-title">Purchase Orders</div>
+          <div class="proc-help">Convert approved requests into official supplier orders.</div>
+        </div>
+        <div class="section-head-actions">
+          <div class="proc-search"><input id="po-search" type="text" placeholder="Search PO no., vendor, item, or status..." oninput="renderPurchaseOrders()" /></div>
+          <button class="btn btn-add btn-sm" type="button" onclick="openPurchaseOrderModal()">Add Purchase Order</button>
+        </div>
+      </div>
+      <div class="table-wrap" style="margin-top: 12px;">
+        <table class="registry-table">
+          <thead>
+            <tr>
+              <th>PO No.</th>
+              <th>Vendor</th>
+              <th>PO Date</th>
+              <th>Delivery Date</th>
+              <th>Status</th>
+              <th>Item</th>
+              <th class="text-right">Qty</th>
+              <th class="text-right">Unit Price</th>
+              <th class="text-right">Total</th>
+              <th class="text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="po-body">
+            <tr class="empty-row"><td colspan="10">Loading purchase orders...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="goods-receipts" class="content-section">
+      <div class="module-panel-head">
+        <div>
+          <div class="section-title">Goods Receipts</div>
+          <div class="proc-help">Confirm what actually arrived against each purchase order.</div>
+        </div>
+        <div class="section-head-actions">
+          <div class="proc-search"><input id="grn-search" type="text" placeholder="Search GRN no., PO no., receiver, or status..." oninput="renderGoodsReceipts()" /></div>
+          <button class="btn btn-add btn-sm" type="button" onclick="openGoodsReceiptModal()">Add Goods Receipt</button>
+        </div>
+      </div>
+      <div class="table-wrap" style="margin-top: 12px;">
+        <table class="registry-table">
+          <thead>
+            <tr>
+              <th>GRN No.</th>
+              <th>PO No.</th>
+              <th>Received Date</th>
+              <th>Received By</th>
+              <th>Status</th>
+              <th>Notes</th>
+              <th class="text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="grn-body">
+            <tr class="empty-row"><td colspan="7">Loading goods receipts...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-brand">
+        <img class="sidebar-brand-mark" src="assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+        <div>
+          <div class="header-logo" style="font-size: 1rem;">KVSK CCTV</div>
+        </div>
+      </div>
+      <button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()">X</button>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="/admin?view=dashboard" class="sidebar-link">Dashboard</a>
+
+      <div class="sidebar-group" data-sidebar-group="projects">
+        <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+          <span>Projects</span>
+          <span class="sidebar-group-caret">▾</span>
+        </button>
+        <div class="sidebar-group-items">
+          <a href="/admin?view=all" class="sidebar-link is-subitem">Total Projects</a>
+          <a href="/admin?view=ongoing-projects" class="sidebar-link is-subitem" id="menu-ongoing-projects">Ongoing Projects</a>
+          <a href="/company-registry" class="sidebar-link is-subitem">Company Registry</a>
+        </div>
+      </div>
+
+      <div class="sidebar-group" data-sidebar-group="finance">
+        <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+          <span>Finance</span>
+          <span class="sidebar-group-caret">▾</span>
+        </button>
+        <div class="sidebar-group-items">
+          <a href="/accounts-payable" class="sidebar-link is-subitem">Accounts Payable</a>
+          <a href="/accounts-receivable" class="sidebar-link is-subitem">Accounts Receivable</a>
+          <a href="/procurement" class="sidebar-link is-subitem active">Procurement</a>
+        </div>
+      </div>
+
+      <div class="sidebar-group" data-sidebar-group="inventory" data-sidebar-default-collapsed="1">
+        <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+          <span>Inventory</span>
+          <span class="sidebar-group-caret">▾</span>
+        </button>
+        <div class="sidebar-group-items">
+          <a href="/inventory" class="sidebar-link">Inventory</a>
+        </div>
+      </div>
+
+      <div class="sidebar-group" data-sidebar-group="admin" data-sidebar-default-collapsed="1">
+        <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+          <span>Admin</span>
+          <span class="sidebar-group-caret">▾</span>
+        </button>
+        <div class="sidebar-group-items">
+          <a href="/user-management" class="sidebar-link is-subitem" id="menu-users" style="display:none">User Management</a>
+          <a href="#" class="sidebar-link is-subitem" id="menu-logs" style="display:none" onclick="openLogsPanel()">System Logs</a>
+        </div>
+      </div>
+
+      <div class="sidebar-group" data-sidebar-group="archived" data-sidebar-default-collapsed="1">
+        <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+          <span>Archived</span>
+          <span class="sidebar-group-caret">▾</span>
+        </button>
+        <div class="sidebar-group-items">
+          <a href="#" class="sidebar-link" id="menu-archived" onclick="menuItemClick('archived', this)">Archived</a>
+        </div>
+      </div>
+    </nav>
+  </div>
+
+  <div class="modal-backdrop" id="pr-modal-backdrop">
+    <div class="modal modal-project" style="max-width: 760px;">
+      <button class="modal-close" onclick="closeRequisitionModal()">X</button>
+      <div class="user-modal-brand">
+        <img class="user-modal-brand-mark" src="assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+        <div>
+          <div class="user-modal-kicker">Procurement Control</div>
+          <div class="modal-title" id="pr-modal-title" style="margin-bottom:0;">Add Requisition</div>
+        </div>
+      </div>
+      <div class="section-divider">Request Details</div>
+      <div class="modal-grid-compact">
+        <div class="field">
+          <label>PR No.</label>
+          <input id="pr-number" type="text" placeholder="Auto-generate if blank" />
+        </div>
+        <div class="field">
+          <label>Request Date</label>
+          <input id="pr-request-date" type="date" />
+        </div>
+        <div class="field">
+          <label>Department</label>
+          <input id="pr-department" type="text" placeholder="Operations" />
+        </div>
+        <div class="field">
+          <label>Requested By</label>
+          <input id="pr-requested-by" type="text" placeholder="Juan Dela Cruz" />
+        </div>
+        <div class="field">
+          <label>Needed By</label>
+          <input id="pr-needed-by" type="date" />
+        </div>
+        <div class="field">
+          <label>Status</label>
+          <select id="pr-status">
+            <option value="draft">Draft</option>
+            <option value="submitted">Submitted</option>
+            <option value="approved">Approved</option>
+            <option value="ordered">Ordered</option>
+            <option value="received">Received</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div class="field full">
+          <label>Item Name</label>
+          <input id="pr-item-name" type="text" placeholder="CCTV Cameras" />
+        </div>
+        <div class="field full">
+          <label>Item Description</label>
+          <textarea id="pr-item-desc" style="height:70px" placeholder="Short description..."></textarea>
+        </div>
+        <div class="field">
+          <label>Qty</label>
+          <input id="pr-qty" type="number" min="1" step="1" value="1" />
+        </div>
+        <div class="field">
+          <label>Unit</label>
+          <input id="pr-unit" type="text" placeholder="pcs" />
+        </div>
+        <div class="field">
+          <label>Estimated Unit Price</label>
+          <input id="pr-price" type="number" step="0.01" placeholder="0.00" />
+        </div>
+        <div class="field full">
+          <label>Notes</label>
+          <textarea id="pr-notes" style="height:70px" placeholder="Internal notes..."></textarea>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-cancel btn-sm" onclick="closeRequisitionModal()">Cancel</button>
+        <button class="btn btn-save btn-sm" id="pr-save-btn" onclick="saveRequisition()">Create Requisition</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="po-modal-backdrop">
+    <div class="modal modal-project" style="max-width: 760px;">
+      <button class="modal-close" onclick="closePurchaseOrderModal()">X</button>
+      <div class="user-modal-brand">
+        <img class="user-modal-brand-mark" src="assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+        <div>
+          <div class="user-modal-kicker">Procurement Control</div>
+          <div class="modal-title" id="po-modal-title" style="margin-bottom:0;">Add Purchase Order</div>
+        </div>
+      </div>
+      <div class="section-divider">Order Details</div>
+      <div class="modal-grid-compact">
+        <div class="field">
+          <label>PO No.</label>
+          <input id="po-number" type="text" placeholder="Auto-generate if blank" />
+        </div>
+        <div class="field">
+          <label>Project</label>
+          <select id="po-project"></select>
+        </div>
+        <div class="field">
+          <label>Vendor</label>
+          <select id="po-vendor"></select>
+        </div>
+        <div class="field">
+          <label>PO Date</label>
+          <input id="po-date" type="date" />
+        </div>
+        <div class="field">
+          <label>Delivery Date</label>
+          <input id="po-delivery" type="date" />
+        </div>
+        <div class="field">
+          <label>Status</label>
+          <select id="po-status">
+            <option value="draft">Draft</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="received">Received</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div class="field full">
+          <label>Item Name</label>
+          <input id="po-item-name" type="text" placeholder="DVR Unit" />
+        </div>
+        <div class="field">
+          <label>Qty</label>
+          <input id="po-qty" type="number" min="1" step="1" value="1" />
+        </div>
+        <div class="field">
+          <label>Unit Price</label>
+          <input id="po-unit-price" type="number" step="0.01" placeholder="0.00" />
+        </div>
+        <div class="field full">
+          <label>Notes</label>
+          <textarea id="po-notes" style="height:70px" placeholder="Vendor instructions or remarks..."></textarea>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-cancel btn-sm" onclick="closePurchaseOrderModal()">Cancel</button>
+        <button class="btn btn-save btn-sm" id="po-save-btn" onclick="savePurchaseOrder()">Create Purchase Order</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="grn-modal-backdrop">
+    <div class="modal modal-project" style="max-width: 680px;">
+      <button class="modal-close" onclick="closeGoodsReceiptModal()">X</button>
+      <div class="user-modal-brand">
+        <img class="user-modal-brand-mark" src="assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+        <div>
+          <div class="user-modal-kicker">Procurement Control</div>
+          <div class="modal-title" id="grn-modal-title" style="margin-bottom:0;">Add Goods Receipt</div>
+        </div>
+      </div>
+      <div class="section-divider">Receiving Details</div>
+      <div class="modal-grid-compact">
+        <div class="field">
+          <label>GRN No.</label>
+          <input id="grn-number" type="text" placeholder="Auto-generate if blank" />
+        </div>
+        <div class="field">
+          <label>PO No.</label>
+          <select id="grn-po"></select>
+        </div>
+        <div class="field">
+          <label>Received Date</label>
+          <input id="grn-received-date" type="date" />
+        </div>
+        <div class="field">
+          <label>Received By</label>
+          <input id="grn-received-by" type="text" placeholder="Receiver name" />
+        </div>
+        <div class="field">
+          <label>Status</label>
+          <select id="grn-status">
+            <option value="received">Received</option>
+            <option value="draft">Draft</option>
+            <option value="rejected">Rejected</option>
+          </select>
+        </div>
+        <div class="field full">
+          <label>Notes</label>
+          <textarea id="grn-notes" style="height:70px" placeholder="Receiving remarks..."></textarea>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-cancel btn-sm" onclick="closeGoodsReceiptModal()">Cancel</button>
+        <button class="btn btn-save btn-sm" id="grn-save-btn" onclick="saveGoodsReceipt()">Create Goods Receipt</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="confirm-modal-backdrop">
+    <div class="modal confirm-modal">
+      <div class="modal-title modal-title-confirm" id="confirm-modal-title">Confirm Action</div>
+      <p class="modal-copy" id="confirm-modal-message">Are you sure?</p>
+      <div class="modal-actions">
+        <button class="btn btn-confirm-no btn-sm" type="button" id="confirm-modal-no-btn" onclick="closeConfirmDialog(false)">No</button>
+        <button class="btn btn-confirm-yes btn-sm" type="button" id="confirm-modal-yes-btn" onclick="closeConfirmDialog(true)">Yes</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="assets/js/app.js?v=20260432"></script>
+  <script src="assets/js/procurement.js?v=20260422"></script>
+</body>
+</html>

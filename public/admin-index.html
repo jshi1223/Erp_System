@@ -1,0 +1,972 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KVSK CCTV & IT Solution - Admin Panel</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<script src="assets/js/auth-guard.js?v=20260422"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/admin-style.css?v=20260429" />
+</head>
+<body>
+
+<!-- ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â
+     DASHBOARD
+ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â -->
+<div id="dashboard" style="display: flex; min-height: 100vh; flex-direction: column;">
+
+  <!-- Header -->
+  <header>
+    <div class="header-left" style="display:flex; align-items:center; gap:15px;">
+      <button class="btn-icon" onclick="toggleSidebar()" title="Menu" style="background:none; border:none; font-size:0.78rem; cursor:pointer; color:var(--primary); text-transform:uppercase; letter-spacing:0.08em;">Menu</button>
+      <button class="brand-link" type="button" onclick="openSidebarDashboard(this)" aria-label="Go to dashboard">
+        <div class="brand-lockup">
+        <img class="brand-mark" src="assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+        <div class="brand-copy">
+          <div class="header-logo">KVSK CCTV & IT Solution</div>
+        </div>
+        </div>
+      </button>
+    </div>
+    <div class="header-right">
+      <span class="admin-badge" id="role-badge">Administrator Console</span>
+      <div class="notification-wrap">
+        <button class="btn-icon notification-btn" type="button" onclick="toggleNotificationsPanel()" aria-label="Notifications" title="Notifications">
+          <svg viewBox="0 0 24 24" aria-hidden="true" class="notification-icon">
+            <path d="M12 22a2.3 2.3 0 0 0 2.2-1.6h-4.4A2.3 2.3 0 0 0 12 22zm7-5.5V11a7 7 0 0 0-5-6.7V3.5a2 2 0 1 0-4 0v.8A7 7 0 0 0 5 11v5.5l-1.7 1.7a1 1 0 0 0 .7 1.7h15a1 1 0 0 0 .7-1.7L19 16.5z"></path>
+          </svg>
+          <span class="notification-badge" id="notification-count">0</span>
+        </button>
+        <div class="notifications-panel is-hidden" id="notifications-panel">
+          <div class="notifications-panel-head">
+            <div>
+              <div class="notifications-title">Notifications</div>
+            </div>
+            <div class="notifications-panel-actions">
+              <button class="notifications-mark" type="button" onclick="markNotificationsAsRead(); loadNotifications();">Mark as read</button>
+              <button class="notifications-close" type="button" onclick="toggleNotificationsPanel(false)">×</button>
+            </div>
+          </div>
+          <div class="notifications-list" id="notifications-list">
+            <div class="notifications-empty">Loading notifications...</div>
+          </div>
+        </div>
+      </div>
+      <button class="btn btn-logout btn-sm" onclick="doLogout()">Logout</button>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main>
+    <div class="page-hero">
+      <div class="page-hero-copy">
+        <div class="page-title">Dashboard</div>
+        <div class="page-sub page-subtitle"></div>
+      </div>
+    </div>
+
+    <div class="dashboard-filter-bar">
+      <div>
+        <div class="section-title" style="font-size: 0.95rem;">Company View</div>
+        <div class="section-subtitle">Switch company to update projects, invoices, and graphs.</div>
+      </div>
+      <div class="company-filter-stack">
+        <div id="dashboard-company-filter" class="company-switcher" role="tablist" aria-label="Company filter"></div>
+      </div>
+    </div>
+
+    <div class="stats dashboard-stats">
+      <div class="stat-card stat-card-primary stat-card-link" id="stat-card-1" onclick="openAllTransactionsFromDashboard()">
+        <div class="stat-icon">PRJ</div>
+        <div class="stat-label" id="stat-label-1">Project Records</div>
+        <div class="stat-val" id="stat-projects">0</div>
+      </div>
+      <div class="stat-card stat-card-warning stat-card-link" id="stat-card-2" onclick="openDashboardPanel('ongoing-projects')">
+        <div class="stat-icon">LIVE</div>
+        <div class="stat-label" id="stat-label-2">Ongoing Projects</div>
+        <div class="stat-val gold" id="stat-ongoing">0</div>
+        <div class="stat-mini" id="stat-ongoing-mini">Year -</div>
+      </div>
+      <div class="stat-card stat-card-danger stat-card-link" id="stat-card-3" onclick="window.location.href='/accounts-payable'">
+        <div class="stat-icon">PAY</div>
+        <div class="stat-label" id="stat-label-3">Accounts Payable</div>
+        <div class="stat-val" id="stat-ap">PHP 0</div>
+      </div>
+      <div class="stat-card stat-card-accent stat-card-link" id="stat-card-4" onclick="window.location.href='/accounts-receivable'">
+        <div class="stat-icon">REC</div>
+        <div class="stat-label" id="stat-label-4">A/R</div>
+        <div class="stat-val gold" id="stat-ar">PHP 0</div>
+        <div class="stat-mini" id="stat-ar-mini">All Companies • 0 invoices</div>
+      </div>
+    </div>
+
+    <div class="dashboard-section" id="dashboard-home-section">
+      <div class="dashboard-analytics-grid">
+        <section class="dashboard-chart-card dashboard-chart-card-wide">
+          <div class="dashboard-chart-head">
+            <div>
+              <div class="section-title">Collections Overview</div>
+            </div>
+            <div class="dashboard-range-switcher" role="group" aria-label="Collections range">
+              <button class="dashboard-range-btn is-active" type="button" data-range="6" onclick="setDashboardBarRange(6)">6 Months</button>
+              <button class="dashboard-range-btn" type="button" data-range="12" onclick="setDashboardBarRange(12)">1 Year</button>
+            </div>
+          </div>
+          <div class="dashboard-chart-stage">
+            <div class="dashboard-chart-legend">
+              <span><i class="legend-dot legend-dot-accent"></i>A/R</span>
+              <span><i class="legend-dot legend-dot-primary"></i>Collected</span>
+            </div>
+            <div class="dashboard-bar-scroll">
+              <div class="dashboard-bar-chart" id="dashboard-bar-chart"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="dashboard-chart-card">
+          <div class="dashboard-chart-head">
+            <div>
+              <div class="section-title">Invoice Status</div>
+            </div>
+          </div>
+          <div class="dashboard-pie-wrap">
+            <div class="dashboard-donut" id="dashboard-donut-chart">
+              <div class="dashboard-donut-center">
+                <strong id="dashboard-donut-total">0</strong>
+                <span>Invoices</span>
+              </div>
+            </div>
+            <div class="dashboard-pie-legend" id="dashboard-pie-legend"></div>
+          </div>
+          <div class="dashboard-status-grid dashboard-status-grid-compact" id="invoice-status-cards">
+            <button class="status-mini-card is-active" type="button" data-status="paid" onclick="setInvoiceStatusView('paid')">
+              <span class="status-mini-label">Paid</span>
+              <strong id="status-count-paid">0</strong>
+              <small>Invoices</small>
+            </button>
+            <button class="status-mini-card" type="button" data-status="partial" onclick="setInvoiceStatusView('partial')">
+              <span class="status-mini-label">Partial</span>
+              <strong id="status-count-partial">0</strong>
+              <small>Invoices</small>
+            </button>
+            <button class="status-mini-card" type="button" data-status="unpaid" onclick="setInvoiceStatusView('unpaid')">
+              <span class="status-mini-label">Unpaid</span>
+              <strong id="status-count-unpaid">0</strong>
+              <small>Invoices</small>
+            </button>
+          </div>
+          <div class="dashboard-status-summary" id="invoice-status-summary">
+            Loading invoice status...
+          </div>
+        </section>
+      </div>
+
+      <div class="dashboard-insights-row" id="dashboard-insights-row">
+        <div class="dashboard-insight-card">
+          <span class="dashboard-insight-label">Best Month</span>
+          <strong id="insight-best-month">-</strong>
+        </div>
+        <div class="dashboard-insight-card">
+          <span class="dashboard-insight-label">Collection Rate</span>
+          <strong id="insight-collection-rate">0%</strong>
+        </div>
+        <div class="dashboard-insight-card">
+          <span class="dashboard-insight-label">Unpaid Invoices</span>
+          <strong id="insight-unpaid-count">0</strong>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="dashboard-section is-hidden" id="project-records-section">
+      <div class="section-topbar">
+        <button class="btn btn-cancel btn-sm section-back-btn" type="button" onclick="openDashboardPanel('home')">Back to Dashboard</button>
+      </div>
+      <div class="section-divider">Projects</div>
+      <div class="section-head" style="margin-top: 0;">
+        <div class="section-head-actions" style="flex: 1; flex-wrap: wrap;">
+          <div class="search-wrap top-search-bar" style="border: 1.5px solid var(--primary); border-radius: var(--radius); overflow: hidden; background: white; margin:0; min-width:280px;">
+            <input id="project-records-search-input" type="text" placeholder="Search project title, number, or company..." oninput="renderProjectRecordsTable()"
+                   style="padding: 8px 12px; font-size: 0.85rem; border: none; background: transparent; width: 100%;" />
+          </div>
+          <div class="company-filter-stack">
+            <div id="project-records-company-filter" class="company-switcher company-switcher-inline" role="tablist" aria-label="Project records company filter"></div>
+          </div>
+        </div>
+        <div class="section-head-actions" id="project-records-actions">
+          <button class="btn btn-add btn-sm" type="button" onclick="openProjectModal()">Add Project</button>
+        </div>
+      </div>
+
+      <div class="table-wrap project-records-wrap">
+        <table class="project-records-table">
+          <thead>
+            <tr>
+              <th>Project No.</th>
+              <th>Project Title</th>
+              <th>Company</th>
+              <th class="text-center">Start Date</th>
+              <th class="text-center">End Date</th>
+              <th class="text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="project-records-table-body">
+            <tr class="empty-row"><td colspan="6">Loading project records...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="dashboard-section is-hidden" id="total-projects-section">
+      <div class="section-topbar">
+        <button class="btn btn-cancel btn-sm section-back-btn" type="button" onclick="openDashboardPanel('home')">Back to Dashboard</button>
+      </div>
+      <div class="section-divider">Project Transactions</div>
+      <div class="section-head" style="margin-top: 0;">
+        <div class="section-head-actions" style="flex: 1; flex-wrap: wrap;">
+          <div class="search-wrap top-search-bar" style="border: 1.5px solid var(--primary); border-radius: var(--radius); overflow: hidden; background: white; margin:0; min-width:280px;">
+            <input id="search-input" type="text" placeholder="Search client, document number, or items here..." oninput="renderTable()"
+                   style="padding: 8px 12px; font-size: 0.85rem; border: none; background: transparent; width: 100%;" />
+          </div>
+          <select id="filter-status" class="filter-select" onchange="renderTable()">
+            <option value="">All Status</option>
+            <option value="paid">Paid</option>
+            <option value="partial">Partial</option>
+            <option value="unpaid">Unpaid</option>
+          </select>
+          <div class="company-filter-stack">
+            <div id="project-company-filter" class="company-switcher company-switcher-inline" role="tablist" aria-label="Project transaction company filter"></div>
+          </div>
+        </div>
+        <div class="section-head-actions" id="export-records-actions">
+          <button class="btn btn-cancel btn-sm" type="button" onclick="loadRecords()">Refresh</button>
+        </div>
+      </div>
+
+      <div class="table-wrap" style="max-height: 62vh; overflow:auto;">
+        <table class="public-table">
+          <thead>
+            <tr id="transaction-table-head">
+              <th>Doc No.</th>
+              <th class="text-center" style="width: 180px;">Type</th>
+              <th>Client</th>
+              <th>Project</th>
+              <th>Description</th>
+              <th class="text-center" style="width: 80px;">Qty</th>
+              <th class="text-center">Check</th>
+              <th class="text-center">PO</th>
+              <th class="text-right">Amount</th>
+              <th class="text-right">DP</th>
+              <th class="text-right">Balance</th>
+              <th class="text-center" style="width: 100px;">Date</th>
+              <th class="text-center" style="width: 100px;">Status</th>
+              <th class="text-center" style="width: 140px;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="table-body">
+            <tr class="empty-row"><td colspan="14">Loading project transactions...</td></tr>
+          </tbody>
+        </table>
+        <div class="pagination">
+          <span id="page-info"></span>
+          <div class="page-btns" id="page-btns"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dashboard-section is-hidden" id="ongoing-projects-section">
+    <div class="section-head">
+      <button class="btn btn-cancel btn-sm section-back-btn" type="button" onclick="openDashboardPanel('home')">Back to Dashboard</button>
+      <div>
+        <div class="section-title">Ongoing Projects</div>
+      </div>
+      <div class="section-head-actions">
+        <div class="search-wrap top-search-bar" style="border: 1.5px solid var(--primary); border-radius: var(--radius); overflow: hidden; background: white; margin:0; min-width:280px;">
+          <input id="ongoing-search" type="text" placeholder="Search project, manager, members, or doc..." oninput="renderOngoingProjects()"
+                 style="padding: 8px 12px; font-size: 0.85rem; border: none; background: transparent; width: 100%;" />
+        </div>
+        <select id="ongoing-filter" class="filter-select" onchange="renderOngoingProjects()">
+          <option value="ongoing">Ongoing</option>
+          <option value="upcoming">Upcoming</option>
+          <option value="all">All Active</option>
+        </select>
+      </div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Project Name</th>
+              <th class="text-center">Manager</th>
+              <th>Members</th>
+              <th class="text-center">Start Date</th>
+              <th class="text-center">End Date</th>
+              <th class="text-center">Progress</th>
+              <th class="text-center">Status</th>
+              <th class="text-right">Budget</th>
+              <th class="text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="ongoing-projects-body">
+            <tr class="empty-row"><td colspan="9">Loading ongoing projects...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="dashboard-section is-hidden" id="system-logs-section">
+      <div class="section-head">
+        <button class="btn btn-cancel btn-sm section-back-btn" type="button" onclick="openDashboardPanel('home')">Back to Dashboard</button>
+        <div>
+          <div class="section-title">System Logs</div>
+        </div>
+        <div class="section-head-actions" id="export-logs-actions">
+          <button class="btn btn-cancel btn-sm" type="button" onclick="exportLogs('xls')">Export Excel</button>
+          <button class="btn btn-cancel btn-sm" type="button" onclick="exportLogs('pdf')">Export PDF</button>
+          <div class="search-wrap top-search-bar" style="border: 1.5px solid var(--primary); border-radius: var(--radius); overflow: hidden; background: white; margin:0; min-width:280px;">
+            <input id="logs-search" type="text" placeholder="Search user, action, or details..." oninput="renderLogs()" 
+                   style="padding: 8px 12px; font-size: 0.85rem; border: none; background: transparent; width: 100%;" />
+          </div>
+          <select id="logs-filter" class="filter-select" onchange="renderLogs()">
+            <option value="">All Actions</option>
+            <option value="LOGIN">Login</option>
+            <option value="LOGOUT">Logout</option>
+            <option value="CREATE_TRANSACTION">Create Transaction</option>
+            <option value="UPDATE_TRANSACTION">Update Transaction</option>
+            <option value="ARCHIVE_TRANSACTION">Archive Transaction</option>
+            <option value="RESTORE_TRANSACTION">Restore Transaction</option>
+            <option value="CREATE_USER">Create User</option>
+            <option value="TOGGLE_USER_STATUS">Toggle User</option>
+            <option value="DELETE_USER">Delete User</option>
+            <option value="HARD_DELETE">Hard Delete</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="table-wrap" style="max-height: 500px; overflow-y: auto; min-width: unset;">
+        <table style="min-width: 100%;">
+          <thead style="position: sticky; top: 0; z-index: 10;">
+            <tr>
+              <th style="width: 180px;">Timestamp</th>
+              <th>Module</th>
+              <th>User</th>
+              <th>Action</th>
+              <th>Details</th>
+            </tr>
+          </thead>
+          <tbody id="logs-tbody">
+            <tr><td colspan="5" class="text-center">Loading logs...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+</div><!-- Dashboard -->
+
+<!-- Sidebar Menu -->
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-brand">
+      <img class="sidebar-brand-mark" src="assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <div>
+        <div class="header-logo" style="font-size: 1rem;">KVSK CCTV</div>
+      </div>
+    </div>
+    <button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()">X</button>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="#" class="sidebar-link active" id="menu-dashboard" onclick="openSidebarDashboard(this)">Dashboard</a>
+
+    <a href="/company-registry" class="sidebar-link" id="menu-company-registry">Company Registry</a>
+
+    <div class="sidebar-group" data-sidebar-group="projects">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Projects</span>
+        <span class="sidebar-group-caret">▾</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/admin?panel=project-records" class="sidebar-link" id="menu-projects">Projects</a>
+        <a href="/admin?view=ongoing-projects" class="sidebar-link is-subitem" id="menu-ongoing-projects">Ongoing Projects</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="transactions">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Project Transactions</span>
+        <span class="sidebar-group-caret">▾</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/admin?view=all" class="sidebar-link" id="menu-all">Project Transactions</a>
+        <a href="/admin?view=archived" class="sidebar-link" id="menu-archived">Archived Project Transactions</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="finance">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Finance</span>
+        <span class="sidebar-group-caret">▾</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/accounts-payable" class="sidebar-link is-subitem">Accounts Payable</a>
+        <a href="/accounts-receivable" class="sidebar-link is-subitem">Accounts Receivable</a>
+        <a href="/procurement" class="sidebar-link is-subitem">Procurement</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="inventory" data-sidebar-default-collapsed="1">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+        <span>Inventory</span>
+        <span class="sidebar-group-caret">▾</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/inventory" class="sidebar-link">Inventory</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="admin" data-sidebar-default-collapsed="1">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+        <span>Admin</span>
+        <span class="sidebar-group-caret">▾</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/user-management" class="sidebar-link is-subitem" id="menu-users" style="display:none">User Management</a>
+        <a href="#" class="sidebar-link is-subitem" id="menu-logs" style="display:none" onclick="openLogsPanel()">System Logs</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="archived" data-sidebar-default-collapsed="1">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+        <span>Archived</span>
+        <span class="sidebar-group-caret">▾</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="#" class="sidebar-link" id="menu-archived" onclick="menuItemClick('archived', this)">Archived</a>
+      </div>
+    </div>
+  </nav>
+</div>
+
+<!-- ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â
+     ADD / EDIT MODAL
+ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â -->
+<div class="modal-backdrop" id="modal-backdrop">
+  <div class="modal modal-transaction">
+    <div class="modal-header modal-header-tight">
+      <div class="modal-title" id="modal-title">Transaction Entry</div>
+      <button class="modal-close" onclick="closeModal()" aria-label="Close modal">×</button>
+    </div>
+
+    <div class="modal-body transaction-modal-body">
+      <!-- Transaction Info -->
+      <div class="section-divider">Transaction Details</div>
+      <input id="f-type" type="hidden" value="invoice" />
+      <div class="form-grid">
+      <div class="field">
+        <label>Transaction No.</label>
+        <input id="f-docno" type="text" placeholder="Auto-generated" readonly
+               style="background:var(--surface2);cursor:default;color:var(--muted);" />
+      </div>
+        <div class="field full">
+          <label>Customer / Charged To <span class="req-star">*</span></label>
+          <input id="f-client" type="text" placeholder="Company or person name" />
+        </div>
+        <div class="field full">
+          <label>Project <span class="req-star">*</span></label>
+          <select id="f-project-id">
+            <option value="">Select Project</option>
+          </select>
+        </div>
+        <div class="field full">
+          <label>Description <span class="req-star">*</span></label>
+          <input id="f-desc" type="text" placeholder="Item or service description" />
+        </div>
+        <div class="field">
+          <label>Check No.</label>
+          <input id="f-checkno" type="text" placeholder="Enter check number" />
+        </div>
+        <div class="field">
+          <label>P.O. No.</label>
+          <input id="f-pono" type="text" placeholder="Enter P.O. number" />
+        </div>
+        <div class="field">
+          <label>Qty</label>
+          <input id="f-qty" type="number" min="1" />
+        </div>
+        <div class="field">
+          <label>Unit Price (PHP)</label>
+          <input id="f-unitprice" type="number" step="0.01" />
+        </div>
+        <div class="field">
+          <label>Transaction Total (PHP)</label>
+          <input id="f-amount" type="number" step="0.01" readonly style="background:var(--surface2);cursor:not-allowed;color:var(--muted);" />
+        </div>
+        <div class="field">
+          <label>Downpayment / DP (PHP)</label>
+          <input id="f-downpayment" type="number" step="0.01" placeholder="0.00" />
+          <div id="f-downpayment-help" style="display:none; margin-top:6px; font-size:0.65rem; color:var(--muted);"></div>
+        </div>
+        <div class="field">
+          <label>Transaction Status</label>
+          <select id="f-status">
+            <option value="paid">Paid</option>
+            <option value="unpaid">Unpaid</option>
+            <option value="partial">Partial</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Balance (PHP)</label>
+          <div style="padding:10px;background:var(--surface2);border-radius:4px;font-weight:600;color:var(--accent);" id="f-balance-display">PHP 0.00</div>
+        </div>
+        <div class="field">
+          <label>Date</label>
+          <input id="f-date" type="date" readonly disabled title="Automatically set by system" style="background:var(--surface2);cursor:not-allowed;color:var(--muted);" />
+        </div>
+      </div>
+
+      <input id="f-linked-project-docno" type="hidden" />
+      <input id="f-project-tx-no" type="hidden" />
+      <input id="f-project-company" type="hidden" />
+
+      <!-- PDF Attach -->
+      <div class="section-divider">Attach PDF Document</div>
+      <div class="pdf-upload-shell">
+        <div class="pdf-upload-caption">PDF attachment</div>
+        <div class="pdf-upload-zone" id="upload-zone"
+             ondragover="event.preventDefault(); this.classList.add('drag-over')"
+             ondragleave="this.classList.remove('drag-over')"
+             ondrop="handleDrop(event)">
+          <input type="file" accept=".pdf,application/pdf" id="pdf-file-input" onchange="handleFileChosen(event)" />
+          <div class="pdf-upload-visual">
+            <div class="pdf-upload-badge">PDF</div>
+            <div class="pdf-upload-copy">
+              <strong>Click to upload or drag here</strong>
+              <span>Attach one PDF file for this transaction.</span>
+            </div>
+          </div>
+          <div class="pdf-upload-meta">Accepted: .pdf files only</div>
+        </div>
+        <div id="pdf-preview" style="display:none" class="pdf-attached">
+          <div class="pdf-attached-main">
+            <div class="pdf-attached-badge">Attached</div>
+            <span class="pdf-attached-name" id="pdf-preview-name"></span>
+          </div>
+          <button class="pdf-remove" onclick="removeStagedPdf()" title="Alisin ang PDF">Remove</button>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-cancel btn-sm" onclick="closeModal()">Cancel</button>
+        <button id="btn-save-record" class="btn btn-save btn-sm" onclick="saveRecord()">Save Transaction</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â
+     GANTT CHART MODAL (ADMIN ONLY)
+ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â -->
+<div class="modal-backdrop" id="project-modal-backdrop">
+  <div id="project-modal-notice" class="modal-notice is-hidden"></div>
+  <div class="modal modal-project" style="max-width: 980px;">
+    <div class="modal-header modal-header-tight">
+      <div class="modal-title" id="project-modal-title">Create Project</div>
+      <button class="modal-close" onclick="closeProjectModal()" aria-label="Close project modal">×</button>
+    </div>
+    <div class="modal-body transaction-modal-body">
+      <div class="section-divider">Project Details</div>
+      <div class="form-grid">
+        <div class="field full">
+          <label>Company</label>
+          <select id="p-company-select">
+            <option value="">Select Company</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Project No.</label>
+<input id="p-project-docno" type="text" placeholder="Generated automatically" readonly style="background:var(--surface2);cursor:default;" />
+        </div>
+        <div class="field full">
+          <label>Project Title <span class="req-star">*</span></label>
+          <input id="p-project-name" type="text" placeholder="PDZ Proposed 30% Progress Rate" />
+        </div>
+      </div>
+
+      <div class="section-divider">Project Dates</div>
+      <div class="form-grid">
+        <div class="field">
+          <label>Start Date <span class="req-star">*</span></label>
+          <input id="p-planned-start-date" type="date" />
+        </div>
+        <div class="field">
+          <label>End Date <span class="req-star">*</span></label>
+          <input id="p-planned-end-date" type="date" />
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-cancel btn-sm" onclick="closeProjectModal()">Cancel</button>
+        <button id="project-save-btn" class="btn btn-save btn-sm" onclick="saveProject()">Save Project</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="gantt-modal-backdrop">
+  <div class="modal" style="max-width: 900px;">
+    <button class="modal-close" onclick="closeGanttModal()">X</button>
+    <div class="modal-title" id="gantt-modal-title">Project Timeline</div>
+    
+    <div id="gantt-modal-content">
+      <div class="metric-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.5rem;">
+        <div class="metric-card" style="padding: 1rem; border: 1px solid var(--border); border-radius: 8px;">
+          <div class="stat-label" style="font-size: 0.6rem;">Overall Progress</div>
+          <div class="stat-val" id="gantt-modal-progress" style="font-size: 1.2rem;">0%</div>
+        </div>
+        <div class="metric-card" style="padding: 1rem; border: 1px solid var(--border); border-radius: 8px;">
+          <div class="stat-label" style="font-size: 0.6rem;">Total Tasks</div>
+          <div class="stat-val" id="gantt-modal-tasks" style="font-size: 1.2rem;">0</div>
+        </div>
+        <div class="metric-card" style="padding: 1rem; border: 1px solid var(--border); border-radius: 8px;">
+          <div class="stat-label" style="font-size: 0.6rem;">Project Members</div>
+          <div class="stat-val" id="gantt-modal-members" style="font-size: 0.8rem; white-space: normal; line-height: 1.2;">-</div>
+        </div>
+      </div>
+      
+      <div style="display: grid; grid-template-columns: 180px 100px 100px 1fr; gap: 10px; padding: 10px; background: var(--surface-alt); font-weight: 600; font-size: 0.65rem; border-radius: 8px 8px 0 0; border-bottom: 1px solid var(--border);">
+        <div>Task Name</div>
+        <div class="text-center">Assignee</div>
+        <div class="text-center">Status</div>
+        <div>Progress Timeline</div>
+      </div>
+      <div id="gantt-chart-render" style="overflow-x: auto; background: var(--surface); padding: 0 10px; border: 1px solid var(--border); border-top:none; border-radius: 0 0 8px 8px; max-height: 400px;"></div>
+
+      <div class="modal-actions" style="margin-top: 20px; border-top: 1px solid var(--border); padding-top: 15px;">
+        <button class="btn btn-cancel btn-sm" onclick="closeGanttModal()">Close</button>
+        <button id="gantt-full-view-btn" class="btn btn-primary btn-sm" style="width: auto; display: none;">View Full Details & Costs</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â
+     ADD USER MODAL
+ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â -->
+<div class="modal-backdrop" id="user-modal-backdrop">
+  <div class="modal" style="max-width: 400px;">
+    <button class="modal-close" onclick="closeUserModal()">X</button>
+    <div class="user-modal-brand">
+      <img class="user-modal-brand-mark" src="assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <div>
+        <div class="user-modal-kicker">KVSK Access Control</div>
+        <div class="modal-title" style="margin-bottom: 0;">Add New User</div>
+      </div>
+    </div>
+    
+    
+    <div class="field">
+      <label>Full Name</label>
+      <input id="u-name" type="text" placeholder="Juan Dela Cruz" />
+    </div>
+    <div class="field">
+      <label>Username</label>
+      <input id="u-username" type="text" placeholder="username123" />
+    </div>
+    <div class="field">
+      <label>Email</label>
+      <input id="u-email" type="email" placeholder="name@example.com" />
+    </div>
+    <div class="field">
+      <label>Role</label>
+      <select id="u-role">
+        <option value="user">User (View Only)</option>
+        <option value="staff">Staff (Limited Edit)</option>
+        <option value="admin">Admin (Full Access)</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Initial Password</label>
+      <div class="password-input-wrap">
+        <input id="u-pass" type="password" placeholder="At least 8 chars" />
+        <button class="password-toggle" type="button" data-target="u-pass" aria-label="Show password" title="Show password">
+          <svg class="icon-eye-open" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 5C6.6 5 2.2 8.2 1 12c1.2 3.8 5.6 7 11 7s9.8-3.2 11-7c-1.2-3.8-5.6-7-11-7zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z"></path>
+            <circle cx="12" cy="12" r="2.2"></circle>
+          </svg>
+          <svg class="icon-eye-closed" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M2 5.3 3.4 4 20 20.6 18.6 22l-3-3c-1.1.4-2.3.7-3.6.7-5.4 0-9.8-3.2-11-7 .5-1.6 1.6-3.1 3.1-4.3L2 5.3zm9.2 9.2 3 3a4 4 0 0 1-5.9-5.9l3 3zm10.8-2.2c-.4 1.3-1.2 2.6-2.3 3.6l-1.5-1.5c.7-.7 1.2-1.5 1.6-2.4-1.2-3-4.8-5.3-8.8-5.3-1 0-2 .1-2.9.5L6.5 5.7A13.2 13.2 0 0 1 12 4.9c5.4 0 9.8 3.2 11 7.4z"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-cancel btn-sm" onclick="closeUserModal()">Cancel</button>
+      <button class="btn btn-save btn-sm" onclick="saveUser()">Create User</button>
+    </div>
+  </div>
+</div>
+
+<!-- ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â
+     DELETE CONFIRM MODAL
+ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â -->
+<div class="modal-backdrop" id="reset-pass-backdrop">
+  <div class="modal" style="max-width: 420px;">
+    <button class="modal-close" onclick="closeResetPasswordModal()">X</button>
+    <div class="user-modal-brand" style="margin-bottom: 18px;">
+      <img class="user-modal-brand-mark" src="assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <div>
+        <div class="user-modal-kicker">KVSK Access Control</div>
+        <div class="modal-title" id="reset-pass-title" style="margin-bottom: 0;">Reset Password</div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>New Password</label>
+      <div class="password-input-wrap">
+        <input id="reset-pass-input" type="password" placeholder="At least 8 chars" />
+        <button class="password-toggle" type="button" data-target="reset-pass-input" aria-label="Show password" title="Show password">
+          <svg class="icon-eye-open" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 5C6.6 5 2.2 8.2 1 12c1.2 3.8 5.6 7 11 7s9.8-3.2 11-7c-1.2-3.8-5.6-7-11-7zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z"></path>
+            <circle cx="12" cy="12" r="2.2"></circle>
+          </svg>
+          <svg class="icon-eye-closed" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M2 5.3 3.4 4 20 20.6 18.6 22l-3-3c-1.1.4-2.3.7-3.6.7-5.4 0-9.8-3.2-11-7 .5-1.6 1.6-3.1 3.1-4.3L2 5.3zm9.2 9.2 3 3a4 4 0 0 1-5.9-5.9l3 3zm10.8-2.2c-.4 1.3-1.2 2.6-2.3 3.6l-1.5-1.5c.7-.7 1.2-1.5 1.6-2.4-1.2-3-4.8-5.3-8.8-5.3-1 0-2 .1-2.9.5L6.5 5.7A13.2 13.2 0 0 1 12 4.9c5.4 0 9.8 3.2 11 7.4z"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Confirm Password</label>
+      <div class="password-input-wrap">
+        <input id="reset-pass-confirm" type="password" placeholder="Re-enter the new password" />
+        <button class="password-toggle" type="button" data-target="reset-pass-confirm" aria-label="Show password" title="Show password">
+          <svg class="icon-eye-open" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 5C6.6 5 2.2 8.2 1 12c1.2 3.8 5.6 7 11 7s9.8-3.2 11-7c-1.2-3.8-5.6-7-11-7zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z"></path>
+            <circle cx="12" cy="12" r="2.2"></circle>
+          </svg>
+          <svg class="icon-eye-closed" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M2 5.3 3.4 4 20 20.6 18.6 22l-3-3c-1.1.4-2.3.7-3.6.7-5.4 0-9.8-3.2-11-7 .5-1.6 1.6-3.1 3.1-4.3L2 5.3zm9.2 9.2 3 3a4 4 0 0 1-5.9-5.9l3 3zm10.8-2.2c-.4 1.3-1.2 2.6-2.3 3.6l-1.5-1.5c.7-.7 1.2-1.5 1.6-2.4-1.2-3-4.8-5.3-8.8-5.3-1 0-2 .1-2.9.5L6.5 5.7A13.2 13.2 0 0 1 12 4.9c5.4 0 9.8 3.2 11 7.4z"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-cancel btn-sm" onclick="closeResetPasswordModal()">Cancel</button>
+      <button class="btn btn-save btn-sm" onclick="submitResetPasswordModal()">Reset Password</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="del-backdrop">
+  <div class="modal" style="max-width:360px; text-align:center;">
+    <div class="modal-title" style="font-size:1.1rem;">Archive Record?</div>
+    <p style="color:var(--muted); font-size:.75rem; margin-bottom:22px;">
+      This will move the record to Archived tab and hide from main view.<br />
+      PDF and data will be preserved.
+    </p>
+    <div class="modal-actions" style="justify-content:center;">
+      <button class="btn btn-cancel btn-sm" onclick="closeDelModal()">Cancel</button>
+      <button class="btn btn-archive btn-sm" onclick="confirmDelete()">Archive</button>
+    </div>
+  </div>
+</div>
+
+<!-- ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â
+     ARCHIVED RECORD VIEWER MODAL
+ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â -->
+<div class="modal-backdrop" id="archived-backdrop">
+  <div class="modal">
+    <button class="modal-close" onclick="closeArchivedModal()">X</button>
+    <div class="modal-title" id="archived-modal-title">Archived Transaction Details</div>
+
+    <!-- Display Only Section -->
+    <div class="section-divider">Transaction Details</div>
+    <div class="form-grid">
+      <div class="field">
+        <label>Transaction No.</label>
+        <input id="a-docno" type="text" readonly style="background:var(--surface2);cursor:default;" />
+      </div>
+      <div class="field">
+        <label>Transaction Type</label>
+        <input id="a-type" type="text" readonly style="background:var(--surface2);cursor:default;" />
+      </div>
+      <div class="field">
+        <label>Transaction Date</label>
+        <input id="a-date" type="text" readonly style="background:var(--surface2);cursor:default;" />
+      </div>
+      <div class="field">
+        <label>Transaction Status</label>
+        <input id="a-status" type="text" readonly style="background:var(--surface2);cursor:default;" />
+      </div>
+    </div>
+
+    <!-- Client Details -->
+    <div class="section-divider">Customer Details</div>
+    <div class="form-grid">
+      <div class="field full">
+        <label>Customer / Charged To</label>
+        <input id="a-client" type="text" readonly style="background:var(--surface2);cursor:default;" />
+      </div>
+    </div>
+
+    <!-- Item / Payment Details -->
+    <div class="section-divider">Transaction Scope</div>
+    <div class="form-grid">
+      <div class="field full">
+        <label>Transaction Description / Item</label>
+        <input id="a-desc" type="text" readonly style="background:var(--surface2);cursor:default;" />
+      </div>
+      <div class="field">
+        <label>Member 1 Name</label>
+        <input id="a-project-members" type="text" readonly style="background:var(--surface2);cursor:default;" />
+      </div>
+      <div class="field">
+        <label>Member 1 Role</label>
+        <input id="a-member-role" type="text" readonly style="background:var(--surface2);cursor:default;" />
+      </div>
+      <div class="field">
+        <label>Member 1 Phone</label>
+        <input id="a-member-phone" type="text" readonly style="background:var(--surface2);cursor:default;" />
+      </div>
+      <div class="field">
+        <label>Member 2 Name</label>
+        <input id="a-project-members-2" type="text" readonly style="background:var(--surface2);cursor:default;" />
+      </div>
+      <div class="field">
+        <label>Member 2 Role</label>
+        <input id="a-member-role-2" type="text" readonly style="background:var(--surface2);cursor:default;" />
+      </div>
+      <div class="field">
+        <label>Member 2 Phone</label>
+        <input id="a-member-phone-2" type="text" readonly style="background:var(--surface2);cursor:default;" />
+      </div>
+      <div class="field">
+        <label>Member 3 Name</label>
+        <input id="a-project-members-3" type="text" readonly style="background:var(--surface2);cursor:default;" />
+      </div>
+      <div class="field">
+        <label>Member 3 Role</label>
+        <input id="a-member-role-3" type="text" readonly style="background:var(--surface2);cursor:default;" />
+      </div>
+      <div class="field">
+        <label>Member 3 Phone</label>
+        <input id="a-member-phone-3" type="text" readonly style="background:var(--surface2);cursor:default;" />
+      </div>
+      <div class="field">
+        <label>Qty</label>
+        <input id="a-qty" type="text" readonly style="background:var(--surface2);cursor:default;" />
+      </div>
+      <div class="field">
+        <label>Unit Price (PHP)</label>
+        <input id="a-unitprice" type="text" readonly style="background:var(--surface2);cursor:default;" />
+      </div>
+      <div class="field">
+        <label>Transaction Total (PHP)</label>
+        <input id="a-amount" type="text" readonly style="background:var(--surface2);cursor:default;" />
+      </div>
+      <div class="field">
+        <label>Downpayment (PHP)</label>
+        <input id="a-downpayment" type="text" readonly style="background:var(--surface2);cursor:default;" />
+      </div>
+      <div class="field">
+        <label>Balance Due (PHP)</label>
+        <div style="padding:10px;background:var(--surface2);border-radius:4px;font-weight:600;color:var(--accent);" id="a-balance-display">PHP 0.00</div>
+      </div>
+    </div>
+
+    <!-- Reference Numbers -->
+    <div class="section-divider">Source References</div>
+    <div class="form-grid">
+      <div class="field">
+        <label>Check No.</label>
+        <input id="a-checkno" type="text" readonly style="background:var(--surface2);cursor:default;" />
+      </div>
+      <div class="field">
+        <label>P.O. No.</label>
+        <input id="a-pono" type="text" readonly style="background:var(--surface2);cursor:default;" />
+      </div>
+    </div>
+
+    <!-- View PDF -->
+    <div class="section-divider">Attached Document</div>
+    <div id="a-pdf-section" style="display:none;" class="pdf-attached">
+      <span style="font-size:1rem">PDF</span>
+      <span class="pdf-attached-name" id="a-pdf-name"></span>
+      <button class="btn btn-pdf btn-sm" onclick="viewArchivedPdf()" title="View PDF">View PDF</button>
+    </div>
+    <div id="a-no-pdf" style="padding:10px;background:var(--surface2);border-radius:4px;color:var(--muted);text-align:center;">
+      No PDF attached
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-cancel btn-sm" onclick="closeArchivedModal()">Close</button>
+      <button class="btn btn-primary btn-sm" onclick="restoreArchived()" style="background:var(--success);color:white">Restore</button>
+    </div>
+  </div>
+</div>
+
+<!-- ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â
+     HARD DELETE CONFIRM MODAL
+ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â -->
+<div class="modal-backdrop" id="hard-delete-backdrop">
+  <div class="modal" style="max-width:360px; text-align:center;">
+    <div class="modal-title" style="font-size:1.1rem;color:var(--error);">Permanent Delete?</div>
+    <p style="color:var(--muted); font-size:.75rem; margin-bottom:22px;">
+      This will PERMANENTLY delete the record.<br />
+      This action cannot be undone!
+    </p>
+    <div class="modal-actions" style="justify-content:center;">
+      <button class="btn btn-cancel btn-sm" onclick="closeHardDeleteConfirm()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â
+     PDF VIEWER OVERLAY
+ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â -->
+<div class="modal-backdrop" id="confirm-modal-backdrop">
+  <div class="modal confirm-modal">
+    <div class="modal-title modal-title-confirm" id="confirm-modal-title">Confirm Action</div>
+    <p class="modal-copy" id="confirm-modal-message">Are you sure?</p>
+    <div class="modal-actions">
+      <button class="btn btn-confirm-no btn-sm" type="button" id="confirm-modal-no-btn" onclick="closeConfirmDialog(false)">No</button>
+      <button class="btn btn-confirm-yes btn-sm" type="button" id="confirm-modal-yes-btn" onclick="closeConfirmDialog(true)">Yes</button>
+    </div>
+  </div>
+</div>
+
+<div id="pdf-viewer-backdrop">
+  <div class="pdf-viewer-bar">
+    <div class="pdf-viewer-title" id="pdf-viewer-title">Document Viewer</div>
+    <div class="pdf-bar-actions">
+      <a id="pdf-dl-btn" href="#" download class="pdf-bar-btn">Download</a>
+      <button class="pdf-bar-btn close-btn" onclick="closePdfViewer()">Close</button>
+    </div>
+  </div>
+  <iframe id="pdf-frame" title="PDF Viewer"></iframe>
+  <div class="pdf-fallback" id="pdf-fallback" style="display:none">
+    <div class="pdf-fallback-icon">PDF</div>
+    <div>Hindi ma-display inline ang PDF sa browser na ito.</div>
+    <a id="pdf-fallback-dl" href="#" download class="pdf-bar-btn" style="margin-top:8px">
+      I-download ang PDF
+    </a>
+  </div>
+</div>
+
+<!-- ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â
+     SYSTEM LOGS MODAL (ADMIN ONLY)
+ÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚ÂÃƒÂ¢Ã¢â‚¬Â¢Ã‚Â -->
+<!-- Toast Notification -->
+<div id="toast"></div>
+
+<!-- Scripts -->
+<script src="assets/js/app.js?v=20260432"></script>
+
+</body>
+</html>

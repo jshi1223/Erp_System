@@ -1,0 +1,830 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KVSK CCTV & IT Solution - Accounts Receivable</title>
+  <script src="assets/js/auth-guard.js?v=20260422"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/admin-style.css?v=20260429" />
+  <style>
+    @media (max-width: 700px) {
+      .form-grid-simple { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <div class="header-left">
+    <button class="btn-icon header-icon-btn" onclick="toggleSidebar()" title="Menu" style="font-size:0.78rem; text-transform:uppercase; letter-spacing:0.08em;">Menu</button>
+    <button class="brand-link" type="button" onclick="goBackToDashboard()" aria-label="Go back to dashboard">
+      <div class="brand-lockup">
+      <img class="brand-mark" src="assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <div class="brand-copy">
+      <div class="header-logo">KVSK CCTV & IT Solution</div>
+      <div class="header-sub">Accounts Receivable</div>
+      </div>
+      </div>
+    </button>
+  </div>
+  <div class="header-right">
+    <span class="admin-badge">Receivables Module</span>
+    <div class="notification-wrap">
+      <button class="btn-icon notification-btn" type="button" onclick="toggleNotificationsPanel()" aria-label="Notifications" title="Notifications">
+        <svg viewBox="0 0 24 24" aria-hidden="true" class="notification-icon">
+          <path d="M12 22a2.3 2.3 0 0 0 2.2-1.6h-4.4A2.3 2.3 0 0 0 12 22zm7-5.5V11a7 7 0 0 0-5-6.7V3.5a2 2 0 1 0-4 0v.8A7 7 0 0 0 5 11v5.5l-1.7 1.7a1 1 0 0 0 .7 1.7h15a1 1 0 0 0 .7-1.7L19 16.5z"></path>
+        </svg>
+        <span class="notification-badge" id="notification-count">0</span>
+      </button>
+      <div class="notifications-panel is-hidden" id="notifications-panel">
+        <div class="notifications-panel-head">
+          <div>
+            <div class="notifications-title">Notifications</div>
+            <div class="notifications-sub">Pending, due soon, expired, and completed project alerts</div>
+          </div>
+          <div class="notifications-panel-actions">
+            <button class="notifications-mark" type="button" onclick="markNotificationsAsRead(); loadNotifications();">Mark as read</button>
+            <button class="notifications-close" type="button" onclick="toggleNotificationsPanel(false)">×</button>
+          </div>
+        </div>
+        <div class="notifications-list" id="notifications-list">
+          <div class="notifications-empty">Loading notifications...</div>
+        </div>
+      </div>
+    </div>
+    <button class="btn btn-logout btn-sm" onclick="doLogout()">Logout</button>
+  </div>
+</header>
+
+<main>
+  <div class="page-hero">
+    <div class="page-hero-copy" style="max-width:none;">
+      <div class="page-title">Accounts Receivable Management</div>
+      <div class="page-sub">Manage customer invoices, collections, and outstanding balances in a structured receivables workflow.</div>
+    </div>
+  </div>
+
+  <div class="module-summary-grid module-summary-grid-wide">
+    <div class="module-summary-card">
+      <span class="module-summary-label">Outstanding</span>
+      <div class="module-summary-value" id="metric-total-receivable">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card">
+      <span class="module-summary-label">Open Accounts</span>
+      <div class="module-summary-value" id="metric-open-count">0</div>
+    </div>
+    <div class="module-summary-card">
+      <span class="module-summary-label">Overdue Amount</span>
+      <div class="module-summary-value" id="metric-overdue-amount">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card">
+      <span class="module-summary-label">Draft + Sent</span>
+      <div class="module-summary-value" id="metric-draft-sent">0</div>
+    </div>
+    <div class="module-summary-card">
+      <span class="module-summary-label">Partial</span>
+      <div class="module-summary-value" id="metric-partial-count">0</div>
+    </div>
+    <div class="module-summary-card">
+      <span class="module-summary-label">Paid</span>
+      <div class="module-summary-value" id="metric-paid-count">0</div>
+    </div>
+  </div>
+
+  <div class="module-tabs">
+    <div class="module-tab active" onclick="switchTab('receivables', this)">Receivables</div>
+    <div class="module-tab" onclick="switchTab('collections', this)">Collections</div>
+    <div class="module-tab" onclick="switchTab('summary', this)">Summary</div>
+  </div>
+
+  <div id="receivables" class="content-section active">
+    <div class="section-topbar">
+      <button class="btn btn-cancel btn-sm section-back-btn" type="button" onclick="goBackToDashboard()">Back to Dashboard</button>
+    </div>
+    <div class="module-panel-head">
+      <div>
+        <div class="section-title">Receivables Register</div>
+      </div>
+    </div>
+    <div class="section-head">
+      <div class="section-head-actions">
+        <div class="search-wrap top-search-bar" style="border: 1.5px solid var(--primary); border-radius: var(--radius); overflow: hidden; background: white; margin:0; min-width:280px;">
+          <input id="receivable-search" type="text" placeholder="Search customer or invoice number..." oninput="renderReceivables()" style="padding: 8px 12px; font-size: 0.85rem; border: none; background: transparent; width: 100%;" />
+        </div>
+        <select id="receivable-filter" class="filter-select" onchange="renderReceivables()">
+          <option value="">All Status</option>
+          <option value="draft">Draft</option>
+          <option value="sent">Sent</option>
+          <option value="partial">Partial</option>
+          <option value="paid">Paid</option>
+          <option value="overdue">Overdue</option>
+        </select>
+        <button class="btn btn-add btn-sm" onclick="openReceivableModal()">Add Receivable</button>
+      </div>
+    </div>
+
+    <div class="table-wrap" id="receivables-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Invoice No.</th>
+            <th>Customer</th>
+            <th>Invoice Date</th>
+            <th>Due Date</th>
+            <th>Total Amount</th>
+            <th>Paid Amount</th>
+            <th>Balance</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="receivables-tbody">
+          <tr class="empty-row"><td colspan="9">Loading receivables...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="collections" class="content-section">
+    <div class="section-topbar">
+      <button class="btn btn-cancel btn-sm section-back-btn" type="button" onclick="goBackToDashboard()">Back to Dashboard</button>
+    </div>
+    <div class="module-panel-head">
+      <div>
+        <div class="section-title">Collections Ledger</div>
+      </div>
+    </div>
+    <div class="section-head">
+      <div class="section-head-actions">
+        <button class="btn btn-add btn-sm" onclick="openCollectionModal()">Record Collection</button>
+      </div>
+    </div>
+
+    <div class="table-wrap" id="collections-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Payment Date</th>
+            <th>Invoice No.</th>
+            <th>Customer</th>
+            <th>Amount</th>
+            <th>Method</th>
+            <th>Reference</th>
+            <th>Notes</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="collections-tbody">
+          <tr class="empty-row"><td colspan="8">Loading collections...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="summary" class="content-section">
+    <div class="section-topbar">
+      <button class="btn btn-cancel btn-sm section-back-btn" type="button" onclick="goBackToDashboard()">Back to Dashboard</button>
+    </div>
+    <div class="module-panel-head">
+      <div>
+        <div class="section-title">Receivables Summary</div>
+      </div>
+    </div>
+    <div class="module-panel-note">
+      Use this workspace to monitor unpaid invoices, partial collections, and overdue balances.
+      Add new receivables from the Receivables tab, then post payments from Collections as money comes in.
+    </div>
+  </div>
+</main>
+
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-brand">
+      <img class="sidebar-brand-mark" src="assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <div>
+        <div class="header-logo" style="font-size: 1rem;">KVSK CCTV</div>
+        <div class="header-sub">Operations Control Panel</div>
+      </div>
+    </div>
+    <button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()">X</button>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/admin?view=dashboard" class="sidebar-link">Dashboard</a>
+
+    <div class="sidebar-group" data-sidebar-group="projects">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Projects</span>
+        <span class="sidebar-group-caret">▾</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/admin?view=all" class="sidebar-link is-subitem">Total Projects</a>
+        <a href="/admin?view=ongoing-projects" class="sidebar-link is-subitem" id="menu-ongoing-projects">Ongoing Projects</a>
+        <a href="/company-registry" class="sidebar-link is-subitem">Company Registry</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="finance">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Finance</span>
+        <span class="sidebar-group-caret">▾</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/accounts-payable" class="sidebar-link is-subitem">Accounts Payable</a>
+        <a href="/accounts-receivable" class="sidebar-link is-subitem active">Accounts Receivable</a>
+        <a href="/procurement" class="sidebar-link is-subitem">Procurement</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="inventory" data-sidebar-default-collapsed="1">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+        <span>Inventory</span>
+        <span class="sidebar-group-caret">▾</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/inventory" class="sidebar-link">Inventory</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="admin" data-sidebar-default-collapsed="1">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+        <span>Admin</span>
+        <span class="sidebar-group-caret">▾</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/user-management" class="sidebar-link is-subitem" id="menu-users">User Management</a>
+        <a href="/admin?view=logs" class="sidebar-link is-subitem" id="menu-logs">System Logs</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="archived" data-sidebar-default-collapsed="1">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+        <span>Archived</span>
+        <span class="sidebar-group-caret">▾</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/admin?view=archived" class="sidebar-link">Archived Records</a>
+      </div>
+    </div>
+  </nav>
+</div>
+
+<div id="receivable-modal-backdrop" class="modal-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" style="margin-bottom:0">Add Receivable</div>
+      <button class="close-btn" onclick="closeReceivableModal()">X</button>
+    </div>
+    <div class="form-grid-simple">
+      <div class="form-group">
+        <label>Customer Name</label>
+        <input id="f-customer-name" type="text" placeholder="Company or client name" />
+      </div>
+      <div class="form-group">
+        <label>Invoice Number</label>
+        <input id="f-invoice-number" type="text" placeholder="e.g. INV-2026-001" />
+      </div>
+      <div class="form-group">
+        <label>Invoice Date</label>
+        <input id="f-invoice-date" type="date" />
+      </div>
+      <div class="form-group">
+        <label>Due Date</label>
+        <input id="f-due-date" type="date" />
+      </div>
+      <div class="form-group">
+        <label>Total Amount</label>
+        <input id="f-total-amount" type="number" step="0.01" min="0" placeholder="0.00" />
+      </div>
+      <div class="form-group">
+        <label>Status</label>
+        <select id="f-ar-status">
+          <option value="draft">Draft</option>
+          <option value="sent">Sent</option>
+          <option value="partial">Partial</option>
+          <option value="paid">Paid</option>
+          <option value="overdue">Overdue</option>
+        </select>
+      </div>
+      <div class="form-group" style="grid-column: 1 / -1;">
+        <label>Notes</label>
+        <textarea id="f-ar-notes" placeholder="Optional remarks"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-cancel btn-sm" onclick="closeReceivableModal()">Cancel</button>
+      <button class="btn btn-save btn-sm" onclick="saveReceivable()">Save Receivable</button>
+    </div>
+  </div>
+</div>
+
+<div id="collection-modal-backdrop" class="modal-backdrop">
+  <div class="modal modal-narrow">
+    <div class="modal-header">
+      <div class="modal-title" style="margin-bottom:0">Record Collection</div>
+      <button class="close-btn" onclick="closeCollectionModal()">X</button>
+    </div>
+    <div class="form-group">
+      <label>Receivable</label>
+      <select id="f-collection-ar"></select>
+    </div>
+    <div class="form-group">
+      <label>Payment Date</label>
+      <input id="f-collection-date" type="date" />
+    </div>
+    <div class="form-group">
+      <label>Amount</label>
+      <input id="f-collection-amount" type="number" step="0.01" min="0" placeholder="0.00" />
+      <div id="f-collection-amount-help" style="margin-top:6px;font-size:0.68rem;color:var(--muted);">
+        Prefilled with the remaining balance for faster downpayment or partial collection entry.
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Payment Method</label>
+      <select id="f-collection-method">
+        <option value="cash">Cash</option>
+        <option value="check">Check</option>
+        <option value="bank_transfer">Bank Transfer</option>
+        <option value="credit_card">Credit Card</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Reference Number</label>
+      <input id="f-collection-reference" type="text" placeholder="OR / ref no." />
+    </div>
+    <div class="form-group">
+      <label>Notes</label>
+      <textarea id="f-collection-notes" placeholder="Optional notes"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-cancel btn-sm" onclick="closeCollectionModal()">Cancel</button>
+      <button class="btn btn-save btn-sm" onclick="saveCollection()">Save Collection</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="assets/js/app.js?v=20260432"></script>
+
+<script>
+'use strict';
+
+let receivablesDb = [];
+let collectionsDb = [];
+let editingCollectionId = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+  setTodayDefaults();
+  loadReceivables();
+  loadCollections();
+  if (typeof loadNotifications === 'function') loadNotifications();
+});
+
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('sidebar-overlay').classList.toggle('open');
+}
+
+function goBackToDashboard() {
+  window.location.href = '/admin?view=dashboard';
+}
+
+function doLogout() {
+  fetch('/logout', { method: 'POST' }).finally(() => {
+    window.location.href = '/';
+  });
+}
+
+function switchTab(tab, btn) {
+  document.querySelectorAll('.module-tab').forEach(node => node.classList.remove('active'));
+  document.querySelectorAll('.content-section').forEach(node => node.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById(tab).classList.add('active');
+}
+
+function setTodayDefaults() {
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('f-invoice-date').value = today;
+  document.getElementById('f-collection-date').value = today;
+}
+
+function formatMoney(value) {
+  return 'PHP ' + Number(value || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function escHtml(value) {
+  return String(value ?? '').replace(/[&<>\"']/g, ch => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[ch]));
+}
+
+function highlightText(value, query) {
+  const escaped = escHtml(value);
+  const tokens = String(query || '').trim().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return escaped;
+  const pattern = tokens.sort((a, b) => b.length - a.length).map(token => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  return pattern ? escaped.replace(new RegExp(`(${pattern})`, 'gi'), '<mark>$1</mark>') : escaped;
+}
+
+function showToast(message, type = 'success') {
+  const toast = document.getElementById('toast');
+  toast.textContent = message;
+  toast.className = type + ' show';
+  setTimeout(() => { toast.className = ''; }, 2500);
+}
+
+function getReceivableStatus(row) {
+  if (Number(row.archived || 0) === 1) return 'cancelled';
+  const total = Number(row.total_amount || 0);
+  const paid = Number(row.paid_amount ?? row.downpayment ?? 0);
+  if (paid >= total && total > 0) return 'paid';
+  if (paid > 0) return 'partial';
+  if (row.status === 'overdue') return 'overdue';
+  return row.status || 'draft';
+}
+
+function getReceivableUiStatus(row) {
+  const computed = getReceivableStatus(row);
+  if (computed === 'paid') return { key: 'paid', label: 'Paid', className: 'status-paid' };
+  if (computed === 'partial') return { key: 'partial', label: 'Partial', className: 'status-partial' };
+  if (computed === 'cancelled') return { key: 'cancelled', label: 'Archived', className: 'status-cancelled' };
+  return { key: 'unpaid', label: 'Unpaid', className: 'status-unpaid' };
+}
+
+async function loadReceivables() {
+  try {
+    const res = await fetch('/api/receivables?include_archived=1');
+    receivablesDb = await res.json();
+    updateMetrics();
+    populateReceivableSelect();
+    renderReceivables();
+  } catch (err) {
+    console.error(err);
+    showToast('Failed to load receivables', 'error');
+  }
+}
+
+async function loadCollections() {
+  try {
+    const res = await fetch('/api/payments?type=ar');
+    collectionsDb = await res.json();
+    renderCollections();
+  } catch (err) {
+    console.error(err);
+    showToast('Failed to load collections', 'error');
+  }
+}
+
+function updateMetrics() {
+  const totalReceivable = receivablesDb.reduce((sum, row) => {
+    if (Number(row.archived || 0) === 1) return sum;
+    return sum + Math.max(0, Number(row.total_amount || 0) - Number(row.paid_amount || 0));
+  }, 0);
+  const openCount = receivablesDb.filter(row => !['paid', 'cancelled'].includes(getReceivableStatus(row))).length;
+  const today = new Date().toISOString().split('T')[0];
+  const overdueAmount = receivablesDb.reduce((sum, row) => {
+    if (Number(row.archived || 0) === 1) return sum;
+    const balance = Math.max(0, Number(row.total_amount || 0) - Number(row.paid_amount || 0));
+    return row.due_date && row.due_date < today && balance > 0 ? sum + balance : sum;
+  }, 0);
+  const draftSent = receivablesDb.filter(row => ['draft', 'sent'].includes(getReceivableStatus(row))).length;
+  const partialCount = receivablesDb.filter(row => getReceivableStatus(row) === 'partial').length;
+  const paidCount = receivablesDb.filter(row => getReceivableStatus(row) === 'paid').length;
+
+  document.getElementById('metric-total-receivable').textContent = formatMoney(totalReceivable);
+  document.getElementById('metric-open-count').textContent = openCount;
+  document.getElementById('metric-overdue-amount').textContent = formatMoney(overdueAmount);
+  document.getElementById('metric-draft-sent').textContent = draftSent;
+  document.getElementById('metric-partial-count').textContent = partialCount;
+  document.getElementById('metric-paid-count').textContent = paidCount;
+}
+
+function renderReceivables() {
+  const q = document.getElementById('receivable-search').value.toLowerCase().trim();
+  const statusFilter = document.getElementById('receivable-filter').value;
+  const tbody = document.getElementById('receivables-tbody');
+
+  const filtered = receivablesDb.filter(row => {
+    const computedStatus = getReceivableStatus(row);
+    const matchesSearch = !q || [row.customer_name, row.invoice_number].join(' ').toLowerCase().includes(q);
+    const matchesStatus = !statusFilter || computedStatus === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="9">No receivables found.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(row => {
+    const total = Number(row.total_amount || 0);
+    const paid = Number(row.paid_amount || 0);
+    const balance = Math.max(0, total - paid);
+    const status = getReceivableStatus(row);
+    const uiStatus = getReceivableUiStatus(row);
+    const isOverdue = row.due_date && row.due_date < new Date().toISOString().split('T')[0] && balance > 0;
+    const isArchived = Number(row.archived || 0) === 1;
+    return `
+      <tr>
+        <td>${highlightText(row.invoice_number, q)}</td>
+        <td>${highlightText(row.customer_name, q)}</td>
+        <td>${escHtml(row.invoice_date || '')}</td>
+        <td>${escHtml(row.due_date || '-')}</td>
+        <td>${formatMoney(total)}</td>
+        <td>${formatMoney(paid)}</td>
+        <td>${formatMoney(balance)}</td>
+        <td>
+          <span class="status-pill ${uiStatus.className}">${highlightText(uiStatus.label, q)}</span>
+          ${isOverdue && uiStatus.key !== 'paid' ? '<div style="margin-top:4px;font-size:0.68rem;color:var(--danger);font-weight:600;">Overdue</div>' : ''}
+        </td>
+        <td>
+          ${isArchived ? `
+            <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
+              <button class="btn btn-save btn-sm" onclick="restoreReceivable(${row.id})">Restore</button>
+            </div>
+          ` : balance > 0 ? `
+            <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
+              <button class="btn btn-save btn-sm" onclick="openCollectionModal(${row.id})">Record Payment</button>
+              <button class="btn btn-cancel btn-sm" onclick="openCollectionModal(${row.id}, ${balance.toFixed(2)})">Downpayment</button>
+              <button class="btn btn-edit btn-sm" onclick="archiveReceivable(${row.id})">Archive</button>
+            </div>
+          ` : `
+            <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
+              <span class="status-pill status-paid">Paid</span>
+              <button class="btn btn-edit btn-sm" onclick="archiveReceivable(${row.id})">Archive</button>
+            </div>
+          `}
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function renderCollections() {
+  const tbody = document.getElementById('collections-tbody');
+  if (!collectionsDb.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="8">No collections yet.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = collectionsDb.map(row => {
+    const receivable = receivablesDb.find(item => item.id === row.ar_id);
+    return `
+      <tr>
+        <td>${escHtml(row.payment_date || '')}</td>
+        <td>${escHtml(receivable?.invoice_number || '-')}</td>
+        <td>${escHtml(receivable?.customer_name || '-')}</td>
+        <td>${formatMoney(row.amount)}</td>
+        <td>${escHtml(row.payment_method || '-')}</td>
+        <td>${escHtml(row.reference_number || '-')}</td>
+        <td>${escHtml(row.notes || '-')}</td>
+        <td>
+          <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap;">
+            <button class="btn btn-edit btn-sm" onclick="openCollectionEditModal(${row.id})">Edit</button>
+            <button class="btn btn-cancel btn-sm" onclick="deleteCollection(${row.id})">Delete</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function populateReceivableSelect(selectedId = '') {
+  const select = document.getElementById('f-collection-ar');
+  const selectedKey = String(selectedId || '');
+  const openRows = receivablesDb.filter(row => Number(row.archived || 0) !== 1 && getReceivableStatus(row) !== 'paid');
+  const selectedRow = selectedKey ? receivablesDb.find(row => String(row.id) === selectedKey) : null;
+  const rows = selectedRow && !openRows.some(row => String(row.id) === selectedKey)
+    ? [selectedRow, ...openRows]
+    : openRows;
+  if (!rows.length) {
+    select.innerHTML = '<option value="">No open receivables</option>';
+    return;
+  }
+  select.innerHTML = rows.map(row => {
+    const balance = Math.max(0, Number(row.total_amount || 0) - Number(row.paid_amount || 0));
+    return `<option value="${row.id}" ${String(selectedId) === String(row.id) ? 'selected' : ''}>${escHtml(row.invoice_number)} - ${escHtml(row.customer_name)} (${formatMoney(balance)})</option>`;
+  }).join('');
+}
+
+function openReceivableModal() {
+  document.getElementById('receivable-modal-backdrop').classList.add('open');
+}
+
+function closeReceivableModal() {
+  document.getElementById('receivable-modal-backdrop').classList.remove('open');
+}
+
+function syncCollectionModalMode() {
+  const title = document.querySelector('#collection-modal-backdrop .modal-title');
+  const saveBtn = document.querySelector('#collection-modal-backdrop .btn-save');
+  if (title) title.textContent = editingCollectionId ? 'Edit Collection' : 'Record Collection';
+  if (saveBtn) saveBtn.textContent = editingCollectionId ? 'Save Changes' : 'Save Collection';
+}
+
+function resetCollectionForm() {
+  document.getElementById('f-collection-amount').value = '';
+  document.getElementById('f-collection-reference').value = '';
+  document.getElementById('f-collection-notes').value = '';
+  document.getElementById('f-collection-method').value = 'cash';
+  setTodayDefaults();
+  const help = document.getElementById('f-collection-amount-help');
+  if (help) {
+    help.textContent = 'Prefilled with the remaining balance for faster downpayment or partial collection entry.';
+  }
+}
+
+function openCollectionModal(receivableId = '', suggestedAmount = '') {
+  editingCollectionId = null;
+  populateReceivableSelect(receivableId);
+  if (!document.getElementById('f-collection-ar').value) {
+    showToast('No open receivables available', 'error');
+    return;
+  }
+  const selectedId = Number(document.getElementById('f-collection-ar').value || receivableId || 0);
+  const selectedRow = receivablesDb.find(item => Number(item.id) === selectedId);
+  const balance = selectedRow ? Math.max(0, Number(selectedRow.total_amount || 0) - Number(selectedRow.paid_amount || 0)) : 0;
+  const amountInput = document.getElementById('f-collection-amount');
+  if (amountInput) {
+    amountInput.value = suggestedAmount !== '' ? suggestedAmount : balance.toFixed(2);
+  }
+  const help = document.getElementById('f-collection-amount-help');
+  if (help) {
+    help.textContent = selectedRow
+      ? `Remaining balance: ${formatMoney(balance)}. You can type a smaller amount if this is only a downpayment.`
+      : 'Prefilled with the remaining balance for faster entry.';
+  }
+  syncCollectionModalMode();
+  document.getElementById('collection-modal-backdrop').classList.add('open');
+}
+
+function closeCollectionModal() {
+  document.getElementById('collection-modal-backdrop').classList.remove('open');
+  editingCollectionId = null;
+  resetCollectionForm();
+  syncCollectionModalMode();
+}
+
+function openCollectionEditModal(collectionId) {
+  const row = collectionsDb.find(item => Number(item.id) === Number(collectionId));
+  if (!row) {
+    showToast('Collection not found', 'error');
+    return;
+  }
+  editingCollectionId = Number(collectionId);
+  populateReceivableSelect(row.ar_id);
+  document.getElementById('f-collection-ar').value = row.ar_id;
+  document.getElementById('f-collection-date').value = row.payment_date || '';
+  document.getElementById('f-collection-amount').value = row.amount || '';
+  document.getElementById('f-collection-method').value = row.payment_method || 'cash';
+  document.getElementById('f-collection-reference').value = row.reference_number || '';
+  document.getElementById('f-collection-notes').value = row.notes || '';
+  const help = document.getElementById('f-collection-amount-help');
+  if (help) help.textContent = 'Edit this collection amount, date, method, or notes.';
+  syncCollectionModalMode();
+  document.getElementById('collection-modal-backdrop').classList.add('open');
+}
+
+async function saveReceivable() {
+  const payload = {
+    customer_name: document.getElementById('f-customer-name').value.trim(),
+    invoice_number: document.getElementById('f-invoice-number').value.trim(),
+    invoice_date: document.getElementById('f-invoice-date').value,
+    due_date: document.getElementById('f-due-date').value || null,
+    total_amount: Number(document.getElementById('f-total-amount').value || 0),
+    status: document.getElementById('f-ar-status').value,
+    notes: document.getElementById('f-ar-notes').value.trim()
+  };
+
+  if (!payload.customer_name || !payload.invoice_number || !payload.invoice_date || payload.total_amount <= 0) {
+    showToast('Complete the required receivable fields', 'error');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/receivables', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to save receivable');
+    closeReceivableModal();
+    document.getElementById('f-customer-name').value = '';
+    document.getElementById('f-invoice-number').value = '';
+    document.getElementById('f-total-amount').value = '';
+    document.getElementById('f-due-date').value = '';
+    document.getElementById('f-ar-notes').value = '';
+    document.getElementById('f-ar-status').value = 'draft';
+    setTodayDefaults();
+    await loadReceivables();
+    showToast('Receivable saved');
+  } catch (err) {
+    console.error(err);
+    showToast(err.message, 'error');
+  }
+}
+
+async function saveCollection() {
+  const isEdit = Boolean(editingCollectionId);
+  const payload = {
+    payment_type: 'ar',
+    ar_id: Number(document.getElementById('f-collection-ar').value),
+    payment_date: document.getElementById('f-collection-date').value,
+    amount: Number(document.getElementById('f-collection-amount').value || 0),
+    payment_method: document.getElementById('f-collection-method').value,
+    reference_number: document.getElementById('f-collection-reference').value.trim(),
+    notes: document.getElementById('f-collection-notes').value.trim()
+  };
+
+  if (!payload.ar_id || !payload.payment_date || payload.amount <= 0) {
+    showToast('Complete the collection form first', 'error');
+    return;
+  }
+
+  try {
+    const url = editingCollectionId ? `/api/payments/${editingCollectionId}` : '/api/payments';
+    const res = await fetch(url, {
+      method: editingCollectionId ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to save collection');
+    closeCollectionModal();
+    document.getElementById('f-collection-amount').value = '';
+    document.getElementById('f-collection-reference').value = '';
+    document.getElementById('f-collection-notes').value = '';
+    setTodayDefaults();
+    await Promise.all([loadReceivables(), loadCollections()]);
+    showToast(isEdit ? 'Collection updated successfully' : 'Payment recorded successfully');
+  } catch (err) {
+    console.error(err);
+    showToast(err.message, 'error');
+  }
+}
+
+async function deleteCollection(id) {
+  const row = collectionsDb.find(item => Number(item.id) === Number(id));
+  const confirmed = await openConfirmDialog({
+    title: 'Delete Collection',
+    message: `Delete payment on ${row?.payment_date || 'this record'}?`,
+    noText: 'No',
+    yesText: 'Yes'
+  });
+  if (!confirmed) return;
+
+  try {
+    const res = await fetch(`/api/payments/${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to delete collection');
+    await Promise.all([loadReceivables(), loadCollections()]);
+    showToast('Collection deleted successfully');
+  } catch (err) {
+    console.error(err);
+    showToast(err.message, 'error');
+  }
+}
+
+async function archiveReceivable(id) {
+  const row = receivablesDb.find(item => Number(item.id) === Number(id));
+  const confirmed = await openConfirmDialog({
+    title: 'Archive Receivable',
+    message: `Archive ${row?.invoice_number || 'this receivable'}?`,
+    noText: 'No',
+    yesText: 'Yes'
+  });
+  if (!confirmed) return;
+
+  try {
+    const res = await fetch(`/api/receivables/${id}/archive`, { method: 'PUT' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to archive receivable');
+    await loadReceivables();
+    showToast('Receivable archived');
+  } catch (err) {
+    console.error(err);
+    showToast(err.message, 'error');
+  }
+}
+
+async function restoreReceivable(id) {
+  try {
+    const res = await fetch(`/api/receivables/${id}/restore`, { method: 'PUT' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to restore receivable');
+    await loadReceivables();
+    showToast('Receivable restored');
+  } catch (err) {
+    console.error(err);
+    showToast(err.message, 'error');
+  }
+}
+</script>
+</body>
+</html>

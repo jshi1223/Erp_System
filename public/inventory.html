@@ -1,0 +1,863 @@
+﻿<!-- inventory.html - Inventory Management Module for ERP -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KVSK CCTV & IT Solution - Inventory Overview</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <script src="assets/js/auth-guard.js?v=20260422"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/admin-style.css?v=20260429" /> 
+</head>
+<body class="inventory-page">
+
+<!-- Header -->
+<header>
+  <div class="header-left" style="display:flex; align-items:center; gap:15px;">
+    <button class="btn-icon" onclick="toggleSidebar()" title="Menu" style="background:none; border:none; font-size:0.78rem; cursor:pointer; color:var(--primary); text-transform:uppercase; letter-spacing:0.08em;">Menu</button>
+    <button class="brand-link" type="button" onclick="goBackToDashboard()" aria-label="Go back to dashboard">
+      <div class="brand-lockup">
+      <img class="brand-mark" src="assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <div class="brand-copy">
+      <div class="header-logo">KVSK CCTV & IT Solution</div>
+      <div class="header-sub">Inventory Operations</div>
+      </div>
+      </div>
+    </button>
+  </div>
+  <div class="header-right">
+    <span class="admin-badge">Inventory Operations</span>
+    <button class="btn btn-logout btn-sm" onclick="doLogout()">Logout</button>
+  </div>
+</header>
+
+<main>
+  <div class="section-topbar">
+    <button class="btn btn-cancel btn-sm section-back-btn" type="button" onclick="goBackToDashboard()">Back to Dashboard</button>
+  </div>
+
+  <div class="section-head" style="margin-top:0;">
+    <div>
+      <div class="section-title">Inventory Overview</div>
+      <div class="section-subtitle">Manage products, warehouses, stock levels, and movement records.</div>
+    </div>
+    <div class="section-head-actions">
+      <span class="admin-badge">Inventory Operations</span>
+    </div>
+  </div>
+
+  <div class="module-summary-grid" style="margin-top: 0;">
+    <div class="module-summary-card">
+      <span class="module-summary-label">Total Products</span>
+      <strong id="metric-total-skus" class="module-summary-value">0</strong>
+    </div>
+    <div class="module-summary-card">
+      <span class="module-summary-label">Low Stock Items</span>
+      <strong id="metric-low-stock" class="module-summary-value">0</strong>
+    </div>
+    <div class="module-summary-card">
+      <span class="module-summary-label">Total Units</span>
+      <strong id="metric-total-units" class="module-summary-value">0</strong>
+    </div>
+    <div class="module-summary-card">
+      <span class="module-summary-label">Warehouses</span>
+      <strong id="metric-total-warehouses" class="module-summary-value">0</strong>
+    </div>
+  </div>
+
+  <section class="inventory-hero">
+    <div class="inventory-hero-copy">
+      <span class="inventory-hero-kicker">Inventory Operations</span>
+      <h2>Cleaner stock control for products, warehouses, and movement tracking</h2>
+      <p>Use the catalog for master data, the stock view for health checks, and the movement log for audit trails.</p>
+    </div>
+    <div class="inventory-hero-actions">
+      <button class="btn btn-add btn-sm" type="button" onclick="openProductModal()">Add Product</button>
+      <button class="btn btn-add btn-sm" type="button" onclick="openWarehouseModal()">Add Warehouse</button>
+      <button class="btn btn-add btn-sm" type="button" onclick="openMovementModal()">Log Movement</button>
+    </div>
+  </section>
+
+  <!-- Navigation Tabs -->
+  <div class="nav-tabs">
+    <div class="nav-tab active" onclick="switchInventoryTab('products', this)">Product Catalog</div>
+    <div class="nav-tab" onclick="switchInventoryTab('warehouses', this)">Warehouses</div>
+    <div class="nav-tab" onclick="switchInventoryTab('stock', this)">Stock Levels</div>
+    <div class="nav-tab" onclick="switchInventoryTab('movements', this)">Movement Log</div>
+  </div>
+
+  <!-- PRODUCTS SECTION -->
+  <div id="products" class="content-section active">
+    <div class="toolbar">
+      <div class="search-wrap">
+        <span class="search-icon">Search</span>
+        <input id="product-search" type="text" placeholder="Search products or SKU..." oninput="filterProducts()" />
+      </div>
+      <button class="btn btn-add btn-sm" onclick="openProductModal()">New Product</button>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>SKU</th>
+            <th>Product Name</th>
+            <th>Category</th>
+            <th>Unit Price</th>
+            <th>Total Stock</th>
+            <th>Reorder Level</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="products-tbody">
+          <tr class="empty-row"><td colspan="7">Loading products...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- WAREHOUSES SECTION -->
+  <div id="warehouses" class="content-section">
+    <div class="toolbar">
+      <div class="search-wrap">
+        <span class="search-icon">Search</span>
+        <input id="warehouse-search" type="text" placeholder="Search warehouses or location..." oninput="filterWarehouses()" />
+      </div>
+      <button class="btn btn-add btn-sm" onclick="openWarehouseModal()">New Warehouse</button>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Warehouse Name</th>
+            <th>Location</th>
+            <th>Created</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="warehouses-tbody">
+          <tr class="empty-row"><td colspan="4">Loading warehouses...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- STOCK LEVELS SECTION -->
+  <div id="stock" class="content-section">
+    <div class="toolbar">
+      <div class="search-wrap">
+        <span class="search-icon">Search</span>
+        <input id="stock-search" type="text" placeholder="Search by product, SKU, or warehouse..." oninput="filterStock()" />
+      </div>
+      <select id="stock-filter" class="filter-select" onchange="filterStock()">
+        <option value="">All Items</option>
+        <option value="low">Low Stock</option>
+        <option value="out">Out of Stock</option>
+      </select>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>SKU</th>
+            <th>Warehouse</th>
+            <th>Current Stock</th>
+            <th>Reorder Level</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="stock-tbody">
+          <tr class="empty-row"><td colspan="7">Loading stock...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- STOCK MOVEMENTS SECTION -->
+  <div id="movements" class="content-section">
+    <div class="toolbar">
+      <div class="search-wrap">
+        <span class="search-icon">Search</span>
+        <input id="movement-search" type="text" placeholder="Search movement, product, or notes..." oninput="filterMovements()" />
+      </div>
+      <button class="btn btn-add btn-sm" onclick="openMovementModal()">Log Movement</button>
+      <select id="movement-filter" class="filter-select" onchange="filterMovements()">
+        <option value="">All Movements</option>
+        <option value="inbound">Inbound</option>
+        <option value="outbound">Outbound</option>
+        <option value="adjustment">Adjustment</option>
+      </select>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Product</th>
+            <th>Warehouse</th>
+            <th>Type</th>
+            <th>Quantity</th>
+            <th>Reference</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody id="movements-tbody">
+          <tr class="empty-row"><td colspan="7">Loading movements...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<footer>
+  &copy; 2025 KVSK CCTV & IT Solution | ERP System
+</footer>
+
+<!-- PRODUCT MODAL -->
+<div id="product-modal-backdrop" class="modal-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="product-modal-title">New Product</h3>
+      <button class="close-btn" onclick="closeProductModal()">X</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>SKU *</label>
+        <input id="f-sku" type="text" placeholder="e.g., CCTV-DOME-001" />
+      </div>
+      <div class="form-group">
+        <label>Product Name *</label>
+        <input id="f-product-name" type="text" placeholder="e.g., Dome Camera 4MP" />
+      </div>
+      <div class="form-group">
+        <label>Category</label>
+        <input id="f-product-category" type="text" placeholder="e.g., Cameras, Cables" />
+      </div>
+      <div class="form-group">
+        <label>Unit Price *</label>
+        <input id="f-unit-price" type="number" step="0.01" placeholder="0.00" />
+      </div>
+      <div class="form-group">
+        <label>Reorder Level</label>
+        <input id="f-reorder-level" type="number" value="10" />
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <textarea id="f-product-description" placeholder="Product details..." style="height:80px"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeProductModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveProduct()">Save Product</button>
+    </div>
+  </div>
+</div>
+
+<!-- WAREHOUSE MODAL -->
+<div id="warehouse-modal-backdrop" class="modal-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="warehouse-modal-title">New Warehouse</h3>
+      <button class="close-btn" onclick="closeWarehouseModal()">X</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Warehouse Name *</label>
+        <input id="f-warehouse-name" type="text" placeholder="e.g., Main Warehouse" />
+      </div>
+      <div class="form-group">
+        <label>Location</label>
+        <input id="f-warehouse-location" type="text" placeholder="e.g., Tanauan City, Batangas" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeWarehouseModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveWarehouse()">Save Warehouse</button>
+    </div>
+  </div>
+</div>
+
+<!-- MOVEMENT MODAL -->
+<div id="movement-modal-backdrop" class="modal-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="movement-modal-title">Log Stock Movement</h3>
+      <button class="close-btn" onclick="closeMovementModal()">X</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Product *</label>
+        <select id="f-movement-product" required></select>
+      </div>
+      <div class="form-group">
+        <label>Warehouse *</label>
+        <select id="f-movement-warehouse" required></select>
+      </div>
+      <div class="form-group">
+        <label>Movement Type *</label>
+        <select id="f-movement-type" required>
+          <option value="">Select type</option>
+          <option value="inbound">Inbound (Stock In)</option>
+          <option value="outbound">Outbound (Stock Out)</option>
+          <option value="adjustment">Adjustment</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Quantity *</label>
+        <input id="f-movement-qty" type="number" min="1" required />
+      </div>
+      <div class="form-group">
+        <label>Reference Number</label>
+        <input id="f-movement-reference" type="text" placeholder="e.g., PO-001, Invoice-123" />
+      </div>
+      <div class="form-group">
+        <label>Notes</label>
+        <textarea id="f-movement-notes" placeholder="Additional notes..." style="height:60px"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeMovementModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveMovement()">Log Movement</button>
+    </div>
+  </div>
+</div>
+
+<!-- Sidebar Menu -->
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-brand">
+      <img class="sidebar-brand-mark" src="assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <div>
+        <div class="header-logo" style="font-size: 1rem;">KVSK CCTV</div>
+        <div class="header-sub">Operations Control Panel</div>
+      </div>
+    </div>
+    <button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()">X</button>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/admin?view=dashboard" class="sidebar-link">Dashboard</a>
+
+    <div class="sidebar-group" data-sidebar-group="projects">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Projects</span>
+        <span class="sidebar-group-caret">▾</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/admin?view=all" class="sidebar-link is-subitem">Total Projects</a>
+        <a href="/admin?view=ongoing-projects" class="sidebar-link is-subitem" id="menu-ongoing-projects">Ongoing Projects</a>
+        <a href="/company-registry" class="sidebar-link is-subitem">Company Registry</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="finance">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Finance</span>
+        <span class="sidebar-group-caret">▾</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/accounts-payable" class="sidebar-link is-subitem">Accounts Payable</a>
+        <a href="/accounts-receivable" class="sidebar-link is-subitem">Accounts Receivable</a>
+        <a href="/procurement" class="sidebar-link is-subitem">Procurement</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="inventory">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Inventory</span>
+        <span class="sidebar-group-caret">▾</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/inventory" class="sidebar-link active">Inventory</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="admin" data-sidebar-default-collapsed="1">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+        <span>Admin</span>
+        <span class="sidebar-group-caret">▾</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/user-management" class="sidebar-link is-subitem" id="menu-users">User Management</a>
+        <a href="/admin?view=logs" class="sidebar-link is-subitem" id="menu-logs">System Logs</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="archived" data-sidebar-default-collapsed="1">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+        <span>Archived</span>
+        <span class="sidebar-group-caret">▾</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/admin?view=archived" class="sidebar-link">Archived Records</a>
+      </div>
+    </div>
+  </nav>
+</div>
+
+<script src="assets/js/app.js?v=20260432"></script>
+<script>
+let productsDb = [];
+let warehousesDb = [];
+let stockDb = [];
+let movementsDb = [];
+
+// Load all data on startup
+document.addEventListener('DOMContentLoaded', () => {
+  restoreInventoryTab();
+  loadProducts();
+  loadWarehouses(); // This will also update product selectors for movements
+  loadStock();
+  loadMovements();
+});
+
+function doLogout() {
+  fetch('/logout', { method: 'POST' }).then(() => { window.location.href = '/'; });
+}
+
+function goBackToDashboard() {
+  window.location.href = '/admin?view=dashboard';
+}
+
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// TAB NAVIGATION
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+function switchInventoryTab(tab, btn) {
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.getElementById(tab).classList.add('active');
+  localStorage.setItem('kinaadman_inventoryTab', tab);
+}
+
+function restoreInventoryTab() {
+  const savedTab = localStorage.getItem('kinaadman_inventoryTab');
+  if (!savedTab || !document.getElementById(savedTab)) return;
+
+  const matchingTab = Array.from(document.querySelectorAll('.nav-tab')).find(tabEl =>
+    String(tabEl.getAttribute('onclick') || '').includes(`switchInventoryTab('${savedTab}'`)
+  );
+
+  if (matchingTab) {
+    switchInventoryTab(savedTab, matchingTab);
+  }
+}
+
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// PRODUCTS
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+function loadProducts() {
+  Promise.all([
+    fetch('/api/products').then(r => r.json()),
+    fetch('/api/stock').then(r => r.json()) // Assuming a new /api/stock endpoint for all stock
+  ])
+  .then(([productsData, stockData]) => {
+    productsDb = productsData;
+    // Map total stock to products
+    productsDb = productsDb.map(p => {
+      p.total_stock = stockData.filter(s => s.product_id === p.id).reduce((sum, s) => sum + s.quantity, 0);
+      return p;
+    });
+    renderProducts(productsDb);
+    updateProductSelects(); // Update product selectors for movements
+  })
+  .catch(e => console.error('Error loading products or stock:', e));
+}
+
+function renderProducts(productsToRender = productsDb) {
+  const tbody = document.getElementById('products-tbody');
+  if (!productsToRender.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No products found</td></tr>';
+    return;
+  }
+  tbody.innerHTML = productsToRender.map(p => `
+    <tr>
+      <td><span class="inventory-sku">${escHtml(p.sku)}</span></td>
+      <td><strong class="inventory-item-name">${escHtml(p.name)}</strong></td>
+      <td><span class="inventory-pill inventory-pill-neutral">${escHtml(p.category || '-')}</span></td>
+      <td class="amount-cell inventory-money">PHP ${parseFloat(p.unit_price).toLocaleString('en-PH', {minimumFractionDigits: 2})}</td>
+      <td class="text-center"><span class="inventory-count">${p.total_stock ?? 0} units</span></td>
+      <td class="text-center"><span class="inventory-reorder">${p.reorder_level} units</span></td>
+      <td><button class="btn btn-edit btn-sm" onclick="editProduct(${p.id})">Edit</button></td>
+    </tr>
+  `).join('');
+}
+
+function filterProducts() {
+  const q = document.getElementById('product-search').value.toLowerCase().trim();
+  const filtered = productsDb.filter(p => 
+    (p.sku + ' ' + p.name + ' ' + (p.category || '-')).toLowerCase().includes(q)
+  );
+  const tbody = document.getElementById('products-tbody');
+  tbody.innerHTML = filtered.length ? 
+    filtered.map(p => ` 
+      <tr>
+        <td><span class="inventory-sku">${highlightText(p.sku, q)}</span></td>
+        <td><strong class="inventory-item-name">${highlightText(p.name, q)}</strong></td>
+        <td><span class="inventory-pill inventory-pill-neutral">${highlightText(p.category || '-', q)}</span></td>
+        <td class="text-right inventory-money">PHP ${parseFloat(p.unit_price).toLocaleString('en-PH', {minimumFractionDigits: 2})}</td>
+        <td class="text-center"><span class="inventory-count">${p.total_stock ?? 0} units</span></td>
+        <td><span class="inventory-reorder">${p.reorder_level} units</span></td>
+        <td><button class="btn btn-edit btn-sm" onclick="editProduct(${p.id})">Edit</button></td>
+      </tr>
+    `).join('') : 
+    '<tr class="empty-row"><td colspan="7">No products match search</td></tr>';
+}
+
+function openProductModal() {
+  document.getElementById('product-modal-title').textContent = 'New Product';
+  ['sku', 'product-name', 'product-category', 'unit-price', 'reorder-level', 'product-description'].forEach(id => {
+    document.getElementById('f-' + id).value = id === 'reorder-level' ? '10' : '';
+  });
+  document.getElementById('product-modal-backdrop').classList.add('open');
+}
+
+function closeProductModal() {
+  document.getElementById('product-modal-backdrop').classList.remove('open');
+}
+
+function saveProduct() {
+  const sku = document.getElementById('f-sku').value.trim();
+  const name = document.getElementById('f-product-name').value.trim();
+  const unitPrice = parseFloat(document.getElementById('f-unit-price').value);
+  if (!sku || !name || !unitPrice) {
+    alert('SKU, Name, and Unit Price are required');
+    return;
+  }
+  const payload = {
+    sku,
+    name,
+    category: document.getElementById('f-product-category').value.trim(),
+    description: document.getElementById('f-product-description').value.trim(),
+    unit_price: unitPrice,
+    reorder_level: parseInt(document.getElementById('f-reorder-level').value) || 10
+  };
+  fetch('/api/products', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  })
+  .then(r => r.json())
+  .then(() => {
+    closeProductModal();
+    loadProducts();
+    alert('Product saved successfully');
+  })
+  .catch(e => alert('Error: ' + e.message));
+}
+
+function updateProductSelects() {
+  const select = document.getElementById('f-movement-product');
+  select.innerHTML = '<option value="">Select product</option>' + 
+    productsDb.map(p => `<option value="${p.id}">${escHtml(p.sku)} - ${escHtml(p.name)}</option>`).join('');
+}
+
+function editProduct(id) {
+  alert('Edit coming soon');
+}
+
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// WAREHOUSES
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+function loadWarehouses() {
+  fetch('/api/warehouses')
+    .then(r => r.json())
+    .then(data => {
+      warehousesDb = data;
+      renderWarehouses();
+      updateWarehouseSelects();
+      updateStockMetrics();
+    })
+    .catch(e => console.error('Error loading warehouses:', e));
+}
+
+function renderWarehouses() {
+  const tbody = document.getElementById('warehouses-tbody');
+  if (!warehousesDb.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="4">No warehouses found</td></tr>';
+    return;
+  }
+  tbody.innerHTML = warehousesDb.map(w => `
+    <tr>
+      <td><strong class="inventory-item-name">${escHtml(w.name)}</strong></td>
+      <td>${escHtml(w.location || '-')}</td>
+      <td><span class="inventory-date">${new Date(w.created_at).toLocaleDateString()}</span></td>
+      <td><button class="btn btn-edit btn-sm" onclick="editWarehouse(${w.id})">Edit</button></td>
+    </tr>
+  `).join('');
+}
+
+function filterWarehouses() {
+  const q = document.getElementById('warehouse-search').value.toLowerCase().trim();
+  const filtered = warehousesDb.filter(w => 
+    (w.name + ' ' + (w.location || '-')).toLowerCase().includes(q)
+  );
+  document.getElementById('warehouses-tbody').innerHTML = filtered.length ?
+      filtered.map(w => `
+      <tr>
+        <td><strong class="inventory-item-name">${highlightText(w.name, q)}</strong></td>
+        <td>${highlightText(w.location || '-', q)}</td>
+        <td><span class="inventory-date">${new Date(w.created_at).toLocaleDateString()}</span></td>
+        <td><button class="btn btn-edit btn-sm" onclick="editWarehouse(${w.id})">Edit</button></td>
+      </tr>
+    `).join('') :
+    '<tr class="empty-row"><td colspan="4">No warehouses match search</td></tr>';
+}
+
+function openWarehouseModal() {
+  document.getElementById('f-warehouse-name').value = '';
+  document.getElementById('f-warehouse-location').value = '';
+  const warehouseTitle = document.getElementById('warehouse-modal-title');
+  if (warehouseTitle) warehouseTitle.textContent = 'New Warehouse';
+  document.getElementById('warehouse-modal-backdrop').classList.add('open');
+}
+
+function closeWarehouseModal() {
+  document.getElementById('warehouse-modal-backdrop').classList.remove('open');
+}
+
+function saveWarehouse() {
+  const name = document.getElementById('f-warehouse-name').value.trim();
+  if (!name) {
+    alert('Warehouse name is required');
+    return;
+  }
+  const payload = {
+    name,
+    location: document.getElementById('f-warehouse-location').value.trim()
+  };
+  fetch('/api/warehouses', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  })
+  .then(r => r.json())
+  .then(() => {
+    closeWarehouseModal();
+    loadWarehouses();
+    alert('Warehouse saved successfully');
+  })
+  .catch(e => alert('Error: ' + e.message));
+}
+
+function editWarehouse(id) {
+  alert('Edit coming soon');
+}
+
+// This function is called by loadWarehouses and populates the warehouse dropdowns in modals
+function updateWarehouseSelects() {
+  const select = document.getElementById('f-movement-warehouse');
+  select.innerHTML = '<option value="">Select warehouse</option>' + 
+    warehousesDb.map(w => `<option value="${w.id}">${escHtml(w.name)}</option>`).join('');
+}
+
+
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// STOCK
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+function loadStock() {
+  // Assuming a new endpoint /api/stock that returns all stock levels with product/warehouse names
+  fetch('/api/stock') // This endpoint needs to be created in server.js
+    .then(r => r.json())
+    .then(data => {
+      stockDb = data.map(s => {
+        const product = productsDb.find(p => p.id === s.product_id);
+        return { ...s, product_name: product ? product.name : 'Unknown Product', product_sku: product ? product.sku : 'N/A', reorder_level: product ? product.reorder_level : 0 };
+      });
+    renderStock();
+    updateStockMetrics();
+  })
+  .catch(e => console.error('Error loading all stock:', e));
+}
+
+function renderStock() {
+  const tbody = document.getElementById('stock-tbody');
+  if (!stockDb.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No stock records found</td></tr>';
+    return;
+  }
+  tbody.innerHTML = stockDb.map(s => {
+    const statusText = s.quantity === 0 ? 'OUT OF STOCK' : s.quantity <= s.reorder_level ? 'LOW STOCK' : 'OK';
+    const statusClass = s.quantity === 0 ? 'status-out-of-stock' : s.quantity <= s.reorder_level ? 'status-low-stock' : 'status-ok';
+    return `
+      <tr>
+        <td><strong class="inventory-item-name">${escHtml(s.product_name)}</strong></td>
+        <td><span class="inventory-sku">${escHtml(s.sku)}</span></td>
+        <td>${escHtml(s.warehouse_name)}</td>
+        <td class="text-center"><span class="inventory-count">${s.quantity} units</span></td>
+        <td class="text-center"><span class="inventory-date">${s.reorder_level}</span></td>
+        <td class="text-center"><span class="inventory-status-pill ${statusClass}">${statusText}</span></td>
+        <td><button class="btn btn-edit btn-sm" onclick="adjustStock(${s.id})">Adjust</button></td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function filterStock() {
+  const q = document.getElementById('stock-search').value.toLowerCase().trim();
+  const filter = document.getElementById('stock-filter').value;
+  let filtered = stockDb.filter(s => 
+    (s.product_name + ' ' + s.sku + ' ' + s.warehouse_name).toLowerCase().includes(q)
+  );
+  if (filter === 'low') filtered = filtered.filter(s => s.quantity > 0 && s.quantity <= s.reorder_level);
+  if (filter === 'out') filtered = filtered.filter(s => s.quantity === 0);
+  
+  document.getElementById('stock-tbody').innerHTML = filtered.length ?
+    filtered.map(s => {
+      const statusText = s.quantity === 0 ? 'Out of Stock' : s.quantity <= s.reorder_level ? 'Low Stock' : 'OK';
+      const statusClass = s.quantity === 0 ? 'status-out-of-stock' : s.quantity <= s.reorder_level ? 'status-low-stock' : 'status-ok';
+      return `
+        <tr>
+          <td><strong class="inventory-item-name">${highlightText(s.product_name, q)}</strong></td>
+          <td><span class="inventory-sku">${highlightText(s.sku, q)}</span></td>
+          <td>${highlightText(s.warehouse_name, q)}</td>
+          <td><span class="inventory-count">${s.quantity} units</span></td>
+          <td><span class="inventory-reorder">${s.reorder_level} units</span></td>
+          <td><span class="inventory-status-pill ${statusClass}">${statusText}</span></td>
+          <td><button class="btn btn-edit btn-sm" onclick="adjustStock(${s.id})">Adjust</button></td>
+        </tr>
+      `;
+    }).join('') :
+    '<tr class="empty-row"><td colspan="7">No stock records match filters</td></tr>';
+}
+
+function updateStockMetrics() {
+  const setMetric = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  };
+
+  setMetric('metric-total-skus', productsDb.length);
+  setMetric('metric-low-stock', stockDb.filter(s => s.quantity > 0 && s.quantity <= s.reorder_level).length);
+  setMetric('metric-total-units', stockDb.reduce((sum, s) => sum + s.quantity, 0));
+  setMetric('metric-total-warehouses', warehousesDb.length);
+}
+
+function adjustStock(id) {
+  alert('Stock adjustment coming soon');
+}
+
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// MOVEMENTS
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+async function loadMovements() {
+  try {
+    const response = await fetch('/api/stock-movements');
+    movementsDb = await response.json();
+    renderMovements();
+    updateStockMetrics();
+  } catch (e) {
+    console.error('Error loading stock movements:', e);
+    document.getElementById('movements-tbody').innerHTML = '<tr class="empty-row"><td colspan="7">Error loading movements.</td></tr>';
+  }
+}
+
+function renderMovements(movementsToRender = movementsDb, q = '') {
+  const tbody = document.getElementById('movements-tbody');
+  if (!movementsToRender.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No stock movements found.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = movementsToRender.map(m => `
+    <tr>
+      <td><span class="inventory-date">${new Date(m.created_at).toLocaleString()}</span></td>
+      <td><strong class="inventory-item-name">${highlightText(m.product_name, q)}</strong> <span class="inventory-sku inventory-sku-inline">${highlightText(m.product_sku, q)}</span></td>
+      <td>${highlightText(m.warehouse_name, q)}</td>
+      <td class="text-center"><span class="inventory-type-pill type-${m.movement_type}">${highlightText(m.movement_type, q)}</span></td>
+      <td class="text-center"><span class="inventory-count">${m.quantity} units</span></td>
+      <td>${highlightText(m.reference_doc || '-', q)}</td>
+      <td>${highlightText(m.notes || '-', q)}</td>
+    </tr>
+  `).join('');
+}
+
+function filterMovements() {
+  const q = document.getElementById('movement-search')?.value?.toLowerCase().trim() || '';
+  const filter = document.getElementById('movement-filter').value;
+  let filtered = movementsDb.filter(m => {
+    const haystack = [m.product_name, m.product_sku, m.warehouse_name, m.reference_doc, m.notes, m.movement_type].join(' ').toLowerCase();
+    return !q || haystack.includes(q);
+  });
+  if (filter) filtered = filtered.filter(m => m.movement_type === filter);
+  renderMovements(filtered, q);
+}
+
+function openMovementModal() {
+  ['movement-product', 'movement-warehouse', 'movement-type', 'movement-qty', 'movement-reference', 'movement-notes'].forEach(id => {
+    let el = document.getElementById('f-' + id);
+    if (el) el.value = '';
+  });
+  const movementTitle = document.getElementById('movement-modal-title');
+  if (movementTitle) movementTitle.textContent = 'Log Stock Movement';
+  document.getElementById('movement-modal-backdrop').classList.add('open');
+}
+
+function closeMovementModal() {
+  document.getElementById('movement-modal-backdrop').classList.remove('open');
+}
+
+function saveMovement() {
+  const productId = document.getElementById('f-movement-product').value;
+  const warehouseId = document.getElementById('f-movement-warehouse').value;
+  const movementType = document.getElementById('f-movement-type').value;
+  const quantity = parseInt(document.getElementById('f-movement-qty').value);
+  
+  if (!productId || !warehouseId || !movementType || !quantity) {
+    alert('Product, Warehouse, Type, and Quantity are required');
+    return;
+  }
+  
+  const payload = {
+    product_id: productId,
+    warehouse_id: warehouseId,
+    movement_type: movementType,
+    quantity,
+    reference_doc: document.getElementById('f-movement-reference').value.trim(),
+    notes: document.getElementById('f-movement-notes').value.trim()
+  };
+  
+  fetch('/api/stock-movements', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  })
+  .then(r => r.json())
+  .then(() => {
+    closeMovementModal();
+    loadStock();
+    alert('Stock movement recorded successfully');
+  })
+  .catch(e => alert('Error: ' + e.message));
+}
+
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+// UTILITIES
+// â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+function escHtml(str) {
+  return (str ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function highlightText(value, query) {
+  const escaped = escHtml(value);
+  const tokens = String(query || '').trim().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return escaped;
+
+  const pattern = tokens
+    .sort((a, b) => b.length - a.length)
+    .map(token => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|');
+
+  return pattern ? escaped.replace(new RegExp(`(${pattern})`, 'gi'), '<mark>$1</mark>') : escaped;
+}
+</script>
+
+</body>
+</html>
+
+
