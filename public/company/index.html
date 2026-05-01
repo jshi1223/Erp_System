@@ -1,0 +1,274 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KVSK CCTV & IT Solution - Company Registry</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <script src="/assets/js/auth-guard.js?v=20260422"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260501w" />
+  <link rel="stylesheet" href="/company/company.css?v=20260501e" />
+
+</head>
+<body class="company-registry-page erp-clean-page">
+  <header>
+    <div class="header-left" style="display:flex; align-items:center; gap:15px;">
+      <button class="btn-icon sidebar-toggle-btn" type="button" onclick="toggleSidebar()" title="Menu" aria-label="Open menu">
+        <svg class="sidebar-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 7h16M4 12h16M4 17h16"></path>
+        </svg>
+      </button>
+      <button class="brand-link" type="button" onclick="window.location.href='/admin'" aria-label="Go to dashboard">
+        <div class="brand-lockup">
+          <img class="brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+          <div class="brand-copy">
+            <div class="header-logo">KVSK CCTV & IT Solution</div>
+          </div>
+        </div>
+      </button>
+    </div>
+    <div class="header-right">
+      <span class="admin-badge">Company Registry</span>
+      <button class="btn btn-logout btn-sm" onclick="doLogout()">Logout</button>
+    </div>
+  </header>
+
+  <!-- Sidebar Menu -->
+  <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-brand">
+        <img class="sidebar-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+        <div>
+          <div class="header-logo" style="font-size: 1rem;">KVSK CCTV</div>
+        </div>
+      </div>
+      <button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()">X</button>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="/admin" class="sidebar-link" id="menu-dashboard">Dashboard</a>
+      <a href="/admin?panel=reports" class="sidebar-link" id="menu-reports">Reports</a>
+      <a href="/company-registry" class="sidebar-link active" id="menu-company-registry">Company Registry</a>
+
+      <div class="sidebar-group" data-sidebar-group="projects">
+        <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+          <span>Projects</span>
+          <span class="sidebar-group-caret">â–¾</span>
+        </button>
+        <div class="sidebar-group-items">
+          <a href="/admin?panel=project-records" class="sidebar-link" id="menu-projects">Projects</a>
+          <a href="/admin?panel=service-orders" class="sidebar-link is-subitem" id="menu-service-orders">Service Orders</a>
+          <a href="/admin?view=ongoing-projects" class="sidebar-link is-subitem" id="menu-ongoing-projects">Ongoing Projects</a>
+        </div>
+      </div>
+
+      <div class="sidebar-group" data-sidebar-group="finance">
+        <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+          <span>Finance</span>
+          <span class="sidebar-group-caret">â–¾</span>
+        </button>
+        <div class="sidebar-group-items">
+          <a href="/accounts-payable" class="sidebar-link is-subitem">Accounts Payable</a>
+          <a href="/accounts-receivable" class="sidebar-link is-subitem">Accounts Receivable</a>
+          <a href="/procurement" class="sidebar-link is-subitem">Procurement</a>
+        </div>
+      </div>
+
+      <div class="sidebar-group" data-sidebar-group="inventory">
+        <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+          <span>Inventory</span>
+          <span class="sidebar-group-caret">â–¾</span>
+        </button>
+        <div class="sidebar-group-items">
+          <a href="/inventory" class="sidebar-link">Inventory</a>
+        </div>
+      </div>
+
+      <div class="sidebar-group" data-sidebar-group="admin">
+        <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+          <span>Admin</span>
+          <span class="sidebar-group-caret">â–¾</span>
+        </button>
+        <div class="sidebar-group-items">
+          <a href="/user-management" class="sidebar-link is-subitem" id="menu-users">User Management</a>
+          <a href="#" class="sidebar-link is-subitem" id="menu-logs" onclick="openLogsPanel()">System Logs</a>
+        </div>
+      </div>
+    </nav>
+  </div>
+
+  <main class="registry-shell">
+    <div class="company-toolbar">
+      <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-back-fallback="/admin?view=dashboard" onclick="window.location.href='/admin'">Back to Dashboard</button>
+      <div class="company-toolbar-row">
+        <div class="company-toolbar-left">
+          <div class="search-wrap">
+            <input id="company-search-input" type="text" placeholder="Search company no, name, or address..." oninput="renderCompanies()" />
+          </div>
+        </div>
+        <div class="company-toolbar-right">
+          <button class="btn btn-add btn-sm" type="button" onclick="openCompanyModal()">+ Add Company</button>
+          <div id="company-status-filter" class="company-switcher" role="tablist">
+            <button class="company-switch-chip is-active" type="button" data-value="active" onclick="setCompanyRegistryFilter('active')">Active</button>
+            <button class="company-switch-chip" type="button" data-value="archived" onclick="setCompanyRegistryFilter('archived')">Archived</button>
+            <button class="company-switch-chip" type="button" data-value="all" onclick="setCompanyRegistryFilter('all')">All</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <section class="company-summary" aria-label="Company registry summary">
+      <div class="summary-card">
+        <span class="summary-label">Total Companies</span>
+        <strong id="registry-total-companies">0</strong>
+      </div>
+      <div class="summary-card">
+        <span class="summary-label">Active</span>
+        <strong id="registry-active-companies">0</strong>
+      </div>
+      <div class="summary-card">
+        <span class="summary-label">Archived</span>
+        <strong id="registry-archived-companies">0</strong>
+      </div>
+    </section>
+
+    <div class="registry-status" id="erp-status"></div>
+
+    <section class="registry-panel">
+      <div class="registry-panel-head">
+        <h2>Company Registry</h2>
+        <p>Register, edit, archive, and restore company records.</p>
+      </div>
+
+      <div class="registry-table-wrap">
+        <table class="registry-table">
+          <thead>
+            <tr>
+              <th>Company No.</th>
+              <th>Company Name</th>
+              <th>Contact Person</th>
+              <th>Phone</th>
+              <th>Email</th>
+              <th>Address</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="companies-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <div class="modal-backdrop" id="company-modal-backdrop" aria-hidden="true">
+    <div class="modal modal-company">
+      <div class="modal-header modal-header-tight">
+        <div class="modal-title" id="company-modal-title">Register Company</div>
+        <button class="modal-close" type="button" onclick="closeCompanyModal()" aria-label="Close company modal">X</button>
+      </div>
+      <div class="modal-body">
+        <form id="company-form">
+          <div class="form-grid">
+            <div class="field">
+              <label>Company No.</label>
+              <input id="erp-company-no" type="text" placeholder="Auto-generated" readonly />
+            </div>
+            <div class="field">
+              <label>Company Name *</label>
+              <input id="erp-company-name" type="text" placeholder="Company or client name" />
+              <div class="modal-inline-message is-hidden" data-company-field-message="company_name" aria-live="polite"></div>
+            </div>
+            <div class="field full">
+              <label>Address</label>
+              <input id="erp-company-address" type="text" placeholder="Complete address" />
+            </div>
+            <div class="field">
+              <label>Contact Person</label>
+              <input id="erp-company-contact" type="text" placeholder="Primary contact" />
+            </div>
+            <div class="field">
+              <label>Phone</label>
+              <input id="erp-company-phone" type="text" placeholder="Contact number" />
+            </div>
+            <div class="field">
+              <label>Email</label>
+              <input id="erp-company-email" type="email" placeholder="Contact email" />
+            </div>
+            <div class="field">
+              <label>TIN</label>
+              <input id="erp-company-tin" type="text" placeholder="Tax identification number" />
+            </div>
+            <div class="field">
+              <label>Industry</label>
+              <input id="erp-company-industry" type="text" placeholder="Business type or industry" />
+            </div>
+            <div class="field">
+              <label>Status</label>
+              <select id="erp-company-status">
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </div>
+            <div class="field full">
+              <label>Notes</label>
+              <textarea id="erp-company-notes" rows="3" placeholder="Optional notes"></textarea>
+            </div>
+          </div>
+          <div class="company-relations-panel" id="company-relations-panel" aria-live="polite">
+            <div class="company-relations-head">
+              <div>
+                <div class="company-relations-title">Related Records</div>
+                <div class="company-relations-sub">Company-linked projects, service orders, transactions, purchase orders, vendors, and receivables.</div>
+              </div>
+              <span class="company-relations-badge" id="company-relations-state">Save a company to view linked records.</span>
+            </div>
+            <div class="company-relations-grid">
+              <div class="company-relation-card">
+                <span>Projects</span>
+                <strong id="company-relations-project-count">0</strong>
+              </div>
+              <div class="company-relation-card">
+                <span>Service Orders</span>
+                <strong id="company-relations-so-count">0</strong>
+              </div>
+              <div class="company-relation-card">
+                <span>Transactions</span>
+                <strong id="company-relations-transaction-count">0</strong>
+              </div>
+              <div class="company-relation-card">
+                <span>Purchase Orders</span>
+                <strong id="company-relations-po-count">0</strong>
+              </div>
+              <div class="company-relation-card">
+                <span>Vendors</span>
+                <strong id="company-relations-vendor-count">0</strong>
+              </div>
+              <div class="company-relation-card">
+                <span>Receivables</span>
+                <strong id="company-relations-ar-count">0</strong>
+              </div>
+            </div>
+            <div class="company-relations-list">
+              <div class="company-relations-list-title">Recent Projects</div>
+              <div class="company-relations-items" id="company-relations-projects"></div>
+            </div>
+            <div class="company-relations-list">
+              <div class="company-relations-list-title">Recent Service Orders</div>
+              <div class="company-relations-items" id="company-relations-service-orders"></div>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button class="btn btn-cancel btn-sm" type="button" onclick="closeCompanyModal()">Cancel</button>
+            <button class="btn btn-save btn-sm" type="submit" id="company-save-btn">Add to Registry</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script src="/assets/js/erp-core.js?v=20260501d"></script>
+  <script src="/company/company.js?v=20260501e"></script>
+</body>
+</html>
+

@@ -1,415 +1,18 @@
-﻿<!-- inventory.html - Inventory Management Module for ERP -->
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>KVSK CCTV & IT Solution - Inventory Overview</title>
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <script src="assets/js/auth-guard.js?v=20260422"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/admin-style.css?v=20260429" /> 
-</head>
-<body class="inventory-page">
-
-<!-- Header -->
-<header>
-  <div class="header-left" style="display:flex; align-items:center; gap:15px;">
-    <button class="btn-icon" onclick="toggleSidebar()" title="Menu" style="background:none; border:none; font-size:0.78rem; cursor:pointer; color:var(--primary); text-transform:uppercase; letter-spacing:0.08em;">Menu</button>
-    <button class="brand-link" type="button" onclick="goBackToDashboard()" aria-label="Go back to dashboard">
-      <div class="brand-lockup">
-      <img class="brand-mark" src="assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
-      <div class="brand-copy">
-      <div class="header-logo">KVSK CCTV & IT Solution</div>
-      <div class="header-sub">Inventory Operations</div>
-      </div>
-      </div>
-    </button>
-  </div>
-  <div class="header-right">
-    <span class="admin-badge">Inventory Operations</span>
-    <button class="btn btn-logout btn-sm" onclick="doLogout()">Logout</button>
-  </div>
-</header>
-
-<main>
-  <div class="section-topbar">
-    <button class="btn btn-cancel btn-sm section-back-btn" type="button" onclick="goBackToDashboard()">Back to Dashboard</button>
-  </div>
-
-  <div class="section-head" style="margin-top:0;">
-    <div>
-      <div class="section-title">Inventory Overview</div>
-      <div class="section-subtitle">Manage products, warehouses, stock levels, and movement records.</div>
-    </div>
-    <div class="section-head-actions">
-      <span class="admin-badge">Inventory Operations</span>
-    </div>
-  </div>
-
-  <div class="module-summary-grid" style="margin-top: 0;">
-    <div class="module-summary-card">
-      <span class="module-summary-label">Total Products</span>
-      <strong id="metric-total-skus" class="module-summary-value">0</strong>
-    </div>
-    <div class="module-summary-card">
-      <span class="module-summary-label">Low Stock Items</span>
-      <strong id="metric-low-stock" class="module-summary-value">0</strong>
-    </div>
-    <div class="module-summary-card">
-      <span class="module-summary-label">Total Units</span>
-      <strong id="metric-total-units" class="module-summary-value">0</strong>
-    </div>
-    <div class="module-summary-card">
-      <span class="module-summary-label">Warehouses</span>
-      <strong id="metric-total-warehouses" class="module-summary-value">0</strong>
-    </div>
-  </div>
-
-  <section class="inventory-hero">
-    <div class="inventory-hero-copy">
-      <span class="inventory-hero-kicker">Inventory Operations</span>
-      <h2>Cleaner stock control for products, warehouses, and movement tracking</h2>
-      <p>Use the catalog for master data, the stock view for health checks, and the movement log for audit trails.</p>
-    </div>
-    <div class="inventory-hero-actions">
-      <button class="btn btn-add btn-sm" type="button" onclick="openProductModal()">Add Product</button>
-      <button class="btn btn-add btn-sm" type="button" onclick="openWarehouseModal()">Add Warehouse</button>
-      <button class="btn btn-add btn-sm" type="button" onclick="openMovementModal()">Log Movement</button>
-    </div>
-  </section>
-
-  <!-- Navigation Tabs -->
-  <div class="nav-tabs">
-    <div class="nav-tab active" onclick="switchInventoryTab('products', this)">Product Catalog</div>
-    <div class="nav-tab" onclick="switchInventoryTab('warehouses', this)">Warehouses</div>
-    <div class="nav-tab" onclick="switchInventoryTab('stock', this)">Stock Levels</div>
-    <div class="nav-tab" onclick="switchInventoryTab('movements', this)">Movement Log</div>
-  </div>
-
-  <!-- PRODUCTS SECTION -->
-  <div id="products" class="content-section active">
-    <div class="toolbar">
-      <div class="search-wrap">
-        <span class="search-icon">Search</span>
-        <input id="product-search" type="text" placeholder="Search products or SKU..." oninput="filterProducts()" />
-      </div>
-      <button class="btn btn-add btn-sm" onclick="openProductModal()">New Product</button>
-    </div>
-
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>SKU</th>
-            <th>Product Name</th>
-            <th>Category</th>
-            <th>Unit Price</th>
-            <th>Total Stock</th>
-            <th>Reorder Level</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="products-tbody">
-          <tr class="empty-row"><td colspan="7">Loading products...</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- WAREHOUSES SECTION -->
-  <div id="warehouses" class="content-section">
-    <div class="toolbar">
-      <div class="search-wrap">
-        <span class="search-icon">Search</span>
-        <input id="warehouse-search" type="text" placeholder="Search warehouses or location..." oninput="filterWarehouses()" />
-      </div>
-      <button class="btn btn-add btn-sm" onclick="openWarehouseModal()">New Warehouse</button>
-    </div>
-
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Warehouse Name</th>
-            <th>Location</th>
-            <th>Created</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="warehouses-tbody">
-          <tr class="empty-row"><td colspan="4">Loading warehouses...</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- STOCK LEVELS SECTION -->
-  <div id="stock" class="content-section">
-    <div class="toolbar">
-      <div class="search-wrap">
-        <span class="search-icon">Search</span>
-        <input id="stock-search" type="text" placeholder="Search by product, SKU, or warehouse..." oninput="filterStock()" />
-      </div>
-      <select id="stock-filter" class="filter-select" onchange="filterStock()">
-        <option value="">All Items</option>
-        <option value="low">Low Stock</option>
-        <option value="out">Out of Stock</option>
-      </select>
-    </div>
-
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Product</th>
-            <th>SKU</th>
-            <th>Warehouse</th>
-            <th>Current Stock</th>
-            <th>Reorder Level</th>
-            <th>Status</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="stock-tbody">
-          <tr class="empty-row"><td colspan="7">Loading stock...</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- STOCK MOVEMENTS SECTION -->
-  <div id="movements" class="content-section">
-    <div class="toolbar">
-      <div class="search-wrap">
-        <span class="search-icon">Search</span>
-        <input id="movement-search" type="text" placeholder="Search movement, product, or notes..." oninput="filterMovements()" />
-      </div>
-      <button class="btn btn-add btn-sm" onclick="openMovementModal()">Log Movement</button>
-      <select id="movement-filter" class="filter-select" onchange="filterMovements()">
-        <option value="">All Movements</option>
-        <option value="inbound">Inbound</option>
-        <option value="outbound">Outbound</option>
-        <option value="adjustment">Adjustment</option>
-      </select>
-    </div>
-
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Product</th>
-            <th>Warehouse</th>
-            <th>Type</th>
-            <th>Quantity</th>
-            <th>Reference</th>
-            <th>Notes</th>
-          </tr>
-        </thead>
-        <tbody id="movements-tbody">
-          <tr class="empty-row"><td colspan="7">Loading movements...</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-</main>
-
-<footer>
-  &copy; 2025 KVSK CCTV & IT Solution | ERP System
-</footer>
-
-<!-- PRODUCT MODAL -->
-<div id="product-modal-backdrop" class="modal-backdrop">
-  <div class="modal">
-    <div class="modal-header">
-      <h3 id="product-modal-title">New Product</h3>
-      <button class="close-btn" onclick="closeProductModal()">X</button>
-    </div>
-    <div class="modal-body">
-      <div class="form-group">
-        <label>SKU *</label>
-        <input id="f-sku" type="text" placeholder="e.g., CCTV-DOME-001" />
-      </div>
-      <div class="form-group">
-        <label>Product Name *</label>
-        <input id="f-product-name" type="text" placeholder="e.g., Dome Camera 4MP" />
-      </div>
-      <div class="form-group">
-        <label>Category</label>
-        <input id="f-product-category" type="text" placeholder="e.g., Cameras, Cables" />
-      </div>
-      <div class="form-group">
-        <label>Unit Price *</label>
-        <input id="f-unit-price" type="number" step="0.01" placeholder="0.00" />
-      </div>
-      <div class="form-group">
-        <label>Reorder Level</label>
-        <input id="f-reorder-level" type="number" value="10" />
-      </div>
-      <div class="form-group">
-        <label>Description</label>
-        <textarea id="f-product-description" placeholder="Product details..." style="height:80px"></textarea>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="closeProductModal()">Cancel</button>
-      <button class="btn btn-primary" onclick="saveProduct()">Save Product</button>
-    </div>
-  </div>
-</div>
-
-<!-- WAREHOUSE MODAL -->
-<div id="warehouse-modal-backdrop" class="modal-backdrop">
-  <div class="modal">
-    <div class="modal-header">
-      <h3 id="warehouse-modal-title">New Warehouse</h3>
-      <button class="close-btn" onclick="closeWarehouseModal()">X</button>
-    </div>
-    <div class="modal-body">
-      <div class="form-group">
-        <label>Warehouse Name *</label>
-        <input id="f-warehouse-name" type="text" placeholder="e.g., Main Warehouse" />
-      </div>
-      <div class="form-group">
-        <label>Location</label>
-        <input id="f-warehouse-location" type="text" placeholder="e.g., Tanauan City, Batangas" />
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="closeWarehouseModal()">Cancel</button>
-      <button class="btn btn-primary" onclick="saveWarehouse()">Save Warehouse</button>
-    </div>
-  </div>
-</div>
-
-<!-- MOVEMENT MODAL -->
-<div id="movement-modal-backdrop" class="modal-backdrop">
-  <div class="modal">
-    <div class="modal-header">
-      <h3 id="movement-modal-title">Log Stock Movement</h3>
-      <button class="close-btn" onclick="closeMovementModal()">X</button>
-    </div>
-    <div class="modal-body">
-      <div class="form-group">
-        <label>Product *</label>
-        <select id="f-movement-product" required></select>
-      </div>
-      <div class="form-group">
-        <label>Warehouse *</label>
-        <select id="f-movement-warehouse" required></select>
-      </div>
-      <div class="form-group">
-        <label>Movement Type *</label>
-        <select id="f-movement-type" required>
-          <option value="">Select type</option>
-          <option value="inbound">Inbound (Stock In)</option>
-          <option value="outbound">Outbound (Stock Out)</option>
-          <option value="adjustment">Adjustment</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Quantity *</label>
-        <input id="f-movement-qty" type="number" min="1" required />
-      </div>
-      <div class="form-group">
-        <label>Reference Number</label>
-        <input id="f-movement-reference" type="text" placeholder="e.g., PO-001, Invoice-123" />
-      </div>
-      <div class="form-group">
-        <label>Notes</label>
-        <textarea id="f-movement-notes" placeholder="Additional notes..." style="height:60px"></textarea>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="closeMovementModal()">Cancel</button>
-      <button class="btn btn-primary" onclick="saveMovement()">Log Movement</button>
-    </div>
-  </div>
-</div>
-
-<!-- Sidebar Menu -->
-<div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
-<div class="sidebar" id="sidebar">
-  <div class="sidebar-header">
-    <div class="sidebar-brand">
-      <img class="sidebar-brand-mark" src="assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
-      <div>
-        <div class="header-logo" style="font-size: 1rem;">KVSK CCTV</div>
-        <div class="header-sub">Operations Control Panel</div>
-      </div>
-    </div>
-    <button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()">X</button>
-  </div>
-  <nav class="sidebar-nav">
-    <a href="/admin?view=dashboard" class="sidebar-link">Dashboard</a>
-
-    <div class="sidebar-group" data-sidebar-group="projects">
-      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
-        <span>Projects</span>
-        <span class="sidebar-group-caret">▾</span>
-      </button>
-      <div class="sidebar-group-items">
-        <a href="/admin?view=all" class="sidebar-link is-subitem">Total Projects</a>
-        <a href="/admin?view=ongoing-projects" class="sidebar-link is-subitem" id="menu-ongoing-projects">Ongoing Projects</a>
-        <a href="/company-registry" class="sidebar-link is-subitem">Company Registry</a>
-      </div>
-    </div>
-
-    <div class="sidebar-group" data-sidebar-group="finance">
-      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
-        <span>Finance</span>
-        <span class="sidebar-group-caret">▾</span>
-      </button>
-      <div class="sidebar-group-items">
-        <a href="/accounts-payable" class="sidebar-link is-subitem">Accounts Payable</a>
-        <a href="/accounts-receivable" class="sidebar-link is-subitem">Accounts Receivable</a>
-        <a href="/procurement" class="sidebar-link is-subitem">Procurement</a>
-      </div>
-    </div>
-
-    <div class="sidebar-group" data-sidebar-group="inventory">
-      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
-        <span>Inventory</span>
-        <span class="sidebar-group-caret">▾</span>
-      </button>
-      <div class="sidebar-group-items">
-        <a href="/inventory" class="sidebar-link active">Inventory</a>
-      </div>
-    </div>
-
-    <div class="sidebar-group" data-sidebar-group="admin" data-sidebar-default-collapsed="1">
-      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
-        <span>Admin</span>
-        <span class="sidebar-group-caret">▾</span>
-      </button>
-      <div class="sidebar-group-items">
-        <a href="/user-management" class="sidebar-link is-subitem" id="menu-users">User Management</a>
-        <a href="/admin?view=logs" class="sidebar-link is-subitem" id="menu-logs">System Logs</a>
-      </div>
-    </div>
-
-    <div class="sidebar-group" data-sidebar-group="archived" data-sidebar-default-collapsed="1">
-      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
-        <span>Archived</span>
-        <span class="sidebar-group-caret">▾</span>
-      </button>
-      <div class="sidebar-group-items">
-        <a href="/admin?view=archived" class="sidebar-link">Archived Records</a>
-      </div>
-    </div>
-  </nav>
-</div>
-
-<script src="assets/js/app.js?v=20260432"></script>
-<script>
-let productsDb = [];
+﻿let productsDb = [];
 let warehousesDb = [];
 let stockDb = [];
 let movementsDb = [];
+const inventoryToolbarState = {
+  products: { search: '' },
+  warehouses: { search: '' },
+  stock: { search: '', filter: '' },
+  movements: { search: '', filter: '' }
+};
+let activeInventoryTab = 'products';
 
 // Load all data on startup
 document.addEventListener('DOMContentLoaded', () => {
+  renderInventoryToolbarControls(activeInventoryTab);
   restoreInventoryTab();
   loadProducts();
   loadWarehouses(); // This will also update product selectors for movements
@@ -425,22 +28,108 @@ function goBackToDashboard() {
   window.location.href = '/admin?view=dashboard';
 }
 
+function getMovementSourceLabel(value) {
+  const normalized = String(value || 'manual').trim().toLowerCase();
+  const labels = {
+    manual: 'Manual',
+    purchase_requisition: 'Purchase Requisition',
+    purchase_order: 'Purchase Order',
+    goods_receipt: 'Goods Receipt',
+    transaction: 'Transaction'
+  };
+  return labels[normalized] || 'Manual';
+}
+
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // TAB NAVIGATION
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 function switchInventoryTab(tab, btn) {
-  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  captureInventoryToolbarState(activeInventoryTab);
+  document.querySelectorAll('.module-tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
   if (btn) btn.classList.add('active');
   document.getElementById(tab).classList.add('active');
+  activeInventoryTab = tab;
+  renderInventoryToolbarControls(tab);
+  if (tab === 'products') filterProducts();
+  if (tab === 'warehouses') filterWarehouses();
+  if (tab === 'stock') filterStock();
+  if (tab === 'movements') filterMovements();
   localStorage.setItem('kinaadman_inventoryTab', tab);
+}
+
+function captureInventoryToolbarState(tab) {
+  if (!inventoryToolbarState[tab]) return;
+  inventoryToolbarState[tab].search = document.getElementById('inventory-search-input')?.value || '';
+  if (tab === 'stock' || tab === 'movements') {
+    inventoryToolbarState[tab].filter = document.getElementById('inventory-filter-select')?.value || '';
+  }
+}
+
+function renderInventoryToolbarControls(tab) {
+  const actions = document.getElementById('inventory-toolbar-actions');
+  if (!actions) return;
+
+  const state = inventoryToolbarState[tab] || {};
+
+  if (tab === 'products') {
+    actions.innerHTML = `
+      <div class="search-wrap top-search-bar module-toolbar-search">
+        <input id="inventory-search-input" type="text" placeholder="Search products or SKU..." value="${escHtml(state.search || '')}" oninput="filterProducts()" />
+      </div>
+      <button class="btn btn-add btn-sm" type="button" onclick="openProductModal()">Add Product</button>
+    `;
+    return;
+  }
+
+  if (tab === 'warehouses') {
+    actions.innerHTML = `
+      <div class="search-wrap top-search-bar module-toolbar-search">
+        <input id="inventory-search-input" type="text" placeholder="Search warehouses or location..." value="${escHtml(state.search || '')}" oninput="filterWarehouses()" />
+      </div>
+      <button class="btn btn-add btn-sm" type="button" onclick="openWarehouseModal()">Add Warehouse</button>
+    `;
+    return;
+  }
+
+  if (tab === 'stock') {
+    actions.innerHTML = `
+      <div class="search-wrap top-search-bar module-toolbar-search">
+        <input id="inventory-search-input" type="text" placeholder="Search by product, SKU, or warehouse..." value="${escHtml(state.search || '')}" oninput="filterStock()" />
+      </div>
+      <select id="inventory-filter-select" class="filter-select" onchange="filterStock()">
+        <option value="">All Items</option>
+        <option value="low" ${state.filter === 'low' ? 'selected' : ''}>Low Stock</option>
+        <option value="out" ${state.filter === 'out' ? 'selected' : ''}>Out of Stock</option>
+      </select>
+    `;
+    return;
+  }
+
+  if (tab === 'movements') {
+    actions.innerHTML = `
+      <div class="search-wrap top-search-bar module-toolbar-search">
+        <input id="inventory-search-input" type="text" placeholder="Search movement, product, or notes..." value="${escHtml(state.search || '')}" oninput="filterMovements()" />
+      </div>
+      <button class="btn btn-add btn-sm" type="button" onclick="openMovementModal()">Add Movement</button>
+      <select id="inventory-filter-select" class="filter-select" onchange="filterMovements()">
+        <option value="">All Movements</option>
+        <option value="inbound" ${state.filter === 'inbound' ? 'selected' : ''}>Inbound</option>
+        <option value="outbound" ${state.filter === 'outbound' ? 'selected' : ''}>Outbound</option>
+        <option value="adjustment" ${state.filter === 'adjustment' ? 'selected' : ''}>Adjustment</option>
+      </select>
+    `;
+    return;
+  }
+
+  actions.innerHTML = '';
 }
 
 function restoreInventoryTab() {
   const savedTab = localStorage.getItem('kinaadman_inventoryTab');
   if (!savedTab || !document.getElementById(savedTab)) return;
 
-  const matchingTab = Array.from(document.querySelectorAll('.nav-tab')).find(tabEl =>
+  const matchingTab = Array.from(document.querySelectorAll('.module-tab')).find(tabEl =>
     String(tabEl.getAttribute('onclick') || '').includes(`switchInventoryTab('${savedTab}'`)
   );
 
@@ -464,8 +153,8 @@ function loadProducts() {
       p.total_stock = stockData.filter(s => s.product_id === p.id).reduce((sum, s) => sum + s.quantity, 0);
       return p;
     });
-    renderProducts(productsDb);
     updateProductSelects(); // Update product selectors for movements
+    filterProducts();
   })
   .catch(e => console.error('Error loading products or stock:', e));
 }
@@ -490,7 +179,7 @@ function renderProducts(productsToRender = productsDb) {
 }
 
 function filterProducts() {
-  const q = document.getElementById('product-search').value.toLowerCase().trim();
+  const q = document.getElementById('inventory-search-input')?.value.toLowerCase().trim() || '';
   const filtered = productsDb.filter(p => 
     (p.sku + ' ' + p.name + ' ' + (p.category || '-')).toLowerCase().includes(q)
   );
@@ -568,11 +257,11 @@ function editProduct(id) {
 function loadWarehouses() {
   fetch('/api/warehouses')
     .then(r => r.json())
-    .then(data => {
+  .then(data => {
       warehousesDb = data;
-      renderWarehouses();
       updateWarehouseSelects();
       updateStockMetrics();
+      filterWarehouses();
     })
     .catch(e => console.error('Error loading warehouses:', e));
 }
@@ -594,7 +283,7 @@ function renderWarehouses() {
 }
 
 function filterWarehouses() {
-  const q = document.getElementById('warehouse-search').value.toLowerCase().trim();
+  const q = document.getElementById('inventory-search-input')?.value.toLowerCase().trim() || '';
   const filtered = warehousesDb.filter(w => 
     (w.name + ' ' + (w.location || '-')).toLowerCase().includes(q)
   );
@@ -666,11 +355,11 @@ function loadStock() {
   fetch('/api/stock') // This endpoint needs to be created in server.js
     .then(r => r.json())
     .then(data => {
-      stockDb = data.map(s => {
+    stockDb = data.map(s => {
         const product = productsDb.find(p => p.id === s.product_id);
         return { ...s, product_name: product ? product.name : 'Unknown Product', product_sku: product ? product.sku : 'N/A', reorder_level: product ? product.reorder_level : 0 };
       });
-    renderStock();
+    filterStock();
     updateStockMetrics();
   })
   .catch(e => console.error('Error loading all stock:', e));
@@ -700,8 +389,8 @@ function renderStock() {
 }
 
 function filterStock() {
-  const q = document.getElementById('stock-search').value.toLowerCase().trim();
-  const filter = document.getElementById('stock-filter').value;
+  const q = document.getElementById('inventory-search-input')?.value.toLowerCase().trim() || '';
+  const filter = document.getElementById('inventory-filter-select')?.value || '';
   let filtered = stockDb.filter(s => 
     (s.product_name + ' ' + s.sku + ' ' + s.warehouse_name).toLowerCase().includes(q)
   );
@@ -750,7 +439,7 @@ async function loadMovements() {
   try {
     const response = await fetch('/api/stock-movements');
     movementsDb = await response.json();
-    renderMovements();
+    filterMovements();
     updateStockMetrics();
   } catch (e) {
     console.error('Error loading stock movements:', e);
@@ -771,17 +460,20 @@ function renderMovements(movementsToRender = movementsDb, q = '') {
       <td>${highlightText(m.warehouse_name, q)}</td>
       <td class="text-center"><span class="inventory-type-pill type-${m.movement_type}">${highlightText(m.movement_type, q)}</span></td>
       <td class="text-center"><span class="inventory-count">${m.quantity} units</span></td>
-      <td>${highlightText(m.reference_doc || '-', q)}</td>
+      <td>
+        <div class="inventory-source-label" style="font-size:0.72rem; font-weight:600; margin-bottom:2px;">${escHtml(getMovementSourceLabel(m.source_type))}</div>
+        <div class="inventory-source-ref">${highlightText(m.reference_doc || m.transaction_docno || '-', q)}</div>
+      </td>
       <td>${highlightText(m.notes || '-', q)}</td>
     </tr>
   `).join('');
 }
 
 function filterMovements() {
-  const q = document.getElementById('movement-search')?.value?.toLowerCase().trim() || '';
-  const filter = document.getElementById('movement-filter').value;
+  const q = document.getElementById('inventory-search-input')?.value.toLowerCase().trim() || '';
+  const filter = document.getElementById('inventory-filter-select')?.value || '';
   let filtered = movementsDb.filter(m => {
-    const haystack = [m.product_name, m.product_sku, m.warehouse_name, m.reference_doc, m.notes, m.movement_type].join(' ').toLowerCase();
+    const haystack = [m.product_name, m.product_sku, m.warehouse_name, m.reference_doc, m.transaction_docno, m.notes, m.movement_type, m.source_type].join(' ').toLowerCase();
     return !q || haystack.includes(q);
   });
   if (filter) filtered = filtered.filter(m => m.movement_type === filter);
@@ -793,6 +485,8 @@ function openMovementModal() {
     let el = document.getElementById('f-' + id);
     if (el) el.value = '';
   });
+  const sourceType = document.getElementById('f-movement-source-type');
+  if (sourceType) sourceType.value = 'manual';
   const movementTitle = document.getElementById('movement-modal-title');
   if (movementTitle) movementTitle.textContent = 'Log Stock Movement';
   document.getElementById('movement-modal-backdrop').classList.add('open');
@@ -807,9 +501,15 @@ function saveMovement() {
   const warehouseId = document.getElementById('f-movement-warehouse').value;
   const movementType = document.getElementById('f-movement-type').value;
   const quantity = parseInt(document.getElementById('f-movement-qty').value);
+  const sourceType = document.getElementById('f-movement-source-type').value || 'manual';
+  const sourceReference = document.getElementById('f-movement-reference').value.trim();
   
   if (!productId || !warehouseId || !movementType || !quantity) {
     alert('Product, Warehouse, Type, and Quantity are required');
+    return;
+  }
+  if (sourceType !== 'manual' && !sourceReference) {
+    alert('Source Reference is required when a procurement source is selected.');
     return;
   }
   
@@ -818,7 +518,8 @@ function saveMovement() {
     warehouse_id: warehouseId,
     movement_type: movementType,
     quantity,
-    reference_doc: document.getElementById('f-movement-reference').value.trim(),
+    source_type: sourceType,
+    reference_doc: sourceReference,
     notes: document.getElementById('f-movement-notes').value.trim()
   };
   
@@ -855,9 +556,4 @@ function highlightText(value, query) {
 
   return pattern ? escaped.replace(new RegExp(`(${pattern})`, 'gi'), '<mark>$1</mark>') : escaped;
 }
-</script>
-
-</body>
-</html>
-
 

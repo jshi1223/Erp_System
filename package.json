@@ -2,10 +2,11 @@
   "name": "kvsk",
   "version": "1.0.0",
   "description": "",
-  "main": "app.js",
+  "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
+    "test": "node test/run-tests.js",
+    "start": "node server.js",
+    "backup": "powershell -ExecutionPolicy Bypass -File scripts/backup-production.ps1"
   },
   "keywords": [],
   "author": "",

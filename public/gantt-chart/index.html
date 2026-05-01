@@ -1,0 +1,376 @@
+﻿<!-- gantt-chart.html - Project Timeline & Cost Planning Module -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KVSK CCTV & IT Solution - Gantt Chart</title>
+  <script src="/assets/js/auth-guard.js?v=20260422"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260501w" />
+  <link rel="stylesheet" href="/gantt-chart/gantt-chart.css?v=20260501c" />
+
+  
+</head>
+<body class="erp-clean-page">
+
+<!-- Header -->
+<header>
+  <div class="header-left" style="display:flex; align-items:center; gap:15px;">
+    <button class="btn-icon sidebar-toggle-btn" type="button" onclick="toggleSidebar()" title="Menu" aria-label="Open menu">
+      <svg class="sidebar-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 7h16M4 12h16M4 17h16"></path>
+      </svg>
+    </button>
+    <button class="brand-link" type="button" onclick="goBackToDashboard()" aria-label="Go back to dashboard">
+      <div class="brand-lockup">
+      <img class="brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <div class="brand-copy">
+      <div class="header-logo">KVSK CCTV & IT Solution</div>
+      </div>
+      </div>
+    </button>
+  </div>
+  <div class="header-right">
+    <span class="admin-badge">Project Planning</span>
+    <button class="btn btn-logout btn-sm" onclick="doLogout()">Logout</button>
+  </div>
+</header>
+
+<main>
+  <div class="page-title">Project Timeline</div>
+  <div class="page-sub"></div>
+  <div class="module-page-toolbar gantt-page-toolbar">
+    <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-back-fallback="/admin?view=dashboard" onclick="goBackToDashboard()">Back to Dashboard</button>
+    <div class="module-page-toolbar-actions" id="gantt-toolbar-actions"></div>
+  </div>
+
+  <!-- Navigation Tabs -->
+  <div class="module-tabs">
+    <div class="module-tab active" onclick="switchTab('projects', this)">Projects</div>
+    <div class="module-tab" onclick="switchTab('calendar', this)">Calendar</div>
+    <div class="module-tab" onclick="switchTab('gantt', this)">Gantt Chart</div>
+    <div class="module-tab" onclick="switchTab('costs', this)">Costs</div>
+  </div>
+
+  <!-- PROJECTS SECTION -->
+  <div id="projects" class="content-section active">
+    <div class="projects-grid" id="projects-grid">
+      <div style="grid-column:1/-1;text-align:center;padding:2rem;color:var(--text-muted)"></div>
+    </div>
+  </div>
+
+  <!-- CALENDAR SECTION -->
+  <div id="calendar" class="content-section">
+    <div class="calendar-shell">
+      <div class="calendar-toolbar">
+        <div>
+          <div class="calendar-month" id="calendar-month-label">Month Year</div>
+          <div class="page-sub" style="margin-top:0.2rem">Project schedule overview in calendar form</div>
+        </div>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap">
+          <button class="btn btn-sm" onclick="changeCalendarMonth(-1)">Previous</button>
+          <button class="btn btn-sm" onclick="jumpToCurrentMonth()">Today</button>
+          <button class="btn btn-sm" onclick="changeCalendarMonth(1)">Next</button>
+        </div>
+      </div>
+
+      <div class="calendar-grid" id="calendar-weekdays">
+        <div class="calendar-weekday">Sun</div>
+        <div class="calendar-weekday">Mon</div>
+        <div class="calendar-weekday">Tue</div>
+        <div class="calendar-weekday">Wed</div>
+        <div class="calendar-weekday">Thu</div>
+        <div class="calendar-weekday">Fri</div>
+        <div class="calendar-weekday">Sat</div>
+      </div>
+      <div class="calendar-grid" id="projects-calendar"></div>
+      <div class="calendar-legend">
+        <span>Active project day</span>
+        <span class="legend-ending">Project ending soon</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- GANTT CHART SECTION -->
+  <div id="gantt" class="content-section">
+    <div id="gantt-info" style="display:none">
+      <div class="gantt-container">
+        <div class="gantt-header">
+          <div class="gantt-labels">Task Name</div>
+          <div class="gantt-labels">Timeline (Start to End)</div>
+        </div>
+        <div id="gantt-tasks"></div>
+      </div>
+
+    </div>
+
+    <div id="gantt-placeholder" style="text-align:center;padding:2rem;color:var(--text-muted)">
+      Select a project
+    </div>
+  </div>
+
+  <!-- COST ANALYSIS SECTION -->
+  <div id="costs" class="content-section">
+    <div id="cost-info" style="display:none">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Cost Category</th>
+              <th>Planned Amount</th>
+              <th>Actual Amount</th>
+              <th>Variance</th>
+              <th>% Variance</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="costs-tbody">
+          
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="cost-placeholder" style="text-align:center;padding:2rem;color:var(--text-muted)">
+      Select a project
+    </div>
+  </div>
+</main>
+
+<footer>
+  &copy; 2025 KVSK CCTV & IT Solution | ERP System
+</footer>
+
+<!-- PROJECT MODAL -->
+<div id="project-modal-backdrop" class="modal-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>New Project</h3>
+      <button class="close-btn" onclick="closeProjectModal()">X</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Project Name *</label>
+        <input id="f-project-name" type="text" placeholder="Project name" />
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <textarea id="f-project-description" placeholder="Project details..." style="height:60px"></textarea>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+        <div class="form-group">
+          <label>Start Date *</label>
+          <input id="f-project-start" type="date" />
+        </div>
+        <div class="form-group">
+          <label>End Date *</label>
+          <input id="f-project-end" type="date" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Project Manager</label>
+        <input id="f-project-manager" type="text" placeholder="Assigned manager" />
+      </div>
+      <div class="form-group">
+        <label>Budget *</label>
+        <input id="f-project-budget" type="number" step="0.01" placeholder="0.00" />
+      </div>
+      <div class="form-group">
+        <label>Members</label>
+        <textarea id="f-project-members" placeholder="Assigned members..." style="height:60px"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeProjectModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveProject()">Save Project</button>
+    </div>
+  </div>
+</div>
+
+<!-- TASK MODAL -->
+<div id="task-modal-backdrop" class="modal-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Add Task</h3>
+      <button class="close-btn" onclick="closeTaskModal()">X</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Task Name *</label>
+        <input id="f-task-name" type="text" placeholder="Task name" />
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <textarea id="f-task-description" placeholder="Task details..." style="height:60px"></textarea>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+        <div class="form-group">
+          <label>Start Date *</label>
+          <input id="f-task-start" type="date" />
+        </div>
+        <div class="form-group">
+          <label>End Date *</label>
+          <input id="f-task-end" type="date" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Assigned To</label>
+        <input id="f-task-assigned" type="text" placeholder="Team member" />
+      </div>
+      <div class="form-group">
+        <label>Planned Cost</label>
+        <input id="f-task-plan-cost" type="number" step="0.01" placeholder="0.00" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeTaskModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveTask()">Save Task</button>
+    </div>
+  </div>
+</div>
+
+<!-- QUICK TASK MODAL -->
+<div id="quick-task-modal-backdrop" class="modal-backdrop">
+  <div class="modal modal-narrow">
+    <div class="modal-header">
+      <div class="modal-title" id="quick-task-title" style="margin-bottom:0">Update Task</div>
+      <button class="close-btn" onclick="closeQuickTaskModal()">X</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Progress</label>
+        <input id="q-task-progress" type="range" min="0" max="100" value="0" oninput="document.getElementById('q-progress-val').textContent = this.value + '%'" />
+        <div id="q-progress-val" style="margin-top:0.5rem;font-size:0.85rem;color:var(--text-muted)">0%</div>
+      </div>
+      <div class="form-group">
+        <label>Status</label>
+        <select id="q-task-status">
+          <option value="pending">Pending</option>
+          <option value="in_progress">In Progress</option>
+          <option value="completed">Completed</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeQuickTaskModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveQuickTask()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- COST MODAL -->
+<div id="cost-modal-backdrop" class="modal-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Record Project Cost</h3>
+      <button class="close-btn" onclick="closeCostModal()">X</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Cost Category *</label>
+        <input id="f-cost-category" type="text" placeholder="e.g., Labor, Materials, Equipment" />
+      </div>
+      <div class="form-group">
+        <label>Cost Date</label>
+        <input id="f-cost-date" type="date" />
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem">
+        <div class="form-group">
+          <label>Planned Amount *</label>
+          <input id="f-plan-amount" type="number" step="0.01" placeholder="0.00" />
+        </div>
+        <div class="form-group">
+          <label>Actual Amount</label>
+          <input id="f-actual-amount" type="number" step="0.01" placeholder="0.00" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Notes</label>
+        <textarea id="f-cost-notes" placeholder="Cost details..." style="height:50px"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeCostModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveCost()">Record Cost</button>
+    </div>
+  </div>
+</div>
+
+<!-- Sidebar Menu -->
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+      <div class="sidebar-brand">
+        <img class="sidebar-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+        <div>
+          <div class="header-logo" style="font-size: 1rem;">KVSK CCTV</div>
+        </div>
+      </div>
+    <button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()">X</button>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/admin?view=dashboard" class="sidebar-link">Dashboard</a>
+
+    <div class="sidebar-group" data-sidebar-group="projects">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Projects</span>
+        <span class="sidebar-group-caret">?</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/admin?view=all" class="sidebar-link is-subitem">Total Projects</a>
+        <a href="/admin?view=ongoing-projects" class="sidebar-link is-subitem" id="menu-ongoing-projects">Ongoing Projects</a>
+        <a href="/company-registry" class="sidebar-link is-subitem">Company Registry</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="finance">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Finance</span>
+        <span class="sidebar-group-caret">?</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/accounts-payable" class="sidebar-link is-subitem">Accounts Payable</a>
+        <a href="/accounts-receivable" class="sidebar-link is-subitem">Accounts Receivable</a>
+        <a href="/procurement" class="sidebar-link is-subitem">Procurement</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="inventory" data-sidebar-default-collapsed="1">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+        <span>Inventory</span>
+        <span class="sidebar-group-caret">?</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/inventory" class="sidebar-link">Inventory</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="admin" data-sidebar-default-collapsed="1">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+        <span>Admin</span>
+        <span class="sidebar-group-caret">?</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/user-management" class="sidebar-link is-subitem" id="menu-users">User Management</a>
+        <a href="/admin?view=logs" class="sidebar-link is-subitem" id="menu-logs">System Logs</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="archived" data-sidebar-default-collapsed="1">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+        <span>Archived</span>
+        <span class="sidebar-group-caret">?</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/admin?view=archived" class="sidebar-link">Archived Records</a>
+      </div>
+    </div>
+  </nav>
+</div>
+
+<script src="/assets/js/erp-core.js?v=20260501d"></script>
+<script src="/gantt-chart/gantt-chart.js?v=20260501b"></script>
+</body>
+</html>
+

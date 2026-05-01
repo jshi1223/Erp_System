@@ -1,76 +1,28 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KVSK CCTV & IT Solution - Procurement</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <script src="assets/js/auth-guard.js?v=20260423"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/admin-style.css?v=20260429" />
-  <style>
-    .status-chip {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 24px;
-      padding: 4px 10px;
-      border-radius: 999px;
-      border: 1px solid transparent;
-      font-size: 0.62rem;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      white-space: nowrap;
-    }
-    .status-draft { color:#475569; background:#e2e8f0; border-color:#cbd5e1; }
-    .status-submitted { color:#854d0e; background:#fef3c7; border-color:#fcd34d; }
-    .status-approved { color:#166534; background:#dcfce7; border-color:#86efac; }
-    .status-ordered { color:#1d4ed8; background:#dbeafe; border-color:#93c5fd; }
-    .status-received { color:#0f766e; background:#ccfbf1; border-color:#5eead4; }
-    .status-cancelled { color:#991b1b; background:#fee2e2; border-color:#fca5a5; }
-    .status-rejected { color:#991b1b; background:#fee2e2; border-color:#fca5a5; }
-    .proc-summary { margin-bottom: 18px; }
-    .proc-toolbar { display:flex; flex-wrap:wrap; gap:12px; justify-content:space-between; align-items:center; }
-    .proc-search {
-      min-width: 280px;
-      flex: 1;
-      border: 1.5px solid var(--primary);
-      border-radius: var(--radius);
-      overflow: hidden;
-      background: white;
-    }
-    .proc-search input {
-      width: 100%;
-      border: none;
-      background: transparent;
-      padding: 8px 12px;
-      font-size: 0.85rem;
-    }
-    .proc-help {
-      font-size: 0.72rem;
-      color: var(--muted);
-      margin-top: 6px;
-    }
-    .modal-grid-compact {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
-    }
-    .modal-grid-compact .field.full { grid-column: 1 / -1; }
-    @media (max-width: 860px) {
-      .modal-grid-compact { grid-template-columns: 1fr; }
-      .proc-search { min-width: 0; }
-    }
-  </style>
+  <script src="/assets/js/auth-guard.js?v=20260423"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260501w" />
+  <link rel="stylesheet" href="/procurement/procurement.css?v=20260501g" />
+
+  
 </head>
-<body>
+<body class="erp-clean-page">
   <header>
     <div class="header-left" style="display:flex; align-items:center; gap:15px;">
-      <button class="btn-icon" onclick="toggleSidebar()" title="Menu" style="background:none; border:none; font-size:0.78rem; cursor:pointer; color:var(--primary); text-transform:uppercase; letter-spacing:0.08em;">Menu</button>
+      <button class="btn-icon sidebar-toggle-btn" type="button" onclick="toggleSidebar()" title="Menu" aria-label="Open menu">
+        <svg class="sidebar-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 7h16M4 12h16M4 17h16"></path>
+        </svg>
+      </button>
       <button class="brand-link" type="button" onclick="window.location.href='/admin?view=dashboard'" aria-label="Go back to dashboard">
         <div class="brand-lockup">
-          <img class="brand-mark" src="assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+          <img class="brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
           <div class="brand-copy">
             <div class="header-logo">KVSK CCTV & IT Solution</div>
             <div class="header-sub">Procurement</div>
@@ -95,11 +47,11 @@
             </div>
             <div class="notifications-panel-actions">
               <button class="notifications-mark" type="button" onclick="markNotificationsAsRead(); loadNotifications();">Mark as read</button>
-              <button class="notifications-close" type="button" onclick="toggleNotificationsPanel(false)">×</button>
+              <button class="notifications-close" type="button" onclick="toggleNotificationsPanel(false)">Ã—</button>
             </div>
           </div>
           <div class="notifications-list" id="notifications-list">
-            <div class="notifications-empty">Loading notifications...</div>
+            
           </div>
         </div>
       </div>
@@ -108,17 +60,22 @@
   </header>
 
   <main id="procurement-page">
-    <div class="page-hero">
-      <div class="page-hero-copy" style="max-width:none;">
-        <div class="page-title">Procurement Management</div>
-        <div class="page-sub">Handle requisitions, purchase orders, and goods receipts in one clean flow.</div>
-      </div>
+  <div class="page-hero">
+    <div class="page-hero-copy" style="max-width:none;">
+      <div class="page-title">Procurement Management</div>
+      <div class="page-sub">Handle requisitions, purchase orders, and goods receipts in one clean flow.</div>
     </div>
+  </div>
 
-    <div class="module-summary-grid proc-summary">
-      <div class="module-summary-card">
-        <span class="module-summary-label">Requisitions</span>
-        <div class="module-summary-value" id="metric-pr-count">0</div>
+  <div class="module-page-toolbar">
+    <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-back-fallback="/admin?view=dashboard" onclick="window.location.href='/admin?view=dashboard'">Back to Dashboard</button>
+    <div class="module-page-toolbar-actions" id="procurement-toolbar-actions"></div>
+  </div>
+
+  <div class="module-summary-grid proc-summary">
+    <div class="module-summary-card">
+      <span class="module-summary-label">Requisitions</span>
+      <div class="module-summary-value" id="metric-pr-count">0</div>
       </div>
       <div class="module-summary-card">
         <span class="module-summary-label">Purchase Orders</span>
@@ -130,36 +87,31 @@
       </div>
       <div class="module-summary-card">
         <span class="module-summary-label">Total Commitments</span>
-        <div class="module-summary-value" id="metric-total-commitment">PHP 0.00</div>
-      </div>
+      <div class="module-summary-value" id="metric-total-commitment">PHP 0.00</div>
     </div>
+  </div>
 
-    <div class="section-topbar">
-      <button class="btn btn-cancel btn-sm section-back-btn" type="button" onclick="window.location.href='/admin?view=dashboard'">Back to Dashboard</button>
-    </div>
-
-    <div class="module-tabs">
-      <div class="module-tab active" onclick="switchProcTab('requisitions', this)">Requisitions</div>
-      <div class="module-tab" onclick="switchProcTab('purchase-orders', this)">Purchase Orders</div>
-      <div class="module-tab" onclick="switchProcTab('goods-receipts', this)">Goods Receipts</div>
-    </div>
+  <div class="module-tabs">
+    <div class="module-tab active" onclick="switchProcTab('requisitions', this)">Requisitions</div>
+    <div class="module-tab" onclick="switchProcTab('vendors', this)">Vendors</div>
+    <div class="module-tab" onclick="switchProcTab('purchase-orders', this)">Purchase Orders</div>
+    <div class="module-tab" onclick="switchProcTab('goods-receipts', this)">Goods Receipts</div>
+  </div>
 
     <div id="requisitions" class="content-section active">
-      <div class="module-panel-head">
-        <div>
-          <div class="section-title">Purchase Requisitions</div>
-          <div class="proc-help">Request, estimate, and route internal needs before buying.</div>
-        </div>
-        <div class="section-head-actions">
-          <div class="proc-search"><input id="pr-search" type="text" placeholder="Search PR no., department, item, or status..." oninput="renderRequisitions()" /></div>
-          <button class="btn btn-add btn-sm" type="button" onclick="openRequisitionModal()">Add Requisition</button>
-        </div>
+    <div class="module-panel-head">
+      <div>
+        <div class="section-title">Purchase Requisitions</div>
+        <div class="proc-help">Request, estimate, and route internal needs before buying.</div>
       </div>
+    </div>
       <div class="table-wrap" style="margin-top: 12px;">
         <table class="registry-table">
           <thead>
             <tr>
               <th>PR No.</th>
+              <th>Company</th>
+              <th>Project</th>
               <th>Request Date</th>
               <th>Department</th>
               <th>Requested By</th>
@@ -173,57 +125,75 @@
             </tr>
           </thead>
           <tbody id="pr-body">
-            <tr class="empty-row"><td colspan="11">Loading requisitions...</td></tr>
+            
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="vendors" class="content-section">
+    <div class="module-panel-head">
+      <div>
+        <div class="section-title">Vendor Directory</div>
+        <div class="proc-help">Supplier records used for purchase orders and receiving.</div>
+      </div>
+    </div>
+      <div class="table-wrap" style="margin-top: 12px;">
+        <table class="registry-table">
+          <thead>
+            <tr>
+              <th>Vendor</th>
+              <th>Contact Person</th>
+              <th>Email</th>
+              <th>Phone</th>
+              <th>TIN</th>
+              <th class="text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="vendor-body">
+            
           </tbody>
         </table>
       </div>
     </div>
 
     <div id="purchase-orders" class="content-section">
-      <div class="module-panel-head">
-        <div>
-          <div class="section-title">Purchase Orders</div>
-          <div class="proc-help">Convert approved requests into official supplier orders.</div>
-        </div>
-        <div class="section-head-actions">
-          <div class="proc-search"><input id="po-search" type="text" placeholder="Search PO no., vendor, item, or status..." oninput="renderPurchaseOrders()" /></div>
-          <button class="btn btn-add btn-sm" type="button" onclick="openPurchaseOrderModal()">Add Purchase Order</button>
-        </div>
+    <div class="module-panel-head">
+      <div>
+        <div class="section-title">Purchase Orders</div>
+        <div class="proc-help">Convert approved requests into official supplier orders.</div>
       </div>
+    </div>
       <div class="table-wrap" style="margin-top: 12px;">
         <table class="registry-table">
           <thead>
             <tr>
               <th>PO No.</th>
+              <th>Requisition</th>
               <th>Vendor</th>
               <th>PO Date</th>
               <th>Delivery Date</th>
               <th>Status</th>
-              <th>Item</th>
-              <th class="text-right">Qty</th>
-              <th class="text-right">Unit Price</th>
+              <th>Descriptions</th>
+              <th class="text-right">Lines</th>
               <th class="text-right">Total</th>
               <th class="text-center">Actions</th>
             </tr>
           </thead>
           <tbody id="po-body">
-            <tr class="empty-row"><td colspan="10">Loading purchase orders...</td></tr>
+            
           </tbody>
         </table>
       </div>
     </div>
 
     <div id="goods-receipts" class="content-section">
-      <div class="module-panel-head">
-        <div>
-          <div class="section-title">Goods Receipts</div>
-          <div class="proc-help">Confirm what actually arrived against each purchase order.</div>
-        </div>
-        <div class="section-head-actions">
-          <div class="proc-search"><input id="grn-search" type="text" placeholder="Search GRN no., PO no., receiver, or status..." oninput="renderGoodsReceipts()" /></div>
-          <button class="btn btn-add btn-sm" type="button" onclick="openGoodsReceiptModal()">Add Goods Receipt</button>
-        </div>
+    <div class="module-panel-head">
+      <div>
+        <div class="section-title">Goods Receipts</div>
+        <div class="proc-help">Confirm what actually arrived against each purchase order.</div>
       </div>
+    </div>
       <div class="table-wrap" style="margin-top: 12px;">
         <table class="registry-table">
           <thead>
@@ -238,7 +208,7 @@
             </tr>
           </thead>
           <tbody id="grn-body">
-            <tr class="empty-row"><td colspan="7">Loading goods receipts...</td></tr>
+            
           </tbody>
         </table>
       </div>
@@ -249,7 +219,7 @@
   <div class="sidebar" id="sidebar">
     <div class="sidebar-header">
       <div class="sidebar-brand">
-        <img class="sidebar-brand-mark" src="assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+        <img class="sidebar-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
         <div>
           <div class="header-logo" style="font-size: 1rem;">KVSK CCTV</div>
         </div>
@@ -262,7 +232,7 @@
       <div class="sidebar-group" data-sidebar-group="projects">
         <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
           <span>Projects</span>
-          <span class="sidebar-group-caret">▾</span>
+          <span class="sidebar-group-caret">â–¾</span>
         </button>
         <div class="sidebar-group-items">
           <a href="/admin?view=all" class="sidebar-link is-subitem">Total Projects</a>
@@ -274,7 +244,7 @@
       <div class="sidebar-group" data-sidebar-group="finance">
         <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
           <span>Finance</span>
-          <span class="sidebar-group-caret">▾</span>
+          <span class="sidebar-group-caret">â–¾</span>
         </button>
         <div class="sidebar-group-items">
           <a href="/accounts-payable" class="sidebar-link is-subitem">Accounts Payable</a>
@@ -286,7 +256,7 @@
       <div class="sidebar-group" data-sidebar-group="inventory" data-sidebar-default-collapsed="1">
         <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
           <span>Inventory</span>
-          <span class="sidebar-group-caret">▾</span>
+          <span class="sidebar-group-caret">â–¾</span>
         </button>
         <div class="sidebar-group-items">
           <a href="/inventory" class="sidebar-link">Inventory</a>
@@ -296,7 +266,7 @@
       <div class="sidebar-group" data-sidebar-group="admin" data-sidebar-default-collapsed="1">
         <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
           <span>Admin</span>
-          <span class="sidebar-group-caret">▾</span>
+          <span class="sidebar-group-caret">â–¾</span>
         </button>
         <div class="sidebar-group-items">
           <a href="/user-management" class="sidebar-link is-subitem" id="menu-users" style="display:none">User Management</a>
@@ -307,7 +277,7 @@
       <div class="sidebar-group" data-sidebar-group="archived" data-sidebar-default-collapsed="1">
         <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
           <span>Archived</span>
-          <span class="sidebar-group-caret">▾</span>
+          <span class="sidebar-group-caret">â–¾</span>
         </button>
         <div class="sidebar-group-items">
           <a href="#" class="sidebar-link" id="menu-archived" onclick="menuItemClick('archived', this)">Archived</a>
@@ -320,7 +290,7 @@
     <div class="modal modal-project" style="max-width: 760px;">
       <button class="modal-close" onclick="closeRequisitionModal()">X</button>
       <div class="user-modal-brand">
-        <img class="user-modal-brand-mark" src="assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+        <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
         <div>
           <div class="user-modal-kicker">Procurement Control</div>
           <div class="modal-title" id="pr-modal-title" style="margin-bottom:0;">Add Requisition</div>
@@ -331,10 +301,24 @@
         <div class="field">
           <label>PR No.</label>
           <input id="pr-number" type="text" placeholder="Auto-generate if blank" />
+          <div class="modal-inline-message is-hidden" data-procurement-field-message="pr_number" aria-live="polite"></div>
         </div>
         <div class="field">
-          <label>Request Date</label>
+          <label>Company <span class="req-star">*</span></label>
+          <select id="pr-company"></select>
+          <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">Requisitions should be tied to the company where the request belongs.</div>
+          <div class="modal-inline-message is-hidden" data-procurement-field-message="company_id" aria-live="polite"></div>
+        </div>
+        <div class="field">
+          <label>Project</label>
+          <select id="pr-project" onchange="syncRequisitionCompanyFromProject()"></select>
+          <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">Optional. If selected, the company will follow the project context.</div>
+          <div class="modal-inline-message is-hidden" data-procurement-field-message="project_id" aria-live="polite"></div>
+        </div>
+        <div class="field">
+          <label>Request Date <span class="req-star">*</span></label>
           <input id="pr-request-date" type="date" />
+          <div class="modal-inline-message is-hidden" data-procurement-field-message="request_date" aria-live="polite"></div>
         </div>
         <div class="field">
           <label>Department</label>
@@ -360,16 +344,18 @@
           </select>
         </div>
         <div class="field full">
-          <label>Item Name</label>
+          <label>Item Name <span class="req-star">*</span></label>
           <input id="pr-item-name" type="text" placeholder="CCTV Cameras" />
+          <div class="modal-inline-message is-hidden" data-procurement-field-message="item_name" aria-live="polite"></div>
         </div>
         <div class="field full">
           <label>Item Description</label>
           <textarea id="pr-item-desc" style="height:70px" placeholder="Short description..."></textarea>
         </div>
         <div class="field">
-          <label>Qty</label>
+          <label>Qty <span class="req-star">*</span></label>
           <input id="pr-qty" type="number" min="1" step="1" value="1" />
+          <div class="modal-inline-message is-hidden" data-procurement-field-message="quantity" aria-live="polite"></div>
         </div>
         <div class="field">
           <label>Unit</label>
@@ -392,58 +378,81 @@
   </div>
 
   <div class="modal-backdrop" id="po-modal-backdrop">
-    <div class="modal modal-project" style="max-width: 760px;">
+    <div class="modal modal-project" style="max-width: 940px;">
       <button class="modal-close" onclick="closePurchaseOrderModal()">X</button>
       <div class="user-modal-brand">
-        <img class="user-modal-brand-mark" src="assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+        <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
         <div>
           <div class="user-modal-kicker">Procurement Control</div>
           <div class="modal-title" id="po-modal-title" style="margin-bottom:0;">Add Purchase Order</div>
         </div>
       </div>
-      <div class="section-divider">Order Details</div>
-      <div class="modal-grid-compact">
+      <div class="modal-body">
+        <div class="section-divider">Order Details</div>
+        <div class="modal-grid-compact">
         <div class="field">
           <label>PO No.</label>
           <input id="po-number" type="text" placeholder="Auto-generate if blank" />
         </div>
         <div class="field">
-          <label>Project</label>
+          <label>Requisition</label>
+          <select id="po-requisition" onchange="applyPurchaseOrderRequisitionSelection()"></select>
+          <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">Optional. Select a requisition to inherit the project and line items.</div>
+          <div class="modal-inline-message is-hidden" data-procurement-field-message="requisition_id" aria-live="polite"></div>
+        </div>
+        <div class="field">
+          <label>Project <span class="req-star">*</span></label>
           <select id="po-project"></select>
+          <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">The selected project sets the company context for this purchase order. If a requisition is chosen, this will sync automatically.</div>
+          <div class="modal-inline-message is-hidden" data-procurement-field-message="project_id" aria-live="polite"></div>
         </div>
-        <div class="field">
-          <label>Vendor</label>
-          <select id="po-vendor"></select>
+          <div class="field">
+            <label>Vendor <span class="req-star">*</span></label>
+            <div class="vendor-search-wrap">
+              <input id="po-vendor-search" type="text" placeholder="Search vendor..." autocomplete="off" />
+              <div class="vendor-search-results" id="po-vendor-results"></div>
+            </div>
+            <input id="po-vendor" type="hidden" />
+            <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">Choose a vendor linked to the project company for a valid ERP relation.</div>
+            <div class="modal-inline-message is-hidden" data-procurement-field-message="vendor_id" aria-live="polite"></div>
+          </div>
+          <div class="field">
+            <label>PO Date <span class="req-star">*</span></label>
+            <input id="po-date" type="date" />
+            <div class="modal-inline-message is-hidden" data-procurement-field-message="po_date" aria-live="polite"></div>
+          </div>
+          <div class="field">
+            <label>Delivery Date</label>
+            <input id="po-delivery" type="date" />
+          </div>
+          <div class="field">
+            <label>Status</label>
+            <select id="po-status">
+              <option value="draft">Draft</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="received">Received</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
         </div>
-        <div class="field">
-          <label>PO Date</label>
-          <input id="po-date" type="date" />
-        </div>
-        <div class="field">
-          <label>Delivery Date</label>
-          <input id="po-delivery" type="date" />
-        </div>
-        <div class="field">
-          <label>Status</label>
-          <select id="po-status">
-            <option value="draft">Draft</option>
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="received">Received</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-        </div>
-        <div class="field full">
-          <label>Item Name</label>
-          <input id="po-item-name" type="text" placeholder="DVR Unit" />
-        </div>
-        <div class="field">
-          <label>Qty</label>
-          <input id="po-qty" type="number" min="1" step="1" value="1" />
-        </div>
-        <div class="field">
-          <label>Unit Price</label>
-          <input id="po-unit-price" type="number" step="0.01" placeholder="0.00" />
+        <div class="field full po-lines-field">
+          <div class="po-line-toolbar">
+            <div>
+              <label>Descriptions</label>
+              <div class="po-line-helper">Add one or more descriptions. Each line item will be saved and shown in the PO table.</div>
+            </div>
+            <button class="btn btn-add btn-sm" type="button" onclick="addPurchaseOrderLineItem()">Add Description</button>
+          </div>
+          <div class="po-line-items" id="po-line-items"></div>
+          <div class="po-line-footer">
+            <div>
+              <div class="po-line-footer-label">Purchase Order Total</div>
+              <div class="po-line-footer-note">Auto-calculated from all line items.</div>
+            </div>
+            <div class="po-line-footer-total" id="po-total-display">PHP 0.00</div>
+          </div>
+          <div class="modal-inline-message is-hidden" data-procurement-field-message="line_items" aria-live="polite"></div>
         </div>
         <div class="field full">
           <label>Notes</label>
@@ -461,7 +470,7 @@
     <div class="modal modal-project" style="max-width: 680px;">
       <button class="modal-close" onclick="closeGoodsReceiptModal()">X</button>
       <div class="user-modal-brand">
-        <img class="user-modal-brand-mark" src="assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+        <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
         <div>
           <div class="user-modal-kicker">Procurement Control</div>
           <div class="modal-title" id="grn-modal-title" style="margin-bottom:0;">Add Goods Receipt</div>
@@ -472,14 +481,17 @@
         <div class="field">
           <label>GRN No.</label>
           <input id="grn-number" type="text" placeholder="Auto-generate if blank" />
+          <div class="modal-inline-message is-hidden" data-procurement-field-message="grn_number" aria-live="polite"></div>
         </div>
         <div class="field">
-          <label>PO No.</label>
+          <label>PO No. <span class="req-star">*</span></label>
           <select id="grn-po"></select>
+          <div class="modal-inline-message is-hidden" data-procurement-field-message="po_id" aria-live="polite"></div>
         </div>
         <div class="field">
-          <label>Received Date</label>
+          <label>Received Date <span class="req-star">*</span></label>
           <input id="grn-received-date" type="date" />
+          <div class="modal-inline-message is-hidden" data-procurement-field-message="received_date" aria-live="polite"></div>
         </div>
         <div class="field">
           <label>Received By</label>
@@ -505,6 +517,51 @@
     </div>
   </div>
 
+  <div class="modal-backdrop" id="vendor-modal-backdrop">
+    <div class="modal modal-project" style="max-width: 760px;">
+      <button class="modal-close" onclick="closeVendorModal()">X</button>
+      <div class="user-modal-brand">
+        <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+        <div>
+          <div class="user-modal-kicker">Procurement Control</div>
+          <div class="modal-title" id="vendor-modal-title" style="margin-bottom:0;">Add Vendor</div>
+        </div>
+      </div>
+      <div class="section-divider">Vendor Details</div>
+      <div class="modal-grid-compact">
+        <div class="field full">
+          <label>Vendor Name <span class="req-star">*</span></label>
+          <input id="f-vendor-name" type="text" placeholder="Supplier name" />
+          <div class="modal-inline-message is-hidden" data-procurement-field-message="vendor_name" aria-live="polite"></div>
+        </div>
+        <div class="field">
+          <label>Contact Person</label>
+          <input id="f-vendor-contact" type="text" placeholder="Juan Dela Cruz" />
+        </div>
+        <div class="field">
+          <label>Email</label>
+          <input id="f-vendor-email" type="email" placeholder="vendor@example.com" />
+        </div>
+        <div class="field">
+          <label>Phone</label>
+          <input id="f-vendor-phone" type="text" placeholder="09xxxxxxxxx" />
+        </div>
+        <div class="field">
+          <label>TIN</label>
+          <input id="f-vendor-tin" type="text" placeholder="000-000-000" />
+        </div>
+        <div class="field full">
+          <label>Address</label>
+          <textarea id="f-vendor-address" style="height:70px" placeholder="Vendor address..."></textarea>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-cancel btn-sm" onclick="closeVendorModal()">Cancel</button>
+        <button class="btn btn-save btn-sm" id="vendor-save-btn" onclick="saveVendor()">Create Vendor</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-backdrop" id="confirm-modal-backdrop">
     <div class="modal confirm-modal">
       <div class="modal-title modal-title-confirm" id="confirm-modal-title">Confirm Action</div>
@@ -516,7 +573,8 @@
     </div>
   </div>
 
-  <script src="assets/js/app.js?v=20260432"></script>
-  <script src="assets/js/procurement.js?v=20260422"></script>
+  <script src="/assets/js/erp-core.js?v=20260501d"></script>
+  <script src="procurement.js?v=20260501d"></script>
 </body>
 </html>
+

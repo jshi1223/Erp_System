@@ -1,21 +1,14 @@
-# PDF Upload Fix Progress
+# TODO - UI Consistency and Theme Fixes
 
-✅ **Plan Approved** by user
-
-## Steps to Complete:
-
-### 1. **Create uploads_pdf/.htaccess** (security)
-### 2. **Update server.js** - Add multer middleware for PDF uploads
-   - Configure multer for `uploads_pdf/`
-   - Update POST/PUT `/api/transactions` to handle files + generate base64
-   - Add static serving for uploads_pdf/
-### 3. **Test Upload**
-   - `node server.js`
-   - Admin → New transaction → Upload PDF
-### 4. **Verify**
-   - Check `uploads_pdf/` has file
-   - Check DB `pdfDataUrl` populated
-   - View PDF in admin/public pages
-### 5. **attempt_completion**
-
-✅ **All Steps Complete!** PDF upload fixed in admin modal.
+- [ ] Update AP layout flow in `public/accounts-payable/index.html`:
+  - topbar: back button left + search/add controls right
+  - summary cards below topbar
+  - table below summary
+- [ ] Update AR layout flow in `public/accounts-receivable/index.html`:
+  - topbar: back button left + search/add controls right
+  - summary cards below topbar
+  - table below summary
+- [ ] Review and align project section layout behavior in `public/admin/index.html`
+- [ ] Add/adjust shared layout helper styles in `public/assets/css/erp-clean.css` and/or `public/assets/css/admin-style.css`
+- [ ] Fix login background/theme override issue in `public/assets/css/login.css`
+- [ ] Run thorough UI verification for AP/AR/Login and dashboard navigation patterns

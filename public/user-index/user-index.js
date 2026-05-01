@@ -1,141 +1,4 @@
-﻿<!DOCTYPE html>
-<html lang="tl">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>KVSK CCTV & IT Solution - Transaction Status</title>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/user-style.css" />
-</head>
-<body>
-
-<header class="public-header">
-  <div class="header-left">
-    <button class="brand-link brand-link-light" type="button" onclick="window.location.href='/status'" aria-label="Go to transaction status">
-      <div class="header-logo">KVSK CCTV & IT Solution</div>
-      <div class="header-sub">Customer Transaction Portal</div>
-    </button>
-  </div>
-
-  <div class="header-right">
-    <span id="welcome-msg" class="welcome-chip"></span>
-    <button class="btn btn-logout btn-sm" onclick="logout()">Logout</button>
-  </div>
-</header>
-
-<main>
-  <section class="portal-hero">
-    <div>
-      <div class="page-title">Transaction Status</div>
-      <div class="page-sub">Review receipts, invoices, balances, and attached documents in one secure portal.</div>
-    </div>
-    <div class="portal-note">
-      Keep this page open to quickly review payment status and download your transaction PDFs.
-    </div>
-  </section>
-
-  <section class="summary-grid" aria-label="Transaction summary">
-    <article class="summary-card">
-      <div class="summary-label">Total Records</div>
-      <div class="summary-value" id="summary-total">0</div>
-    </article>
-    <article class="summary-card">
-      <div class="summary-label">Receipts</div>
-      <div class="summary-value" id="summary-receipts">0</div>
-    </article>
-    <article class="summary-card">
-      <div class="summary-label">Invoices</div>
-      <div class="summary-value" id="summary-invoices">0</div>
-    </article>
-    <article class="summary-card">
-      <div class="summary-label">Outstanding Balance</div>
-      <div class="summary-value currency" id="summary-balance">PHP 0.00</div>
-    </article>
-  </section>
-
-  <section class="portal-shell">
-    <div class="portal-shell-head">
-      <div>
-        <h2 class="section-title">Records</h2>
-        <p class="section-copy">Filter by type, search by document number, and open attached PDFs when available.</p>
-      </div>
-    </div>
-
-    <div class="tabs">
-      <button class="tab-btn active" onclick="switchTab('all', this)">All</button>
-      <button class="tab-btn" onclick="switchTab('receipt', this)">Receipts</button>
-      <button class="tab-btn" onclick="switchTab('invoice', this)">Invoices</button>
-    </div>
-
-    <div class="toolbar">
-      <div class="search-wrap">
-        <span class="search-icon">Search</span>
-        <input id="search-input" type="text" placeholder="Search doc no. or description..." oninput="renderTable()" />
-      </div>
-      <div class="toolbar-actions">
-        <select class="filter-select" id="filter-status" onchange="renderTable()">
-          <option value="">All Status</option>
-          <option value="paid">Paid</option>
-          <option value="unpaid">Unpaid</option>
-          <option value="partial">Partial</option>
-        </select>
-        <button class="btn btn-secondary" type="button" onclick="loadRecords()">Refresh</button>
-        <button class="btn btn-secondary" type="button" onclick="exportVisibleRowsCsv()">Export CSV</button>
-      </div>
-    </div>
-
-    <div class="table-wrap">
-      <table class="public-table">
-        <thead>
-          <tr>
-            <th>Doc No.</th>
-            <th class="text-center" style="width: 180px;">Type</th>
-            <th>Client</th>
-            <th>Description</th>
-            <th class="text-right">Total Amount</th>
-            <th class="text-right">DP</th>
-            <th class="text-right">Balance</th>
-            <th class="text-center" style="width: 100px;">Date</th>
-            <th class="text-center" style="width: 100px;">Status</th>
-            <th class="text-center" style="width: 80px;">PDF</th>
-          </tr>
-        </thead>
-        <tbody id="table-body">
-          <tr class="empty-row"><td colspan="10">Loading records...</td></tr>
-        </tbody>
-      </table>
-      <div class="pagination">
-        <span id="page-info"></span>
-        <div class="page-btns" id="page-btns"></div>
-      </div>
-    </div>
-  </section>
-
-  <footer class="public-footer">
-    &copy; 2026 KVSK CCTV & IT Solution | Security, Surveillance and IT Services
-  </footer>
-</main>
-
-<div id="pdf-viewer-backdrop">
-  <div class="pdf-viewer-bar">
-    <div class="pdf-viewer-title" id="pdf-viewer-title">Document Viewer</div>
-    <div class="pdf-bar-actions">
-      <a id="pdf-dl-btn" href="#" download class="pdf-bar-btn">Download</a>
-      <button class="pdf-bar-btn close-btn" onclick="closePdfViewer()">Close</button>
-    </div>
-  </div>
-  <iframe id="pdf-frame" title="PDF Viewer"></iframe>
-  <div class="pdf-fallback" id="pdf-fallback" style="display:none">
-    <div class="pdf-fallback-icon">PDF</div>
-    <div>Hindi ma-display inline ang PDF sa browser na ito.</div>
-    <a id="pdf-fallback-dl" href="#" download class="pdf-bar-btn" style="margin-top:8px">
-      I-download ang PDF
-    </a>
-  </div>
-</div>
-
-<script>
-fetch('/api/me')
+﻿fetch('/api/me')
   .then(res => {
     if (!res.ok) {
       window.location.href = '/';
@@ -304,7 +167,7 @@ function highlight(text, q) {
 function switchTab(tab, btn) {
   activeTab = tab;
   currentPage = 1;
-  document.querySelectorAll('.tab-btn').forEach(button => button.classList.remove('active'));
+  document.querySelectorAll('.module-tab').forEach(button => button.classList.remove('active'));
   btn.classList.add('active');
   renderTable();
 }
@@ -390,9 +253,4 @@ function renderTable() {
     pageButtons.appendChild(button);
   }
 }
-</script>
-</body>
-</html>
-
-
 

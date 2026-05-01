@@ -1,0 +1,369 @@
+﻿<!-- inventory.html - Inventory Management Module for ERP -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KVSK CCTV & IT Solution - Inventory Overview</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <script src="/assets/js/auth-guard.js?v=20260422"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260501w" />
+  <link rel="stylesheet" href="/inventory/inventory.css?v=20260501b" />
+ 
+</head>
+<body class="inventory-page erp-clean-page">
+
+<!-- Header -->
+<header>
+  <div class="header-left" style="display:flex; align-items:center; gap:15px;">
+    <button class="btn-icon sidebar-toggle-btn" type="button" onclick="toggleSidebar()" title="Menu" aria-label="Open menu">
+      <svg class="sidebar-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 7h16M4 12h16M4 17h16"></path>
+      </svg>
+    </button>
+    <button class="brand-link" type="button" onclick="goBackToDashboard()" aria-label="Go back to dashboard">
+      <div class="brand-lockup">
+      <img class="brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <div class="brand-copy">
+      <div class="header-logo">KVSK CCTV & IT Solution</div>
+      <div class="header-sub">Inventory Operations</div>
+      </div>
+      </div>
+    </button>
+  </div>
+  <div class="header-right">
+    <span class="admin-badge">Inventory Operations</span>
+    <button class="btn btn-logout btn-sm" onclick="doLogout()">Logout</button>
+  </div>
+</header>
+
+<main>
+  <div class="module-page-toolbar">
+    <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-back-fallback="/admin?view=dashboard" onclick="goBackToDashboard()">Back to Dashboard</button>
+    <div class="module-page-toolbar-actions" id="inventory-toolbar-actions"></div>
+  </div>
+
+  <div class="module-summary-grid" style="margin-top: 0;">
+    <div class="module-summary-card">
+      <span class="module-summary-label">Total Products</span>
+      <strong id="metric-total-skus" class="module-summary-value">0</strong>
+    </div>
+    <div class="module-summary-card">
+      <span class="module-summary-label">Low Stock Items</span>
+      <strong id="metric-low-stock" class="module-summary-value">0</strong>
+    </div>
+    <div class="module-summary-card">
+      <span class="module-summary-label">Total Units</span>
+      <strong id="metric-total-units" class="module-summary-value">0</strong>
+    </div>
+    <div class="module-summary-card">
+      <span class="module-summary-label">Warehouses</span>
+      <strong id="metric-total-warehouses" class="module-summary-value">0</strong>
+    </div>
+  </div>
+
+  <section class="inventory-hero">
+    <div class="inventory-hero-copy">
+      <span class="inventory-hero-kicker">Inventory Operations</span>
+      <h2>Cleaner stock control for products, warehouses, and movement tracking</h2>
+      <p>Use the catalog for master data, the stock view for health checks, and the movement log for audit trails.</p>
+    </div>
+  </section>
+
+  <!-- Navigation Tabs -->
+  <div class="module-tabs">
+    <div class="module-tab active" onclick="switchInventoryTab('products', this)">Product Catalog</div>
+    <div class="module-tab" onclick="switchInventoryTab('warehouses', this)">Warehouses</div>
+    <div class="module-tab" onclick="switchInventoryTab('stock', this)">Stock Levels</div>
+    <div class="module-tab" onclick="switchInventoryTab('movements', this)">Movement Log</div>
+  </div>
+
+  <!-- PRODUCTS SECTION -->
+  <div id="products" class="content-section active">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>SKU</th>
+            <th>Product Name</th>
+            <th>Category</th>
+            <th>Unit Price</th>
+            <th>Total Stock</th>
+            <th>Reorder Level</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="products-tbody">
+          
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- WAREHOUSES SECTION -->
+  <div id="warehouses" class="content-section">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Warehouse Name</th>
+            <th>Location</th>
+            <th>Created</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="warehouses-tbody">
+          
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- STOCK LEVELS SECTION -->
+  <div id="stock" class="content-section">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>SKU</th>
+            <th>Warehouse</th>
+            <th>Current Stock</th>
+            <th>Reorder Level</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="stock-tbody">
+          
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- STOCK MOVEMENTS SECTION -->
+  <div id="movements" class="content-section">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Product</th>
+            <th>Warehouse</th>
+            <th>Type</th>
+            <th>Quantity</th>
+            <th>Source</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody id="movements-tbody">
+          
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<footer>
+  &copy; 2025 KVSK CCTV & IT Solution | ERP System
+</footer>
+
+<!-- PRODUCT MODAL -->
+<div id="product-modal-backdrop" class="modal-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="product-modal-title">New Product</h3>
+      <button class="close-btn" onclick="closeProductModal()">X</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>SKU *</label>
+        <input id="f-sku" type="text" placeholder="e.g., CCTV-DOME-001" />
+      </div>
+      <div class="form-group">
+        <label>Product Name *</label>
+        <input id="f-product-name" type="text" placeholder="e.g., Dome Camera 4MP" />
+      </div>
+      <div class="form-group">
+        <label>Category</label>
+        <input id="f-product-category" type="text" placeholder="e.g., Cameras, Cables" />
+      </div>
+      <div class="form-group">
+        <label>Unit Price *</label>
+        <input id="f-unit-price" type="number" step="0.01" placeholder="0.00" />
+      </div>
+      <div class="form-group">
+        <label>Reorder Level</label>
+        <input id="f-reorder-level" type="number" value="10" />
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <textarea id="f-product-description" placeholder="Product details..." style="height:80px"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeProductModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveProduct()">Save Product</button>
+    </div>
+  </div>
+</div>
+
+<!-- WAREHOUSE MODAL -->
+<div id="warehouse-modal-backdrop" class="modal-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="warehouse-modal-title">New Warehouse</h3>
+      <button class="close-btn" onclick="closeWarehouseModal()">X</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Warehouse Name *</label>
+        <input id="f-warehouse-name" type="text" placeholder="e.g., Main Warehouse" />
+      </div>
+      <div class="form-group">
+        <label>Location</label>
+        <input id="f-warehouse-location" type="text" placeholder="e.g., Tanauan City, Batangas" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeWarehouseModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveWarehouse()">Save Warehouse</button>
+    </div>
+  </div>
+</div>
+
+<!-- MOVEMENT MODAL -->
+<div id="movement-modal-backdrop" class="modal-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="movement-modal-title">Log Stock Movement</h3>
+      <button class="close-btn" onclick="closeMovementModal()">X</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Product *</label>
+        <select id="f-movement-product" required></select>
+      </div>
+      <div class="form-group">
+        <label>Warehouse *</label>
+        <select id="f-movement-warehouse" required></select>
+      </div>
+      <div class="form-group">
+        <label>Movement Type *</label>
+        <select id="f-movement-type" required>
+          <option value="">Select type</option>
+          <option value="inbound">Inbound (Stock In)</option>
+          <option value="outbound">Outbound (Stock Out)</option>
+          <option value="adjustment">Adjustment</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Source Type</label>
+        <select id="f-movement-source-type">
+          <option value="manual">Manual</option>
+          <option value="purchase_requisition">Purchase Requisition</option>
+          <option value="purchase_order">Purchase Order</option>
+          <option value="goods_receipt">Goods Receipt</option>
+          <option value="transaction">Transaction</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Quantity *</label>
+        <input id="f-movement-qty" type="number" min="1" required />
+      </div>
+      <div class="form-group">
+        <label>Source Reference</label>
+        <input id="f-movement-reference" type="text" placeholder="e.g., PO-001, Invoice-123" />
+      </div>
+      <div class="form-group">
+        <label>Notes</label>
+        <textarea id="f-movement-notes" placeholder="Additional notes..." style="height:60px"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeMovementModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveMovement()">Log Movement</button>
+    </div>
+  </div>
+</div>
+
+<!-- Sidebar Menu -->
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-brand">
+      <img class="sidebar-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <div>
+        <div class="header-logo" style="font-size: 1rem;">KVSK CCTV</div>
+        <div class="header-sub">Operations Control Panel</div>
+      </div>
+    </div>
+    <button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()">X</button>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/admin?view=dashboard" class="sidebar-link">Dashboard</a>
+
+    <div class="sidebar-group" data-sidebar-group="projects">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Projects</span>
+        <span class="sidebar-group-caret">?</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/admin?view=all" class="sidebar-link is-subitem">Total Projects</a>
+        <a href="/admin?view=ongoing-projects" class="sidebar-link is-subitem" id="menu-ongoing-projects">Ongoing Projects</a>
+        <a href="/company-registry" class="sidebar-link is-subitem">Company Registry</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="finance">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Finance</span>
+        <span class="sidebar-group-caret">?</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/accounts-payable" class="sidebar-link is-subitem">Accounts Payable</a>
+        <a href="/accounts-receivable" class="sidebar-link is-subitem">Accounts Receivable</a>
+        <a href="/procurement" class="sidebar-link is-subitem">Procurement</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="inventory">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Inventory</span>
+        <span class="sidebar-group-caret">?</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/inventory" class="sidebar-link active">Inventory</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="admin" data-sidebar-default-collapsed="1">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+        <span>Admin</span>
+        <span class="sidebar-group-caret">?</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/user-management" class="sidebar-link is-subitem" id="menu-users">User Management</a>
+        <a href="/admin?view=logs" class="sidebar-link is-subitem" id="menu-logs">System Logs</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="archived" data-sidebar-default-collapsed="1">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+        <span>Archived</span>
+        <span class="sidebar-group-caret">?</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/admin?view=archived" class="sidebar-link">Archived Records</a>
+      </div>
+    </div>
+  </nav>
+</div>
+
+<script src="/assets/js/erp-core.js?v=20260501d"></script>
+<script src="/inventory/inventory.js?v=20260501c"></script>
+</body>
+</html>
+
+

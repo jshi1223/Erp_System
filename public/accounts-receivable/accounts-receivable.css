@@ -1,0 +1,39 @@
+
+body.accounts-receivable-page .receivable-transaction-search {
+  position: relative;
+}
+
+body.accounts-receivable-page .receivable-transaction-search input {
+  width: 100%;
+}
+
+body.accounts-receivable-page #f-transaction-help {
+  line-height: 1.4;
+}
+
+body.accounts-receivable-page .module-page-toolbar {
+  align-items: center;
+}
+
+body.accounts-receivable-page .module-page-toolbar-actions {
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+}
+
+body.accounts-receivable-page .module-page-toolbar .module-toolbar-search {
+  flex: 0 1 220px;
+  min-width: 170px;
+  max-width: 220px;
+}
+
+body.accounts-receivable-page .module-page-toolbar .btn-add {
+  height: 44px;
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+  .form-grid-simple { grid-template-columns: 1fr; }
+}
+  

@@ -1,0 +1,360 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KVSK CCTV & IT Solution - Accounts Receivable</title>
+  <script src="/assets/js/auth-guard.js?v=20260422"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260501x" />
+  <link rel="stylesheet" href="/accounts-receivable/accounts-receivable.css?v=20260501b" />
+
+  
+</head>
+<body class="erp-clean-page accounts-receivable-page">
+<header>
+  <div class="header-left">
+    <button class="btn-icon sidebar-toggle-btn" type="button" onclick="toggleSidebar()" title="Menu" aria-label="Open menu">
+      <svg class="sidebar-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 7h16M4 12h16M4 17h16"></path>
+      </svg>
+    </button>
+    <button class="brand-link" type="button" onclick="goBackToDashboard()" aria-label="Go back to dashboard">
+      <div class="brand-lockup">
+      <img class="brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <div class="brand-copy">
+      <div class="header-logo">KVSK CCTV & IT Solution</div>
+      <div class="header-sub">Accounts Receivable</div>
+      </div>
+      </div>
+    </button>
+  </div>
+  <div class="header-right">
+    <span class="admin-badge">Receivables Module</span>
+    <div class="notification-wrap">
+      <button class="btn-icon notification-btn" type="button" onclick="toggleNotificationsPanel()" aria-label="Notifications" title="Notifications">
+        <svg viewBox="0 0 24 24" aria-hidden="true" class="notification-icon">
+          <path d="M12 22a2.3 2.3 0 0 0 2.2-1.6h-4.4A2.3 2.3 0 0 0 12 22zm7-5.5V11a7 7 0 0 0-5-6.7V3.5a2 2 0 1 0-4 0v.8A7 7 0 0 0 5 11v5.5l-1.7 1.7a1 1 0 0 0 .7 1.7h15a1 1 0 0 0 .7-1.7L19 16.5z"></path>
+        </svg>
+        <span class="notification-badge" id="notification-count">0</span>
+      </button>
+      <div class="notifications-panel is-hidden" id="notifications-panel">
+        <div class="notifications-panel-head">
+          <div>
+            <div class="notifications-title">Notifications</div>
+            <div class="notifications-sub">Pending, due soon, expired, and completed project alerts</div>
+          </div>
+          <div class="notifications-panel-actions">
+            <button class="notifications-mark" type="button" onclick="markNotificationsAsRead(); loadNotifications();">Mark as read</button>
+            <button class="notifications-close" type="button" onclick="toggleNotificationsPanel(false)">ï¿½</button>
+          </div>
+        </div>
+        <div class="notifications-list" id="notifications-list">
+          
+        </div>
+      </div>
+    </div>
+    <button class="btn btn-logout btn-sm" onclick="doLogout()">Logout</button>
+  </div>
+</header>
+
+<main>
+  <div class="page-hero">
+    <div class="page-hero-copy" style="max-width:none;">
+      <div class="page-title">Accounts Receivable Management</div>
+    </div>
+  </div>
+
+  <div class="module-page-toolbar">
+    <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-back-fallback="/admin?view=dashboard" onclick="goBackToDashboard()">Back to Dashboard</button>
+    <div class="module-page-toolbar-actions" id="module-toolbar-actions"></div>
+  </div>
+
+  <div class="module-summary-grid module-summary-grid-wide">
+    <div class="module-summary-card">
+      <span class="module-summary-label">Outstanding</span>
+      <div class="module-summary-value" id="metric-total-receivable">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card">
+      <span class="module-summary-label">Open Accounts</span>
+      <div class="module-summary-value" id="metric-open-count">0</div>
+    </div>
+    <div class="module-summary-card">
+      <span class="module-summary-label">Overdue Amount</span>
+      <div class="module-summary-value" id="metric-overdue-amount">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card">
+      <span class="module-summary-label">Draft + Sent</span>
+      <div class="module-summary-value" id="metric-draft-sent">0</div>
+    </div>
+    <div class="module-summary-card">
+      <span class="module-summary-label">Partial</span>
+      <div class="module-summary-value" id="metric-partial-count">0</div>
+    </div>
+    <div class="module-summary-card">
+      <span class="module-summary-label">Paid</span>
+      <div class="module-summary-value" id="metric-paid-count">0</div>
+    </div>
+  </div>
+
+  <div class="module-tabs">
+    <div class="module-tab active" onclick="switchTab('receivables', this)">Receivables</div>
+    <div class="module-tab" onclick="switchTab('collections', this)">Collections</div>
+    <div class="module-tab" onclick="switchTab('summary', this)">Summary</div>
+  </div>
+
+  <div id="receivables" class="content-section active">
+    <div class="module-panel-head">
+      <div>
+        <div class="section-title">Receivables Register</div>
+      </div>
+    </div>
+
+    <div class="table-wrap" id="receivables-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Invoice No.</th>
+            <th>Customer</th>
+            <th>Source Transaction</th>
+            <th>Invoice Date</th>
+            <th>Due Date</th>
+            <th>Total Amount</th>
+            <th>Paid Amount</th>
+            <th>Balance</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="receivables-tbody">
+          
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="collections" class="content-section">
+    <div class="module-panel-head">
+      <div>
+        <div class="section-title">Collections Ledger</div>
+      </div>
+    </div>
+
+    <div class="table-wrap" id="collections-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Payment Date</th>
+            <th>Invoice No.</th>
+            <th>Customer</th>
+            <th>Amount</th>
+            <th>Method</th>
+            <th>Reference</th>
+            <th>Notes</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="collections-tbody">
+          
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="summary" class="content-section">
+    <div class="module-panel-head">
+      <div>
+        <div class="section-title">Receivables Summary</div>
+      </div>
+    </div>
+    <div class="module-panel-note">
+      Use this workspace to monitor unpaid invoices, partial collections, and overdue balances.
+      Add new receivables from the Receivables tab, then post payments from Collections as money comes in.
+    </div>
+  </div>
+</main>
+
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-brand">
+      <img class="sidebar-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <div>
+        <div class="header-logo" style="font-size: 1rem;">KVSK CCTV</div>
+        <div class="header-sub">Operations Control Panel</div>
+      </div>
+    </div>
+    <button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()">X</button>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/admin?view=dashboard" class="sidebar-link">Dashboard</a>
+
+    <div class="sidebar-group" data-sidebar-group="projects">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Projects</span>
+        <span class="sidebar-group-caret">?</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/admin?view=all" class="sidebar-link is-subitem">Total Projects</a>
+        <a href="/admin?view=ongoing-projects" class="sidebar-link is-subitem" id="menu-ongoing-projects">Ongoing Projects</a>
+        <a href="/company-registry" class="sidebar-link is-subitem">Company Registry</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="finance">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Finance</span>
+        <span class="sidebar-group-caret">?</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/accounts-payable" class="sidebar-link is-subitem">Accounts Payable</a>
+        <a href="/accounts-receivable" class="sidebar-link is-subitem active">Accounts Receivable</a>
+        <a href="/procurement" class="sidebar-link is-subitem">Procurement</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="inventory" data-sidebar-default-collapsed="1">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+        <span>Inventory</span>
+        <span class="sidebar-group-caret">?</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/inventory" class="sidebar-link">Inventory</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="admin" data-sidebar-default-collapsed="1">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+        <span>Admin</span>
+        <span class="sidebar-group-caret">?</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/user-management" class="sidebar-link is-subitem" id="menu-users">User Management</a>
+        <a href="/admin?view=logs" class="sidebar-link is-subitem" id="menu-logs">System Logs</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="archived" data-sidebar-default-collapsed="1">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+        <span>Archived</span>
+        <span class="sidebar-group-caret">?</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/admin?view=archived" class="sidebar-link">Archived Records</a>
+      </div>
+    </div>
+  </nav>
+</div>
+
+<div id="receivable-modal-backdrop" class="modal-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" style="margin-bottom:0">Add Receivable</div>
+      <button class="close-btn" onclick="closeReceivableModal()">X</button>
+    </div>
+    <div class="form-grid-simple">
+      <div class="form-group" style="grid-column: 1 / -1; position: relative;">
+        <label>Linked Transaction *</label>
+        <div class="search-wrap receivable-transaction-search">
+          <input id="f-transaction-search" type="text" placeholder="Search transaction number or customer..." autocomplete="off" oninput="handleReceivableTransactionSearch(event)" onfocus="handleReceivableTransactionSearch(event, true)" />
+          <input id="f-transaction-id" type="hidden" />
+          <div id="f-transaction-results" class="search-results-list" role="listbox" aria-label="Transaction search results" style="display:none;"></div>
+        </div>
+        <div id="f-transaction-help" style="margin-top:6px;font-size:0.68rem;color:var(--muted);">Choose the source transaction so the receivable keeps the ERP relationship to the original project entry.</div>
+        <div class="modal-inline-message is-hidden" data-receivable-field-message="transaction" aria-live="polite"></div>
+      </div>
+      <div class="form-group">
+        <label>Customer / Company</label>
+        <input id="f-customer-name" type="text" placeholder="Company or client name" />
+      </div>
+      <div class="form-group">
+        <label>Invoice Number</label>
+        <input id="f-invoice-number" type="text" placeholder="e.g. INV-2026-001" />
+      </div>
+      <div class="form-group">
+        <label>Invoice Date</label>
+        <input id="f-invoice-date" type="date" />
+      </div>
+      <div class="form-group">
+        <label>Due Date</label>
+        <input id="f-due-date" type="date" />
+      </div>
+      <div class="form-group">
+        <label>Total Amount</label>
+        <input id="f-total-amount" type="number" step="0.01" min="0" placeholder="0.00" />
+      </div>
+      <div class="form-group">
+        <label>Status</label>
+        <select id="f-ar-status">
+          <option value="draft">Draft</option>
+          <option value="sent">Sent</option>
+          <option value="partial">Partial</option>
+          <option value="paid">Paid</option>
+          <option value="overdue">Overdue</option>
+        </select>
+      </div>
+      <div class="form-group" style="grid-column: 1 / -1;">
+        <label>Notes</label>
+        <textarea id="f-ar-notes" placeholder="Optional remarks"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-cancel btn-sm" onclick="closeReceivableModal()">Cancel</button>
+      <button class="btn btn-save btn-sm" onclick="saveReceivable()">Save Receivable</button>
+    </div>
+  </div>
+</div>
+
+<div id="collection-modal-backdrop" class="modal-backdrop">
+  <div class="modal modal-narrow">
+    <div class="modal-header">
+      <div class="modal-title" style="margin-bottom:0">Record Collection</div>
+      <button class="close-btn" onclick="closeCollectionModal()">X</button>
+    </div>
+    <div class="form-group">
+      <label>Receivable</label>
+      <select id="f-collection-ar"></select>
+    </div>
+    <div class="form-group">
+      <label>Payment Date</label>
+      <input id="f-collection-date" type="date" />
+    </div>
+    <div class="form-group">
+      <label>Amount</label>
+      <input id="f-collection-amount" type="number" step="0.01" min="0" placeholder="0.00" />
+      <div id="f-collection-amount-help" style="margin-top:6px;font-size:0.68rem;color:var(--muted);">
+        Prefilled with the remaining balance for faster collection or partial payment entry.
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Payment Method</label>
+      <select id="f-collection-method">
+        <option value="cash">Cash</option>
+        <option value="check">Check</option>
+        <option value="bank_transfer">Bank Transfer</option>
+        <option value="credit_card">Credit Card</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Reference Number</label>
+      <input id="f-collection-reference" type="text" placeholder="OR / ref no." />
+    </div>
+    <div class="form-group">
+      <label>Notes</label>
+      <textarea id="f-collection-notes" placeholder="Optional notes"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-cancel btn-sm" onclick="closeCollectionModal()">Cancel</button>
+      <button class="btn btn-save btn-sm" onclick="saveCollection()">Save Collection</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="/assets/js/erp-core.js?v=20260501d"></script>
+
+<script src="/accounts-receivable/accounts-receivable.js?v=20260501d"></script>
+</body>
+</html>
+

@@ -4,7 +4,7 @@ const procurementState = {
   requisitions: [],
   purchaseOrders: [],
   goodsReceipts: [],
-  vendors: [],
+  companies: [],
   projects: []
 };
 
@@ -13,6 +13,11 @@ let editingRequisitionId = null;
 let editingPurchaseOrderId = null;
 let editingGoodsReceiptId = null;
 let pendingPurchaseOrderProjectId = null;
+const procurementToolbarState = {
+  requisitions: { search: '' },
+  purchaseOrders: { search: '' },
+  goodsReceipts: { search: '' }
+};
 
 document.addEventListener('DOMContentLoaded', initProcurementPage);
 
@@ -73,6 +78,7 @@ function initProcurementPage() {
   if (!$('procurement-page')) return;
   setDefaultDates();
   wireBackdropClose();
+  renderProcurementToolbarControls(procurementTab);
   const params = new URLSearchParams(window.location.search);
   pendingPurchaseOrderProjectId = Number(params.get('project_id') || 0) || null;
   const openPurchaseOrder = String(params.get('action') || '').toLowerCase() === 'po';
@@ -116,6 +122,7 @@ function wireBackdropClose() {
 }
 
 function switchProcTab(tab, btn) {
+  captureProcurementToolbarState(procurementTab);
   procurementTab = tab;
 
   document.querySelectorAll('.module-tab').forEach((node) => node.classList.remove('active'));
@@ -124,19 +131,75 @@ function switchProcTab(tab, btn) {
   if (btn) btn.classList.add('active');
   const section = $(tab);
   if (section) section.classList.add('active');
+  renderProcurementToolbarControls(tab);
+  if (tab === 'requisitions') renderRequisitions();
+  if (tab === 'purchase-orders') renderPurchaseOrders();
+  if (tab === 'goods-receipts') renderGoodsReceipts();
+}
+
+function captureProcurementToolbarState(tab) {
+  if (!procurementToolbarState[tab]) return;
+  procurementToolbarState[tab].search = $('procurement-search-input')?.value || '';
+}
+
+function renderProcurementToolbarControls(tab) {
+  const actions = document.getElementById('procurement-toolbar-actions');
+  if (!actions) return;
+
+  const companies = procurementState.companies || [];
+  const companyOptions = '<option value="">All Companies</option>' + companies.map(c => '<option value="' + c.id + '">' + escHtml(c.company_name) + '</option>').join('');
+
+  const state = procurementToolbarState[tab] || {};
+  if (tab === 'requisitions') {
+    actions.innerHTML = `
+      <div class="search-wrap top-search-bar module-toolbar-search">
+        <input id="procurement-search-input" type="text" placeholder="Search PR no., department, item, or status..." value="${escHtml(state.search || '')}" oninput="renderRequisitions()" />
+      </div>
+      <select id="procurement-company-filter" class="filter-select module-toolbar-select" onchange="filterProcurementByCompany(this.value)">
+        ${companyOptions}
+      </select>
+      <button class="btn btn-add btn-sm" type="button" onclick="openRequisitionModal()">Add Requisition</button>
+    `;
+    return;
+  }
+
+  if (tab === 'purchase-orders') {
+    actions.innerHTML = `
+      <div class="search-wrap top-search-bar module-toolbar-search">
+        <input id="procurement-search-input" type="text" placeholder="Search PO no., vendor, item, or status..." value="${escHtml(state.search || '')}" oninput="renderPurchaseOrders()" />
+      </div>
+      <select id="procurement-company-filter" class="filter-select module-toolbar-select" onchange="filterProcurementByCompany(this.value)">
+        ${companyOptions}
+      </select>
+      <button class="btn btn-add btn-sm" type="button" onclick="openPurchaseOrderModal()">Add Purchase Order</button>
+    `;
+    return;
+  }
+
+  if (tab === 'goods-receipts') {
+    actions.innerHTML = `
+      <div class="search-wrap top-search-bar module-toolbar-search">
+        <input id="procurement-search-input" type="text" placeholder="Search GRN no., PO no., receiver, or status..." value="${escHtml(state.search || '')}" oninput="renderGoodsReceipts()" />
+      </div>
+      <button class="btn btn-add btn-sm" type="button" onclick="openGoodsReceiptModal()">Add Goods Receipt</button>
+    `;
+    return;
+  }
+
+  actions.innerHTML = '';
 }
 
 async function loadProcurementData() {
   try {
-    const [vendors, projects, requisitions, purchaseOrders, goodsReceipts] = await Promise.all([
-      apiFetch('/api/vendors'),
+    const [companies, projects, requisitions, purchaseOrders, goodsReceipts] = await Promise.all([
+      apiFetch('/api/company-registry?include_archived=1'),
       apiFetch('/api/projects?include_archived=1'),
       apiFetch('/api/procurement/requisitions'),
       apiFetch('/api/procurement/purchase-orders'),
       apiFetch('/api/procurement/goods-receipts')
     ]);
 
-    procurementState.vendors = Array.isArray(vendors) ? vendors : [];
+    procurementState.companies = Array.isArray(companies) ? companies : [];
     procurementState.projects = Array.isArray(projects) ? projects : [];
     procurementState.requisitions = Array.isArray(requisitions) ? requisitions : [];
     procurementState.purchaseOrders = Array.isArray(purchaseOrders) ? purchaseOrders : [];
@@ -144,6 +207,7 @@ async function loadProcurementData() {
 
     renderSummary();
     renderVendorOptions();
+    initVendorSearch();
     renderProjectOptions();
     renderPurchaseOrderOptions();
     renderRequisitions();
@@ -169,14 +233,113 @@ function renderSummary() {
 }
 
 function renderVendorOptions() {
-  const select = $('po-vendor');
-  if (!select) return;
-  const current = select.value;
-  select.innerHTML = [
-    '<option value="">Select vendor</option>',
-    ...procurementState.vendors.map((vendor) => `<option value="${escHtml(vendor.id)}">${escHtml(vendor.vendor_name)}</option>`)
-  ].join('');
-  if (current) select.value = current;
+  const searchInput = $('po-vendor-search');
+  const hiddenInput = $('po-vendor');
+  const resultsContainer = $('po-vendor-results');
+
+  if (!searchInput || !hiddenInput || !resultsContainer) return;
+
+  // Store reference to companies list
+  searchInput._companies = procurementState.companies;
+
+  // Clear previous selection if not in companies
+  const currentVendorId = hiddenInput.value;
+  const currentCompany = procurementState.companies.find(c => Number(c.id) === Number(currentVendorId));
+  if (!currentVendorId || !currentCompany) {
+    searchInput.value = '';
+    hiddenInput.value = '';
+  } else {
+    searchInput.value = currentCompany.company_name || '';
+  }
+
+  // Hide results initially
+  resultsContainer.classList.remove('open');
+  resultsContainer.innerHTML = '';
+}
+
+function handleVendorSearch(event) {
+  const searchInput = event?.target;
+  const resultsContainer = $('po-vendor-results');
+  const hiddenInput = $('po-vendor');
+
+  if (!searchInput || !resultsContainer || !hiddenInput) return;
+
+  const query = String(searchInput.value || '').trim().toLowerCase();
+
+  if (!query) {
+    resultsContainer.classList.remove('open');
+    resultsContainer.innerHTML = '';
+    return;
+  }
+
+  const companies = procurementState.companies || [];
+  const filtered = companies.filter(company => {
+    const name = String(company.company_name || '').toLowerCase();
+    const contact = String(company.contact_person || '').toLowerCase();
+    const phone = String(company.phone || '').toLowerCase();
+    return name.includes(query) || contact.includes(query) || phone.includes(query);
+  });
+
+  if (filtered.length === 0) {
+    resultsContainer.innerHTML = '<div class="vendor-search-empty">No companies found</div>';
+  } else {
+    resultsContainer.innerHTML = filtered.slice(0, 10).map(company => `
+      <div class="vendor-search-item" data-id="${company.id}" data-name="${escHtml(company.company_name)}">
+        <div class="vendor-name">${escHtml(company.company_name)}</div>
+        <div class="vendor-contact">${escHtml(company.contact_person || 'No contact')} · ${escHtml(company.phone || '-')}</div>
+      </div>
+    `).join('');
+  }
+
+  resultsContainer.classList.add('open');
+}
+
+function selectVendor(companyId, companyName) {
+  const searchInput = $('po-vendor-search');
+  const hiddenInput = $('po-vendor');
+  const resultsContainer = $('po-vendor-results');
+
+  if (searchInput) searchInput.value = companyName;
+  if (hiddenInput) hiddenInput.value = companyId;
+  if (resultsContainer) {
+    resultsContainer.classList.remove('open');
+    resultsContainer.innerHTML = '';
+  }
+}
+
+function initVendorSearch() {
+  const searchInput = $('po-vendor-search');
+  const resultsContainer = $('po-vendor-results');
+
+  if (!searchInput || !resultsContainer) return;
+
+  // Listen for input
+  searchInput.addEventListener('input', handleVendorSearch);
+
+  // Focus to show all companies
+  searchInput.addEventListener('focus', (event) => {
+    if (!searchInput.value.trim()) {
+      handleVendorSearch({ target: searchInput });
+    }
+  });
+
+  // Click on result to select
+  resultsContainer.addEventListener('click', (event) => {
+    const item = event.target.closest('.vendor-search-item');
+    if (item) {
+      const id = item.getAttribute('data-id');
+      const name = item.getAttribute('data-name');
+      selectVendor(id, name);
+    }
+  });
+
+  // Close on click outside
+  document.addEventListener('click', (event) => {
+    const wrapper = searchInput.closest('.vendor-search-wrap');
+    if (wrapper && !wrapper.contains(event.target)) {
+      resultsContainer.classList.remove('open');
+    }
+  });
 }
 
 function renderProjectOptions() {
@@ -216,11 +379,27 @@ function filteredRows(rows, searchValue, fields) {
   return rows.filter((row) => fields.map((field) => String(row[field] ?? '')).join(' ').toLowerCase().includes(q));
 }
 
+function filterProcurementByCompany(companyId) {
+  const select = $('procurement-company-filter');
+  if (select) select.value = companyId;
+  window.procurementCompanyFilter = companyId ? Number(companyId) : null;
+  const tab = procurementTab;
+  if (tab === 'requisitions') renderRequisitions();
+  else if (tab === 'purchase-orders') renderPurchaseOrders();
+  else if (tab === 'goods-receipts') renderGoodsReceipts();
+}
+
+function filterRowsByCompany(rows, companyId) {
+  if (!companyId) return rows;
+  return rows.filter(row => Number(row.project_id || row.company_id || 0) === Number(companyId));
+}
+
 function renderRequisitions() {
   const tbody = $('pr-body');
   if (!tbody) return;
 
-  const rows = filteredRows(procurementState.requisitions, $('pr-search')?.value, [
+  let rows = filterRowsByCompany(procurementState.requisitions, window.procurementCompanyFilter);
+  rows = filteredRows(rows, $('procurement-search-input')?.value, [
     'pr_number',
     'department',
     'requested_by',
@@ -254,7 +433,8 @@ function renderPurchaseOrders() {
   const tbody = $('po-body');
   if (!tbody) return;
 
-  const rows = filteredRows(procurementState.purchaseOrders, $('po-search')?.value, [
+  let rows = filterRowsByCompany(procurementState.purchaseOrders, window.procurementCompanyFilter);
+  rows = filteredRows(rows, $('procurement-search-input')?.value, [
     'po_number',
     'vendor_name',
     'item_name',
@@ -286,7 +466,8 @@ function renderGoodsReceipts() {
   const tbody = $('grn-body');
   if (!tbody) return;
 
-  const rows = filteredRows(procurementState.goodsReceipts, $('grn-search')?.value, [
+  let rows = filterRowsByCompany(procurementState.goodsReceipts, window.procurementCompanyFilter);
+  rows = filteredRows(rows, $('procurement-search-input')?.value, [
     'grn_number',
     'po_number',
     'received_by',
@@ -457,6 +638,7 @@ function resetPurchaseOrderForm() {
   });
   if ($('po-project')) $('po-project').value = '';
   if ($('po-vendor')) $('po-vendor').value = '';
+  if ($('po-vendor-search')) $('po-vendor-search').value = '';
   if ($('po-status')) $('po-status').value = 'draft';
   if ($('po-date')) $('po-date').value = new Date().toISOString().slice(0, 10);
   if ($('po-delivery')) $('po-delivery').value = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -475,6 +657,7 @@ function openPurchaseOrderModal(id = null, projectId = null) {
   resetPurchaseOrderForm();
   renderVendorOptions();
   renderProjectOptions();
+  initVendorSearch();
 
   if (editingPurchaseOrderId) {
     const row = procurementState.purchaseOrders.find((entry) => Number(entry.id) === editingPurchaseOrderId);
@@ -486,6 +669,9 @@ function openPurchaseOrderModal(id = null, projectId = null) {
     $('po-number').value = row.po_number || '';
     $('po-project').value = row.project_id || '';
     $('po-vendor').value = row.vendor_id || '';
+    // Set vendor search display
+    const vendorCompany = procurementState.companies.find(c => Number(c.id) === Number(row.vendor_id));
+    if ($('po-vendor-search')) $('po-vendor-search').value = vendorCompany?.company_name || '';
     $('po-date').value = dateInputValue(row.po_date);
     $('po-delivery').value = dateInputValue(row.delivery_date);
     $('po-status').value = row.status || 'draft';

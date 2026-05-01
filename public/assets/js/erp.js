@@ -407,7 +407,6 @@ async function loadAllData() {
     fetchJson('/api/procurement/requisitions'),
     fetchJson('/api/procurement/purchase-orders'),
     fetchJson('/api/bills'),
-    fetchJson('/api/vendors'),
     fetchJson('/api/hr/departments'),
     fetchJson('/api/hr/employees'),
     fetchJson('/api/hr/payroll-periods'),
@@ -421,7 +420,6 @@ async function loadAllData() {
   erpState.requisitions = Array.isArray(requisitions) ? requisitions : [];
   erpState.purchaseOrders = Array.isArray(purchaseOrders) ? purchaseOrders : [];
   erpState.bills = Array.isArray(bills) ? bills : [];
-  erpState.vendors = Array.isArray(vendors) ? vendors : [];
   erpState.departments = Array.isArray(departments) ? departments : [];
   erpState.employees = Array.isArray(employees) ? employees : [];
   erpState.payrollPeriods = Array.isArray(payrollPeriods) ? payrollPeriods : [];

@@ -1,0 +1,384 @@
+﻿<!-- accounts-payable.html - Accounts Payable Module for ERP -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KVSK CCTV & IT Solution - Accounts Payable</title>
+  <script src="/assets/js/auth-guard.js?v=20260422"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260501w" />
+  <link rel="stylesheet" href="/accounts-payable/accounts-payable.css?v=20260501b" />
+
+  
+</head>
+<body class="erp-clean-page accounts-payable-page">
+
+<!-- Header -->
+<header>
+  <div class="header-left" style="display:flex; align-items:center; gap:15px;">
+    <button class="btn-icon sidebar-toggle-btn" type="button" onclick="toggleSidebar()" title="Menu" aria-label="Open menu">
+      <svg class="sidebar-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 7h16M4 12h16M4 17h16"></path>
+      </svg>
+    </button>
+    <button class="brand-link" type="button" onclick="goBackToDashboard()" aria-label="Go back to dashboard">
+      <div class="brand-lockup">
+      <img class="brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <div class="brand-copy">
+      <div class="header-logo">KVSK CCTV & IT Solution</div>
+      <div class="header-sub">Accounts Payable</div>
+      </div>
+      </div>
+    </button>
+  </div>
+  <div class="header-right">
+    <span class="admin-badge">Payables Module</span>
+    <div class="notification-wrap">
+      <button class="btn-icon notification-btn" type="button" onclick="toggleNotificationsPanel()" aria-label="Notifications" title="Notifications">
+        <svg viewBox="0 0 24 24" aria-hidden="true" class="notification-icon">
+          <path d="M12 22a2.3 2.3 0 0 0 2.2-1.6h-4.4A2.3 2.3 0 0 0 12 22zm7-5.5V11a7 7 0 0 0-5-6.7V3.5a2 2 0 1 0-4 0v.8A7 7 0 0 0 5 11v5.5l-1.7 1.7a1 1 0 0 0 .7 1.7h15a1 1 0 0 0 .7-1.7L19 16.5z"></path>
+        </svg>
+        <span class="notification-badge" id="notification-count">0</span>
+      </button>
+      <div class="notifications-panel is-hidden" id="notifications-panel">
+        <div class="notifications-panel-head">
+          <div>
+            <div class="notifications-title">Notifications</div>
+            <div class="notifications-sub">Pending, due soon, expired, and completed project alerts</div>
+          </div>
+          <div class="notifications-panel-actions">
+            <button class="notifications-mark" type="button" onclick="markNotificationsAsRead(); loadNotifications();">Mark as read</button>
+            <button class="notifications-close" type="button" onclick="toggleNotificationsPanel(false)">ï¿½</button>
+          </div>
+        </div>
+        <div class="notifications-list" id="notifications-list">
+          
+        </div>
+      </div>
+    </div>
+    <button class="btn btn-logout btn-sm" onclick="doLogout()">Logout</button>
+  </div>
+</header>
+
+<main>
+  <div class="page-hero">
+    <div class="page-hero-copy" style="max-width:none;">
+      <div class="page-title">Accounts Payable Management</div>
+      <div class="page-sub">Manage vendors, bills, payment schedules, and due balances in one workspace.</div>
+    </div>
+  </div>
+
+  <div class="module-page-toolbar">
+    <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-back-fallback="/admin?view=dashboard" onclick="goBackToDashboard()">Back to Dashboard</button>
+    <div class="module-page-toolbar-actions" id="module-toolbar-actions"></div>
+  </div>
+
+  <div class="module-summary-grid">
+    <div class="module-summary-card">
+      <span class="module-summary-label">Active Vendors</span>
+      <div class="module-summary-value" id="metric-vendors-count">0</div>
+    </div>
+    <div class="module-summary-card">
+      <span class="module-summary-label">Open Bills</span>
+      <div class="module-summary-value" id="metric-open-bills">0</div>
+    </div>
+    <div class="module-summary-card">
+      <span class="module-summary-label">Total Payable</span>
+      <div class="module-summary-value" id="metric-total-payable">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card">
+      <span class="module-summary-label">Overdue Amount</span>
+      <div class="module-summary-value" id="metric-overdue-amount">PHP 0.00</div>
+    </div>
+  </div>
+
+  <!-- Navigation Tabs -->
+  <div class="module-tabs">
+    <div class="module-tab active" onclick="switchTab('bills', this)">Bills</div>
+    <div class="module-tab" onclick="switchTab('payments', this)">Payments</div>
+  </div>
+
+  <!-- BILLS SECTION -->
+  <div id="bills" class="content-section active">
+    <div class="module-panel-head">
+      <div>
+        <div class="section-title">Bills Register</div>
+      </div>
+    </div>
+
+    <div class="table-wrap" id="bills-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Bill Number</th>
+            <th>Vendor</th>
+            <th>Bill Date</th>
+            <th>Due Date</th>
+            <th>Total Amount</th>
+            <th>Paid Amount</th>
+            <th>Balance</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="bills-tbody">
+          
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- PAYMENTS SECTION -->
+  <div id="payments" class="content-section">
+    <div class="module-panel-head">
+      <div>
+        <div class="section-title">Payments Ledger</div>
+      </div>
+    </div>
+
+    <div class="table-wrap" id="payments-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Payment Date</th>
+            <th>Bill Number</th>
+            <th>Vendor</th>
+            <th>Amount Paid</th>
+            <th>Method</th>
+            <th>Reference</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody id="payments-tbody">
+          
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<footer>
+  &copy; 2025 KVSK CCTV & IT Solution | ERP System
+</footer>
+
+<!-- BILL MODAL -->
+<div id="bill-modal-backdrop" class="modal-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>New Bill</h3>
+      <button class="close-btn" onclick="closeBillModal()">X</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Vendor *</label>
+        <select id="f-bill-vendor" required></select>
+      </div>
+      <div class="form-group">
+        <label>Bill Number *</label>
+        <input id="f-bill-number" type="text" placeholder="Vendor invoice number" />
+      </div>
+      <div class="form-group">
+        <label>Bill Date *</label>
+        <input id="f-bill-date" type="date" />
+      </div>
+      <div class="form-group">
+        <label>Due Date</label>
+        <input id="f-bill-due-date" type="date" />
+      </div>
+      <div class="form-group">
+        <label>Total Amount *</label>
+        <input id="f-bill-amount" type="number" step="0.01" placeholder="0.00" />
+      </div>
+      <div class="section-divider">Attach PDF Document</div>
+      <div class="pdf-upload-shell">
+        <div class="pdf-upload-caption">PDF attachment</div>
+        <div class="pdf-upload-zone" id="bill-upload-zone"
+             ondragover="event.preventDefault(); this.classList.add('drag-over')"
+             ondragleave="this.classList.remove('drag-over')"
+             ondrop="handleBillPdfDrop(event)">
+          <input type="file" accept=".pdf,application/pdf" id="f-bill-pdf" onchange="handleBillPdfChosen(event)" />
+          <div class="pdf-upload-visual">
+            <div class="pdf-upload-badge">PDF</div>
+            <div class="pdf-upload-copy">
+              <strong>Click to upload or drag here</strong>
+              <span>Attach one PDF file for this bill.</span>
+            </div>
+          </div>
+          <div class="pdf-upload-meta">Accepted: .pdf files only</div>
+        </div>
+        <div id="bill-pdf-preview" style="display:none" class="pdf-attached">
+          <div class="pdf-attached-main">
+            <div class="pdf-attached-badge">Attached</div>
+            <span class="pdf-attached-name" id="bill-pdf-name"></span>
+          </div>
+          <button class="pdf-remove" type="button" onclick="removeBillPdf()" title="Remove PDF">Remove</button>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Notes</label>
+        <textarea id="f-bill-notes" placeholder="Bill notes..." style="height:60px"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeBillModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveBill()">Save Bill</button>
+    </div>
+  </div>
+</div>
+
+<!-- PAYMENT MODAL -->
+<div id="payment-modal-backdrop" class="modal-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Record Payment</h3>
+      <button class="close-btn" onclick="closePaymentModal()">X</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Bill *</label>
+        <select id="f-payment-bill" required></select>
+      </div>
+      <div class="form-group">
+        <label>Payment Date *</label>
+        <input id="f-payment-date" type="date" />
+      </div>
+      <div class="form-group">
+        <label>Amount Paid *</label>
+        <input id="f-payment-amount" type="number" step="0.01" placeholder="0.00" />
+      </div>
+      <div class="form-group">
+        <label>Payment Method</label>
+        <select id="f-payment-method">
+          <option value="cash">Cash</option>
+          <option value="check">Check</option>
+          <option value="bank_transfer">Bank Transfer</option>
+          <option value="credit_card">Credit Card</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Reference Number</label>
+        <input id="f-payment-reference" type="text" placeholder="Check #, Ref #, etc." />
+      </div>
+      <div class="form-group">
+        <label>Notes</label>
+        <textarea id="f-payment-notes" placeholder="Payment notes..." style="height:60px"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closePaymentModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="savePayment()">Record Payment</button>
+    </div>
+  </div>
+</div>
+
+<!-- PDF VIEWER OVERLAY -->
+<div id="pdf-viewer-backdrop">
+  <div class="pdf-viewer-bar">
+    <div class="pdf-viewer-title" id="pdf-viewer-title">Document Viewer</div>
+    <div class="pdf-bar-actions">
+      <a id="pdf-dl-btn" href="#" download class="pdf-bar-btn">Download</a>
+      <button class="pdf-bar-btn close-btn" type="button" onclick="closeBillPdfViewer()">Close</button>
+    </div>
+  </div>
+  <iframe id="pdf-frame" title="PDF Viewer"></iframe>
+  <div class="pdf-fallback" id="pdf-fallback" style="display:none">
+    <div class="pdf-fallback-icon">PDF</div>
+    <div>Hindi ma-display inline ang PDF sa browser na ito.</div>
+    <a id="pdf-fallback-dl" href="#" download class="pdf-bar-btn" style="margin-top:8px">
+      I-download ang PDF
+    </a>
+  </div>
+</div>
+
+<!-- Sidebar Menu -->
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-brand">
+      <img class="sidebar-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <div>
+        <div class="header-logo" style="font-size: 1rem;">KVSK CCTV</div>
+        <div class="header-sub">Operations Control Panel</div>
+      </div>
+    </div>
+    <button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()">X</button>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/admin?view=dashboard" class="sidebar-link">Dashboard</a>
+
+    <div class="sidebar-group" data-sidebar-group="projects">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Projects</span>
+        <span class="sidebar-group-caret">?</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/admin?view=all" class="sidebar-link is-subitem">Total Projects</a>
+        <a href="/admin?view=ongoing-projects" class="sidebar-link is-subitem" id="menu-ongoing-projects">Ongoing Projects</a>
+        <a href="/company-registry" class="sidebar-link is-subitem">Company Registry</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="finance">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Finance</span>
+        <span class="sidebar-group-caret">?</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/accounts-payable" class="sidebar-link is-subitem active">Accounts Payable</a>
+        <a href="/accounts-receivable" class="sidebar-link is-subitem">Accounts Receivable</a>
+        <a href="/procurement" class="sidebar-link is-subitem">Procurement</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="inventory" data-sidebar-default-collapsed="1">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+        <span>Inventory</span>
+        <span class="sidebar-group-caret">?</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/inventory" class="sidebar-link">Inventory</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="admin" data-sidebar-default-collapsed="1">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+        <span>Admin</span>
+        <span class="sidebar-group-caret">?</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/user-management" class="sidebar-link is-subitem" id="menu-users">User Management</a>
+        <a href="/admin?view=logs" class="sidebar-link is-subitem" id="menu-logs">System Logs</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="archived" data-sidebar-default-collapsed="1">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+        <span>Archived</span>
+        <span class="sidebar-group-caret">?</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/admin?view=archived" class="sidebar-link">Archived</a>
+      </div>
+    </div>
+  </nav>
+</div>
+
+<div class="modal-backdrop" id="confirm-modal-backdrop">
+  <div class="modal confirm-modal">
+    <div class="modal-title modal-title-confirm" id="confirm-modal-title">Confirm Action</div>
+    <p class="modal-copy" id="confirm-modal-message">Are you sure?</p>
+    <div class="modal-actions">
+      <button class="btn btn-confirm-no btn-sm" type="button" id="confirm-modal-no-btn" onclick="closeConfirmDialog(false)">No</button>
+      <button class="btn btn-confirm-yes btn-sm" type="button" id="confirm-modal-yes-btn" onclick="closeConfirmDialog(true)">Yes</button>
+    </div>
+  </div>
+</div>
+
+  <script src="/assets/js/erp-core.js?v=20260501d"></script>
+<script src="/accounts-payable/accounts-payable.js?v=20260501"></script>
+</body>
+</html>
+
+
+

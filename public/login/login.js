@@ -1,85 +1,4 @@
-﻿<!DOCTYPE html>
-<html lang="tl">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>KVSK CCTV & IT Solution - Portal</title>
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/login.css" />
-</head>
-<body>
-
-<div id="login-screen">
-  <div class="login-box">
-    <a class="login-brand login-brand-link" href="/" aria-label="Go to landing page">
-      <img class="login-brand-mark" src="assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
-      <div class="login-brand-copy">
-        <div class="login-logo">KVSK CCTV & IT Solution</div>
-        <div class="login-company">Security, surveillance, and IT operations portal</div>
-      </div>
-    </a>
-    <div class="login-spotlight" aria-label="Portal highlights">
-      <span class="login-spotlight-pill">Role-based access</span>
-      <span class="login-spotlight-pill">Audit-ready logging</span>
-      <span class="login-spotlight-pill">Secure recovery flow</span>
-    </div>
-
-    <div id="login-form" class="form-container">
-      <div class="login-badge">SECURE ACCESS</div>
-      <h2 class="login-heading">Welcome Back</h2>
-
-      <div class="field">
-        <label for="uname">Username</label>
-        <input type="text" id="uname" placeholder="Enter your username" autocomplete="off" />
-      </div>
-
-      <div class="field">
-        <label for="upass">Password</label>
-        <div class="password-input-wrap">
-          <input type="password" id="upass" placeholder="Enter your password" autocomplete="off" />
-          <button class="password-toggle" type="button" data-target="upass" aria-label="Show password" title="Show password">
-            <svg class="icon-eye-open" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 5C6.6 5 2.2 8.2 1 12c1.2 3.8 5.6 7 11 7s9.8-3.2 11-7c-1.2-3.8-5.6-7-11-7zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z"></path>
-              <circle cx="12" cy="12" r="2.2"></circle>
-            </svg>
-            <svg class="icon-eye-closed" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M2 5.3 3.4 4 20 20.6 18.6 22l-3-3c-1.1.4-2.3.7-3.6.7-5.4 0-9.8-3.2-11-7 .5-1.6 1.6-3.1 3.1-4.3L2 5.3zm9.2 9.2 3 3a4 4 0 0 1-5.9-5.9l3 3zm10.8-2.2c-.4 1.3-1.2 2.6-2.3 3.6l-1.5-1.5c.7-.7 1.2-1.5 1.6-2.4-1.2-3-4.8-5.3-8.8-5.3-1 0-2 .1-2.9.5L6.5 5.7A13.2 13.2 0 0 1 12 4.9c5.4 0 9.8 3.2 11 7.4z"></path>
-            </svg>
-          </button>
-        </div>
-      </div>
-      <a href="#" class="forgot-link" onclick="openForgotForm(event)">Forgot Password?</a>
-
-      <button class="btn-primary" onclick="doLogin()" id="login-btn">Sign In</button>
-
-      <div id="login-err" class="err-msg"></div>
-    </div>
-
-    <div id="forgot-form" class="form-container" style="display:none;">
-      <div class="login-badge">ACCOUNT RECOVERY</div>
-      <h2 class="login-heading">Forgot Password</h2>
-      <p class="form-note">Enter your email address to receive a secure reset link.</p>
-      <p class="form-note">If email delivery is not enabled in the local setup, the reset link will be shown here for testing.</p>
-
-      <div class="field">
-        <label for="forgot-email">Email Address</label>
-        <input type="email" id="forgot-email" placeholder="you@example.com" autocomplete="email" />
-      </div>
-
-      <div class="form-actions-inline">
-        <button class="btn-secondary" type="button" onclick="showLoginForm()">Back to Login</button>
-        <button class="btn-primary" type="button" onclick="submitForgotPassword()" id="forgot-btn">Send Reset Link</button>
-      </div>
-
-      <div id="forgot-err" class="err-msg"></div>
-      <div id="reset-link-wrap"></div>
-    </div>
-  </div>
-</div>
-
-<script>
-  const loginCooldownByUsername = new Map();
+﻿  const loginCooldownByUsername = new Map();
   let loginCooldownTimer = null;
   let lastRateLimitedUsername = '';
 
@@ -404,7 +323,4 @@
     showLoginForm();
     setTimeout(() => document.getElementById('uname').focus(), 100);
   };
-</script>
 
-</body>
-</html>

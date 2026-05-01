@@ -1,0 +1,6 @@
+/* Shared stylesheet bundle for ERP pages.
+   Keep system-wide styles imported here so each page can own its local CSS file.
+*/
+@import url("/assets/css/admin-style.css?v=20260501v");
+@import url("/assets/css/erp-clean.css?v=20260501f");
+@import url("/assets/css/white-green.css?v=20260501u");

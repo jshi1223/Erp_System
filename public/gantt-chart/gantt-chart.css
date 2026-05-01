@@ -1,0 +1,72 @@
+.projects-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.gantt-header {
+  display: grid;
+  grid-template-columns: minmax(200px, 220px) minmax(0, 1fr);
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.gantt-labels {
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.gantt-row {
+  display: grid;
+  grid-template-columns: minmax(200px, 220px) minmax(0, 1fr);
+  gap: 14px;
+  padding: 12px 0;
+  align-items: center;
+  border-bottom: 1px solid rgba(229, 223, 212, 0.85);
+}
+
+.gantt-row:last-child {
+  border-bottom: 0;
+}
+
+.gantt-task-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.gantt-timeline {
+  position: relative;
+  height: 34px;
+  background: linear-gradient(180deg, rgba(248, 245, 239, 0.98), rgba(241, 235, 224, 0.98));
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.content-section {
+  display: none;
+}
+
+.content-section.active {
+  display: block;
+}
+
+@media (max-width: 900px) {
+  .projects-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .gantt-header,
+  .gantt-row {
+    grid-template-columns: 1fr;
+  }
+
+  .gantt-timeline {
+    height: 30px;
+  }
+}

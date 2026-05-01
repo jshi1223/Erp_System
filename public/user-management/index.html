@@ -1,21 +1,27 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KVSK CCTV & IT Solution - User Management</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <script src="assets/js/auth-guard.js?v=20260423"></script>
+  <script src="/assets/js/auth-guard.js?v=20260423"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="assets/css/admin-style.css?v=20260429" />
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260501w" />
+  <link rel="stylesheet" href="/user-management/user-management.css?v=20260501b" />
+
 </head>
-<body class="user-management-page">
+<body class="user-management-page erp-clean-page">
   <header>
     <div class="header-left" style="display:flex; align-items:center; gap:15px;">
-      <button class="btn-icon" onclick="toggleSidebar()" title="Menu" style="background:none; border:none; font-size:0.78rem; cursor:pointer; color:var(--primary); text-transform:uppercase; letter-spacing:0.08em;">Menu</button>
+      <button class="btn-icon sidebar-toggle-btn" type="button" onclick="toggleSidebar()" title="Menu" aria-label="Open menu">
+        <svg class="sidebar-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 7h16M4 12h16M4 17h16"></path>
+        </svg>
+      </button>
       <button class="brand-link" type="button" onclick="window.location.href='/admin?view=dashboard'" aria-label="Go back to dashboard">
         <div class="brand-lockup">
-          <img class="brand-mark" src="assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+          <img class="brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
           <div class="brand-copy">
             <div class="header-logo">KVSK CCTV & IT Solution</div>
             <div class="header-sub">User Management</div>
@@ -40,11 +46,11 @@
             </div>
             <div class="notifications-panel-actions">
               <button class="notifications-mark" type="button" onclick="markNotificationsAsRead(); loadNotifications();">Mark as read</button>
-              <button class="notifications-close" type="button" onclick="toggleNotificationsPanel(false)">×</button>
+              <button class="notifications-close" type="button" onclick="toggleNotificationsPanel(false)">Ã—</button>
             </div>
           </div>
           <div class="notifications-list" id="notifications-list">
-            <div class="notifications-empty">Loading notifications...</div>
+            
           </div>
         </div>
       </div>
@@ -60,31 +66,24 @@
       </div>
     </div>
 
-    <div class="section-topbar">
-      <button class="btn btn-cancel btn-sm section-back-btn" type="button" onclick="window.location.href='/admin?view=dashboard'">Back to Dashboard</button>
-    </div>
-
-    <div class="section-head" style="margin-top:0;">
-      <div class="section-head-actions" style="flex:1; flex-wrap:wrap;">
-        <div class="search-wrap top-search-bar" style="border: 1.5px solid var(--primary); border-radius: var(--radius); overflow: hidden; background: white; margin:0; min-width:280px;">
-          <input id="search-input" type="text" placeholder="Search users by name, username, email, or role..." oninput="renderUsers()" style="padding: 8px 12px; font-size: 0.85rem; border: none; background: transparent; width: 100%;" />
+    <div class="module-page-toolbar user-management-toolbar">
+      <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-back-fallback="/admin?view=dashboard" onclick="window.location.href='/admin?view=dashboard'">Back to Dashboard</button>
+      <div class="module-page-toolbar-actions">
+        <div class="search-wrap top-search-bar module-toolbar-search">
+          <input id="search-input" type="text" placeholder="Search users by name, username, email, or role..." oninput="renderUsers()" />
         </div>
-        <div id="user-controls" class="section-head-actions" style="display:inline-flex; flex-wrap:wrap; gap:10px;">
-          <select id="user-role-filter" class="filter-select" onchange="renderUsers()">
-            <option value="all">All Roles</option>
-            <option value="admin">Admin</option>
-            <option value="staff">Staff</option>
-            <option value="user">User</option>
-          </select>
-          <select id="user-status-filter" class="filter-select" onchange="renderUsers()">
-            <option value="all">All Status</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-          </select>
-        </div>
-      </div>
-      <div class="section-head-actions">
         <button id="btn-main-add" class="btn btn-add btn-sm" type="button" onclick="openUserModal()">Add User</button>
+        <select id="user-role-filter" class="filter-select" onchange="renderUsers()">
+          <option value="all">All Roles</option>
+          <option value="admin">Admin</option>
+          <option value="staff">Staff</option>
+          <option value="user">User</option>
+        </select>
+        <select id="user-status-filter" class="filter-select" onchange="renderUsers()">
+          <option value="all">All Status</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+        </select>
       </div>
     </div>
 
@@ -102,7 +101,7 @@
           </tr>
         </thead>
         <tbody id="table-body">
-          <tr class="empty-row"><td colspan="7">Loading users...</td></tr>
+          
         </tbody>
       </table>
     </div>
@@ -112,7 +111,7 @@
   <div class="sidebar" id="sidebar">
     <div class="sidebar-header">
       <div class="sidebar-brand">
-        <img class="sidebar-brand-mark" src="assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+        <img class="sidebar-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
         <div>
           <div class="header-logo" style="font-size: 1rem;">KVSK CCTV</div>
         </div>
@@ -125,7 +124,7 @@
       <div class="sidebar-group" data-sidebar-group="projects">
         <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
           <span>Projects</span>
-          <span class="sidebar-group-caret">▾</span>
+          <span class="sidebar-group-caret">â–¾</span>
         </button>
         <div class="sidebar-group-items">
           <a href="/admin?view=all" class="sidebar-link is-subitem" id="menu-all">Total Projects</a>
@@ -137,7 +136,7 @@
       <div class="sidebar-group" data-sidebar-group="finance">
         <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
           <span>Finance</span>
-          <span class="sidebar-group-caret">▾</span>
+          <span class="sidebar-group-caret">â–¾</span>
         </button>
         <div class="sidebar-group-items">
           <a href="/accounts-payable" class="sidebar-link is-subitem">Accounts Payable</a>
@@ -149,7 +148,7 @@
       <div class="sidebar-group" data-sidebar-group="inventory" data-sidebar-default-collapsed="1">
         <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
           <span>Inventory</span>
-          <span class="sidebar-group-caret">▾</span>
+          <span class="sidebar-group-caret">â–¾</span>
         </button>
         <div class="sidebar-group-items">
           <a href="/inventory" class="sidebar-link">Inventory</a>
@@ -159,7 +158,7 @@
       <div class="sidebar-group" data-sidebar-group="admin" data-sidebar-default-collapsed="1">
         <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
           <span>Admin</span>
-          <span class="sidebar-group-caret">▾</span>
+          <span class="sidebar-group-caret">â–¾</span>
         </button>
         <div class="sidebar-group-items">
           <a href="/user-management" class="sidebar-link is-subitem active" id="menu-users">User Management</a>
@@ -170,7 +169,7 @@
       <div class="sidebar-group" data-sidebar-group="archived" data-sidebar-default-collapsed="1">
         <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
           <span>Archived</span>
-          <span class="sidebar-group-caret">▾</span>
+          <span class="sidebar-group-caret">â–¾</span>
         </button>
         <div class="sidebar-group-items">
           <a href="/admin?view=archived" class="sidebar-link" id="menu-archived">Archived</a>
@@ -183,7 +182,7 @@
     <div class="modal modal-project" style="max-width: 680px;">
       <button class="modal-close" onclick="closeUserModal()">X</button>
       <div class="user-modal-brand">
-        <img class="user-modal-brand-mark" src="assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+        <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
         <div>
           <div class="user-modal-kicker">KVSK Access Control</div>
           <div class="modal-title" id="user-modal-title" style="margin-bottom: 0;">Add New User</div>
@@ -252,7 +251,7 @@
     <div class="modal" style="max-width: 420px;">
       <button class="modal-close" onclick="closeResetPasswordModal()">X</button>
       <div class="user-modal-brand" style="margin-bottom: 18px;">
-        <img class="user-modal-brand-mark" src="assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+        <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
         <div>
           <div class="user-modal-kicker">KVSK Access Control</div>
           <div class="modal-title" id="reset-pass-title" style="margin-bottom: 0;">Reset Password</div>
@@ -309,6 +308,8 @@
     </div>
   </div>
 
-  <script src="assets/js/app.js?v=20260432"></script>
+  <script src="/assets/js/erp-core.js?v=20260501d"></script>
+  <script src="/user-management/user-management.js?v=20260501"></script>
 </body>
 </html>
+

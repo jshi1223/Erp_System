@@ -1,7 +1,8 @@
 'use strict';
 
 const state = {
-  companies: []
+  companies: [],
+  companyOverview: null
 };
 
 let editingCompanyId = null;
@@ -24,7 +25,9 @@ function escHtml(value) {
 async function fetchJson(url, options = {}) {
   const { headers: customHeaders, ...fetchOptions } = options;
   const headers = new Headers(customHeaders || {});
-  if (fetchOptions.method && fetchOptions.method !== 'GET') {
+  const method = String(fetchOptions.method || 'GET').toUpperCase();
+
+  if (method !== 'GET') {
     const token = String(window.__CSRF_TOKEN__ || '').trim();
     if (token && !headers.has('X-CSRF-Token')) {
       headers.set('X-CSRF-Token', token);
@@ -50,6 +53,136 @@ async function postJson(url, payload) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload || {})
   });
+}
+
+function getCompanyFieldMessageNode(fieldName) {
+  return document.querySelector(`[data-company-field-message="${fieldName}"]`);
+}
+
+function clearCompanyFieldMessages() {
+  document.querySelectorAll('[data-company-field-message]').forEach((node) => {
+    node.textContent = '';
+    node.classList.add('is-hidden');
+  });
+  document.querySelectorAll('.modal-company .field.has-error').forEach((field) => {
+    field.classList.remove('has-error');
+  });
+}
+
+function setCompanyFieldMessage(fieldName, message) {
+  const node = getCompanyFieldMessageNode(fieldName);
+  if (!node) return;
+  const text = String(message || '').trim();
+  const field = node.closest('.field');
+  node.textContent = text;
+  node.classList.toggle('is-hidden', !text);
+  if (field) {
+    field.classList.toggle('has-error', Boolean(text));
+  }
+}
+
+function setCompanyOverviewValue(nodeId, value) {
+  const node = $(nodeId);
+  if (!node) return;
+  node.textContent = String(Number(value || 0));
+}
+
+function getProjectPeriodLabel(project) {
+  const start = project?.actual_start_date || project?.planned_start_date || project?.start_date || '';
+  const end = project?.actual_end_date || project?.planned_end_date || project?.end_date || '';
+  if (start && end) return `${start} to ${end}`;
+  if (start) return `Starts ${start}`;
+  if (end) return `Ends ${end}`;
+  return 'No schedule set';
+}
+
+function getServiceOrderPeriodLabel(serviceOrder) {
+  const date = serviceOrder?.service_date || '';
+  return date ? `Date ${date}` : 'No service date set';
+}
+
+function renderCompanyOverview(overview = null) {
+  state.companyOverview = overview || null;
+  const counts = overview?.counts || {};
+  const company = overview?.company || null;
+
+  setCompanyOverviewValue('company-relations-project-count', counts.project_count);
+  setCompanyOverviewValue('company-relations-so-count', counts.service_order_count);
+  setCompanyOverviewValue('company-relations-transaction-count', counts.transaction_count);
+  setCompanyOverviewValue('company-relations-po-count', counts.purchase_order_count);
+  setCompanyOverviewValue('company-relations-vendor-count', counts.vendor_count);
+  setCompanyOverviewValue('company-relations-ar-count', counts.receivable_count);
+
+  const statusNode = $('company-relations-state');
+  if (statusNode) {
+    if (!company) {
+      statusNode.textContent = 'Save a company to view linked records.';
+    } else {
+      const label = String(company.company_name || company.company_no || 'Company').trim();
+      const activeProjects = Number(counts.active_project_count || 0);
+      const completedProjects = Number(counts.completed_project_count || 0);
+      statusNode.textContent = `${label} overview loaded | ${activeProjects} active projects, ${completedProjects} completed`;
+    }
+  }
+
+  const projectHost = $('company-relations-projects');
+  if (projectHost) {
+    const projects = Array.isArray(overview?.recent_projects) ? overview.recent_projects : [];
+    projectHost.innerHTML = projects.length
+      ? projects.map((project) => {
+        const projectLabel = [project.project_docno, project.project_name].filter(Boolean).join(' - ') || 'Untitled Project';
+        const meta = [project.status || 'planning', getProjectPeriodLabel(project)].filter(Boolean).join(' | ');
+        return `
+          <div class="company-relations-item">
+            <div class="company-relations-item-main">
+              <div class="company-relations-item-title">${escHtml(projectLabel)}</div>
+              <div class="company-relations-item-meta">${escHtml(meta)}</div>
+            </div>
+            <span class="company-relations-item-status">${escHtml(String(project.status || 'planning'))}</span>
+          </div>
+        `;
+      }).join('')
+      : '<div class="company-relations-empty">No related projects yet.</div>';
+  }
+
+  const serviceOrderHost = $('company-relations-service-orders');
+  if (serviceOrderHost) {
+    const serviceOrders = Array.isArray(overview?.recent_service_orders) ? overview.recent_service_orders : [];
+    serviceOrderHost.innerHTML = serviceOrders.length
+      ? serviceOrders.map((serviceOrder) => {
+        const soLabel = [serviceOrder.so_number, serviceOrder.service_title].filter(Boolean).join(' - ') || 'Untitled Service Order';
+        const projectLabel = [serviceOrder.project_docno, serviceOrder.project_name].filter(Boolean).join(' - ') || 'No linked project';
+        const meta = [projectLabel, getServiceOrderPeriodLabel(serviceOrder)].filter(Boolean).join(' | ');
+        return `
+          <div class="company-relations-item">
+            <div class="company-relations-item-main">
+              <div class="company-relations-item-title">${escHtml(soLabel)}</div>
+              <div class="company-relations-item-meta">${escHtml(meta)}</div>
+            </div>
+            <span class="company-relations-item-status">${escHtml(String(serviceOrder.status || 'draft'))}</span>
+          </div>
+        `;
+      }).join('')
+      : '<div class="company-relations-empty">No related service orders yet.</div>';
+  }
+}
+
+async function loadCompanyOverview(companyId) {
+  const id = Number(companyId || 0);
+  if (!id) {
+    renderCompanyOverview(null);
+    return;
+  }
+
+  try {
+    const overview = await fetchJson(`/api/company-registry/${id}/overview`);
+    if (Number(editingCompanyId || 0) !== id) return;
+    renderCompanyOverview(overview);
+  } catch (err) {
+    if (Number(editingCompanyId || 0) !== id) return;
+    renderCompanyOverview(null);
+    setStatus(err.message || 'Unable to load company overview.', 'error');
+  }
 }
 
 async function hydrateCsrfToken() {
@@ -113,12 +246,16 @@ function closeCompanyModal() {
 
 function resetCompanyForm() {
   editingCompanyId = null;
+  clearCompanyFieldMessages();
+  renderCompanyOverview(null);
   const companyNoInput = $('erp-company-no');
   const companyNameInput = $('erp-company-name');
   const addressInput = $('erp-company-address');
   const contactInput = $('erp-company-contact');
   const phoneInput = $('erp-company-phone');
   const emailInput = $('erp-company-email');
+  const tinInput = $('erp-company-tin');
+  const industryInput = $('erp-company-industry');
   const statusInput = $('erp-company-status');
   const notesInput = $('erp-company-notes');
   const title = $('company-modal-title');
@@ -130,6 +267,8 @@ function resetCompanyForm() {
   if (contactInput) contactInput.value = '';
   if (phoneInput) phoneInput.value = '';
   if (emailInput) emailInput.value = '';
+  if (tinInput) tinInput.value = '';
+  if (industryInput) industryInput.value = '';
   if (statusInput) statusInput.value = 'active';
   if (notesInput) notesInput.value = '';
   if (title) title.textContent = 'Register Company';
@@ -153,6 +292,8 @@ async function openCompanyModal(companyId = null) {
     const contactInput = $('erp-company-contact');
     const phoneInput = $('erp-company-phone');
     const emailInput = $('erp-company-email');
+    const tinInput = $('erp-company-tin');
+    const industryInput = $('erp-company-industry');
     const statusInput = $('erp-company-status');
     const notesInput = $('erp-company-notes');
     const title = $('company-modal-title');
@@ -164,6 +305,8 @@ async function openCompanyModal(companyId = null) {
     if (contactInput) contactInput.value = company.contact_person || '';
     if (phoneInput) phoneInput.value = company.phone || '';
     if (emailInput) emailInput.value = company.email || '';
+    if (tinInput) tinInput.value = company.tin || '';
+    if (industryInput) industryInput.value = company.industry || '';
     if (statusInput) statusInput.value = company.status || 'active';
     if (notesInput) notesInput.value = company.notes || '';
     if (title) title.textContent = 'Edit Company';
@@ -177,6 +320,11 @@ async function openCompanyModal(companyId = null) {
   }
 
   openModal();
+  if (companyId) {
+    void loadCompanyOverview(companyId);
+  } else {
+    renderCompanyOverview(null);
+  }
 }
 
 function getSearchValue() {
@@ -218,11 +366,14 @@ function renderCompanies() {
     if (!searchQuery) return true;
     return [
       company.company_no || '',
+      company.branch_code || '',
       company.company_name || '',
       company.address || '',
       company.contact_person || '',
       company.phone || '',
       company.email || '',
+      company.tin || '',
+      company.industry || '',
       company.status || '',
       company.notes || ''
     ].join(' ').toLowerCase().includes(searchQuery);
@@ -239,6 +390,8 @@ function renderCompanies() {
               ${escHtml(company.contact_person || 'No contact person')}
               ${company.phone ? ` &bull; ${escHtml(company.phone)}` : ''}
               ${company.email ? ` &bull; ${escHtml(company.email)}` : ''}
+              ${company.industry ? ` &bull; ${escHtml(company.industry)}` : ''}
+              ${company.tin ? ` &bull; TIN ${escHtml(company.tin)}` : ''}
             </span>
           </div>
         </td>
@@ -307,24 +460,26 @@ async function bootstrapCompanyRegistry() {
   $('company-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
 
+    clearCompanyFieldMessages();
+
     const payload = {
       company_name: $('erp-company-name')?.value.trim(),
       address: $('erp-company-address')?.value.trim(),
       contact_person: $('erp-company-contact')?.value.trim(),
       phone: $('erp-company-phone')?.value.trim(),
       email: $('erp-company-email')?.value.trim(),
+      tin: $('erp-company-tin')?.value.trim(),
+      industry: $('erp-company-industry')?.value.trim(),
       status: $('erp-company-status')?.value || 'active',
       notes: $('erp-company-notes')?.value.trim()
     };
 
     if (!payload.company_name) {
-      setStatus('Company name is required.', 'error');
+      setCompanyFieldMessage('company_name', 'Company name is required.');
       return;
     }
 
     try {
-      console.log('Saving company with payload:', payload);
-      console.log('CSRF Token:', window.__CSRF_TOKEN__);
       if (editingCompanyId) {
         await fetchJson(`/api/company-registry/${editingCompanyId}`, {
           method: 'PUT',
@@ -340,8 +495,12 @@ async function bootstrapCompanyRegistry() {
       resetCompanyForm();
       await loadCompanies();
     } catch (err) {
-      console.error('Save company error:', err);
-      setStatus(err.message || 'Unable to save company.', 'error');
+      const message = String(err.message || 'Unable to save company.');
+      if (message.toLowerCase().includes('already exists') || message.toLowerCase().includes('required')) {
+        setCompanyFieldMessage('company_name', message);
+        return;
+      }
+      setStatus(message, 'error');
     }
   });
 

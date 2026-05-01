@@ -1,4 +1,4 @@
-﻿/* COMPLETE FIXED app.js */
+﻿/* Admin dashboard core */
 
 'use strict';
 
@@ -84,12 +84,19 @@ document.addEventListener('DOMContentLoaded', () => {
   setupPhoneValidation();
   setupMemberSlotControls();
   setupCalculationListeners();
+  setupTransactionModalValidationListeners();
+  setupUserModalValidationListeners();
+  setupResetPasswordModalValidationListeners();
   setupProjectCalculationListeners();
+  setupProjectModalValidationListeners();
+  setupServiceOrderModalValidationListeners();
+  setupServiceOrderPickerListeners();
   setupGanttPlannerPanel();
   setupPasswordToggleListeners();
   setupSidebarLinkNavigation();
   syncSidebarGroupStates();
   syncSidebarActiveLinks();
+  syncBackButtonLabels();
 
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
@@ -302,7 +309,9 @@ function openDashboardPanel(panel = 'home', opts = {}) {
 
   const sections = {
     home: document.getElementById('dashboard-home-section'),
+    reports: document.getElementById('reports-section'),
     'project-records': document.getElementById('project-records-section'),
+    'service-orders': document.getElementById('service-orders-section'),
     'total-projects': document.getElementById('total-projects-section'),
     'ongoing-projects': document.getElementById('ongoing-projects-section'),
     'system-logs': document.getElementById('system-logs-section')
@@ -320,8 +329,12 @@ function openDashboardPanel(panel = 'home', opts = {}) {
 
   if (panel === 'home') {
     updateSidebarMenuState('dashboard');
+  } else if (panel === 'reports') {
+    updateSidebarMenuState('reports');
   } else if (panel === 'project-records') {
     updateSidebarMenuState('projects');
+  } else if (panel === 'service-orders') {
+    updateSidebarMenuState('service-orders');
   } else if (panel === 'total-projects') {
     updateSidebarMenuState('all');
   } else if (panel === 'ongoing-projects') {
@@ -339,26 +352,36 @@ function openDashboardPanel(panel = 'home', opts = {}) {
     loadLogs();
   } else if (panel === 'project-records') {
     renderProjectRecordsTable();
+  } else if (panel === 'service-orders') {
+    renderServiceOrdersTable();
   } else if (panel === 'total-projects') {
     renderTable();
   }
 }
 
 function loadProjectsDashboardData() {
-  return fetch('/api/projects?include_archived=1')
+  const requestSeq = ++projectsLoadSeq;
+  return fetch('/api/projects?include_archived=1', { cache: 'no-store' })
     .then(res => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
     })
     .then(data => {
+      if (requestSeq !== projectsLoadSeq) return;
       projectsDashboardDb = Array.isArray(data) ? data : [];
       syncDashboardCompanyFilterOptions();
       populateTransactionProjectSelect(document.getElementById('f-project-id')?.value || '');
+      populateServiceOrderProjectSelect(document.getElementById('so-project-id')?.value || '');
       renderOngoingProjects();
       renderProjectRecordsTable();
       renderProjectMasterTable();
       if (document.getElementById('gantt-project-cards')) {
         renderGanttProjectSwitcher();
+      }
+      if (typeof updateStats === 'function') {
+        updateStats().catch((err) => {
+          console.error('Dashboard stats refresh error:', err);
+        });
       }
       if (currentDashboardPanel === 'project-records') {
         renderProjectRecordsTable();
@@ -377,6 +400,7 @@ function loadProjectsDashboardData() {
       }
     })
     .catch(err => {
+      if (requestSeq !== projectsLoadSeq) return;
       console.error('Projects dashboard load error:', err);
       projectsDashboardDb = [];
       const tbody = document.getElementById('ongoing-projects-body');
@@ -497,15 +521,33 @@ function companyMatchesDashboardFilter(companyName) {
 }
 
 function getRegistryCompanyEntries() {
-  return (Array.isArray(companyRegistryDb) ? companyRegistryDb : [])
-    .map((row) => ({
-      id: Number(row?.id || 0),
-      company_no: String(row?.company_no || '').trim(),
-      company_name: String(row?.company_name || '').trim(),
-      address: String(row?.address || '').trim()
-    }))
-    .filter((row) => row.id && row.company_no && row.company_name)
-    .sort((a, b) => a.company_name.localeCompare(b.company_name));
+  const sources = [
+    Array.isArray(companyRegistryDb) ? companyRegistryDb : [],
+    Array.isArray(projectCompanies) ? projectCompanies : []
+  ];
+  const seen = new Set();
+  const entries = [];
+
+  sources.forEach((source) => {
+    source.forEach((row) => {
+      const entry = {
+        id: Number(row?.id || 0),
+        company_no: String(row?.company_no || '').trim(),
+        company_name: String(row?.company_name || '').trim(),
+        address: String(row?.address || '').trim(),
+        archived: Number(row?.archived || 0) || 0
+      };
+
+      if (!entry.id || !entry.company_no || !entry.company_name) return;
+
+      const key = `${entry.id}:${entry.company_no.toLowerCase()}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      entries.push(entry);
+    });
+  });
+
+  return entries.sort((a, b) => a.company_name.localeCompare(b.company_name));
 }
 
 function getRegistryCompanyLabel(row) {
@@ -623,21 +665,31 @@ function getCurrentDashboardCompanyLabel() {
 }
 
 function populateProjectCompanySelect(selectedCompany = '') {
-  const select = document.getElementById('p-company-select');
-  if (!select) return;
+  const searchInput = document.getElementById('p-company-search');
+  const hiddenInput = document.getElementById('p-company-id');
+  const results = document.getElementById('p-company-results');
 
   const options = getRegistryCompanyEntries();
   const current = String(selectedCompany || '').trim();
-
-  select.innerHTML = `
-    <option value="">Select Company</option>
-    ${options.map(option => `<option value="${escHtml(String(option.id))}">${escHtml(getRegistryCompanyLabel(option))}</option>`).join('')}
-  `;
-
   const matchById = options.find((option) => String(option.id || '').toLowerCase() === current.toLowerCase());
   const matchByNo = options.find((option) => String(option.company_no || '').toLowerCase() === current.toLowerCase());
   const matchByName = options.find((option) => String(option.company_name || '').toLowerCase() === current.toLowerCase());
-  select.value = String(matchById?.id || matchByNo?.id || matchByName?.id || '');
+  const selected = matchById || matchByNo || matchByName || null;
+
+  if (hiddenInput) {
+    hiddenInput.value = selected ? String(selected.id) : (/^\d+$/.test(current) ? current : '');
+    hiddenInput.setAttribute('aria-invalid', 'false');
+  }
+
+  if (searchInput) {
+    searchInput.value = selected ? getRegistryCompanyLabel(selected) : current;
+    searchInput.setAttribute('aria-invalid', 'false');
+  }
+
+  if (results) {
+    results.style.display = 'none';
+    results.innerHTML = '';
+  }
 }
 
 function getProjectLinkLabel(project) {
@@ -741,6 +793,8 @@ function handleTransactionProjectChange() {
     select.style.pointerEvents = locked ? 'none' : '';
     select.style.opacity = locked ? '0.85' : '';
   }
+
+  void syncTransactionServiceOrderFromProject(projectId, 0);
 }
 
 function fillTransactionFormFromProject(project) {
@@ -788,11 +842,88 @@ function fillTransactionFormFromProject(project) {
   setValue('f-downpayment', String(downpayment));
 
   updateBalance();
+  void syncTransactionServiceOrderFromProject(project.id, 0);
+}
+
+function getTransactionServiceOrderLabel(serviceOrder) {
+  if (!serviceOrder) return '';
+  const soNumber = String(serviceOrder.so_number || '').trim();
+  const title = String(serviceOrder.service_title || '').trim();
+  const parts = [soNumber, title].filter(Boolean);
+  return parts.join(' - ') || soNumber || title || '';
+}
+
+function getTransactionServiceOrderRecordByProjectId(projectId) {
+  const normalizedProjectId = Number(projectId || 0) || 0;
+  if (!normalizedProjectId) return null;
+
+  const serviceOrders = Array.isArray(serviceOrdersDb) ? serviceOrdersDb : [];
+  return serviceOrders.find((entry) => Number(entry.project_id || 0) === normalizedProjectId && Number(entry.is_archived || 0) === 0)
+    || serviceOrders.find((entry) => Number(entry.project_id || 0) === normalizedProjectId)
+    || null;
+}
+
+function setTransactionServiceOrderSelection(serviceOrderId = '', serviceOrderLabel = '') {
+  const hidden = document.getElementById('f-service-order-id');
+  const input = document.getElementById('f-service-order-ref');
+
+  if (hidden) hidden.value = serviceOrderId ? String(serviceOrderId) : '';
+  if (input) input.value = serviceOrderLabel || '';
+}
+
+async function syncTransactionServiceOrderFromProject(projectId = null, preferredServiceOrderId = undefined) {
+  const normalizedProjectId = Number(projectId || document.getElementById('f-project-id')?.value || 0) || 0;
+  const normalizedPreferredServiceOrderId = preferredServiceOrderId === undefined
+    ? Number(document.getElementById('f-service-order-id')?.value || 0) || 0
+    : Number(preferredServiceOrderId || 0) || 0;
+
+  if (!Array.isArray(serviceOrdersDb) || !serviceOrdersDb.length) {
+    try {
+      await loadServiceOrdersData();
+    } catch (err) {
+      console.error('Load service orders for transaction sync error:', err);
+    }
+  }
+
+  const serviceOrders = Array.isArray(serviceOrdersDb) ? serviceOrdersDb : [];
+  const preferredRecord = normalizedPreferredServiceOrderId
+    ? serviceOrders.find((entry) => Number(entry.id || 0) === normalizedPreferredServiceOrderId) || null
+    : null;
+  const projectRecord = normalizedProjectId ? getTransactionServiceOrderRecordByProjectId(normalizedProjectId) : null;
+  const selectedRecord = preferredRecord || projectRecord || null;
+
+  if (selectedRecord) {
+    if (!normalizedProjectId && Number(selectedRecord.project_id || 0) > 0) {
+      const linkedProjectId = Number(selectedRecord.project_id || 0) || 0;
+      const projectSelect = document.getElementById('f-project-id');
+      const linkedProject = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
+        .find((entry) => Number(entry.id || 0) === linkedProjectId);
+
+      if (projectSelect) {
+        projectSelect.value = String(linkedProjectId);
+      }
+      if (linkedProject) {
+        fillTransactionProjectData(linkedProject);
+      }
+    }
+
+    setTransactionServiceOrderSelection(selectedRecord.id, getTransactionServiceOrderLabel(selectedRecord));
+    setTransactionFieldMessage('service_order_id', '');
+    return selectedRecord;
+  }
+
+  setTransactionServiceOrderSelection('', '');
+  if (normalizedProjectId) {
+    setTransactionFieldMessage('service_order_id', 'No service order is linked to the selected project.');
+  } else {
+    setTransactionFieldMessage('service_order_id', '');
+  }
+  return null;
 }
 
 function getProjectCompanyInputValue() {
-  const select = document.getElementById('p-company-select');
-  return String(select?.value || '').trim();
+  const hidden = document.getElementById('p-company-id');
+  return String(hidden?.value || '').trim();
 }
 
 function getProjectCompanyNameFromSelection(companyId) {
@@ -1057,6 +1188,39 @@ function formatCompactCurrency(value) {
   return `PHP ${amount.toLocaleString('en-PH', { maximumFractionDigits: 0 })}`;
 }
 
+function normalizeTransactionStatusValue(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return ['paid', 'partial', 'unpaid'].includes(normalized) ? normalized : '';
+}
+
+function getTransactionPaidAmountValue(row) {
+  const amount = Number(row?.amount || 0);
+  const receivablePaidAmount = Number(row?.receivable_paid_amount || row?.paid_amount || 0);
+  const downpayment = Number(row?.downpayment || 0);
+  const source = String(row?.source || '').toLowerCase();
+
+  if (source === 'receivable') {
+    if (amount > 0 && receivablePaidAmount >= amount) {
+      return amount;
+    }
+    if (receivablePaidAmount > 0) {
+      return Math.min(amount, receivablePaidAmount);
+    }
+    if (downpayment > 0) {
+      return Math.min(amount, downpayment);
+    }
+    return 0;
+  }
+
+  if (amount > 0 && receivablePaidAmount >= amount) {
+    return amount;
+  }
+  if (receivablePaidAmount > 0) {
+    return Math.min(amount, receivablePaidAmount);
+  }
+  return 0;
+}
+
 function buildDashboardMonthlySeries(records, months = 6) {
   const now = new Date();
   const series = [];
@@ -1088,7 +1252,7 @@ function buildDashboardMonthlySeries(records, months = 6) {
       if (!bucket) return;
 
       const amount = parseFloat(record.amount) || 0;
-      const paid = parseFloat(record.downpayment) || 0;
+      const paid = getTransactionPaidAmountValue(record);
       bucket.gross += amount;
       bucket.invoices += Math.max(0, amount - paid);
       bucket.collected += Math.min(amount, paid);
@@ -1225,9 +1389,9 @@ function renderDashboardPieChart(records = getDashboardInvoiceRows()) {
   const partialDeg = (totals.partial / total) * 360;
 
   chart.style.background = `conic-gradient(
-    #3ead6d 0deg ${paidDeg}deg,
-    #e8a53f ${paidDeg}deg ${paidDeg + partialDeg}deg,
-    #db6458 ${paidDeg + partialDeg}deg 360deg
+    #fca5a5 0deg ${paidDeg}deg,
+    #ef4444 ${paidDeg}deg ${paidDeg + partialDeg}deg,
+    #991b1b ${paidDeg + partialDeg}deg 360deg
   )`;
 
   legend.innerHTML = `
@@ -1292,7 +1456,7 @@ function getDashboardInvoiceRows(records = allTransactionsDb) {
 
 function getComputedTransactionPaymentStatus(row) {
   const amount = Number(row?.amount || 0);
-  const paid = Number(row?.downpayment || 0);
+  const paid = getTransactionPaidAmountValue(row);
   if (amount > 0 && (amount - paid) <= 0) return 'paid';
   if (paid > 0) return 'partial';
   return 'unpaid';
@@ -1300,9 +1464,10 @@ function getComputedTransactionPaymentStatus(row) {
 
 function getDashboardInvoiceStatus(row) {
   if (String(row?.source || '').toLowerCase() === 'receivable') {
-    const status = String(row?.status || '').toLowerCase();
-    if (status === 'paid') return 'paid';
-    if (status === 'partial') return 'partial';
+    const amount = Number(row?.amount || 0);
+    const paid = Number(row?.receivable_paid_amount || row?.paid_amount || row?.downpayment || 0);
+    if (amount > 0 && paid >= amount) return 'paid';
+    if (paid > 0) return 'partial';
     return 'unpaid';
   }
   return getComputedTransactionPaymentStatus(row);
@@ -1345,6 +1510,27 @@ function renderInvoiceStatusQuickView(records = getDashboardInvoiceRows()) {
   if (summaryEl) {
     summaryEl.textContent = `Paid ${statusCounts.paid} | Partial ${statusCounts.partial} | Unpaid ${statusCounts.unpaid}`;
   }
+}
+
+function renderProjectLedgerStats(records = getDashboardInvoiceRows()) {
+  const invoiceRows = Array.isArray(records) ? records : getDashboardInvoiceRows();
+  const statusCounts = { paid: 0, partial: 0, unpaid: 0 };
+
+  invoiceRows.forEach((row) => {
+    const status = getDashboardInvoiceStatus(row);
+    const key = statusCounts.hasOwnProperty(status) ? status : 'unpaid';
+    statusCounts[key] += 1;
+  });
+
+  const totalEl = document.getElementById('project-ledger-total');
+  const paidEl = document.getElementById('project-ledger-paid');
+  const partialEl = document.getElementById('project-ledger-partial');
+  const unpaidEl = document.getElementById('project-ledger-unpaid');
+
+  if (totalEl) totalEl.textContent = String(invoiceRows.length);
+  if (paidEl) paidEl.textContent = String(statusCounts.paid);
+  if (partialEl) partialEl.textContent = String(statusCounts.partial);
+  if (unpaidEl) unpaidEl.textContent = String(statusCounts.unpaid);
 }
 
 function toDateOnly(value) {
@@ -1819,7 +2005,13 @@ let isSavingRecord = false;
 let projectsDashboardDb = [];
 let allTransactionsDb = [];
 let allReceivablesDb = [];
+let serviceOrdersDb = [];
+let serviceOrdersLoadPromise = null;
+let serviceOrdersInitialLoadAttempted = false;
 let companyRegistryDb = [];
+let serviceOrderCompanyPickerDb = [];
+let serviceOrderVendorPickerDb = [];
+let serviceOrderPickerLoadPromise = null;
 let currentDashboardCompany = normalizeDashboardCompanyName(localStorage.getItem('kinaadman_dashboardCompany') || 'all') || 'all';
 let logsDb = [];
 let notificationsDb = [];
@@ -1829,6 +2021,7 @@ let dashboardBarRange = 6;
 let currentDashboardPanel = 'home';
 let ongoingProjectsViewMode = 'ongoing';
 let recordsLoadSeq = 0;
+let projectsLoadSeq = 0;
 let pendingTransactionProjectId = null;
 let pendingTransactionLaunch = false;
 let memberSlotVisibleCount = 1;
@@ -2163,8 +2356,165 @@ function openTotalProjectsFromDashboard() {
   openDashboardPanel('total-projects');
 }
 
+function openProjectsFromDashboard() {
+  openDashboardPanel('project-records');
+  setSidebarOpen(false);
+}
+
+function openProjectStatsModal() {
+  const showModal = () => {
+    updateProjectStatsModal();
+    const backdrop = document.getElementById('project-stats-modal-backdrop');
+    if (backdrop) {
+      backdrop.style.display = 'flex';
+      backdrop.classList.add('open');
+      document.body.style.overflow = 'hidden';
+    }
+  };
+
+  if (!Array.isArray(projectsDashboardDb) || projectsDashboardDb.length === 0) {
+    loadProjectsDashboardData()
+      .then(showModal)
+      .catch((err) => {
+        console.error('Failed to load project stats:', err);
+        showToast('Unable to load project statistics.', 'error');
+      });
+    return;
+  }
+
+  showModal();
+}
+
+function closeProjectStatsModal() {
+  const backdrop = document.getElementById('project-stats-modal-backdrop');
+  if (backdrop) {
+    backdrop.classList.remove('open');
+    backdrop.style.display = 'none';
+  }
+  document.body.style.overflow = '';
+}
+
+function openProjectRecordsFromStats() {
+  closeProjectStatsModal();
+  openDashboardPanel('project-records');
+  setSidebarOpen(false);
+}
+
+function updateProjectStatsModal() {
+  const projects = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
+    .filter((p) => Number(p.is_archived || 0) === 0);
+
+  const totalEl = document.getElementById('proj-stats-total');
+  const ongoingEl = document.getElementById('proj-stats-ongoing');
+  const txEl = document.getElementById('proj-stats-transactions');
+  const poEl = document.getElementById('proj-stats-po');
+  const soEl = document.getElementById('proj-stats-so');
+
+  const ongoing = projects.filter((p) => getProjectPhase(p) === 'ongoing').length;
+  const txCount = (Array.isArray(allTransactionsDb) ? allTransactionsDb : [])
+    .filter((t) => Number(t.project_id || 0) > 0 && Number(t.archived || 0) === 0).length;
+  const poCount = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
+    .reduce((count, p) => count + (Number(p.purchase_order_count || 0) > 0 ? Number(p.purchase_order_count || 0) : 0), 0);
+  const soCount = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
+    .reduce((count, p) => count + (Number(p.service_order_count || 0) > 0 ? Number(p.service_order_count || 0) : 0), 0);
+
+  if (totalEl) totalEl.textContent = String(projects.length);
+  if (ongoingEl) ongoingEl.textContent = String(ongoing);
+  if (txEl) txEl.textContent = String(txCount);
+  if (poEl) poEl.textContent = String(poCount);
+  if (soEl) soEl.textContent = String(soCount);
+}
+
 function openAllTransactionsFromDashboard() {
   openDashboardPanel('project-records');
+}
+
+function openReportsPanel() {
+  openDashboardPanel('reports');
+  setSidebarOpen(false);
+}
+
+function openProjectsDashboard() {
+  openDashboardPanel('project-records');
+  setSidebarOpen(false);
+}
+
+function openProjectPurchaseOrdersDashboard() {
+  window.location.href = '/procurement';
+}
+
+function openServiceOrdersDashboard() {
+  openDashboardPanel('service-orders');
+  setSidebarOpen(false);
+}
+
+function goBackSmart(fallback = '/admin?view=dashboard', forceFallback = false) {
+  if (!forceFallback && window.history.length > 1) {
+    window.history.back();
+    return;
+  }
+  window.location.href = fallback;
+}
+
+function formatBackButtonLabel(target = '') {
+  const rawTarget = String(target || '').trim();
+  if (!rawTarget) return '';
+
+  let url;
+  try {
+    url = new URL(rawTarget, window.location.origin);
+  } catch {
+    return '';
+  }
+
+  const path = url.pathname || '';
+  const view = url.searchParams.get('view') || '';
+  const panel = url.searchParams.get('panel') || '';
+
+  if (path === '/admin' && (!view || view === 'dashboard')) return 'Back to Dashboard';
+  if (path === '/admin' && panel === 'project-records') return 'Back to Project Operations';
+  if (path === '/admin' && panel === 'service-orders') return 'Back to Service Orders';
+  if (path === '/admin' && view === 'ongoing-projects') return 'Back to Ongoing Projects';
+  if (path === '/admin' && view === 'archived') return 'Back to Archived Projects';
+  if (path === '/admin' && view === 'all') return 'Back to Project Transactions';
+
+  const routeLabels = {
+    '/accounts-payable': 'Back to Accounts Payable',
+    '/accounts-receivable': 'Back to Accounts Receivable',
+    '/company': 'Back to Company Registry',
+    '/gantt-chart': 'Back to Gantt Chart',
+    '/inventory': 'Back to Inventory',
+    '/login': 'Back to Login',
+    '/procurement': 'Back to Procurement',
+    '/reports': 'Back to Reports',
+    '/reset-password': 'Back to Login',
+    '/user-management': 'Back to User Management',
+  };
+
+  if (routeLabels[path]) return routeLabels[path];
+
+  const lastSegment = path.split('/').filter(Boolean).pop() || '';
+  if (!lastSegment) return 'Back';
+  const words = lastSegment.replace(/[-_]+/g, ' ').trim();
+  if (!words) return 'Back';
+  return `Back to ${words.replace(/\b\w/g, (ch) => ch.toUpperCase())}`;
+}
+
+function syncBackButtonLabels(root = document) {
+  if (!root || typeof root.querySelectorAll !== 'function') return;
+
+  root.querySelectorAll('.section-back-btn').forEach((button) => {
+    const explicit = button.getAttribute('data-back-label');
+    const fallback =
+      button.getAttribute('data-back-fallback') ||
+      button.dataset.backFallback ||
+      button.getAttribute('onclick')?.match(/(?:goBackSmart|window\.location\.href\s*=\s*['"])([^'"]+)/)?.[1] ||
+      '';
+    const label = explicit || formatBackButtonLabel(fallback);
+    if (!label) return;
+    button.textContent = label;
+    button.setAttribute('aria-label', label.replace(/^Back to\s+/i, 'Go back to '));
+  });
 }
 
 function openProjectTimeline(projectId = null) {
@@ -2189,6 +2539,7 @@ function resetUserPassword(id) {
   if (title) title.textContent = `Reset Password - ${resetPasswordUserLabel}`;
   if (input) input.value = '';
   if (confirm) confirm.value = '';
+  clearResetPasswordFieldMessages();
   if (modal) modal.classList.add('open');
   if (input) input.focus();
 }
@@ -2198,22 +2549,26 @@ function closeResetPasswordModal() {
   if (modal) modal.classList.remove('open');
   resetPasswordUserId = null;
   resetPasswordUserLabel = '';
+  clearResetPasswordFieldMessages();
 }
 
 function submitResetPasswordModal() {
   const password = document.getElementById('reset-pass-input')?.value || '';
   const confirm = document.getElementById('reset-pass-confirm')?.value || '';
+  clearResetPasswordFieldMessages();
 
   if (resetPasswordUserId === null || resetPasswordUserId === undefined) {
     return showToast('No user selected for password reset.', 'error');
   }
 
   if (password.length < 8) {
-    return showToast('Password must be at least 8 characters.', 'error');
+    setResetPasswordFieldMessage('password', 'Password must be at least 8 characters.');
+    return;
   }
 
   if (password !== confirm) {
-    return showToast('Passwords do not match.', 'error');
+    setResetPasswordFieldMessage('confirm', 'Passwords do not match.');
+    return;
   }
 
   fetch(`/api/admin/users/${resetPasswordUserId}/reset-password`, {
@@ -2228,6 +2583,11 @@ function submitResetPasswordModal() {
       showToast('Password reset successfully.', 'success');
     })
     .catch((err) => {
+      const errorText = String(err?.message || '').toLowerCase();
+      if (errorText.includes('password')) {
+        setResetPasswordFieldMessage('password', err.message || 'Unable to reset password.');
+        return;
+      }
       showToast(err.message || 'Unable to reset password.', 'error');
     });
 }
@@ -2278,6 +2638,7 @@ function openProjectModal(projectId = null) {
 
   if (title) title.textContent = project ? 'Edit Project' : 'Create Project';
   if (saveBtn) saveBtn.textContent = project ? 'Update Project' : 'Save Project';
+  clearProjectFieldMessages();
   setProjectModalNotice('');
 
   try {
@@ -2293,10 +2654,9 @@ function openProjectModal(projectId = null) {
     currentProjectEndDate = project ? (currentProjectEndDate || '') : nextMonth;
     if (startDateInput) startDateInput.value = currentProjectStartDate || '';
     if (endDateInput) endDateInput.value = currentProjectEndDate || '';
-    const companySelect = document.getElementById('p-company-select');
-    const hasCompanyOptions = Number(companySelect?.options?.length || 0) > 1;
+    const hasCompanyOptions = getRegistryCompanyEntries().length > 0;
     if (!hasCompanyOptions) {
-      setProjectModalNotice('No companies available yet. Please add a company in Company Registry first.');
+      setProjectFieldMessage('company', 'No companies available yet. Please add a company in Company Registry first.');
       if (saveBtn) saveBtn.disabled = true;
     } else if (saveBtn) {
       saveBtn.disabled = false;
@@ -2330,6 +2690,7 @@ function closeProjectModal() {
   currentProjectStartDate = '';
   currentProjectEndDate = '';
   document.body.style.overflow = '';
+  clearProjectFieldMessages();
   setProjectModalNotice('');
 }
 
@@ -2415,7 +2776,75 @@ function setProjectModalNotice(message = '') {
   notice.classList.remove('is-hidden');
 }
 
+function getProjectFieldMessageNode(fieldName) {
+  return document.querySelector(`[data-project-field-message="${fieldName}"]`);
+}
+
+function getProjectFieldNodes(fieldName) {
+  const map = {
+    company: ['p-company-search', 'p-company-id'],
+    project_docno: ['p-project-docno'],
+    project_name: ['p-project-name'],
+    planned_start_date: ['p-planned-start-date'],
+    planned_end_date: ['p-planned-end-date']
+  };
+
+  return (map[fieldName] || [])
+    .map((id) => document.getElementById(id))
+    .filter(Boolean);
+}
+
+function setProjectFieldMessage(fieldName, message = '') {
+  const notice = getProjectFieldMessageNode(fieldName);
+  const text = String(message || '').trim();
+  const field = notice?.closest('.field') || null;
+
+  if (notice) {
+    notice.textContent = text;
+    notice.classList.toggle('is-hidden', !text);
+  }
+
+  if (field) {
+    field.classList.toggle('has-error', !!text);
+  }
+
+  getProjectFieldNodes(fieldName).forEach((node) => {
+    node.setAttribute('aria-invalid', text ? 'true' : 'false');
+  });
+}
+
+function clearProjectFieldMessages() {
+  ['company', 'project_docno', 'project_name', 'planned_start_date', 'planned_end_date'].forEach((fieldName) => {
+    setProjectFieldMessage(fieldName, '');
+  });
+}
+
+function setupProjectModalValidationListeners() {
+  const bindings = [
+    ['p-company-search', 'company', 'input', () => {
+      const hidden = document.getElementById('p-company-id');
+      if (hidden) hidden.value = '';
+    }],
+    ['p-project-name', 'project_name', 'input'],
+    ['p-planned-start-date', 'planned_start_date', 'change'],
+    ['p-planned-end-date', 'planned_end_date', 'change']
+  ];
+
+  bindings.forEach(([id, fieldName, eventName, onChange]) => {
+    const node = document.getElementById(id);
+    if (!node || node.dataset.projectValidationBound === '1') return;
+    node.dataset.projectValidationBound = '1';
+    node.addEventListener(eventName, () => {
+      setProjectFieldMessage(fieldName, '');
+      if (typeof onChange === 'function') onChange();
+    });
+  });
+}
+
 async function saveProject() {
+  clearProjectFieldMessages();
+  setProjectModalNotice('');
+
   const projectName = document.getElementById('p-project-name').value.trim();
   const existingProject = editingProjectId
     ? (projectsDashboardDb || []).find(entry => Number(entry.id) === Number(editingProjectId))
@@ -2429,29 +2858,29 @@ async function saveProject() {
   const companyName = getProjectCompanyNameFromSelection(companyId) || String(existingProject?.company_name || existingProject?.client_name || '').trim();
   const plannedStartDate = document.getElementById('p-planned-start-date')?.value || currentProjectStartDate || '';
   const plannedEndDate = document.getElementById('p-planned-end-date')?.value || currentProjectEndDate || '';
-  const companySelect = document.getElementById('p-company-select');
-  const hasCompanyOptions = Number(companySelect?.options?.length || 0) > 1;
+  const hasCompanyOptions = getRegistryCompanyEntries().length > 0;
+
   if (!projectName || !plannedStartDate || !plannedEndDate || !companyId) {
-    const missingFields = [];
-    if (!projectName) missingFields.push('Project Title');
+    if (!projectName) setProjectFieldMessage('project_name', 'Project title is required.');
     if (!companyId) {
-      missingFields.push('Company');
       if (!hasCompanyOptions) {
-        setProjectModalNotice('No companies available yet. Please add a company in Company Registry first.');
-        return;
+        setProjectFieldMessage('company', 'No companies available yet. Please add a company in Company Registry first.');
+      } else {
+        setProjectFieldMessage('company', 'Please choose a company from the search results.');
       }
     }
-    if (!plannedStartDate) missingFields.push('Start Date');
-    if (!plannedEndDate) missingFields.push('End Date');
-
-    const message = `Missing fields: ${missingFields.join(', ')}.`;
-    setProjectModalNotice(message);
+    if (!plannedStartDate) setProjectFieldMessage('planned_start_date', 'Start date is required.');
+    if (!plannedEndDate) setProjectFieldMessage('planned_end_date', 'End date is required.');
     return;
   }
 
   if (plannedEndDate < plannedStartDate) {
-    const message = 'End Date must be later than or equal to Start Date.';
-    setProjectModalNotice(message);
+    setProjectFieldMessage('planned_end_date', 'End date must be later than or equal to start date.');
+    return;
+  }
+
+  if (!companyRecord) {
+    setProjectFieldMessage('company', 'Please choose a company from the search results.');
     return;
   }
 
@@ -2502,7 +2931,18 @@ async function saveProject() {
     showToast(isEdit ? 'Project record updated successfully.' : 'Project record created successfully.', 'success');
     return data;
   } catch (err) {
-    showToast(err.message || 'Unable to save project.', 'error');
+    const errorText = String(err?.message || '').toLowerCase();
+    let handled = false;
+    if (errorText.includes('duplicate') || errorText.includes('already exists')) {
+      setProjectFieldMessage('project_docno', 'Project No. already exists. Please refresh and try again.');
+      handled = true;
+    } else if (errorText.includes('company is required') || errorText.includes('selected company')) {
+      setProjectFieldMessage('company', err.message || 'Please choose a company from the search results.');
+      handled = true;
+    }
+    if (!handled) {
+      showToast(err.message || 'Unable to save project.', 'error');
+    }
     return null;
   } finally {
     if (saveBtn) saveBtn.disabled = false;
@@ -2598,11 +3038,12 @@ function getFiltered() {
     const haystack = [
       r.client || '',
       r.docno || '',
+      r.service_order_no || '',
+      r.service_order_title || '',
       r.description || '',
       r.checkno || '',
       r.pono || '',
       r.amount || '',
-      r.downpayment || '',
       r.status || '',
       r.date || '',
       r.type || ''
@@ -2751,9 +3192,9 @@ function renderTable() {
   const isTransactionsPage = Boolean(document.getElementById('transaction-table-head'));
   const isStaff = isStaffUser();
   if (isStaff) {
-    thead.innerHTML = `<th>Transaction No.</th><th class="text-center">Type</th><th>Client</th><th>Project</th><th>Description</th><th class="text-center">Qty</th><th class="text-right">Amount</th><th class="text-right">DP</th><th class="text-right">Bal</th><th class="text-center">Date</th><th class="text-center">Status</th><th class="text-center">Actions</th>`;
+    thead.innerHTML = `<th>Transaction No.</th><th class="text-center">Type</th><th>Client</th><th>Project</th><th>Service Order</th><th>Description</th><th class="text-center">Qty</th><th class="text-right">Amount</th><th class="text-right">Bal</th><th class="text-center">Date</th><th class="text-center">Status</th><th class="text-center">Actions</th>`;
   } else {
-    thead.innerHTML = `<th>Transaction No.</th><th class="text-center">Type</th><th>Client</th><th>Project</th><th>Description</th><th class="text-center">Qty</th><th class="text-center">Check</th><th class="text-center">PO</th><th class="text-right">Amount</th><th class="text-right">DP</th><th class="text-right">Bal</th><th class="text-center">Date</th><th class="text-center">Status</th><th class="text-center">Actions</th>`;
+    thead.innerHTML = `<th>Transaction No.</th><th class="text-center">Type</th><th>Client</th><th>Project</th><th>Service Order</th><th>Description</th><th class="text-center">Qty</th><th class="text-center">Check</th><th class="text-center">PO</th><th class="text-right">Amount</th><th class="text-right">Bal</th><th class="text-center">Date</th><th class="text-center">Status</th><th class="text-center">Actions</th>`;
   }
 
   const searchInput = document.getElementById('search-input');
@@ -2777,10 +3218,17 @@ function renderTable() {
     const hDocno = highlight(r.docno || '', q);
     const hClient = highlight(r.client || '', q);
     const hProject = highlight(linkedProject?.project_name || '-', q);
+    const serviceOrderLabel = [
+      r.service_order_no || '',
+      r.service_order_title || ''
+    ].map((value) => String(value || '').trim()).filter(Boolean).join(' - ') || '-';
+    const hServiceOrder = highlight(serviceOrderLabel, q);
     const hCheckno = highlight(r.checkno || '', q);
     const hPono = highlight(r.pono || '', q);
     const hDesc = highlight(r.description || r.desc || '', q);
     const hQty = highlight(String(Number(r.qty || 0) || 0), q);
+    const paidAmount = getTransactionPaidAmountValue(r);
+    const balanceAmount = Math.max(0, Number(r.amount || 0) - paidAmount);
 
     const docCell = r.pdfFilename
       ? `<span class="doc-link" onclick="event.stopPropagation(); openPdfViewer(${r.id})" title="View PDF">${hDocno}</span>`
@@ -2792,6 +3240,7 @@ function renderTable() {
         <td class="text-center"><span class="type-pill type-${r.type}" style="white-space: nowrap;">${r.type === 'receipt' ? 'Collection Receipt' : 'Charge Sales Invoice'}</span></td>
         <td><div style="font-weight:500; color:var(--text)">${hClient}</div></td>
         <td style="font-weight:500; color:var(--primary); line-height:1.35">${hProject}</td>
+        <td style="font-weight:500; color:var(--primary); line-height:1.35; max-width:220px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${hServiceOrder}</td>
         <td>${hDesc}</td>
         <td class="text-center" style="font-size:.73rem;color:var(--text)">${hQty}</td>
         ${!isStaff ? `
@@ -2799,12 +3248,11 @@ function renderTable() {
           <td class="text-center" style="font-size:.73rem;color:var(--text)">${hPono}</td>
         ` : ''}
         <td class="amount-cell">PHP ${parseFloat(r.amount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</td>
-        <td class="amount-cell" style="color:var(--accent);font-weight:600">PHP ${parseFloat(r.downpayment || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</td>
-        <td class="amount-cell" style="color:${parseFloat(r.amount || 0) - parseFloat(r.downpayment || 0) > 0 ? 'var(--accent)' : 'var(--success)'}; font-weight:600">PHP ${(parseFloat(r.amount || 0) - parseFloat(r.downpayment || 0)).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</td>
+        <td class="amount-cell" style="color:${balanceAmount > 0 ? 'var(--accent)' : 'var(--success)'}; font-weight:600">PHP ${balanceAmount.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</td>
         <td class="text-center" style="color:var(--text);font-size:.73rem">${r.date}</td>
         <td class="text-center">
           <div class="record-status-stack">
-            <span class="status-pill status-${r.status}">${highlight(r.status || '', q)}</span>
+            <span class="status-pill status-${getComputedTransactionPaymentStatus(r)}">${highlight(getComputedTransactionPaymentStatus(r), q)}</span>
           </div>
         </td>
         ${isTransactionsPage ? `
@@ -2875,7 +3323,7 @@ async function openGanttModal(clientName, transactionId) {
   document.getElementById('gantt-modal-backdrop').classList.add('open');
   const chartDiv = document.getElementById('gantt-chart-render');
   const fullViewBtn = document.getElementById('gantt-full-view-btn');
-  chartDiv.innerHTML = '<p style="font-size:0.7rem">Loading timeline...</p>';
+  chartDiv.innerHTML = '<div style="min-height:120px;"></div>';
 
   // Get transaction to display members
   const trans = db.find(t => t.id === transactionId);
@@ -4223,15 +4671,78 @@ function renderImportedGanttChart() {
 function setupRequiredFieldMarkers() {
   [
     'f-type',
-    'f-project-id',
     'f-client',
     'f-desc',
-    'f-amount'
+    'f-qty',
+    'f-unitprice'
   ].forEach(id => {
     const field = document.getElementById(id)?.closest('.field');
     const label = field?.querySelector('label');
     if (!label || label.querySelector('.req-star')) return;
     label.insertAdjacentHTML('beforeend', ' <span class="req-star">*</span>');
+  });
+}
+
+function getTransactionFieldMessageNode(fieldName) {
+  return document.querySelector(`[data-transaction-field-message="${fieldName}"]`);
+}
+
+function getTransactionFieldNodes(fieldName) {
+  const map = {
+    docno: ['f-docno'],
+    client: ['f-client'],
+    project_id: ['f-project-id'],
+    service_order_id: ['f-service-order-ref', 'f-service-order-id'],
+    description: ['f-desc'],
+    qty: ['f-qty'],
+    unitprice: ['f-unitprice']
+  };
+
+  return (map[fieldName] || [])
+    .map((id) => document.getElementById(id))
+    .filter(Boolean);
+}
+
+function setTransactionFieldMessage(fieldName, message = '') {
+  const notice = getTransactionFieldMessageNode(fieldName);
+  const text = String(message || '').trim();
+  const field = notice?.closest('.field') || null;
+
+  if (notice) {
+    notice.textContent = text;
+    notice.classList.toggle('is-hidden', !text);
+  }
+
+  if (field) {
+    field.classList.toggle('has-error', !!text);
+  }
+
+  getTransactionFieldNodes(fieldName).forEach((node) => {
+    node.setAttribute('aria-invalid', text ? 'true' : 'false');
+  });
+}
+
+function clearTransactionFieldMessages() {
+  ['docno', 'client', 'project_id', 'service_order_id', 'description', 'qty', 'unitprice'].forEach((fieldName) => {
+    setTransactionFieldMessage(fieldName, '');
+  });
+}
+
+function setupTransactionModalValidationListeners() {
+  const bindings = [
+    ['f-docno', 'docno', 'input'],
+    ['f-client', 'client', 'input'],
+    ['f-project-id', 'project_id', 'change'],
+    ['f-desc', 'description', 'input'],
+    ['f-qty', 'qty', 'input'],
+    ['f-unitprice', 'unitprice', 'input']
+  ];
+
+  bindings.forEach(([id, fieldName, eventName]) => {
+    const node = document.getElementById(id);
+    if (!node || node.dataset.transactionValidationBound === '1') return;
+    node.dataset.transactionValidationBound = '1';
+    node.addEventListener(eventName, () => setTransactionFieldMessage(fieldName, ''));
   });
 }
 
@@ -4366,6 +4877,16 @@ async function updateStats() {
 
   if (statProjects) statProjects.textContent = String(totalProjectsCount);
   if (statOngoing) statOngoing.textContent = String(ongoingProjectsCount);
+  const summaryTotalProjects = document.getElementById('project-summary-total');
+  const summaryOngoingProjects = document.getElementById('project-summary-ongoing');
+  const summaryTransactions = document.getElementById('project-summary-transactions');
+  if (summaryTotalProjects) summaryTotalProjects.textContent = String(totalProjectsCount);
+  if (summaryOngoingProjects) summaryOngoingProjects.textContent = String(ongoingProjectsCount);
+  if (summaryTransactions) summaryTransactions.textContent = String((Array.isArray(allTransactionsDb) ? allTransactionsDb : []).filter((row) => Number(row.archived || 0) === 0).length);
+  const projectsMini = document.getElementById('stat-projects-mini');
+  if (projectsMini) {
+    projectsMini.textContent = `${getCurrentDashboardCompanyLabel()} • ${totalProjectsCount} project${totalProjectsCount === 1 ? '' : 's'}`;
+  }
 
   try {
     const companyParam = normalizeDashboardCompanyName(currentDashboardCompany || localStorage.getItem('kinaadman_dashboardCompany') || 'all');
@@ -4396,8 +4917,8 @@ async function updateStats() {
     const invoiceRows = getDashboardInvoiceRows(allTransactionsDb);
     const totalReceivable = invoiceRows.reduce((sum, r) => {
       const amount = parseFloat(r.amount) || 0;
-      const downpayment = parseFloat(r.downpayment) || 0;
-      return sum + Math.max(0, amount - downpayment);
+      const paidAmount = getTransactionPaidAmountValue(r);
+      return sum + Math.max(0, amount - paidAmount);
     }, 0);
 
     if (statAr) statAr.textContent = 'PHP ' + totalReceivable.toLocaleString('en-PH', { minimumFractionDigits: 2 });
@@ -4407,12 +4928,14 @@ async function updateStats() {
 
     renderDashboardAnalytics(invoiceRows);
     renderInvoiceStatusQuickView(invoiceRows);
+    renderProjectLedgerStats(invoiceRows);
   } catch (err) {
     console.error('Error fetching transactions stats:', err);
     allReceivablesDb = [];
     if (statAr) statAr.textContent = 'PHP 0.00';
     if (statArMini) statArMini.textContent = `${getCurrentDashboardCompanyLabel()} • 0 invoices`;
     renderInvoiceStatusQuickView([]);
+    renderProjectLedgerStats([]);
   }
 
   try {
@@ -4541,7 +5064,10 @@ function updateDownpaymentMode() {
   const label = downpaymentInput?.closest('.field')?.querySelector('label');
   const amount = parseFloat(document.getElementById('f-amount')?.value) || 0;
   const additionalPayment = parseFloat(downpaymentInput?.value) || 0;
-  const totalPaid = additionalPayment;
+  const selectedStatus = normalizeTransactionStatusValue(document.getElementById('f-status')?.value);
+  const totalPaid = selectedStatus === 'paid'
+    ? amount
+    : (selectedStatus === 'partial' ? additionalPayment : 0);
   const balance = Math.max(0, amount - totalPaid);
 
   if (label) {
@@ -4583,6 +5109,17 @@ async function openModal(id = null, preselectProjectId = null) {
 
   document.getElementById('modal-title').textContent = id ? 'Edit Transaction' : (preselectProjectId ? 'Add Transaction' : 'Transaction Entry');
   resetRecordForm();
+  clearTransactionFieldMessages();
+
+  try {
+    if (!Array.isArray(projectsDashboardDb) || !projectsDashboardDb.length) {
+      await loadProjectsDashboardData();
+    }
+    await loadServiceOrdersData(true);
+  } catch (err) {
+    console.error('Transaction modal preload warning:', err);
+    showToast(err.message || 'Unable to load service order references.', 'error');
+  }
 
   if (normalizedId) {
     const r = db.find(u => u.id === normalizedId);
@@ -4598,7 +5135,7 @@ async function openModal(id = null, preselectProjectId = null) {
       document.getElementById('f-checkno').value = r.checkno || '';
       document.getElementById('f-pono').value = r.pono || '';
       document.getElementById('f-type').value = r.type || 'invoice';
-      document.getElementById('f-status').value = r.status || 'unpaid';
+      document.getElementById('f-status').value = getComputedTransactionPaymentStatus(r) || 'unpaid';
       document.getElementById('f-qty').value = r.qty || 1;
       document.getElementById('f-unitprice').value = r.unitprice || '';
       document.getElementById('f-amount').value = r.amount || '';
@@ -4625,6 +5162,8 @@ async function openModal(id = null, preselectProjectId = null) {
         projectTxNoInput.value = projectTxNo ? String(projectTxNo) : '';
       }
 
+      await syncTransactionServiceOrderFromProject(selectedProjectId || null, selectedProjectId ? 0 : (r.service_order_id || 0));
+
       // New PDF handling using filename
       if (r.pdfFilename) {
         stagedPdf = r.pdfFilename;
@@ -4644,6 +5183,7 @@ async function openModal(id = null, preselectProjectId = null) {
     if (selectedProject) {
       fillTransactionFormFromProject(selectedProject);
     }
+    await syncTransactionServiceOrderFromProject(preselectProjectId || null, 0);
     document.getElementById('f-date').value = today;
     updateDownpaymentMode();
 
@@ -4663,6 +5203,7 @@ function closeModal() {
   editingId = null;
   isSavingRecord = false;
   setSaveButtonState(false);
+  clearTransactionFieldMessages();
 
   const backdrop = document.getElementById('modal-backdrop');
   if (backdrop) backdrop.classList.remove('open');
@@ -4678,6 +5219,8 @@ function resetRecordForm() {
     'f-project-start-date',
     'f-project-end-date',
     'f-project-company',
+    'f-service-order-id',
+    'f-service-order-ref',
     'f-client',
     'f-desc',
     'f-project-id',
@@ -4703,6 +5246,7 @@ function resetRecordForm() {
   document.getElementById('pdf-preview').style.display = 'none';
   document.getElementById('upload-zone').style.display = 'block';
   document.getElementById('pdf-file-input').value = '';
+  clearTransactionFieldMessages();
 }
 // 1. handleFileChosen
 function handleFileChosen(event) {
@@ -4819,9 +5363,11 @@ async function saveRecord() {
 
   if (isSavingRecord) return;
 
+  clearTransactionFieldMessages();
+
   let docno = document.getElementById('f-docno').value.trim();
   const client = document.getElementById('f-client').value.trim();
-  const qty = parseInt(document.getElementById('f-qty').value) || 1;
+  const qty = parseInt(document.getElementById('f-qty').value) || 0;
   let desc = document.getElementById('f-desc').value.trim();
   let unitPrice = parseFloat(document.getElementById('f-unitprice').value) || 0;
   let amount = parseFloat(document.getElementById('f-amount').value) || 0;
@@ -4830,18 +5376,39 @@ async function saveRecord() {
   const isEdit = !!editingId;
   const projectId = Number(document.getElementById('f-project-id')?.value || 0) || 0;
   const selectedProject = projectId ? findProjectForRecord({ project_id: projectId }) || (Array.isArray(projectsDashboardDb) ? projectsDashboardDb.find(entry => Number(entry.id || 0) === projectId) : null) : null;
+  const hasProject = projectId > 0;
 
   if (documentDateInput) documentDateInput.value = documentDate;
 
   updateBalance();
   amount = parseFloat(document.getElementById('f-amount').value) || 0;
 
-  if (!projectId) {
-    return showToast('Pumili muna ng Project.', 'error');
+  let hasValidationError = false;
+  const markTransactionError = (fieldName, message) => {
+    setTransactionFieldMessage(fieldName, message);
+    hasValidationError = true;
+  };
+
+  if (!client) markTransactionError('client', 'Customer / Charged To is required.');
+  if (!desc) markTransactionError('description', 'Description is required.');
+  if (!(Number.isFinite(qty) && qty > 0)) markTransactionError('qty', 'Qty is required.');
+  if (!(Number.isFinite(unitPrice) && unitPrice > 0)) markTransactionError('unitprice', 'Unit Price is required.');
+
+  if (hasProject) {
+    await syncTransactionServiceOrderFromProject(projectId, 0);
+    const serviceOrderId = Number(document.getElementById('f-service-order-id')?.value || 0) || 0;
+    if (!serviceOrderId) {
+      markTransactionError('service_order_id', 'Service order is required when a project is selected.');
+    }
+  } else {
+    setTransactionServiceOrderSelection('', '');
+    setTransactionFieldMessage('service_order_id', '');
   }
 
-  if (!client || !desc || !amount) {
-    return showToast('Punan ang Client, Description, Amount at Project.', 'error');
+  const serviceOrderId = Number(document.getElementById('f-service-order-id')?.value || 0) || 0;
+
+  if (hasValidationError) {
+    return;
   }
 
   if (!isEdit && !docno) {
@@ -4849,7 +5416,8 @@ async function saveRecord() {
       docno = await ensureGeneratedDocno();
     } catch (err) {
       console.error(err);
-      return showToast(err.message || 'Hindi ma-generate ang Transaction No.', 'error');
+      setTransactionFieldMessage('docno', err.message || 'Hindi ma-generate ang Transaction No.');
+      return;
     }
   }
 
@@ -4866,17 +5434,21 @@ async function saveRecord() {
   formData.append('qty', qty);
   formData.append('unitprice', unitPrice || '');
   formData.append('amount', amount);
-  formData.append('project_id', projectId || '');
+  formData.append('project_id', hasProject ? projectId : '');
+  formData.append('service_order_id', hasProject ? serviceOrderId : '');
   formData.append('project_tx_no', Number(document.getElementById('f-project-tx-no')?.value || 0) || '');
   formData.append('project_start_date', selectedProject?.start_date || selectedProject?.planned_start_date || '');
   formData.append('project_end_date', selectedProject?.end_date || selectedProject?.planned_end_date || '');
+  const selectedStatus = normalizeTransactionStatusValue(document.getElementById('f-status').value) || 'unpaid';
   const enteredDownpayment = parseFloat(document.getElementById('f-downpayment').value) || 0;
-  const totalDownpayment = Math.min(amount, enteredDownpayment);
+  const totalDownpayment = selectedStatus === 'paid'
+    ? amount
+    : (selectedStatus === 'partial' ? Math.min(amount, enteredDownpayment) : 0);
   formData.append('downpayment', totalDownpayment);
   formData.append('checkno', document.getElementById('f-checkno').value.trim() || '');
   formData.append('pono', document.getElementById('f-pono').value.trim() || '');
   formData.append('date', documentDate);
-  formData.append('status', document.getElementById('f-status').value);
+  formData.append('status', selectedStatus);
 
   // ==================== PDF UPLOAD LOGIC ====================
    // ==================== PDF UPLOAD LOGIC ====================
@@ -4923,7 +5495,43 @@ async function saveRecord() {
   })
   .catch(err => {
     console.error(err);
-    showToast(err.message || 'Server error. Hindi na-save ang record.', 'error');
+    const errorText = String(err?.message || '').toLowerCase();
+    let handled = false;
+
+    if (errorText.includes('duplicate') || errorText.includes('already exists')) {
+      if (errorText.includes('docno') || errorText.includes('transaction no')) {
+        setTransactionFieldMessage('docno', err.message || 'Transaction No. already exists.');
+      } else if (errorText.includes('project')) {
+        setTransactionFieldMessage('project_id', err.message || 'Selected project already has a transaction.');
+      } else if (errorText.includes('service order')) {
+        setTransactionFieldMessage('service_order_id', err.message || 'Service order is required when a project is selected.');
+      } else {
+        setTransactionFieldMessage('docno', err.message || 'Transaction No. already exists.');
+      }
+      handled = true;
+    } else if (errorText.includes('project')) {
+      setTransactionFieldMessage('project_id', err.message || 'Please select a project.');
+      handled = true;
+    } else if (errorText.includes('service order')) {
+      setTransactionFieldMessage('service_order_id', err.message || 'Service order is required when a project is selected.');
+      handled = true;
+    } else if (errorText.includes('client')) {
+      setTransactionFieldMessage('client', err.message || 'Customer / Charged To is required.');
+      handled = true;
+    } else if (errorText.includes('description')) {
+      setTransactionFieldMessage('description', err.message || 'Description is required.');
+      handled = true;
+    } else if (errorText.includes('qty') || errorText.includes('quantity')) {
+      setTransactionFieldMessage('qty', err.message || 'Qty is required.');
+      handled = true;
+    } else if (errorText.includes('unit price') || errorText.includes('unitprice')) {
+      setTransactionFieldMessage('unitprice', err.message || 'Unit Price is required.');
+      handled = true;
+    }
+
+    if (!handled) {
+      showToast(err.message || 'Server error. Hindi na-save ang record.', 'error');
+    }
   })
   .finally(() => {
     isSavingRecord = false;
@@ -4985,7 +5593,7 @@ function openArchivedModal(id) {
   document.getElementById('a-amount').value = r.amount || '';
   document.getElementById('a-downpayment').value = r.downpayment || 0;
 
-  const balance = (parseFloat(r.amount || 0) - parseFloat(r.downpayment || 0)).toLocaleString('en-PH', { minimumFractionDigits: 2 });
+  const balance = Math.max(0, Number(r.amount || 0) - getTransactionPaidAmountValue(r)).toLocaleString('en-PH', { minimumFractionDigits: 2 });
   document.getElementById('a-balance-display').textContent = 'PHP ' + balance;
 
     if (r.pdfFilename) {
@@ -5303,34 +5911,151 @@ document.addEventListener('keydown', e => {
 
 // ==================== USER MODAL LOGIC ====================
 async function submitUserCreatePayload({ name, username, email, role, password, active }) {
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-  if (!name || !username || !email || !password) {
-    return showToast('Lahat ng fields ay kailangan.', 'error');
+  const res = await fetch('/api/admin/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, username, email, role, password, active })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) {
+    throw new Error(data.error || data.message || 'Failed to create user.');
   }
-  if (!emailRegex.test(email)) {
-    return showToast('Invalid email format.', 'error');
+  return data;
+}
+
+function getUserFieldMessageNode(fieldName) {
+  return document.querySelector(`[data-user-field-message="${fieldName}"]`);
+}
+
+function getUserFieldNodes(fieldName) {
+  const map = {
+    name: ['u-name'],
+    username: ['u-username'],
+    email: ['u-email'],
+    password: ['u-pass']
+  };
+
+  return (map[fieldName] || [])
+    .map((id) => document.getElementById(id))
+    .filter(Boolean);
+}
+
+function setUserFieldMessage(fieldName, message = '') {
+  const notice = getUserFieldMessageNode(fieldName);
+  const text = String(message || '').trim();
+  const field = notice?.closest('.field') || null;
+
+  if (notice) {
+    notice.textContent = text;
+    notice.classList.toggle('is-hidden', !text);
   }
 
-  try {
-    const res = await fetch('/api/admin/users', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, username, email, role, password, active })
-    });
-
-    const data = await res.json();
-    if (data.success) {
-      return true;
-    }
-
-    showToast(data.error || 'Failed to create user.', 'error');
-    return false;
-  } catch (err) {
-    console.error('Save User Error:', err);
-    showToast('Network error o hindi maka-connect sa server.', 'error');
-    return false;
+  if (field) {
+    field.classList.toggle('has-error', !!text);
   }
+
+  getUserFieldNodes(fieldName).forEach((node) => {
+    node.setAttribute('aria-invalid', text ? 'true' : 'false');
+  });
+}
+
+function clearUserFieldMessages() {
+  ['name', 'username', 'email', 'password'].forEach((fieldName) => {
+    setUserFieldMessage(fieldName, '');
+  });
+}
+
+function setupUserModalValidationListeners() {
+  const bindings = [
+    ['u-name', 'name'],
+    ['u-username', 'username'],
+    ['u-email', 'email'],
+    ['u-pass', 'password']
+  ];
+
+  bindings.forEach(([id, fieldName]) => {
+    const node = document.getElementById(id);
+    if (!node || node.dataset.userValidationBound === '1') return;
+    node.dataset.userValidationBound = '1';
+    node.addEventListener('input', () => setUserFieldMessage(fieldName, ''));
+    node.addEventListener('change', () => setUserFieldMessage(fieldName, ''));
+  });
+}
+
+function getResetPasswordFieldMessageNode(fieldName) {
+  return document.querySelector(`[data-reset-pass-field-message="${fieldName}"]`);
+}
+
+function getResetPasswordFieldNodes(fieldName) {
+  const map = {
+    password: ['reset-pass-input'],
+    confirm: ['reset-pass-confirm']
+  };
+
+  return (map[fieldName] || [])
+    .map((id) => document.getElementById(id))
+    .filter(Boolean);
+}
+
+function setResetPasswordFieldMessage(fieldName, message = '') {
+  const notice = getResetPasswordFieldMessageNode(fieldName);
+  const text = String(message || '').trim();
+  const field = notice?.closest('.field') || null;
+
+  if (notice) {
+    notice.textContent = text;
+    notice.classList.toggle('is-hidden', !text);
+  }
+
+  if (field) {
+    field.classList.toggle('has-error', !!text);
+  }
+
+  getResetPasswordFieldNodes(fieldName).forEach((node) => {
+    node.setAttribute('aria-invalid', text ? 'true' : 'false');
+  });
+}
+
+function clearResetPasswordFieldMessages() {
+  ['password', 'confirm'].forEach((fieldName) => {
+    setResetPasswordFieldMessage(fieldName, '');
+  });
+}
+
+function setupResetPasswordModalValidationListeners() {
+  const bindings = [
+    ['reset-pass-input', 'password'],
+    ['reset-pass-confirm', 'confirm']
+  ];
+
+  bindings.forEach(([id, fieldName]) => {
+    const node = document.getElementById(id);
+    if (!node || node.dataset.resetPasswordValidationBound === '1') return;
+    node.dataset.resetPasswordValidationBound = '1';
+    node.addEventListener('input', () => setResetPasswordFieldMessage(fieldName, ''));
+    node.addEventListener('change', () => setResetPasswordFieldMessage(fieldName, ''));
+  });
+}
+
+function handleUserSaveError(err) {
+  const errorText = String(err?.message || '').toLowerCase();
+  if (errorText.includes('username')) {
+    setUserFieldMessage('username', err.message || 'Username already exists.');
+    return true;
+  }
+  if (errorText.includes('email')) {
+    setUserFieldMessage('email', err.message || 'Email already exists.');
+    return true;
+  }
+  if (errorText.includes('password')) {
+    setUserFieldMessage('password', err.message || 'Password is required.');
+    return true;
+  }
+  if (errorText.includes('name') || errorText.includes('fullname')) {
+    setUserFieldMessage('name', err.message || 'Full Name is required.');
+    return true;
+  }
+  return false;
 }
 
 function syncUserModalMode() {
@@ -5362,6 +6087,7 @@ function resetUserModalForm() {
   if (role) role.value = 'user';
   const passInput = document.getElementById('u-pass');
   if (passInput) passInput.type = 'password';
+  clearUserFieldMessages();
 }
 
 function openUserModal(user = null) {
@@ -5373,6 +6099,7 @@ function openUserModal(user = null) {
   if (modal) modal.classList.add('open');
 
   resetUserModalForm();
+  clearUserFieldMessages();
 
   if (user) {
     const nameInput = document.getElementById('u-name');
@@ -5405,6 +6132,7 @@ function closeUserModal() {
   userModalSnapshot = null;
   resetUserModalForm();
   syncUserModalMode();
+  clearUserFieldMessages();
 }
 
 async function saveUser() {
@@ -5412,8 +6140,45 @@ async function saveUser() {
   const username = document.getElementById('u-username').value.trim();
   const email    = document.getElementById('u-email').value.trim().toLowerCase();
   const role     = document.getElementById('u-role').value;
-  const status   = document.getElementById('u-status').value;
+  const statusInput = document.getElementById('u-status');
+  const status   = statusInput
+    ? statusInput.value
+    : (userModalMode === 'edit' && userModalSnapshot
+      ? String(Number(userModalSnapshot.active || 0) === 1 ? 1 : 0)
+      : '1');
   const password = document.getElementById('u-pass').value;
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  clearUserFieldMessages();
+
+  let hasValidationError = false;
+  const markUserError = (fieldName, message) => {
+    setUserFieldMessage(fieldName, message);
+    hasValidationError = true;
+  };
+
+  if (!name) markUserError('name', 'Full Name is required.');
+  if (!username) markUserError('username', 'Username is required.');
+  if (!email) {
+    markUserError('email', 'Email is required.');
+  } else if (!emailRegex.test(email)) {
+    markUserError('email', 'Invalid email format.');
+  }
+
+  const trimmedPassword = password.trim();
+  if (userModalMode === 'create') {
+    if (!trimmedPassword) {
+      markUserError('password', 'Initial password is required.');
+    } else if (trimmedPassword.length < 8) {
+      markUserError('password', 'Password must be at least 8 characters.');
+    }
+  } else if (trimmedPassword && trimmedPassword.length < 8) {
+    markUserError('password', 'Password must be at least 8 characters.');
+  }
+
+  if (hasValidationError) {
+    return;
+  }
 
   if (userModalMode === 'edit' && editingUserId) {
     try {
@@ -5424,17 +6189,16 @@ async function saveUser() {
         role,
         active: Number(status || 1)
       };
-      if (password.trim()) payload.password = password.trim();
+      if (trimmedPassword) payload.password = trimmedPassword;
 
       const res = await fetch(`/api/admin/users/${editingUserId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
-        showToast(data.error || 'Failed to update user.', 'error');
-        return;
+        throw new Error(data.error || 'Failed to update user.');
       }
 
       closeUserModal();
@@ -5443,24 +6207,32 @@ async function saveUser() {
       return;
     } catch (err) {
       console.error('Update User Error:', err);
-      showToast('Network error o hindi maka-connect sa server.', 'error');
+      const handled = handleUserSaveError(err);
+      if (!handled) {
+        showToast(err.message || 'Network error o hindi maka-connect sa server.', 'error');
+      }
       return;
     }
   }
 
-  const created = await submitUserCreatePayload({
-    name,
-    username,
-    email,
-    role,
-    password,
-    active: Number(status || 1)
-  });
-
-  if (created) {
+  try {
+    await submitUserCreatePayload({
+      name,
+      username,
+      email,
+      role,
+      password: trimmedPassword,
+      active: Number(status || 1)
+    });
     closeUserModal();
     showToast('User created successfully!', 'success');
     await loadUsers();
+  } catch (err) {
+    console.error('Save User Error:', err);
+    const handled = handleUserSaveError(err);
+    if (!handled) {
+      showToast(err.message || 'Network error o hindi maka-connect sa server.', 'error');
+    }
   }
 }
 
@@ -5617,6 +6389,716 @@ function downloadCsv(filename, headers, rows) {
   URL.revokeObjectURL(url);
 }
 
+function normalizeServiceOrderStatus(status) {
+  const normalized = String(status || 'draft').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (normalized === 'inprogress') return 'in_progress';
+  if (normalized === 'canceled') return 'cancelled';
+  const allowed = new Set(['draft', 'issued', 'accepted', 'in_progress', 'completed', 'cancelled']);
+  return allowed.has(normalized) ? normalized : 'draft';
+}
+
+function formatServiceOrderStatusLabel(status) {
+  return normalizeServiceOrderStatus(status)
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function getServiceOrderProjectLabel(project) {
+  if (!project) return 'Untitled Project';
+
+  const docno = String(project.project_docno || project.source_docno || '').trim();
+  const name = String(project.project_name || 'Untitled Project').trim() || 'Untitled Project';
+  const companyNo = String(project.company_no || project.registry_company_no || '').trim();
+  const companyName = String(project.company_name || project.registry_company_name || '').trim();
+  const companyLabel = [companyNo, companyName].filter(Boolean).join(' - ');
+
+  return [docno, name, companyLabel].filter(Boolean).join(' - ');
+}
+
+function populateServiceOrderProjectSelect(selectedProjectId = '') {
+  const select = document.getElementById('so-project-id');
+  if (!select) return;
+
+  const currentValue = String(selectedProjectId || select.value || '').trim();
+  const projects = Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [];
+
+  select.innerHTML = '<option value="">Select Project</option>' + projects.map((project) => {
+    const value = Number(project.id || 0);
+    const label = getServiceOrderProjectLabel(project);
+    return `<option value="${value}">${escHtml(label)}</option>`;
+  }).join('');
+
+  if (currentValue) {
+    select.value = currentValue;
+  }
+
+  syncServiceOrderCompanyFromProject();
+}
+
+async function loadServiceOrdersData(force = false) {
+  if (!force && Array.isArray(serviceOrdersDb) && serviceOrdersDb.length) {
+    return serviceOrdersDb;
+  }
+
+  if (!force && serviceOrdersLoadPromise) {
+    return serviceOrdersLoadPromise;
+  }
+
+  serviceOrdersInitialLoadAttempted = true;
+  serviceOrdersLoadPromise = (async () => {
+    const res = await fetch('/api/service-orders?include_archived=1', { cache: 'no-store' });
+    const data = await res.json().catch(() => []);
+    if (!res.ok) {
+      throw new Error((data && data.error) || `HTTP ${res.status}`);
+    }
+
+    serviceOrdersDb = Array.isArray(data) ? data : [];
+    return serviceOrdersDb;
+  })();
+
+  return serviceOrdersLoadPromise.finally(() => {
+    serviceOrdersLoadPromise = null;
+  });
+}
+
+function renderServiceOrdersTable() {
+  const tbody = document.getElementById('service-orders-table-body');
+  if (!tbody) return;
+
+  const searchValue = String(document.getElementById('service-orders-search-input')?.value || '').trim().toLowerCase();
+  const rows = Array.isArray(serviceOrdersDb) ? serviceOrdersDb : [];
+
+  if (!rows.length) {
+    if (!serviceOrdersInitialLoadAttempted) {
+      tbody.innerHTML = '';
+      loadServiceOrdersData()
+        .then(() => {
+          if (document.getElementById('service-orders-table-body')) {
+            renderServiceOrdersTable();
+          }
+        })
+        .catch((err) => {
+          console.error('Load service orders error:', err);
+          showToast(err.message || 'Unable to load service orders.', 'error');
+        });
+      return;
+    }
+
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="11">No service orders found.</td></tr>';
+    return;
+  }
+
+  const filtered = rows.filter((row) => {
+    if (!searchValue) return true;
+    const haystack = [
+      row.so_number,
+      row.vendor_name,
+      row.company_name,
+      row.company_no,
+      row.project_name,
+      row.project_docno,
+      row.transaction_docnos,
+      row.service_title,
+      row.description,
+      row.notes,
+      row.status,
+    ]
+      .map((value) => String(value ?? '').trim())
+      .join(' ')
+      .toLowerCase();
+    return haystack.includes(searchValue);
+  });
+
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="11">No service orders found.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filtered.map((row) => {
+    const companyLabel = [row.company_no, row.company_name]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+      .join(' - ') || '-';
+    const projectLabel = [row.project_docno, row.project_name].map((value) => String(value || '').trim()).filter(Boolean).join(' - ') || '-';
+    const transactionDocnos = String(row.transaction_docnos || '').trim();
+    const transactionCount = Number(row.transaction_count || 0) || (transactionDocnos ? transactionDocnos.split(',').filter(Boolean).length : 0);
+    const transactionLabel = transactionDocnos
+      ? (transactionCount > 1 ? `${transactionDocnos.split(',')[0].trim()} (+${transactionCount - 1})` : transactionDocnos.split(',')[0].trim())
+      : '-';
+    const amount = Number(row.total_amount || 0);
+    const amountText = `PHP ${amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const statusClass = `status-pill status-${normalizeServiceOrderStatus(row.status || 'draft')}`;
+    const statusLabel = formatServiceOrderStatusLabel(row.status || 'draft');
+    const notes = String(row.notes || '-').trim() || '-';
+    const archived = Number(row.is_archived || 0) === 1;
+
+    return `
+      <tr>
+        <td style="font-weight:600;color:var(--primary)">${escHtml(row.so_number || '-')}</td>
+        <td>${escHtml(row.vendor_name || '-')}</td>
+        <td>${escHtml(companyLabel)}</td>
+        <td>${escHtml(projectLabel)}</td>
+        <td title="${escHtml(transactionDocnos || '-')}" style="max-width:220px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escHtml(transactionLabel)}</td>
+        <td>${escHtml(row.service_title || row.description || '-')}</td>
+        <td class="text-center">${escHtml(String(row.service_date || '').slice(0, 10) || '-')}</td>
+        <td class="text-right" style="font-weight:600;">${escHtml(amountText)}</td>
+        <td title="${escHtml(notes)}" style="max-width:240px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escHtml(notes)}</td>
+        <td class="text-center"><span class="${statusClass}">${escHtml(statusLabel)}</span></td>
+        <td class="text-center">
+          <div class="actions">
+            ${archived
+              ? `<button class="btn btn-restore btn-sm" type="button" onclick="event.stopPropagation(); restoreServiceOrder(${Number(row.id)})">Restore</button>`
+              : `<button class="btn btn-archive btn-sm" type="button" onclick="event.stopPropagation(); archiveServiceOrder(${Number(row.id)})">Archive</button>`}
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function archiveServiceOrder(id) {
+  const confirmed = await openConfirmDialog({
+    title: 'Archive Service Order',
+    message: 'Archive this service order?',
+    noText: 'No',
+    yesText: 'Yes'
+  });
+  if (!confirmed) return;
+
+  try {
+    const res = await fetch(`/api/service-orders/${id}/archive`, { method: 'PUT' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || data.message || 'Unable to archive service order.');
+    showToast('Service order archived successfully!', 'success');
+    await loadServiceOrdersData(true);
+    renderServiceOrdersTable();
+  } catch (err) {
+    showToast(err.message || 'Unable to archive service order.', 'error');
+  }
+}
+
+async function restoreServiceOrder(id) {
+  const confirmed = await openConfirmDialog({
+    title: 'Restore Service Order',
+    message: 'Restore this service order?',
+    noText: 'No',
+    yesText: 'Yes'
+  });
+  if (!confirmed) return;
+
+  try {
+    const res = await fetch(`/api/service-orders/${id}/restore`, { method: 'PUT' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || data.message || 'Unable to restore service order.');
+    showToast('Service order restored successfully!', 'success');
+    await loadServiceOrdersData(true);
+    renderServiceOrdersTable();
+  } catch (err) {
+    showToast(err.message || 'Unable to restore service order.', 'error');
+  }
+}
+
+function getServiceOrderFieldMessageNode(fieldName) {
+  return document.querySelector(`[data-so-field-message="${fieldName}"]`);
+}
+
+function getServiceOrderFieldNodes(fieldName) {
+  const map = {
+    so_number: ['so-docno'],
+    vendor_id: ['so-vendor-search', 'so-vendor-id'],
+    company_id: ['so-company-search', 'so-company-id'],
+    project_id: ['so-project-id'],
+    service_title: ['so-title']
+  };
+
+  return (map[fieldName] || [])
+    .map((id) => document.getElementById(id))
+    .filter(Boolean);
+}
+
+function setServiceOrderFieldMessage(fieldName, message = '') {
+  const notice = getServiceOrderFieldMessageNode(fieldName);
+  const text = String(message || '').trim();
+  const field = notice?.closest('.field') || null;
+
+  if (notice) {
+    notice.textContent = text;
+    notice.classList.toggle('is-hidden', !text);
+  }
+
+  if (field) {
+    field.classList.toggle('has-error', !!text);
+  }
+
+  getServiceOrderFieldNodes(fieldName).forEach((node) => {
+    node.setAttribute('aria-invalid', text ? 'true' : 'false');
+  });
+}
+
+function clearServiceOrderFieldMessages() {
+  ['so_number', 'vendor_id', 'company_id', 'project_id', 'service_title'].forEach((fieldName) => {
+    setServiceOrderFieldMessage(fieldName, '');
+  });
+}
+
+function setupServiceOrderModalValidationListeners() {
+  const bindings = [
+    ['so-docno', 'so_number'],
+    ['so-vendor-search', 'vendor_id', () => {
+      const hidden = document.getElementById('so-vendor-id');
+      if (hidden) hidden.value = '';
+    }],
+    ['so-company-search', 'company_id', () => {
+      const hidden = document.getElementById('so-company-id');
+      if (hidden) hidden.value = '';
+    }],
+    ['so-project-id', 'project_id'],
+    ['so-title', 'service_title']
+  ];
+
+  bindings.forEach(([id, fieldName, onInput]) => {
+    const node = document.getElementById(id);
+    if (!node || node.dataset.serviceOrderValidationBound === '1') return;
+    node.dataset.serviceOrderValidationBound = '1';
+    node.addEventListener('input', () => {
+      setServiceOrderFieldMessage(fieldName, '');
+      if (typeof onInput === 'function') onInput();
+    });
+    node.addEventListener('change', () => setServiceOrderFieldMessage(fieldName, ''));
+  });
+}
+
+async function loadServiceOrderPickerData(force = false) {
+  if (!force && Array.isArray(serviceOrderCompanyPickerDb) && serviceOrderCompanyPickerDb.length && Array.isArray(serviceOrderVendorPickerDb) && serviceOrderVendorPickerDb.length) {
+    return {
+      companies: serviceOrderCompanyPickerDb,
+      vendors: serviceOrderVendorPickerDb
+    };
+  }
+
+  if (!force && serviceOrderPickerLoadPromise) {
+    return serviceOrderPickerLoadPromise;
+  }
+
+  serviceOrderPickerLoadPromise = Promise.all([
+    fetch('/api/company-registry?include_archived=1', { cache: 'no-store' }),
+    fetch('/api/vendors', { cache: 'no-store' })
+  ])
+    .then(async ([companiesRes, vendorsRes]) => {
+      const companiesData = await companiesRes.json().catch(() => ([]));
+      const vendorsData = await vendorsRes.json().catch(() => ([]));
+
+      if (!companiesRes.ok) {
+        throw new Error((companiesData && companiesData.error) || `HTTP ${companiesRes.status}`);
+      }
+      if (!vendorsRes.ok) {
+        throw new Error((vendorsData && vendorsData.error) || `HTTP ${vendorsRes.status}`);
+      }
+
+      serviceOrderCompanyPickerDb = Array.isArray(companiesData) ? companiesData : [];
+      serviceOrderVendorPickerDb = Array.isArray(vendorsData) ? vendorsData : [];
+
+      return {
+        companies: serviceOrderCompanyPickerDb,
+        vendors: serviceOrderVendorPickerDb
+      };
+    })
+    .catch((err) => {
+      serviceOrderCompanyPickerDb = [];
+      serviceOrderVendorPickerDb = [];
+      throw err;
+    })
+    .finally(() => {
+      serviceOrderPickerLoadPromise = null;
+    });
+
+  return serviceOrderPickerLoadPromise;
+}
+
+function getServiceOrderCompanyLabel(company) {
+  if (!company) return '';
+  const companyNo = String(company.company_no || '').trim();
+  const companyName = String(company.company_name || '').trim();
+  return [companyNo, companyName].filter(Boolean).join(' - ') || companyName || companyNo || '';
+}
+
+function getServiceOrderVendorLabel(vendor) {
+  if (!vendor) return '';
+  const name = String(vendor.vendor_name || '').trim();
+  const contact = String(vendor.contact_person || '').trim();
+  const email = String(vendor.email || '').trim();
+  const meta = [contact, email].filter(Boolean).join(' • ');
+  return meta ? `${name} (${meta})` : name;
+}
+
+function setServiceOrderCompanySelection(companyId, companyLabel) {
+  const hidden = document.getElementById('so-company-id');
+  const input = document.getElementById('so-company-search');
+  const results = document.getElementById('so-company-results');
+
+  if (hidden) hidden.value = companyId ? String(companyId) : '';
+  if (input) input.value = companyLabel || '';
+  if (results) {
+    results.style.display = 'none';
+    results.innerHTML = '';
+  }
+  setServiceOrderFieldMessage('company_id', '');
+  ensureServiceOrderVendorMatchesCompany(companyId);
+}
+
+function setServiceOrderVendorSelection(vendorId, vendorLabel) {
+  const hidden = document.getElementById('so-vendor-id');
+  const input = document.getElementById('so-vendor-search');
+  const results = document.getElementById('so-vendor-results');
+
+  if (hidden) hidden.value = vendorId ? String(vendorId) : '';
+  if (input) input.value = vendorLabel || '';
+  if (results) {
+    results.style.display = 'none';
+    results.innerHTML = '';
+  }
+  setServiceOrderFieldMessage('vendor_id', '');
+}
+
+function getServiceOrderCompanyRecordById(companyId) {
+  const normalizedId = Number(companyId || 0) || 0;
+  if (!normalizedId) return null;
+
+  return (Array.isArray(serviceOrderCompanyPickerDb) ? serviceOrderCompanyPickerDb : [])
+    .find((entry) => Number(entry.id || 0) === normalizedId)
+    || (Array.isArray(companyRegistryDb) ? companyRegistryDb : [])
+      .find((entry) => Number(entry.id || 0) === normalizedId)
+    || null;
+}
+
+function getServiceOrderVendorRecordById(vendorId) {
+  const normalizedId = Number(vendorId || 0) || 0;
+  if (!normalizedId) return null;
+
+  return (Array.isArray(serviceOrderVendorPickerDb) ? serviceOrderVendorPickerDb : [])
+    .find((entry) => Number(entry.id || 0) === normalizedId)
+    || null;
+}
+
+function ensureServiceOrderVendorMatchesCompany(companyId) {
+  const normalizedCompanyId = Number(companyId || 0) || 0;
+  const vendorHidden = document.getElementById('so-vendor-id');
+  const vendorId = Number(vendorHidden?.value || 0) || 0;
+  if (!vendorId) return;
+
+  const vendorRecord = getServiceOrderVendorRecordById(vendorId);
+  const vendorCompanyId = Number(vendorRecord?.company_id || 0) || 0;
+  if (normalizedCompanyId && vendorCompanyId && vendorCompanyId !== normalizedCompanyId) {
+    setServiceOrderVendorSelection('', '');
+    setServiceOrderFieldMessage('vendor_id', 'Vendor must belong to the selected company.');
+  }
+}
+
+function filterServiceOrderCompanies(showAll = false) {
+  const input = document.getElementById('so-company-search');
+  const results = document.getElementById('so-company-results');
+  const hidden = document.getElementById('so-company-id');
+  if (!input || !results || !hidden) return;
+
+  const query = String(input.value || '').trim().toLowerCase();
+  hidden.value = '';
+  setServiceOrderFieldMessage('company_id', '');
+
+  if (!query && !showAll) {
+    results.style.display = 'none';
+    results.innerHTML = '';
+    return;
+  }
+
+  const companies = Array.isArray(serviceOrderCompanyPickerDb) ? serviceOrderCompanyPickerDb : [];
+  const filtered = companies.filter((company) => {
+    const name = String(company.company_name || '').toLowerCase();
+    const no = String(company.company_no || '').toLowerCase();
+    const contact = String(company.contact_person || '').toLowerCase();
+    return showAll || name.includes(query) || no.includes(query) || contact.includes(query);
+  }).slice(0, 10);
+
+  results.innerHTML = filtered.length ? filtered.map((company) => `
+    <div class="search-result-item" data-id="${escHtml(company.id)}" data-label="${escHtml(getServiceOrderCompanyLabel(company))}">
+      <div class="search-result-name">${escHtml(company.company_name || 'Company')}</div>
+      <div class="search-result-sub">${escHtml(company.company_no || '')}${company.contact_person ? ` • ${escHtml(company.contact_person)}` : ''}</div>
+    </div>
+  `).join('') : '<div class="search-result-item search-result-empty">No companies found</div>';
+
+  results.style.display = 'block';
+}
+
+function filterServiceOrderVendors(showAll = false) {
+  const input = document.getElementById('so-vendor-search');
+  const results = document.getElementById('so-vendor-results');
+  const hidden = document.getElementById('so-vendor-id');
+  if (!input || !results || !hidden) return;
+
+  const query = String(input.value || '').trim().toLowerCase();
+  const selectedCompanyId = Number(document.getElementById('so-company-id')?.value || 0) || 0;
+  hidden.value = '';
+  setServiceOrderFieldMessage('vendor_id', '');
+
+  if (!query && !showAll) {
+    results.style.display = 'none';
+    results.innerHTML = '';
+    return;
+  }
+
+  const vendors = Array.isArray(serviceOrderVendorPickerDb) ? serviceOrderVendorPickerDb : [];
+  const filtered = vendors.filter((vendor) => {
+    const name = String(vendor.vendor_name || '').toLowerCase();
+    const contact = String(vendor.contact_person || '').toLowerCase();
+    const email = String(vendor.email || '').toLowerCase();
+    const phone = String(vendor.phone || '').toLowerCase();
+    const vendorCompanyId = Number(vendor.company_id || 0) || 0;
+    const companyMatch = !selectedCompanyId || !vendorCompanyId || vendorCompanyId === selectedCompanyId;
+    return companyMatch && (showAll || name.includes(query) || contact.includes(query) || email.includes(query) || phone.includes(query));
+  }).slice(0, 10);
+
+  results.innerHTML = filtered.length ? filtered.map((vendor) => `
+    <div class="search-result-item" data-id="${escHtml(vendor.id)}" data-label="${escHtml(getServiceOrderVendorLabel(vendor))}">
+      <div class="search-result-name">${escHtml(vendor.vendor_name || 'Vendor')}</div>
+      <div class="search-result-sub">${escHtml(vendor.contact_person || 'No contact')}${vendor.email ? ` • ${escHtml(vendor.email)}` : ''}</div>
+    </div>
+  `).join('') : '<div class="search-result-item search-result-empty">No vendors found</div>';
+
+  results.style.display = 'block';
+}
+
+function selectServiceOrderCompany(id, label) {
+  setServiceOrderCompanySelection(id, label);
+}
+
+function selectServiceOrderVendor(id, label) {
+  setServiceOrderVendorSelection(id, label);
+}
+
+function syncServiceOrderCompanyFromProject() {
+  const projectSelect = document.getElementById('so-project-id');
+  const companyInput = document.getElementById('so-company-search');
+  const companyHidden = document.getElementById('so-company-id');
+  if (!projectSelect || !companyInput || !companyHidden) return;
+
+  const projectId = Number(projectSelect.value || 0);
+  if (!projectId) return;
+
+  const project = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
+    .find((entry) => Number(entry.id || 0) === projectId);
+  if (!project) return;
+
+  const companyId = Number(project.company_id || project.registry_company_id || 0);
+  if (!companyId) return;
+
+  const companyRecord = (
+    Array.isArray(serviceOrderCompanyPickerDb) ? serviceOrderCompanyPickerDb : []
+  ).find((entry) => Number(entry.id || 0) === companyId)
+    || (
+      Array.isArray(companyRegistryDb) ? companyRegistryDb : []
+    ).find((entry) => Number(entry.id || 0) === companyId)
+    || null;
+
+  if (!companyRecord) return;
+
+  setServiceOrderCompanySelection(companyRecord.id, getServiceOrderCompanyLabel(companyRecord));
+  ensureServiceOrderVendorMatchesCompany(companyRecord.id);
+}
+
+function setupServiceOrderPickerListeners() {
+  const companyResults = document.getElementById('so-company-results');
+  const vendorResults = document.getElementById('so-vendor-results');
+  if (companyResults?.dataset.serviceOrderPickerBound === '1' && vendorResults?.dataset.serviceOrderPickerBound === '1') {
+    return;
+  }
+
+  if (companyResults && companyResults.dataset.serviceOrderPickerBound !== '1') {
+    companyResults.dataset.serviceOrderPickerBound = '1';
+    companyResults.addEventListener('click', (event) => {
+      const item = event.target.closest('.search-result-item');
+      if (!item || item.classList.contains('search-result-empty')) return;
+      selectServiceOrderCompany(item.dataset.id, item.dataset.label);
+    });
+  }
+
+  if (vendorResults && vendorResults.dataset.serviceOrderPickerBound !== '1') {
+    vendorResults.dataset.serviceOrderPickerBound = '1';
+    vendorResults.addEventListener('click', (event) => {
+      const item = event.target.closest('.search-result-item');
+      if (!item || item.classList.contains('search-result-empty')) return;
+      selectServiceOrderVendor(item.dataset.id, item.dataset.label);
+    });
+  }
+
+  if (document.body && document.body.dataset.serviceOrderPickerDocBound !== '1') {
+    document.body.dataset.serviceOrderPickerDocBound = '1';
+    document.addEventListener('click', (event) => {
+      if (!event.target.closest('.service-order-company-search')) {
+        if (companyResults) {
+          companyResults.style.display = 'none';
+          companyResults.innerHTML = '';
+        }
+      }
+      if (!event.target.closest('.service-order-vendor-search')) {
+        if (vendorResults) {
+          vendorResults.style.display = 'none';
+          vendorResults.innerHTML = '';
+        }
+      }
+    });
+  }
+}
+
+// Service Order Functions
+async function openServiceOrderModal() {
+  var modal = document.getElementById('service-order-modal-backdrop');
+  if (!modal) return;
+
+  try {
+    await loadServiceOrderPickerData();
+  } catch (err) {
+    console.error('Load service order picker data error:', err);
+    showToast(err.message || 'Unable to load service order pickers.', 'error');
+  }
+
+  clearServiceOrderFieldMessages();
+  document.getElementById('so-docno').value = '';
+  document.getElementById('so-date').value = new Date().toISOString().split('T')[0];
+  setServiceOrderVendorSelection('', '');
+  setServiceOrderCompanySelection('', '');
+  document.getElementById('so-project-id').value = '';
+  document.getElementById('so-title').value = '';
+  document.getElementById('so-amount').value = '';
+  document.getElementById('so-notes').value = '';
+  document.getElementById('so-status').value = 'draft';
+
+  populateServiceOrderProjectSelect();
+  const projectSelect = document.getElementById('so-project-id');
+  if (projectSelect && !projectSelect.dataset.serviceOrderBound) {
+    projectSelect.addEventListener('change', syncServiceOrderCompanyFromProject);
+    projectSelect.dataset.serviceOrderBound = '1';
+  }
+  syncServiceOrderCompanyFromProject();
+
+  modal.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+function closeServiceOrderModal() {
+  var modal = document.getElementById('service-order-modal-backdrop');
+  if (modal) modal.style.display = 'none';
+  clearServiceOrderFieldMessages();
+  document.body.style.overflow = '';
+}
+
+async function saveServiceOrder() {
+  clearServiceOrderFieldMessages();
+  const vendorId = Number(document.getElementById('so-vendor-id').value || 0) || 0;
+  const vendorInput = document.getElementById('so-vendor-search').value.trim();
+  const companyId = Number(document.getElementById('so-company-id').value || 0) || 0;
+  const companyInput = document.getElementById('so-company-search').value.trim();
+  const title = document.getElementById('so-title').value.trim();
+  const status = normalizeServiceOrderStatus(document.getElementById('so-status').value || 'draft');
+  const projectId = Number(document.getElementById('so-project-id').value || 0) || null;
+  const selectedProject = projectId
+    ? (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : []).find((entry) => Number(entry.id || 0) === projectId)
+    : null;
+  const projectCompanyId = Number(selectedProject?.company_id || selectedProject?.registry_company_id || 0) || 0;
+  const companyRecord = getServiceOrderCompanyRecordById(companyId);
+  const vendorRecord = getServiceOrderVendorRecordById(vendorId);
+  const vendorCompanyId = Number(vendorRecord?.company_id || 0) || 0;
+
+  if (!vendorId || !companyId || !title) {
+    if (!vendorId) setServiceOrderFieldMessage('vendor_id', 'Vendor selection is required.');
+    if (!companyId) setServiceOrderFieldMessage('company_id', 'Company selection is required.');
+    if (!title) setServiceOrderFieldMessage('service_title', 'Service title is required.');
+    return;
+  }
+
+  if (!vendorRecord) {
+    setServiceOrderFieldMessage('vendor_id', 'Please select a vendor from the search results.');
+    return;
+  }
+
+  if (!companyRecord) {
+    setServiceOrderFieldMessage('company_id', 'Please select a company from the search results.');
+    return;
+  }
+
+  if (projectId && projectCompanyId && companyId !== projectCompanyId) {
+    setServiceOrderFieldMessage('company_id', 'Selected company must match the project company.');
+    return;
+  }
+
+  if (companyId && vendorCompanyId && vendorCompanyId !== companyId) {
+    setServiceOrderFieldMessage('vendor_id', 'Selected vendor must match the company.');
+    return;
+  }
+
+  const amount = parseFloat(document.getElementById('so-amount').value) || 0;
+  const notes = String(document.getElementById('so-notes').value || '').trim();
+  const payload = {
+    so_number: document.getElementById('so-docno').value || null,
+    doc_no: document.getElementById('so-docno').value || null,
+    service_date: document.getElementById('so-date').value,
+    so_date: document.getElementById('so-date').value,
+    vendor_id: vendorId,
+    vendor_name: vendorInput,
+    company_id: companyId,
+    company_name: companyInput,
+    project_id: projectId,
+    service_title: title,
+    title,
+    description: title,
+    total_amount: amount,
+    amount,
+    notes,
+    status
+  };
+
+  try {
+    const res = await fetch('/api/service-orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok || !result.success) {
+      throw new Error(result.error || result.message || 'Error saving service order');
+    }
+
+    showToast('Service Order saved successfully!', 'success');
+    closeServiceOrderModal();
+    await loadServiceOrdersData(true);
+    renderServiceOrdersTable();
+  } catch (err) {
+    console.error('Save SO error:', err);
+    const errorText = String(err?.message || '').toLowerCase();
+    let handled = false;
+    if (errorText.includes('already exists') || errorText.includes('duplicate')) {
+      setServiceOrderFieldMessage('so_number', 'Service order number already exists.');
+      handled = true;
+    } else if (errorText.includes('selected project was not found')) {
+      setServiceOrderFieldMessage('project_id', err.message || 'Selected project was not found.');
+      handled = true;
+    } else if (errorText.includes('vendor is required')) {
+      setServiceOrderFieldMessage('vendor_id', err.message || 'Vendor selection is required.');
+      handled = true;
+    } else if (errorText.includes('selected vendor must match')) {
+      setServiceOrderFieldMessage('vendor_id', err.message || 'Selected vendor must match the company.');
+      handled = true;
+    } else if (errorText.includes('company is required') || errorText.includes('select a project') || errorText.includes('selected company must match')) {
+      setServiceOrderFieldMessage('company_id', err.message || 'Company selection is required.');
+      handled = true;
+    } else if (errorText.includes('service title is required')) {
+      setServiceOrderFieldMessage('service_title', err.message || 'Service title is required.');
+      handled = true;
+    }
+
+    if (!handled) {
+      showToast(err.message || 'Error saving service order', 'error');
+    }
+  }
+}
 
 
 
@@ -5625,4 +7107,74 @@ function downloadCsv(filename, headers, rows) {
 
 
 
+
+
+
+
+// Company Search for Project Modal
+let projectCompanies = [];
+
+async function loadProjectCompanies() {
+  try {
+    const r = await fetch('/api/company-registry?include_archived=1');
+    const d = await r.json();
+    projectCompanies = Array.isArray(d) ? d : [];
+  } catch (e) {
+    projectCompanies = [];
+  }
+}
+
+function filterProjectCompanies() {
+  const i = document.getElementById('p-company-search');
+  const r = document.getElementById('p-company-results');
+  const h = document.getElementById('p-company-id');
+  if (!i || !r) return;
+  const q = String(i.value || '').trim().toLowerCase();
+  if (h) h.value = '';
+  setProjectFieldMessage('company', '');
+  if (!q) {
+    r.style.display = 'none';
+    r.innerHTML = '';
+    return;
+  }
+  const f = projectCompanies.filter(c => {
+    const n = String(c.company_name || '').toLowerCase();
+    const no = String(c.company_no || '').toLowerCase();
+    return n.includes(q) || no.includes(q);
+  }).slice(0, 10);
+  if (f.length === 0) {
+    r.innerHTML = '<div class="search-result-item search-result-empty">No companies found</div>';
+  } else {
+    r.innerHTML = f.map(c => '<div class="search-result-item" data-id="' + c.id + '" data-name="' + escHtml(c.company_name) + '"><div class="search-result-name">' + escHtml(c.company_name) + '</div><div class="search-result-sub">' + escHtml(c.company_no || '') + ' &bull; ' + escHtml(c.contact_person || 'No contact') + '</div></div>').join('');
+  }
+  r.style.display = 'block';
+}
+
+function selectProjectCompany(id, name) {
+  const h = document.getElementById('p-company-id');
+  const i = document.getElementById('p-company-search');
+  const r = document.getElementById('p-company-results');
+  if (h) h.value = id;
+  if (i) i.value = name;
+  setProjectFieldMessage('company', '');
+  if (r) {
+    r.style.display = 'none';
+    r.innerHTML = '';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadProjectCompanies();
+  const i = document.getElementById('p-company-search');
+  const r = document.getElementById('p-company-results');
+  if (i && r) {
+    r.addEventListener('click', e => {
+      const it = e.target.closest('.search-result-item');
+      if (it && !it.classList.contains('search-result-empty')) selectProjectCompany(it.dataset.id, it.dataset.name);
+    });
+    document.addEventListener('click', e => {
+      if (!e.target.closest('.project-company-search')) r.style.display = 'none';
+    });
+  }
+});
 

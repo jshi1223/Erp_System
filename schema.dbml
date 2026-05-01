@@ -1,0 +1,518 @@
+// Use DBML to define your database structure
+// Live schema mirrored from the current Kinaadman MySQL database.
+// Docs: https://dbml.dbdiagram.io/docs
+
+Table company_registry {
+  id integer [primary key, increment]
+  company_no varchar(20) [not null, unique]
+  branch_code varchar(10) [not null, default: '000']
+  company_name varchar(255) [not null]
+  address text
+  contact_person varchar(255)
+  phone varchar(50)
+  email varchar(255)
+  tin varchar(50)
+  industry varchar(100)
+  status enum('active', 'inactive') [not null, default: 'active']
+  archived boolean [not null, default: 0]
+  archived_at timestamp
+  notes text
+  created_at timestamp
+}
+
+Table users {
+  id integer [primary key, increment]
+  username varchar(50) [not null, unique]
+  password varchar(255) [not null]
+  email varchar(100) [not null, unique]
+  fullname varchar(100) [not null]
+  role enum('admin', 'staff', 'user') [not null, default: 'user']
+  reset_token varchar(255)
+  reset_token_expiry bigint
+  created_at timestamp
+  active boolean [not null, default: 1]
+  last_login datetime
+}
+
+Table departments {
+  id integer [primary key, increment]
+  department_name varchar(100) [not null, unique]
+  description text
+  is_active boolean [not null, default: 1]
+  created_at timestamp
+}
+
+Table accounting_periods {
+  id integer [primary key, increment]
+  period_name varchar(100) [not null, unique]
+  start_date date [not null]
+  end_date date [not null]
+  is_closed boolean [not null, default: 0]
+  created_at timestamp
+}
+
+Table payroll_periods {
+  id integer [primary key, increment]
+  period_name varchar(100) [not null, unique]
+  start_date date [not null]
+  end_date date [not null]
+  pay_date date
+  status enum('open', 'processing', 'closed', 'paid') [not null, default: 'open']
+  created_at timestamp
+}
+
+Table products {
+  id integer [primary key, increment]
+  sku varchar(50) [not null, unique]
+  name varchar(255) [not null]
+  category varchar(100)
+  description text
+  unit_price decimal(12,2) [not null]
+  reorder_level integer [default: 10]
+  is_active boolean [default: 1]
+  created_at timestamp
+}
+
+Table warehouses {
+  id integer [primary key, increment]
+  name varchar(100) [not null, unique]
+  location varchar(255)
+  is_active boolean [default: 1]
+  created_at timestamp
+}
+
+Table vendors {
+  id integer [primary key, increment]
+  company_id integer
+  vendor_name varchar(255) [not null]
+  contact_person varchar(100)
+  email varchar(100)
+  phone varchar(20)
+  address text
+  tin varchar(20)
+  is_active boolean [default: 1]
+  created_at timestamp
+}
+
+Table chart_of_accounts {
+  id integer [primary key, increment]
+  account_code varchar(30) [not null, unique]
+  account_name varchar(255) [not null]
+  account_type enum('asset', 'liability', 'equity', 'revenue', 'expense') [not null]
+  parent_account_id integer
+  is_active boolean [not null, default: 1]
+  created_at timestamp
+}
+
+Table projects {
+  id integer [primary key, increment]
+  project_name varchar(255) [not null]
+  // Legacy reference to the primary transaction used during backfill/migration.
+  // The ERP relationship flows through transactions.project_id instead of a hard project -> transaction FK.
+  transaction_id integer
+  company_id integer
+  source_docno varchar(20)
+  description text
+  start_date date [not null]
+  end_date date [not null]
+  planned_start_date date
+  planned_end_date date
+  actual_start_date date
+  actual_end_date date
+  status_reason text
+  paused_at date
+  cancelled_at date
+  project_manager varchar(100)
+  status enum('planning', 'active', 'on_hold', 'completed', 'cancelled') [default: 'planning']
+  priority enum('low', 'medium', 'high', 'critical') [default: 'medium']
+  is_archived boolean [not null, default: 0]
+  archived_auto boolean [not null, default: 0]
+  budget decimal(15,2) [not null]
+  members varchar(255)
+  created_at timestamp
+  project_docno varchar(20)
+  pdfFilename varchar(255)
+  company_no varchar(20)
+  company_name varchar(255)
+  client_name varchar(255)
+  project_ar_invoice_no varchar(50)
+  project_ap_bill_no varchar(50)
+  checkno varchar(100)
+  pono varchar(100)
+  downpayment decimal(12,2) [not null, default: 0]
+  qty integer [not null, default: 0]
+  unit_cost decimal(15,2) [not null, default: 0]
+  project_members varchar(255)
+  member_role varchar(50)
+  member_phone varchar(20)
+  project_members_2 varchar(255)
+  member_role_2 varchar(50)
+  member_phone_2 varchar(20)
+  project_members_3 varchar(255)
+  member_role_3 varchar(50)
+  member_phone_3 varchar(20)
+}
+
+Table service_orders {
+  id integer [primary key, increment]
+  so_number varchar(50) [not null, unique]
+  vendor_id integer [not null]
+  company_id integer [not null]
+  project_id integer
+  service_date date [not null]
+  service_title varchar(255) [not null]
+  description text
+  total_amount decimal(15,2) [not null, default: 0]
+  status enum('draft', 'issued', 'accepted', 'in_progress', 'completed', 'cancelled') [default: 'draft']
+  notes text
+  pdfFilename varchar(255)
+  is_archived boolean [not null, default: 0]
+  archived_at timestamp
+  created_at timestamp
+}
+
+Table transactions {
+  id integer [primary key, increment]
+  docno varchar(20) [not null, unique]
+  type enum('receipt', 'invoice') [not null]
+  company_id integer
+  client varchar(255) [not null]
+  address text
+  tin varchar(20)
+  bizstyle varchar(100)
+  phone varchar(20)
+  description text
+  archived boolean [default: 0]
+  archived_auto boolean [not null, default: 0]
+  qty integer [not null, default: 1]
+  unitprice decimal(12,2)
+  amount decimal(12,2) [not null]
+  downpayment decimal(12,2) [not null, default: 0]
+  project_id integer
+  service_order_id integer
+  project_tx_no integer
+  checkno varchar(100)
+  pono varchar(100)
+  date date [not null]
+  status enum('paid', 'unpaid', 'partial') [not null, default: 'unpaid']
+  pdfFilename varchar(255)
+  project_members varchar(255)
+  member_role varchar(50)
+  member_phone varchar(20)
+  project_members_2 varchar(255)
+  member_role_2 varchar(50)
+  member_phone_2 varchar(20)
+  project_members_3 varchar(255)
+  member_role_3 varchar(50)
+  member_phone_3 varchar(20)
+  project_start_date date
+  project_end_date date
+  created_at timestamp
+
+  Indexes {
+    (project_id, project_tx_no) [unique]
+  }
+}
+
+Table stock {
+  id integer [primary key, increment]
+  product_id integer [not null]
+  warehouse_id integer [not null]
+  quantity integer [not null, default: 0]
+  last_updated timestamp
+
+  Indexes {
+    (product_id, warehouse_id) [unique]
+  }
+}
+
+Table stock_movements {
+  id integer [primary key, increment]
+  product_id integer [not null]
+  warehouse_id integer [not null]
+  movement_type enum('inbound', 'outbound', 'adjustment') [not null]
+  quantity integer [not null]
+  source_type enum('manual', 'purchase_requisition', 'purchase_order', 'goods_receipt', 'transaction') [not null, default: 'manual']
+  reference_doc varchar(100)
+  notes text
+  created_at timestamp
+  transaction_id integer
+}
+
+Table purchase_orders {
+  id integer [primary key, increment]
+  po_number varchar(50) [not null, unique]
+  requisition_id integer
+  supplier_po_no varchar(100)
+  vendor_id integer [not null]
+  company_id integer
+  project_id integer
+  po_date date [not null]
+  delivery_date date
+  total_amount decimal(12,2) [not null]
+  status enum('draft', 'pending', 'approved', 'received', 'cancelled') [default: 'draft']
+  notes text
+  created_at timestamp
+}
+
+Table po_line_items {
+  id integer [primary key, increment]
+  po_id integer [not null]
+  product_id integer
+  description text
+  quantity integer [not null]
+  unit_price decimal(12,2) [not null]
+  line_total decimal(12,2) [not null]
+  received_qty integer [default: 0]
+  created_at timestamp
+}
+
+Table accounts_payable {
+  id integer [primary key, increment]
+  vendor_id integer [not null]
+  bill_number varchar(50) [not null, unique]
+  invoice_number varchar(50)
+  bill_date date [not null]
+  due_date date
+  po_id integer
+  total_amount decimal(12,2) [not null]
+  paid_amount decimal(12,2) [default: 0]
+  status enum('draft', 'pending', 'approved', 'partially_paid', 'paid', 'cancelled') [default: 'pending']
+  notes text
+  created_at timestamp
+  pdfFilename varchar(255)
+}
+
+Table accounts_receivable {
+  id integer [primary key, increment]
+  customer_name varchar(255) [not null]
+  invoice_number varchar(50) [not null, unique]
+  invoice_date date [not null]
+  due_date date
+  total_amount decimal(12,2) [not null]
+  paid_amount decimal(12,2) [default: 0]
+  status enum('draft', 'sent', 'partial', 'paid', 'overdue', 'cancelled') [default: 'draft']
+  transaction_id integer [not null, unique]
+  project_id integer
+  project_docno varchar(20)
+  service_order_no varchar(50)
+  notes text
+  archived boolean [not null, default: 0]
+  archived_at timestamp
+  created_at timestamp
+}
+
+Table payments {
+  id integer [primary key, increment]
+  payment_type enum('ap', 'ar') [not null]
+  ap_id integer
+  ar_id integer
+  payment_date date [not null]
+  amount decimal(12,2) [not null]
+  payment_method enum('cash', 'check', 'bank_transfer', 'credit_card') [default: 'cash']
+  reference_number varchar(100)
+  notes text
+  created_at timestamp
+}
+
+Table journal_entries {
+  id integer [primary key, increment]
+  entry_number varchar(50) [not null, unique]
+  entry_date date [not null]
+  reference_type varchar(50)
+  reference_id varchar(50)
+  memo text
+  status enum('draft', 'posted', 'reversed') [not null, default: 'draft']
+  created_by integer
+  created_at timestamp
+}
+
+Table journal_lines {
+  id integer [primary key, increment]
+  journal_entry_id integer [not null]
+  account_id integer [not null]
+  line_memo text
+  debit decimal(12,2) [not null, default: 0]
+  credit decimal(12,2) [not null, default: 0]
+  created_at timestamp
+}
+
+Table purchase_requisitions {
+  id integer [primary key, increment]
+  pr_number varchar(50) [not null, unique]
+  company_id integer
+  project_id integer
+  request_date date [not null]
+  department varchar(100)
+  requested_by varchar(100)
+  needed_by date
+  status enum('draft', 'submitted', 'approved', 'ordered', 'received', 'cancelled') [not null, default: 'draft']
+  notes text
+  created_at timestamp
+}
+
+Table purchase_requisition_items {
+  id integer [primary key, increment]
+  pr_id integer [not null]
+  item_name varchar(255) [not null]
+  description text
+  quantity decimal(12,2) [not null, default: 1]
+  unit varchar(30)
+  estimated_unit_price decimal(12,2) [not null, default: 0]
+  line_total decimal(12,2) [not null, default: 0]
+  created_at timestamp
+}
+
+Table goods_receipts {
+  id integer [primary key, increment]
+  grn_number varchar(50) [not null, unique]
+  po_id integer [not null]
+  received_date date [not null]
+  received_by varchar(100)
+  status enum('draft', 'received', 'rejected') [not null, default: 'draft']
+  notes text
+  created_at timestamp
+}
+
+Table goods_receipt_items {
+  id integer [primary key, increment]
+  receipt_id integer [not null]
+  po_line_item_id integer
+  received_qty decimal(12,2) [not null, default: 0]
+  notes text
+  created_at timestamp
+}
+
+Table tasks {
+  id integer [primary key, increment]
+  project_id integer [not null]
+  task_name varchar(255) [not null]
+  description text
+  start_date date [not null]
+  end_date date [not null]
+  duration integer
+  progress integer [default: 0]
+  assigned_to varchar(100)
+  status enum('not_started', 'in_progress', 'on_hold', 'completed', 'cancelled') [default: 'not_started']
+  plan_cost decimal(12,2) [default: 0]
+  actual_cost decimal(12,2) [default: 0]
+  dependencies integer
+  created_at timestamp
+}
+
+Table project_costs {
+  id integer [primary key, increment]
+  project_id integer [not null]
+  task_id integer
+  cost_category varchar(100)
+  plan_amount decimal(12,2) [not null]
+  actual_amount decimal(12,2) [default: 0]
+  variance decimal(12,2)
+  cost_date date
+  notes text
+  created_at timestamp
+}
+
+Table project_resources {
+  id integer [primary key, increment]
+  project_id integer [not null]
+  task_id integer
+  resource_name varchar(100) [not null]
+  resource_type enum('labor', 'material', 'equipment', 'other') [default: 'labor']
+  quantity decimal(10,2)
+  unit_cost decimal(12,2)
+  allocation integer [default: 100]
+  created_at timestamp
+}
+
+Table employees {
+  id integer [primary key, increment]
+  employee_code varchar(50) [not null, unique]
+  full_name varchar(255) [not null]
+  department_id integer
+  job_title varchar(150)
+  employment_type enum('regular', 'contract', 'probationary', 'part_time') [not null, default: 'regular']
+  pay_frequency enum('monthly', 'semi_monthly', 'biweekly', 'weekly') [not null, default: 'monthly']
+  salary_rate decimal(12,2) [not null, default: 0]
+  email varchar(100)
+  phone varchar(30)
+  hire_date date
+  status enum('active', 'on_leave', 'inactive') [not null, default: 'active']
+  created_at timestamp
+}
+
+Table payroll_runs {
+  id integer [primary key, increment]
+  period_id integer [not null]
+  employee_id integer [not null]
+  gross_pay decimal(12,2) [not null, default: 0]
+  deductions decimal(12,2) [not null, default: 0]
+  net_pay decimal(12,2) [not null, default: 0]
+  status enum('draft', 'approved', 'paid') [not null, default: 'draft']
+  notes text
+  created_at timestamp
+}
+
+Table payroll_run_lines {
+  id integer [primary key, increment]
+  payroll_run_id integer [not null]
+  line_type varchar(100) [not null]
+  amount decimal(12,2) [not null, default: 0]
+  created_at timestamp
+}
+
+Table system_logs {
+  id integer [primary key, increment]
+  user_id integer
+  action varchar(100) [not null]
+  details text
+  created_at timestamp
+  module varchar(50)
+  ip_address varchar(50)
+}
+
+Ref: vendors.company_id > company_registry.id
+Ref: projects.company_id > company_registry.id
+Ref: service_orders.vendor_id > vendors.id
+Ref: service_orders.company_id > company_registry.id
+Ref: service_orders.project_id > projects.id
+Ref: transactions.company_id > company_registry.id
+Ref: transactions.project_id > projects.id
+Ref: transactions.service_order_id > service_orders.id
+Ref: accounts_receivable.project_id > projects.id
+Ref: stock.product_id > products.id
+Ref: stock.warehouse_id > warehouses.id
+Ref: stock_movements.product_id > products.id
+Ref: stock_movements.warehouse_id > warehouses.id
+Ref: stock_movements.transaction_id > transactions.id
+Ref: purchase_orders.vendor_id > vendors.id
+Ref: purchase_orders.company_id > company_registry.id
+Ref: purchase_orders.project_id > projects.id
+Ref: purchase_orders.requisition_id > purchase_requisitions.id
+Ref: po_line_items.po_id > purchase_orders.id
+Ref: po_line_items.product_id > products.id
+Ref: accounts_payable.vendor_id > vendors.id
+Ref: accounts_payable.po_id > purchase_orders.id
+Ref: accounts_receivable.transaction_id > transactions.id
+Ref: payments.ap_id > accounts_payable.id
+Ref: payments.ar_id > accounts_receivable.id
+Ref: journal_entries.created_by > users.id
+Ref: journal_lines.journal_entry_id > journal_entries.id
+Ref: journal_lines.account_id > chart_of_accounts.id
+Ref: purchase_requisition_items.pr_id > purchase_requisitions.id
+Ref: purchase_requisitions.company_id > company_registry.id
+Ref: purchase_requisitions.project_id > projects.id
+Ref: goods_receipts.po_id > purchase_orders.id
+Ref: goods_receipt_items.receipt_id > goods_receipts.id
+Ref: goods_receipt_items.po_line_item_id > po_line_items.id
+Ref: chart_of_accounts.parent_account_id > chart_of_accounts.id
+Ref: employees.department_id > departments.id
+Ref: payroll_runs.period_id > payroll_periods.id
+Ref: payroll_runs.employee_id > employees.id
+Ref: payroll_run_lines.payroll_run_id > payroll_runs.id
+Ref: tasks.project_id > projects.id
+Ref: project_costs.project_id > projects.id
+Ref: project_costs.task_id > tasks.id
+Ref: project_resources.project_id > projects.id
+Ref: project_resources.task_id > tasks.id
+Ref: system_logs.user_id > users.id

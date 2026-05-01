@@ -1,0 +1,234 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KVSK CCTV & IT Solution - Reports</title>
+  <script src="/assets/js/auth-guard.js?v=20260422"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260501w" />
+  <link rel="stylesheet" href="/reports/reports.css?v=20260501b" />
+</head>
+<body class="erp-clean-page">
+
+<!-- Header (copied from dashboard) -->
+<header>
+  <div class="header-left" style="display:flex; align-items:center; gap:15px;">
+    <button class="btn-icon sidebar-toggle-btn" type="button" onclick="toggleSidebar()" title="Menu" aria-label="Open menu">
+      <svg class="sidebar-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 7h16M4 12h16M4 17h16"></path>
+      </svg>
+    </button>
+    <button class="brand-link" type="button" onclick="goBackToDashboard()" aria-label="Go back to dashboard">
+      <div class="brand-lockup">
+        <img class="brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+        <div class="brand-copy">
+          <div class="header-logo">KVSK CCTV & IT Solution</div>
+          <div class="header-sub">Reports</div>
+        </div>
+      </div>
+    </button>
+  </div>
+  <div class="header-right">
+    <span class="admin-badge">Reports Module</span>
+    <div class="notification-wrap">
+      <button class="btn-icon notification-btn" type="button" onclick="toggleNotificationsPanel()" aria-label="Notifications" title="Notifications">
+        <svg viewBox="0 0 24 24" aria-hidden="true" class="notification-icon">
+          <path d="M12 22a2.3 2.3 0 0 0 2.2-1.6h-4.4A2.3 2.3 0 0 0 12 22zm7-5.5V11a7 7 0 0 0-5-6.7V3.5a2 2 0 1 0-4 0v.8A7 7 0 0 0 5 11v5.5l-1.7 1.7a1 1 0 0 0 .7 1.7h15a1 1 0 0 0 .7-1.7L19 16.5z"></path>
+        </svg>
+        <span class="notification-badge" id="notification-count">0</span>
+      </button>
+      <div class="notifications-panel is-hidden" id="notifications-panel">
+        <div class="notifications-panel-head">
+          <div>
+            <div class="notifications-title">Notifications</div>
+            <div class="notifications-sub">Pending, due soon, expired, and completed project alerts</div>
+          </div>
+          <div class="notifications-panel-actions">
+            <button class="notifications-mark" type="button" onclick="markNotificationsAsRead(); loadNotifications();">Mark as read</button>
+            <button class="notifications-close" type="button" onclick="toggleNotificationsPanel(false)">Ã—</button>
+          </div>
+        </div>
+        <div class="notifications-list" id="notifications-list">
+          
+        </div>
+      </div>
+    </div>
+    <button class="btn btn-logout btn-sm" onclick="doLogout()">Logout</button>
+  </div>
+</header>
+
+<main>
+  <!-- Page Hero -->
+  <div class="page-hero">
+    <div class="page-hero-copy">
+      <div class="page-title">Reports Dashboard</div>
+      <div class="page-sub">Collections overview, invoice status, financial summaries, and project analytics.</div>
+    </div>
+  </div>
+
+  <!-- Company Filter (same as dashboard) -->
+  <div class="dashboard-filter-bar">
+    <div>
+      <div class="section-title" style="font-size: 0.95rem;">Company View</div>
+      <div class="section-subtitle">Filter reports by company.</div>
+    </div>
+    <div class="company-filter-stack">
+      <select id="reports-company-filter" class="filter-select company-filter-select" aria-label="Company filter" onchange="setReportsCompanyFilter(this.value)">
+        <option value="all">All Companies</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- COLLECTIONS OVERVIEW (moved from dashboard) -->
+  <div id="collections-overview-section">
+    <div class="dashboard-analytics-grid">
+      <!-- A/R Bar Chart -->
+      <section class="dashboard-chart-card dashboard-chart-card-wide">
+        <div class="dashboard-chart-head">
+          <div>
+            <div class="section-title">Collections Overview</div>
+          </div>
+          <div class="dashboard-range-switcher" role="group" aria-label="Collections range">
+            <button class="dashboard-range-btn is-active" type="button" data-range="6" onclick="setReportsBarRange(6)">6 Months</button>
+            <button class="dashboard-range-btn" type="button" data-range="12" onclick="setReportsBarRange(12)">1 Year</button>
+          </div>
+        </div>
+        <div class="dashboard-chart-stage">
+          <div class="dashboard-chart-legend">
+            <span><i class="legend-dot legend-dot-accent"></i>A/R</span>
+            <span><i class="legend-dot legend-dot-primary"></i>Collected</span>
+          </div>
+          <div class="dashboard-bar-scroll">
+            <div class="dashboard-bar-chart" id="reports-bar-chart"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Invoice Status Pie -->
+      <section class="dashboard-chart-card">
+        <div class="dashboard-chart-head">
+          <div>
+            <div class="section-title">Invoice Status</div>
+          </div>
+        </div>
+        <div class="dashboard-pie-wrap">
+          <div class="dashboard-donut" id="reports-donut-chart">
+            <div class="dashboard-donut-center">
+              <strong id="reports-donut-total">0</strong>
+              <span>Invoices</span>
+            </div>
+          </div>
+          <div class="dashboard-pie-legend" id="reports-pie-legend"></div>
+        </div>
+        <div class="dashboard-status-grid dashboard-status-grid-compact" id="reports-invoice-status-cards">
+          <button class="status-mini-card is-active" type="button" data-status="paid" onclick="setReportsInvoiceStatusView('paid')">
+            <span class="status-mini-label">Paid</span>
+            <strong id="reports-status-count-paid">0</strong>
+            <small>Invoices</small>
+          </button>
+          <button class="status-mini-card" type="button" data-status="partial" onclick="setReportsInvoiceStatusView('partial')">
+            <span class="status-mini-label">Partial</span>
+            <strong id="reports-status-count-partial">0</strong>
+            <small>Invoices</small>
+          </button>
+          <button class="status-mini-card" type="button" data-status="unpaid" onclick="setReportsInvoiceStatusView('unpaid')">
+            <span class="status-mini-label">Unpaid</span>
+            <strong id="reports-status-count-unpaid">0</strong>
+            <small>Invoices</small>
+          </button>
+        </div>
+        <div class="dashboard-status-summary" id="reports-invoice-status-summary">
+          
+        </div>
+      </section>
+    </div>
+
+    <!-- Dashboard Insights (moved from dashboard) -->
+    <div class="dashboard-insights-row" id="reports-insights-row">
+      <div class="dashboard-insight-card">
+        <span class="dashboard-insight-label">Best Month</span>
+        <strong id="reports-insight-best-month">-</strong>
+      </div>
+      <div class="dashboard-insight-card">
+        <span class="dashboard-insight-label">Collection Rate</span>
+        <strong id="reports-insight-collection-rate">0%</strong>
+      </div>
+      <div class="dashboard-insight-card">
+        <span class="dashboard-insight-label">Unpaid Invoices</span>
+        <strong id="reports-insight-unpaid-count">0</strong>
+      </div>
+    </div>
+  </div>
+
+  <!-- Future Reports Placeholder -->
+  <div class="module-panel-note">
+    <p><strong>Coming Soon:</strong> Project reports, financial summaries, inventory analytics, and custom report builder.</p>
+  </div>
+</main>
+
+<!-- Sidebar (same as other admin pages) -->
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <div class="sidebar-brand">
+      <img class="sidebar-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <div>
+        <div class="header-logo" style="font-size: 1rem;">KVSK CCTV</div>
+        <div class="header-sub">Operations Control Panel</div>
+      </div>
+    </div>
+    <button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()">X</button>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/admin?view=dashboard" class="sidebar-link">Dashboard</a>
+    <div class="sidebar-group" data-sidebar-group="projects">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Projects</span>
+        <span class="sidebar-group-caret">â–¾</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/admin?view=all" class="sidebar-link is-subitem">Total Projects</a>
+        <a href="/admin?view=ongoing-projects" class="sidebar-link is-subitem" id="menu-ongoing-projects">Ongoing Projects</a>
+        <a href="/company-registry" class="sidebar-link is-subitem">Company Registry</a>
+      </div>
+    </div>
+    <div class="sidebar-group" data-sidebar-group="finance">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Finance</span>
+        <span class="sidebar-group-caret">â–¾</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/accounts-payable" class="sidebar-link is-subitem">Accounts Payable</a>
+        <a href="/accounts-receivable" class="sidebar-link is-subitem">Accounts Receivable</a>
+        <a href="/procurement" class="sidebar-link is-subitem">Procurement</a>
+      </div>
+    </div>
+    <div class="sidebar-group" data-sidebar-group="inventory" data-sidebar-default-collapsed="1">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+        <span>Inventory</span>
+        <span class="sidebar-group-caret">â–¾</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/inventory" class="sidebar-link">Inventory</a>
+      </div>
+    </div>
+    <div class="sidebar-group" data-sidebar-group="admin" data-sidebar-default-collapsed="1">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+        <span>Admin</span>
+        <span class="sidebar-group-caret">â–¾</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/user-management" class="sidebar-link is-subitem" id="menu-users" style="display:none">User Management</a>
+        <a href="#" class="sidebar-link is-subitem" id="menu-logs" style="display:none" onclick="openLogsPanel()">System Logs</a>
+      </div>
+    </div>
+  </nav>
+</div>
+
+<!-- Scripts -->
+<script src="/assets/js/erp-core.js?v=20260501d"></script>
+<script src="/reports/reports.js?v=20260501"></script>
+</body>
+</html>
+
