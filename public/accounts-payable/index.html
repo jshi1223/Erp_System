@@ -1,14 +1,15 @@
-﻿<!-- accounts-payable.html - Accounts Payable Module for ERP -->
+<!-- accounts-payable.html - Accounts Payable Module for ERP -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KVSK CCTV & IT Solution - Accounts Payable</title>
-  <script src="/assets/js/auth-guard.js?v=20260422"></script>
+  <script src="/assets/js/auth-guard.js?v=20260514f"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/css/shared.css?v=20260501w" />
-  <link rel="stylesheet" href="/accounts-payable/accounts-payable.css?v=20260501b" />
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260514d" />
+  <link rel="stylesheet" href="/accounts-payable/accounts-payable.css?v=20260514b" />
+  <link rel="stylesheet" href="/accounts-payable/ap-purchasing.css?v=20260505a" />
 
   
 </head>
@@ -33,6 +34,7 @@
     </button>
   </div>
   <div class="header-right">
+    <span class="workspace-badge" id="current-workspace-badge">Workspace</span>
     <span class="admin-badge">Payables Module</span>
     <div class="notification-wrap">
       <button class="btn-icon notification-btn" type="button" onclick="toggleNotificationsPanel()" aria-label="Notifications" title="Notifications">
@@ -49,7 +51,7 @@
           </div>
           <div class="notifications-panel-actions">
             <button class="notifications-mark" type="button" onclick="markNotificationsAsRead(); loadNotifications();">Mark as read</button>
-            <button class="notifications-close" type="button" onclick="toggleNotificationsPanel(false)">ï¿½</button>
+            <button class="notifications-close" type="button" onclick="toggleNotificationsPanel(false)">�</button>
           </div>
         </div>
         <div class="notifications-list" id="notifications-list">
@@ -65,7 +67,7 @@
   <div class="page-hero">
     <div class="page-hero-copy" style="max-width:none;">
       <div class="page-title">Accounts Payable Management</div>
-      <div class="page-sub">Manage vendors, bills, payment schedules, and due balances in one workspace.</div>
+      <div class="page-sub">Manage vendors, requisitions, purchase orders, receipts, bills, and payments in one workspace.</div>
     </div>
   </div>
 
@@ -74,33 +76,241 @@
     <div class="module-page-toolbar-actions" id="module-toolbar-actions"></div>
   </div>
 
-  <div class="module-summary-grid">
-    <div class="module-summary-card">
+  <div class="module-summary-grid ap-tab-summary-grid" id="ap-summary-grid" aria-live="polite">
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="vendors">
       <span class="module-summary-label">Active Vendors</span>
       <div class="module-summary-value" id="metric-vendors-count">0</div>
     </div>
-    <div class="module-summary-card">
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="vendors">
+      <span class="module-summary-label">Inactive Vendors</span>
+      <div class="module-summary-value" id="metric-vendors-inactive">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="vendors">
+      <span class="module-summary-label">Total Vendors</span>
+      <div class="module-summary-value" id="metric-vendors-total">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="vendors">
+      <span class="module-summary-label">Vendors With POs</span>
+      <div class="module-summary-value" id="metric-vendors-with-po">0</div>
+    </div>
+
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="requisitions" hidden>
+      <span class="module-summary-label">Total Requisitions</span>
+      <div class="module-summary-value" id="metric-pr-count">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="requisitions" hidden>
+      <span class="module-summary-label">Approved Requests</span>
+      <div class="module-summary-value" id="metric-pr-approved">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="requisitions" hidden>
+      <span class="module-summary-label">Open Requests</span>
+      <div class="module-summary-value" id="metric-pr-open">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="requisitions" hidden>
+      <span class="module-summary-label">Estimated Total</span>
+      <div class="module-summary-value" id="metric-pr-total">PHP 0.00</div>
+    </div>
+
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="purchase-orders" hidden>
+      <span class="module-summary-label">Total POs</span>
+      <div class="module-summary-value" id="metric-po-count">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="purchase-orders" hidden>
+      <span class="module-summary-label">Approved POs</span>
+      <div class="module-summary-value" id="metric-po-ordered">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="purchase-orders" hidden>
+      <span class="module-summary-label">Received POs</span>
+      <div class="module-summary-value" id="metric-po-received">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="purchase-orders" hidden>
+      <span class="module-summary-label">PO Total</span>
+      <div class="module-summary-value" id="metric-po-total">PHP 0.00</div>
+    </div>
+
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="goods-receipts" hidden>
+      <span class="module-summary-label">Goods Receipts</span>
+      <div class="module-summary-value" id="metric-grn-count">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="goods-receipts" hidden>
+      <span class="module-summary-label">Received</span>
+      <div class="module-summary-value" id="metric-grn-received">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="goods-receipts" hidden>
+      <span class="module-summary-label">Linked POs</span>
+      <div class="module-summary-value" id="metric-grn-linked-pos">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="goods-receipts" hidden>
+      <span class="module-summary-label">This Month</span>
+      <div class="module-summary-value" id="metric-grn-this-month">0</div>
+    </div>
+
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="bills" hidden>
       <span class="module-summary-label">Open Bills</span>
       <div class="module-summary-value" id="metric-open-bills">0</div>
     </div>
-    <div class="module-summary-card">
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="bills" hidden>
       <span class="module-summary-label">Total Payable</span>
       <div class="module-summary-value" id="metric-total-payable">PHP 0.00</div>
     </div>
-    <div class="module-summary-card">
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="bills" hidden>
       <span class="module-summary-label">Overdue Amount</span>
       <div class="module-summary-value" id="metric-overdue-amount">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="bills" hidden>
+      <span class="module-summary-label">Paid Bills</span>
+      <div class="module-summary-value" id="metric-paid-bills">0</div>
+    </div>
+
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="payments" hidden>
+      <span class="module-summary-label">Payments</span>
+      <div class="module-summary-value" id="metric-payment-count">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="payments" hidden>
+      <span class="module-summary-label">Total Paid</span>
+      <div class="module-summary-value" id="metric-payment-total">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="payments" hidden>
+      <span class="module-summary-label">Paid This Month</span>
+      <div class="module-summary-value" id="metric-payment-this-month">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="payments" hidden>
+      <span class="module-summary-label">Payment Methods</span>
+      <div class="module-summary-value" id="metric-payment-methods">0</div>
     </div>
   </div>
 
   <!-- Navigation Tabs -->
   <div class="module-tabs">
-    <div class="module-tab active" onclick="switchTab('bills', this)">Bills</div>
-    <div class="module-tab" onclick="switchTab('payments', this)">Payments</div>
+    <div class="module-tab ap-workspace-tab active" data-proc-tab="vendors" data-workspace-tab="vendors" onclick="switchApWorkspaceTab('vendors', this)">Vendors</div>
+    <div class="module-tab ap-workspace-tab" data-proc-tab="requisitions" data-workspace-tab="requisitions" onclick="switchApWorkspaceTab('requisitions', this)">Purchase Requisitions</div>
+    <div class="module-tab ap-workspace-tab" data-proc-tab="purchase-orders" data-workspace-tab="purchase-orders" onclick="switchApWorkspaceTab('purchase-orders', this)">Purchase Orders</div>
+    <div class="module-tab ap-workspace-tab" data-proc-tab="goods-receipts" data-workspace-tab="goods-receipts" onclick="switchApWorkspaceTab('goods-receipts', this)">Goods Receipts</div>
+    <div class="module-tab ap-workspace-tab" data-tab="bills" data-workspace-tab="bills" onclick="switchApWorkspaceTab('bills', this)">Bills</div>
+    <div class="module-tab ap-workspace-tab" data-tab="payments" data-workspace-tab="payments" onclick="switchApWorkspaceTab('payments', this)">Payments</div>
+  </div>
+
+  <div id="ap-purchasing-root">
+    <div id="vendors" class="content-section ap-workspace-section active" data-proc-section="vendors">
+      <div class="module-panel-head">
+        <div>
+          <div class="section-title">Vendor Directory</div>
+          <div class="proc-help">Supplier records used for purchase orders, receiving, and bills.</div>
+        </div>
+      </div>
+      <div class="table-wrap" style="margin-top: 12px;">
+        <table class="registry-table">
+          <thead>
+            <tr>
+              <th>
+                <div style="display:flex;align-items:center;gap:10px;justify-content:space-between;">
+                  <span>Vendor No.</span>
+                  <button class="table-sort-trigger" type="button" id="vendor-sort-btn" onclick="toggleVendorDirectorySortOrder()" title="Sort ascending" aria-label="Sort ascending">?</button>
+                </div>
+              </th>
+              <th>Vendor</th>
+              <th>Contact Person</th>
+              <th>Email</th>
+              <th>Phone</th>
+              <th>TIN</th>
+              <th class="text-center">Status</th>
+              <th class="text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="vendor-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="requisitions" class="content-section ap-workspace-section" data-proc-section="requisitions">
+      <div class="module-panel-head">
+        <div>
+          <div class="section-title">Purchase Requisitions</div>
+          <div class="proc-help">Request, estimate, and route internal needs before buying.</div>
+        </div>
+      </div>
+      <div class="table-wrap" style="margin-top: 12px;">
+        <table class="registry-table">
+          <thead>
+            <tr>
+              <th>PR No.</th>
+              <th>Project</th>
+              <th>Request Date</th>
+              <th>Department</th>
+              <th>Requested By</th>
+              <th>Needed By</th>
+              <th>Status</th>
+              <th>Requested Items</th>
+              <th class="text-right">Lines</th>
+              <th class="text-right">Total</th>
+              <th class="text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="pr-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="purchase-orders" class="content-section ap-workspace-section" data-proc-section="purchase-orders">
+      <div class="module-panel-head">
+        <div>
+          <div class="section-title">Purchase Orders</div>
+          <div class="proc-help">Convert approved requests into official supplier orders.</div>
+        </div>
+      </div>
+      <div class="table-wrap" style="margin-top: 12px;">
+        <table class="registry-table">
+          <thead>
+            <tr>
+              <th>PO No.</th>
+              <th>Requisition</th>
+              <th>Vendor</th>
+              <th>Project</th>
+              <th>PO Date</th>
+              <th>Delivery Date</th>
+              <th>Payment Terms</th>
+              <th>Prepared By</th>
+              <th>Approved By</th>
+              <th>Status</th>
+              <th>Descriptions</th>
+              <th class="text-right">Lines</th>
+              <th class="text-right">Total</th>
+              <th class="text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="po-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="goods-receipts" class="content-section ap-workspace-section" data-proc-section="goods-receipts">
+      <div class="module-panel-head">
+        <div>
+          <div class="section-title">Goods Receipts</div>
+          <div class="proc-help">Confirm what actually arrived against each purchase order.</div>
+        </div>
+      </div>
+      <div class="table-wrap" style="margin-top: 12px;">
+        <table class="registry-table">
+          <thead>
+            <tr>
+              <th>GRN No.</th>
+              <th>PO No.</th>
+              <th>Received Date</th>
+              <th>Received By</th>
+              <th>Status</th>
+              <th>Notes</th>
+              <th class="text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="grn-body"></tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
   <!-- BILLS SECTION -->
-  <div id="bills" class="content-section active">
+  <div id="bills" class="content-section ap-workspace-section" data-ap-section="bills">
     <div class="module-panel-head">
       <div>
         <div class="section-title">Bills Register</div>
@@ -113,6 +323,7 @@
           <tr>
             <th>Bill Number</th>
             <th>Vendor</th>
+            <th>Project</th>
             <th>Bill Date</th>
             <th>Due Date</th>
             <th>Total Amount</th>
@@ -130,7 +341,7 @@
   </div>
 
   <!-- PAYMENTS SECTION -->
-  <div id="payments" class="content-section">
+  <div id="payments" class="content-section ap-workspace-section" data-ap-section="payments">
     <div class="module-panel-head">
       <div>
         <div class="section-title">Payments Ledger</div>
@@ -162,6 +373,333 @@
   &copy; 2025 KVSK CCTV & IT Solution | ERP System
 </footer>
 
+<!-- VENDOR MODAL -->
+<div class="modal-backdrop" id="vendor-modal-backdrop">
+  <div class="modal modal-project" style="max-width: 760px;">
+    <button class="modal-close" onclick="closeVendorModal()">X</button>
+    <div class="user-modal-brand">
+      <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <div>
+        <div class="user-modal-kicker">Accounts Payable</div>
+        <div class="modal-title" id="vendor-modal-title" style="margin-bottom:0;">Add Vendor</div>
+      </div>
+    </div>
+    <div class="section-divider">Vendor Details</div>
+    <div class="modal-grid-compact">
+      <div class="field">
+        <label>Vendor No.</label>
+        <input id="f-vendor-no" type="text" placeholder="Auto-generated" readonly />
+      </div>
+      <div class="field full">
+        <label>Vendor Name <span class="req-star">*</span></label>
+        <input id="f-vendor-name" type="text" placeholder="Supplier name" required />
+        <div class="modal-inline-message is-hidden" data-procurement-field-message="vendor_name" aria-live="polite"></div>
+      </div>
+      <div class="field full">
+        <label>Company</label>
+        <input id="f-vendor-company-search" type="text" placeholder="Search company..." autocomplete="off" oninput="renderCompanyOptions('f-vendor-company', 'No company selected')" />
+        <select id="f-vendor-company">
+          <option value="">No company selected</option>
+        </select>
+        <div class="modal-inline-message is-hidden" data-procurement-field-message="vendor_company" aria-live="polite"></div>
+      </div>
+      <div class="field">
+        <label>Contact Person <span class="req-star">*</span></label>
+        <input id="f-vendor-contact" type="text" placeholder="Juan Dela Cruz" required />
+        <div class="modal-inline-message is-hidden" data-procurement-field-message="vendor_contact" aria-live="polite"></div>
+      </div>
+      <div class="field">
+        <label>Email <span class="req-star">*</span></label>
+        <input id="f-vendor-email" type="email" placeholder="vendor@example.com" required />
+        <div class="modal-inline-message is-hidden" data-procurement-field-message="vendor_email" aria-live="polite"></div>
+      </div>
+      <div class="field">
+        <label>Phone <span class="req-star">*</span></label>
+        <select id="f-vendor-phone-country" aria-label="Phone country">
+          <option value="PH">PH +63</option>
+          <option value="OTHER">Other country</option>
+        </select>
+        <input id="f-vendor-phone" type="text" placeholder="11 digits, e.g. 09171234567" maxlength="11" inputmode="numeric" autocomplete="tel" required />
+        <div class="modal-inline-message is-hidden" data-procurement-field-message="vendor_phone" aria-live="polite"></div>
+      </div>
+      <div class="field">
+        <label>TIN <span class="req-star">*</span></label>
+        <input id="f-vendor-tin" type="text" placeholder="000-000-000-000" maxlength="15" inputmode="numeric" autocomplete="off" required />
+        <div class="modal-inline-message is-hidden" data-procurement-field-message="vendor_tin" aria-live="polite"></div>
+      </div>
+      <div class="field full">
+        <label>Address <span class="req-star">*</span></label>
+        <textarea id="f-vendor-address" style="height:70px" placeholder="Vendor address..." required></textarea>
+        <div class="modal-inline-message is-hidden" data-procurement-field-message="vendor_address" aria-live="polite"></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-cancel btn-sm" onclick="closeVendorModal()">Cancel</button>
+      <button class="btn btn-save btn-sm" id="vendor-save-btn" onclick="saveVendor()">Create Vendor</button>
+    </div>
+  </div>
+</div>
+
+<!-- REQUISITION MODAL -->
+<div class="modal-backdrop" id="pr-modal-backdrop">
+  <div class="modal modal-project" style="max-width: 760px;">
+    <button class="modal-close" onclick="closeRequisitionModal()">X</button>
+    <div class="user-modal-brand">
+      <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <div>
+        <div class="user-modal-kicker">Accounts Payable</div>
+        <div class="modal-title" id="pr-modal-title" style="margin-bottom:0;">Add Requisition</div>
+      </div>
+    </div>
+    <div class="section-divider">Request Details</div>
+    <div class="modal-grid-compact">
+      <div class="field">
+        <label>PR No.</label>
+        <input id="pr-number" type="text" placeholder="Auto-generated" readonly style="background:var(--surface2);cursor:default;color:var(--muted);" />
+        <div class="modal-inline-message is-hidden" data-procurement-field-message="pr_number" aria-live="polite"></div>
+      </div>
+      <div class="field full">
+        <label>Company <span class="req-star">*</span></label>
+        <input id="pr-company-search" type="text" placeholder="Search company..." autocomplete="off" oninput="renderCompanyOptions('pr-company')" />
+        <select id="pr-company"></select>
+        <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">Select the company requesting this purchase.</div>
+        <div class="modal-inline-message is-hidden" data-procurement-field-message="company_id" aria-live="polite"></div>
+      </div>
+      <div class="field">
+        <label>Request Date <span class="req-star">*</span></label>
+        <input id="pr-request-date" type="date" />
+        <div class="modal-inline-message is-hidden" data-procurement-field-message="request_date" aria-live="polite"></div>
+      </div>
+      <div class="field">
+        <label>Department</label>
+        <input id="pr-department" type="text" placeholder="Operations" />
+      </div>
+      <div class="field">
+        <label>Requested By</label>
+        <input id="pr-requested-by" type="text" placeholder="Juan Dela Cruz" />
+      </div>
+      <div class="field">
+        <label>Needed By</label>
+        <input id="pr-needed-by" type="date" />
+      </div>
+      <div class="field">
+        <label>Status</label>
+        <select id="pr-status">
+          <option value="draft">Draft</option>
+          <option value="submitted">Submitted</option>
+          <option value="approved">Approved</option>
+          <option value="ordered">Ordered</option>
+          <option value="received">Received</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+      </div>
+      <div class="field full po-lines-field">
+        <div class="po-line-toolbar">
+          <div>
+            <label>Requested Items <span class="req-star">*</span></label>
+            <div class="po-line-helper">Add one or more requested items. Approval applies to the whole requisition.</div>
+          </div>
+          <button class="btn btn-add btn-sm" type="button" onclick="addRequisitionLineItem()">Add Item</button>
+        </div>
+        <div class="po-line-items" id="pr-line-items"></div>
+        <div class="po-line-footer">
+          <div>
+            <div class="po-line-footer-label">Estimated Requisition Total</div>
+            <div class="po-line-footer-note">Auto-calculated from all requested items.</div>
+          </div>
+          <div class="po-line-footer-total" id="pr-total-display">PHP 0.00</div>
+        </div>
+        <div class="modal-inline-message is-hidden" data-procurement-field-message="pr_line_items" aria-live="polite"></div>
+      </div>
+      <div class="field full">
+        <label>Notes</label>
+        <textarea id="pr-notes" style="height:70px" placeholder="Internal notes..."></textarea>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-cancel btn-sm" onclick="closeRequisitionModal()">Cancel</button>
+      <button class="btn btn-save btn-sm" id="pr-save-btn" onclick="saveRequisition()">Create Requisition</button>
+    </div>
+  </div>
+</div>
+
+<!-- PURCHASE ORDER MODAL -->
+<div class="modal-backdrop" id="po-modal-backdrop">
+  <div class="modal modal-project" style="max-width: 940px;">
+    <button class="modal-close" onclick="closePurchaseOrderModal()">X</button>
+    <div class="user-modal-brand">
+      <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <div>
+        <div class="user-modal-kicker">Accounts Payable</div>
+        <div class="modal-title" id="po-modal-title" style="margin-bottom:0;">Add Purchase Order</div>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div class="section-divider">Order Details</div>
+      <div class="modal-grid-compact">
+        <div class="field">
+          <label>PO No.</label>
+          <input id="po-number" type="text" placeholder="Auto-generated" readonly style="background:var(--surface2);cursor:default;color:var(--muted);" />
+        </div>
+        <div class="field full">
+          <label>Project</label>
+          <select id="po-project" onchange="syncPurchaseOrderProjectContext(this.value)"></select>
+          <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">Optional. Select a project only when this PO should be tagged to project costs.</div>
+          <div class="modal-inline-message is-hidden" data-procurement-field-message="project_id" aria-live="polite"></div>
+        </div>
+        <div class="field full" id="po-company-field">
+          <label>Company</label>
+          <input id="po-company-search" type="text" placeholder="Search company..." autocomplete="off" oninput="renderCompanyOptions('po-company')" />
+          <select id="po-company"></select>
+          <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">Optional. This syncs from the selected project or requisition when available.</div>
+          <div class="modal-inline-message is-hidden" data-procurement-field-message="company_id" aria-live="polite"></div>
+        </div>
+        <div class="field full">
+          <label>Requisition</label>
+          <select id="po-requisition" onchange="applyPurchaseOrderRequisitionSelection()"></select>
+          <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">Optional. Select a requisition to inherit the company and line items.</div>
+          <div class="modal-inline-message is-hidden" data-procurement-field-message="requisition_id" aria-live="polite"></div>
+        </div>
+        <div class="field full">
+          <label>Vendor <span class="req-star">*</span></label>
+          <div class="vendor-search-wrap">
+            <input id="po-vendor-search" type="text" placeholder="Search vendor..." autocomplete="off" />
+            <div class="vendor-search-results" id="po-vendor-results"></div>
+          </div>
+          <input id="po-vendor" type="hidden" />
+          <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">Choose the supplier for this company purchase order.</div>
+          <div class="modal-inline-message is-hidden" data-procurement-field-message="vendor_id" aria-live="polite"></div>
+        </div>
+        <div class="field">
+          <label>PO Date <span class="req-star">*</span></label>
+          <input id="po-date" type="date" />
+          <div class="modal-inline-message is-hidden" data-procurement-field-message="po_date" aria-live="polite"></div>
+        </div>
+        <div class="field">
+          <label>Delivery Date</label>
+          <input id="po-delivery" type="date" />
+        </div>
+        <div class="field">
+          <label>Payment Terms</label>
+          <input id="po-payment-terms" type="text" placeholder="e.g. Net 30, COD" />
+        </div>
+        <div class="field">
+          <label>Prepared By</label>
+          <input id="po-prepared-by" type="text" placeholder="Prepared by" />
+        </div>
+        <div class="field">
+          <label>Approved By</label>
+          <input id="po-approved-by" type="text" placeholder="Approved by" />
+        </div>
+        <div class="field">
+          <label>Status</label>
+          <select id="po-status">
+            <option value="draft">Draft</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="received">Received</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+      </div>
+      <div class="field full po-lines-field">
+        <div class="po-line-toolbar">
+          <div>
+            <label>Descriptions</label>
+            <div class="po-line-helper">Add one or more descriptions. Each line item will be saved and shown in the PO table.</div>
+          </div>
+          <button class="btn btn-add btn-sm" type="button" onclick="addPurchaseOrderLineItem()">Add Description</button>
+        </div>
+        <div class="po-line-items" id="po-line-items"></div>
+        <div class="po-line-footer">
+          <div>
+            <div class="po-line-footer-label">Purchase Order Total</div>
+            <div class="po-line-footer-note">Auto-calculated from all line items.</div>
+          </div>
+          <div class="po-line-footer-total" id="po-total-display">PHP 0.00</div>
+        </div>
+        <div class="modal-inline-message is-hidden" data-procurement-field-message="line_items" aria-live="polite"></div>
+      </div>
+      <div class="field full">
+        <label>Notes</label>
+        <textarea id="po-notes" style="height:70px" placeholder="Vendor instructions or remarks..."></textarea>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-cancel btn-sm" onclick="closePurchaseOrderModal()">Cancel</button>
+      <button class="btn btn-save btn-sm" id="po-save-btn" onclick="savePurchaseOrder()">Create Purchase Order</button>
+    </div>
+  </div>
+</div>
+
+<!-- GOODS RECEIPT MODAL -->
+<div class="modal-backdrop" id="grn-modal-backdrop">
+  <div class="modal modal-project" style="max-width: 680px;">
+    <button class="modal-close" onclick="closeGoodsReceiptModal()">X</button>
+    <div class="user-modal-brand">
+      <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <div>
+        <div class="user-modal-kicker">Accounts Payable</div>
+        <div class="modal-title" id="grn-modal-title" style="margin-bottom:0;">Add Goods Receipt</div>
+      </div>
+    </div>
+    <div class="section-divider">Receiving Details</div>
+    <div class="modal-grid-compact">
+      <div class="field">
+        <label>GRN No.</label>
+        <input id="grn-number" type="text" placeholder="Auto-generated" readonly style="background:var(--surface2);cursor:default;color:var(--muted);" />
+        <div class="modal-inline-message is-hidden" data-procurement-field-message="grn_number" aria-live="polite"></div>
+      </div>
+      <div class="field">
+        <label>PO No. <span class="req-star">*</span></label>
+        <select id="grn-po"></select>
+        <div class="modal-inline-message is-hidden" data-procurement-field-message="po_id" aria-live="polite"></div>
+      </div>
+      <div class="field">
+        <label>Vendor</label>
+        <input id="grn-po-vendor-context" type="text" readonly style="background:var(--surface2);cursor:default;" />
+      </div>
+      <div class="field">
+        <label>Company</label>
+        <input id="grn-po-company-context" type="text" readonly style="background:var(--surface2);cursor:default;" />
+      </div>
+      <div class="field">
+        <label>Project</label>
+        <input id="grn-po-project-context" type="text" readonly style="background:var(--surface2);cursor:default;" />
+      </div>
+      <div class="field">
+        <label>PO Total</label>
+        <input id="grn-po-amount-context" type="text" readonly style="background:var(--surface2);cursor:default;" />
+      </div>
+      <div class="field">
+        <label>Received Date <span class="req-star">*</span></label>
+        <input id="grn-received-date" type="date" />
+        <div class="modal-inline-message is-hidden" data-procurement-field-message="received_date" aria-live="polite"></div>
+      </div>
+      <div class="field">
+        <label>Received By</label>
+        <input id="grn-received-by" type="text" placeholder="Receiver name" />
+      </div>
+      <div class="field">
+        <label>Status</label>
+        <select id="grn-status">
+          <option value="received">Received</option>
+          <option value="draft">Draft</option>
+          <option value="rejected">Rejected</option>
+        </select>
+      </div>
+      <div class="field full">
+        <label>Notes</label>
+        <textarea id="grn-notes" style="height:70px" placeholder="Receiving remarks..."></textarea>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-cancel btn-sm" onclick="closeGoodsReceiptModal()">Cancel</button>
+      <button class="btn btn-save btn-sm" id="grn-save-btn" onclick="saveGoodsReceipt()">Create Goods Receipt</button>
+    </div>
+  </div>
+</div>
+
 <!-- BILL MODAL -->
 <div id="bill-modal-backdrop" class="modal-backdrop">
   <div class="modal">
@@ -169,18 +707,34 @@
       <h3>New Bill</h3>
       <button class="close-btn" onclick="closeBillModal()">X</button>
     </div>
-    <div class="modal-body">
+      <div class="modal-body">
       <div class="form-group">
         <label>Vendor *</label>
-        <select id="f-bill-vendor" required></select>
+        <div class="search-wrap bill-vendor-search">
+          <input id="f-bill-vendor-search" type="text" placeholder="Search vendor..." autocomplete="off" required aria-required="true" oninput="handleBillVendorSearch(event)" onfocus="handleBillVendorSearch(event, true)" />
+          <input id="f-bill-vendor" type="hidden" />
+          <div id="f-bill-vendor-results" class="search-results-list" role="listbox" aria-label="Vendor search results" style="display:none;"></div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Purchase Order</label>
+        <select id="f-bill-po" onchange="syncBillFromPurchaseOrder()">
+          <option value="">No linked PO</option>
+        </select>
       </div>
       <div class="form-group">
         <label>Bill Number *</label>
-        <input id="f-bill-number" type="text" placeholder="Vendor invoice number" />
+        <input id="f-bill-number" type="text" placeholder="Auto-generated" readonly style="background:var(--surface2);cursor:default;color:var(--muted);" />
+      </div>
+      <div class="form-group">
+        <label>Project</label>
+        <select id="f-bill-project">
+          <option value="">No linked project</option>
+        </select>
       </div>
       <div class="form-group">
         <label>Bill Date *</label>
-        <input id="f-bill-date" type="date" />
+        <input id="f-bill-date" type="date" required aria-required="true" />
       </div>
       <div class="form-group">
         <label>Due Date</label>
@@ -188,7 +742,7 @@
       </div>
       <div class="form-group">
         <label>Total Amount *</label>
-        <input id="f-bill-amount" type="number" step="0.01" placeholder="0.00" />
+        <input id="f-bill-amount" type="number" step="0.01" placeholder="0.00" required aria-required="true" />
       </div>
       <div class="section-divider">Attach PDF Document</div>
       <div class="pdf-upload-shell">
@@ -237,15 +791,15 @@
     <div class="modal-body">
       <div class="form-group">
         <label>Bill *</label>
-        <select id="f-payment-bill" required></select>
+        <select id="f-payment-bill" required onchange="syncPaymentFromBill()"></select>
       </div>
       <div class="form-group">
         <label>Payment Date *</label>
-        <input id="f-payment-date" type="date" />
+        <input id="f-payment-date" type="date" required aria-required="true" />
       </div>
       <div class="form-group">
         <label>Amount Paid *</label>
-        <input id="f-payment-amount" type="number" step="0.01" placeholder="0.00" />
+        <input id="f-payment-amount" type="number" step="0.01" placeholder="0.00" required aria-required="true" />
       </div>
       <div class="form-group">
         <label>Payment Method</label>
@@ -313,31 +867,36 @@
         <span class="sidebar-group-caret">?</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/admin?view=all" class="sidebar-link is-subitem">Total Projects</a>
         <a href="/admin?view=ongoing-projects" class="sidebar-link is-subitem" id="menu-ongoing-projects">Ongoing Projects</a>
         <a href="/company-registry" class="sidebar-link is-subitem">Company Registry</a>
       </div>
     </div>
 
-    <div class="sidebar-group" data-sidebar-group="finance">
+    <div class="sidebar-group" data-sidebar-group="accounts-payable">
       <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
-        <span>Finance</span>
+        <span>AP</span>
         <span class="sidebar-group-caret">?</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/accounts-payable" class="sidebar-link is-subitem active">Accounts Payable</a>
-        <a href="/accounts-receivable" class="sidebar-link is-subitem">Accounts Receivable</a>
-        <a href="/procurement" class="sidebar-link is-subitem">Procurement</a>
+        <a href="/accounts-payable?tab=vendors" class="sidebar-link is-subitem active">Vendors</a>
+        <a href="/accounts-payable?tab=requisitions" class="sidebar-link is-subitem">Purchase Requisitions</a>
+        <a href="/accounts-payable?tab=purchase-orders" class="sidebar-link is-subitem">Purchase Orders</a>
+        <a href="/accounts-payable?tab=goods-receipts" class="sidebar-link is-subitem">Goods Receipts</a>
+        <a href="/accounts-payable?tab=bills" class="sidebar-link is-subitem">Bills</a>
+        <a href="/accounts-payable?tab=payments" class="sidebar-link is-subitem">Payments</a>
       </div>
     </div>
 
-    <div class="sidebar-group" data-sidebar-group="inventory" data-sidebar-default-collapsed="1">
-      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
-        <span>Inventory</span>
+    <div class="sidebar-group" data-sidebar-group="accounts-receivable">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>AR</span>
         <span class="sidebar-group-caret">?</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/inventory" class="sidebar-link">Inventory</a>
+        <a href="/accounts-receivable?tab=service-orders" class="sidebar-link is-subitem">Service Orders</a>
+        <a href="/accounts-receivable?tab=transactions" class="sidebar-link is-subitem">Transactions</a>
+        <a href="/accounts-receivable?tab=receivables" class="sidebar-link is-subitem">Receivables</a>
+        <a href="/accounts-receivable?tab=collections" class="sidebar-link is-subitem">Payments</a>
       </div>
     </div>
 
@@ -348,6 +907,7 @@
       </button>
       <div class="sidebar-group-items">
         <a href="/user-management" class="sidebar-link is-subitem" id="menu-users">User Management</a>
+        <a href="/business-entities" class="sidebar-link is-subitem" id="menu-business-entities">Business Entities</a>
         <a href="/admin?view=logs" class="sidebar-link is-subitem" id="menu-logs">System Logs</a>
       </div>
     </div>
@@ -375,8 +935,9 @@
   </div>
 </div>
 
-  <script src="/assets/js/erp-core.js?v=20260501d"></script>
-<script src="/accounts-payable/accounts-payable.js?v=20260501"></script>
+  <script src="/assets/js/erp-core.js?v=20260514c"></script>
+  <script src="/accounts-payable/ap-purchasing.js?v=20260515a"></script>
+  <script src="/accounts-payable/accounts-payable.js?v=20260514a"></script>
 </body>
 </html>
 
