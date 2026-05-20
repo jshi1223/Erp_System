@@ -160,7 +160,8 @@ async function sendSystemEmail(mailOptions) {
   }
 
   try {
-    await transporter.sendMail(mailOptions);
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`Email sent: ${mailOptions?.subject || 'No subject'} -> ${mailOptions?.to || 'No recipient'} (${info.messageId || 'no-message-id'})`);
     return { sent: true };
   } catch (err) {
     console.error('Email send error:', err);
@@ -642,6 +643,11 @@ async function notifyFinanceApproval(req, type = 'bill', recordId = 0) {
 function sendBackgroundNotification(task, label = 'notification') {
   Promise.resolve()
     .then(task)
+    .then((result) => {
+      if (result && result.sent === false) {
+        console.warn(`Background ${label} not sent: ${result.reason || 'unknown reason'}`);
+      }
+    })
     .catch((err) => {
       console.error(`Background ${label} error:`, err);
     });
@@ -10567,7 +10573,6 @@ app.post('/api/procurement/requisitions/:id/submit', protectAdmin, async (req, r
       draft: ['submitted', 'cancelled'],
       submitted: ['submitted', 'approved', 'cancelled']
     }, 'Purchase requisition');
-    const shouldNotifyApprover = normalizeProcurementWorkflowStatus(rows[0].status) !== 'submitted';
 
     const requesterEmail = await getAuthenticatedUserEmail(req);
     await queryAsync(
@@ -10581,40 +10586,38 @@ app.post('/api/procurement/requisitions/:id/submit', protectAdmin, async (req, r
       console.error('Purchase requisition PDF generation warning:', pdfErr);
     }
     logAction(req, 'SUBMIT_PURCHASE_REQUISITION', `Submitted requisition ${rows[0].pr_number}`);
-    if (shouldNotifyApprover) {
-      const detailRows = await queryAsync(`
-        SELECT
-          pr.pr_number,
-          pr.request_date,
-          pr.needed_by,
-          pr.requested_by,
-          c.company_name,
-          p.project_name
-        FROM purchase_requisitions pr
-        LEFT JOIN company_registry c ON c.id = pr.company_id
-        LEFT JOIN projects p ON p.id = pr.project_id
-        WHERE pr.id = ?
-        LIMIT 1
-      `, [requisitionId]);
-      const details = detailRows[0] || {};
-      sendBackgroundNotification(() => notifyApprovalRequest(req, {
-        title: 'Purchase Requisition',
-        recordNo: rows[0].pr_number,
-        reviewPath: '/procurement?tab=requisitions',
-        details: {
-          Company: details.company_name,
-          Project: details.project_name,
-          'Request Date': details.request_date,
-          'Needed By': details.needed_by,
-          'Requested By': details.requested_by
-        },
-        attachments: generatedPdf?.filePath ? [{
-          filename: generatedPdf.filename,
-          path: generatedPdf.filePath,
-          contentType: 'application/pdf'
-        }] : undefined
-      }), 'purchase requisition approval email');
-    }
+    const detailRows = await queryAsync(`
+      SELECT
+        pr.pr_number,
+        pr.request_date,
+        pr.needed_by,
+        pr.requested_by,
+        c.company_name,
+        p.project_name
+      FROM purchase_requisitions pr
+      LEFT JOIN company_registry c ON c.id = pr.company_id
+      LEFT JOIN projects p ON p.id = pr.project_id
+      WHERE pr.id = ?
+      LIMIT 1
+    `, [requisitionId]);
+    const details = detailRows[0] || {};
+    sendBackgroundNotification(() => notifyApprovalRequest(req, {
+      title: 'Purchase Requisition',
+      recordNo: rows[0].pr_number,
+      reviewPath: '/procurement?tab=requisitions',
+      details: {
+        Company: details.company_name,
+        Project: details.project_name,
+        'Request Date': details.request_date,
+        'Needed By': details.needed_by,
+        'Requested By': details.requested_by
+      },
+      attachments: generatedPdf?.filePath ? [{
+        filename: generatedPdf.filename,
+        path: generatedPdf.filePath,
+        contentType: 'application/pdf'
+      }] : undefined
+    }), 'purchase requisition approval email');
     res.json({ success: true, status: 'submitted', pdfFilename: generatedPdf?.filename || null });
   } catch (err) {
     const validationMessage = String(err?.message || '').toLowerCase();
@@ -10799,45 +10802,42 @@ app.post('/api/procurement/purchase-orders/:id/submit', protectAdmin, async (req
       draft: ['pending', 'cancelled'],
       pending: ['pending', 'approved', 'cancelled']
     }, 'Purchase order');
-    const shouldNotifyApprover = normalizeProcurementWorkflowStatus(rows[0].status) !== 'pending';
 
     await queryAsync(
       "UPDATE purchase_orders SET status = 'pending', submitted_by = COALESCE(submitted_by, ?), submitted_at = COALESCE(submitted_at, NOW()) WHERE id = ?",
       [getApprovalActorName(req), poId]
     );
     logAction(req, 'SUBMIT_PURCHASE_ORDER', `Submitted purchase order ${rows[0].po_number}`);
-    if (shouldNotifyApprover) {
-      const detailRows = await queryAsync(`
-        SELECT
-          po.po_number,
-          po.po_date,
-          po.delivery_date,
-          po.total_amount,
-          c.company_name,
-          p.project_name,
-          v.vendor_name
-        FROM purchase_orders po
-        LEFT JOIN company_registry c ON c.id = po.company_id
-        LEFT JOIN projects p ON p.id = po.project_id
-        LEFT JOIN vendors v ON v.id = po.vendor_id
-        WHERE po.id = ?
-        LIMIT 1
-      `, [poId]);
-      const details = detailRows[0] || {};
-      sendBackgroundNotification(() => notifyApprovalRequest(req, {
-        title: 'Purchase Order',
-        recordNo: rows[0].po_number,
-        reviewPath: '/procurement?tab=purchase-orders',
-        details: {
-          Company: details.company_name,
-          Project: details.project_name,
-          Vendor: details.vendor_name,
-          'PO Date': details.po_date,
-          'Delivery Date': details.delivery_date,
-          Amount: details.total_amount
-        }
-      }), 'purchase order approval email');
-    }
+    const detailRows = await queryAsync(`
+      SELECT
+        po.po_number,
+        po.po_date,
+        po.delivery_date,
+        po.total_amount,
+        c.company_name,
+        p.project_name,
+        v.vendor_name
+      FROM purchase_orders po
+      LEFT JOIN company_registry c ON c.id = po.company_id
+      LEFT JOIN projects p ON p.id = po.project_id
+      LEFT JOIN vendors v ON v.id = po.vendor_id
+      WHERE po.id = ?
+      LIMIT 1
+    `, [poId]);
+    const details = detailRows[0] || {};
+    sendBackgroundNotification(() => notifyApprovalRequest(req, {
+      title: 'Purchase Order',
+      recordNo: rows[0].po_number,
+      reviewPath: '/procurement?tab=purchase-orders',
+      details: {
+        Company: details.company_name,
+        Project: details.project_name,
+        Vendor: details.vendor_name,
+        'PO Date': details.po_date,
+        'Delivery Date': details.delivery_date,
+        Amount: details.total_amount
+      }
+    }), 'purchase order approval email');
     res.json({ success: true, status: 'pending' });
   } catch (err) {
     const validationMessage = String(err?.message || '').toLowerCase();
