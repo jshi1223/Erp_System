@@ -5,8 +5,13 @@
   "main": "server.js",
   "scripts": {
     "test": "node test/run-tests.js",
+    "check": "node --check server.js && node --check public/admin/admin.js && node --check public/accounts-payable/accounts-payable.js && node --check public/accounts-payable/ap-purchasing.js && node --check public/accounts-receivable/accounts-receivable.js && node --check public/company/company.js && node --check public/reports/reports.js && node --check public/user-index/user-index.js && node --check public/login/login.js && node --check public/reset-password/reset-password.js && node --check public/assets/js/auth-guard.js && node --check public/assets/js/erp-core.js",
+    "predeploy": "npm test && npm run check",
     "start": "node server.js",
-    "backup": "powershell -ExecutionPolicy Bypass -File scripts/backup-production.ps1"
+    "render:start": "npm run postgres:migrate && npm start",
+    "backup": "powershell -ExecutionPolicy Bypass -File scripts/backup-production.ps1",
+    "postgres:migrate": "node scripts/postgres-migrate.js",
+    "postgres:setup": "npm run postgres:migrate"
   },
   "keywords": [],
   "author": "",
@@ -19,9 +24,8 @@
     "express": "^5.2.1",
     "express-session": "^1.19.0",
     "multer": "^2.1.1",
-    "mysql2": "^3.20.0",
     "nodemailer": "^8.0.4",
-    "open": "^11.0.0"
-  },
-  "devDependencies": {}
+    "open": "^11.0.0",
+    "pg": "^8.20.0"
+  }
 }

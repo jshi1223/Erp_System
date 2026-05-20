@@ -4,7 +4,8 @@
 - `NODE_ENV=production`
 - `APP_BASE_URL=https://your-domain.example`
 - `SESSION_SECRET` set to a long random string
-- Database credentials for production MySQL
+- `DATABASE_URL` for production PostgreSQL
+- `PGSSLMODE=require` when using Supabase pooled/direct PostgreSQL
 - SMTP settings if you want email reset links
 - `ALLOW_LEGACY_PLAINTEXT_PASSWORDS=false`
 
@@ -13,7 +14,7 @@
 - Make sure all user passwords are stored as bcrypt hashes
 - Confirm the `uploads_pdf` folder is writable
 - Back up the database first
-- Run the app locally and check login, reset password, AP/AR, inventory, and project pages
+- Run the app locally and check login, reset password, AP/AR, and project pages
 
 ## Security checklist
 - Keep `SESSION_SECRET` private
@@ -24,5 +25,14 @@
 - Keep regular database backups
 
 ## Notes
-- The app uses an in-memory session store by default. For a larger production deployment, replace it with a persistent session store.
+- The app uses PostgreSQL for runtime data and sessions through `DATABASE_URL`.
 - If SMTP is not configured, password reset will return a development reset link instead of sending email.
+
+## Render + Supabase
+- Create a Supabase project and copy the PostgreSQL connection string from Supabase Database settings.
+- In Render, create the web service from this GitHub repository or use `render.yaml`.
+- Set `DATABASE_URL` to the Supabase PostgreSQL connection string.
+- Set `PGSSLMODE=require`.
+- Set `APP_BASE_URL` to the Render service URL, for example `https://kinaadman-erp.onrender.com`.
+- Keep Supabase passwords and service keys in Render environment variables only. Do not commit them to GitHub.
+- Render runs `npm run render:start`, which applies PostgreSQL migrations before starting the app.
