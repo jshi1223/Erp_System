@@ -100,22 +100,38 @@ const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER || 'no-reply@kinaadman.loca
 const allowPublicRegistration = String(process.env.ALLOW_PUBLIC_REGISTRATION || 'true').toLowerCase() !== 'false';
 
 const hasEmailConfig = Boolean(SMTP_HOST && SMTP_USER && SMTP_PASS);
-const transporter = hasEmailConfig
-  ? nodemailer.createTransport({
-      host: SMTP_HOST,
-      port: SMTP_PORT,
-      secure: SMTP_SECURE,
-      family: 4,
-      connectionTimeout: 12000,
-      greetingTimeout: 12000,
-      socketTimeout: 15000,
-      auth: {
-        user: SMTP_USER,
-        pass: SMTP_PASS
-      }
-    })
-  : null;
+const forceSmtpIpv4 = String(process.env.SMTP_FORCE_IPV4 || 'true').toLowerCase() !== 'false';
+let cachedSmtpIpv4Host = '';
 const APPROVAL_NOTIFY_EMAILS = process.env.APPROVAL_NOTIFY_EMAILS || process.env.ADMIN_EMAIL || '';
+
+async function resolveSmtpHost() {
+  if (!forceSmtpIpv4 || !SMTP_HOST) return SMTP_HOST;
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(SMTP_HOST)) return SMTP_HOST;
+  if (cachedSmtpIpv4Host) return cachedSmtpIpv4Host;
+
+  const addresses = await dns.promises.resolve4(SMTP_HOST);
+  cachedSmtpIpv4Host = addresses[0] || SMTP_HOST;
+  return cachedSmtpIpv4Host;
+}
+
+async function createSmtpTransporter() {
+  if (!hasEmailConfig) return null;
+  const host = await resolveSmtpHost();
+  return nodemailer.createTransport({
+    host,
+    port: SMTP_PORT,
+    secure: SMTP_SECURE,
+    family: 4,
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 20000,
+    auth: {
+      user: SMTP_USER,
+      pass: SMTP_PASS
+    },
+    tls: host !== SMTP_HOST ? { servername: SMTP_HOST } : undefined
+  });
+}
 
 function parseEmailList(value) {
   return String(value || '')
@@ -174,12 +190,13 @@ async function getApprovalNotificationRecipients() {
 }
 
 async function sendSystemEmail(mailOptions) {
-  if (!transporter) {
+  if (!hasEmailConfig) {
     console.warn(`SMTP is not configured. Email not sent: ${mailOptions?.subject || 'No subject'}`);
     return { sent: false, reason: 'smtp-not-configured' };
   }
 
   try {
+    const transporter = await createSmtpTransporter();
     const info = await transporter.sendMail(mailOptions);
     console.log(`Email sent: ${mailOptions?.subject || 'No subject'} -> ${mailOptions?.to || 'No recipient'} (${info.messageId || 'no-message-id'})`);
     return { sent: true };
@@ -6742,7 +6759,7 @@ app.post('/api/forgot-password', forgotPasswordRateLimiter, (req, res) => {
 
       logAction(req, 'PASSWORD_RESET_REQUEST', `Reset requested for ${email}`);
 
-      if (!transporter) {
+      if (!hasEmailConfig) {
         console.warn('SMTP is not configured.');
         if (isProduction) {
           return res.status(503).json({
@@ -6760,9 +6777,8 @@ app.post('/api/forgot-password', forgotPasswordRateLimiter, (req, res) => {
         });
       }
 
-      transporter.sendMail(mailOptions, (mailErr) => {
-        if (mailErr) {
-          console.error('Email error:', mailErr);
+      sendSystemEmail(mailOptions).then((emailResult) => {
+        if (!emailResult.sent) {
           return res.status(500).json({
             status: 'error',
             message: 'Failed to send email. Check SMTP settings in server environment.'
@@ -6773,6 +6789,12 @@ app.post('/api/forgot-password', forgotPasswordRateLimiter, (req, res) => {
           status: 'success',
           message: 'Reset link sent to your email',
           retryAfter: Math.ceil(FORGOT_PASSWORD_RESEND_COOLDOWN_MS / 1000)
+        });
+      }).catch((mailErr) => {
+        console.error('Email error:', mailErr);
+        res.status(500).json({
+          status: 'error',
+          message: 'Failed to send email. Check SMTP settings in server environment.'
         });
       });
     });
