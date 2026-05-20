@@ -5,6 +5,7 @@ const procurementState = {
   companies: [],
   projects: [],
   requisitions: [],
+  quotations: [],
   purchaseOrders: [],
   goodsReceipts: [],
   vendors: []
@@ -15,17 +16,27 @@ const PROCUREMENT_TAB_STORAGE_KEY = 'accounts-payable.procurement.activeTab';
 let editingRequisitionId = null;
 let editingPurchaseOrderId = null;
 let editingGoodsReceiptId = null;
+let editingQuotationId = null;
+let editingVendorId = null;
+let currentRequisitionProjectId = null;
 let currentPurchaseOrderProjectId = null;
+let currentPurchaseOrderQuotationId = null;
 let pendingPurchaseOrderRequisitionId = null;
 let vendorSearchBound = false;
 let vendorNumberPreviewToken = 0;
 let procurementLoadVersion = 0;
+let pendingRequisitionCompanyId = null;
+let pendingRequisitionProjectId = null;
 let pendingPurchaseOrderCompanyId = null;
 let pendingPurchaseOrderProjectId = null;
+const generatingPurchaseOrderBillIds = new Set();
+let activeDocumentContext = null;
 const PROCUREMENT_VENDOR_SORT_STORAGE_KEY = 'kinaadman.procurement.vendorSort';
 let vendorDirectorySortOrder = 'asc';
 const procurementToolbarState = {
   requisitions: { search: '' },
+  rfq: { search: '' },
+  quotations: { search: '' },
   vendors: { search: '' },
   purchaseOrders: { search: '' },
   goodsReceipts: { search: '' }
@@ -49,7 +60,7 @@ function dateInputValue(value) {
 
 function statusClass(status) {
   const normalized = String(status || 'draft').trim().toLowerCase();
-  if (['approved', 'received'].includes(normalized)) return `status-${normalized}`;
+  if (['approved', 'received', 'selected'].includes(normalized)) return `status-${normalized === 'selected' ? 'approved' : normalized}`;
   if (['submitted', 'pending', 'ordered', 'draft', 'cancelled', 'rejected'].includes(normalized)) return `status-${normalized}`;
   return 'status-draft';
 }
@@ -58,23 +69,62 @@ function requisitionIsApprovedForPurchaseOrder(requisition) {
   return String(requisition?.status || '').trim().toLowerCase() === 'approved';
 }
 
+function requisitionCanCreateRfq(requisition) {
+  return String(requisition?.status || '').trim().toLowerCase() === 'approved';
+}
+
 function normalizeWorkflowStatus(status) {
   return String(status || '').trim().toLowerCase();
+}
+
+function requisitionCanShowInPurchaseOrderSelect(requisition, selectedValue = '') {
+  if (requisitionIsApprovedForPurchaseOrder(requisition)) return true;
+  const selectedId = Number(selectedValue || 0) || 0;
+  return Boolean(selectedId && Number(requisition?.id || 0) === selectedId);
 }
 
 function userCanApproveProcurement() {
   if (typeof isAdminUser === 'function') return Boolean(isAdminUser());
   const lexicalUser = typeof currentUser !== 'undefined' ? currentUser : null;
-  return String(window.currentUser?.role || lexicalUser?.role || '').toLowerCase() === 'admin';
+  const role = String(window.currentUser?.role || lexicalUser?.role || '').toLowerCase();
+  return role === 'super_admin' || role === 'admin';
+}
+
+function syncProcurementStatusSelect(selectId, staffAllowed = ['draft'], { lockStaff = true } = {}) {
+  const select = $(selectId);
+  if (!select) return;
+  const isAdmin = userCanApproveProcurement();
+  Array.from(select.options || []).forEach((option) => {
+    const value = normalizeWorkflowStatus(option.value);
+    const allowed = isAdmin || staffAllowed.includes(value);
+    option.hidden = !allowed;
+    option.disabled = !allowed;
+  });
+  if (!isAdmin && !staffAllowed.includes(normalizeWorkflowStatus(select.value))) {
+    select.disabled = true;
+    return;
+  }
+  select.disabled = !isAdmin && Boolean(lockStaff);
 }
 
 function isFinalProcurementStatus(status) {
   return ['ordered', 'received', 'cancelled'].includes(normalizeWorkflowStatus(status));
 }
 
+function isArchivedProjectRow(row = {}) {
+  return row.project_is_archived === true || Number(row.project_is_archived || 0) === 1;
+}
+
+function renderProcurementArchivedProjectBadge(row = {}) {
+  return isArchivedProjectRow(row)
+    ? '<div style="margin-top:4px;"><span class="status-chip status-cancelled">Archived Project</span></div>'
+    : '';
+}
+
 function normalizeProcurementTab(value) {
-  const tab = String(value || '').trim().toLowerCase();
-  return ['vendors', 'requisitions', 'purchase-orders', 'goods-receipts'].includes(tab) ? tab : 'vendors';
+  let tab = String(value || '').trim().toLowerCase();
+  if (tab === 'bid-evaluation') tab = 'quotations';
+  return ['vendors', 'requisitions', 'rfq', 'quotations', 'purchase-orders', 'goods-receipts'].includes(tab) ? tab : 'vendors';
 }
 
 function getSavedProcurementTab() {
@@ -287,6 +337,10 @@ function loadGoodsReceiptNumberPreview() {
   return loadProcurementNumberPreview('grn-number', '/api/procurement/goods-receipts/next-number', 'grn_number');
 }
 
+function loadQuotationNumberPreview() {
+  return loadProcurementNumberPreview('quote-number', '/api/procurement/quotations/next-number', 'quote_number');
+}
+
 function bindVendorTinMask() {
   const input = $('f-vendor-tin');
   if (!input || input.dataset.tinMaskBound === '1') return;
@@ -321,16 +375,19 @@ function getProcurementFieldMessageNode(fieldName) {
 function getProcurementFieldNodes(fieldName) {
   const map = {
     pr_number: ['pr-number'],
+    vendor_no: ['f-vendor-no'],
     company_id: ['pr-company', 'po-company'],
     request_date: ['pr-request-date'],
     pr_line_items: ['pr-line-items'],
     po_number: ['po-number'],
-    requisition_id: ['po-requisition'],
-    project_id: ['po-project'],
+    requisition_id: ['po-source-rfq', 'po-requisition'],
+    quotation_id: ['po-source-rfq'],
+    project_id: ['pr-project', 'po-project'],
     vendor_id: ['po-vendor-search', 'po-vendor'],
     po_date: ['po-date'],
     line_items: ['po-line-items'],
     grn_number: ['grn-number'],
+    quotation_number: ['quote-number'],
     po_id: ['grn-po'],
     received_date: ['grn-received-date'],
     vendor_name: ['f-vendor-name'],
@@ -338,8 +395,7 @@ function getProcurementFieldNodes(fieldName) {
     vendor_email: ['f-vendor-email'],
     vendor_phone: ['f-vendor-phone'],
     vendor_tin: ['f-vendor-tin'],
-    vendor_address: ['f-vendor-address'],
-    vendor_company: ['f-vendor-company']
+    vendor_address: ['f-vendor-address']
   };
 
   return (map[fieldName] || [])
@@ -367,7 +423,7 @@ function setProcurementFieldMessage(fieldName, message = '') {
 }
 
 function clearProcurementFieldMessages() {
-  ['pr_number', 'company_id', 'request_date', 'pr_line_items', 'po_number', 'requisition_id', 'project_id', 'vendor_id', 'po_date', 'line_items', 'grn_number', 'po_id', 'received_date', 'vendor_name', 'vendor_contact', 'vendor_email', 'vendor_phone', 'vendor_tin', 'vendor_address', 'vendor_company'].forEach((fieldName) => {
+  ['pr_number', 'vendor_no', 'company_id', 'request_date', 'pr_line_items', 'po_number', 'requisition_id', 'quotation_id', 'project_id', 'vendor_id', 'po_date', 'line_items', 'grn_number', 'quotation_number', 'po_id', 'received_date', 'vendor_name', 'vendor_contact', 'vendor_email', 'vendor_phone', 'vendor_tin', 'vendor_address'].forEach((fieldName) => {
     setProcurementFieldMessage(fieldName, '');
   });
   clearRequisitionLineItemMessages();
@@ -399,7 +455,8 @@ function focusFirstProcurementField(fieldName, focusMap = {}) {
   const ids = Array.isArray(focusMap[fieldName])
     ? focusMap[fieldName]
     : (focusMap[fieldName] ? [focusMap[fieldName]] : []);
-  return focusFirstProcurementControl(ids);
+  if (ids.length) return focusFirstProcurementControl(ids);
+  return focusProcurementElement(getProcurementFieldNodes(fieldName)[0]);
 }
 
 function focusFirstInvalidPurchaseOrderLineItem() {
@@ -443,15 +500,18 @@ function focusFirstInvalidRequisitionLineItem() {
 function setupProcurementModalValidationListeners() {
   const bindings = [
     ['pr-number', 'pr_number', 'input'],
+    ['f-vendor-no', 'vendor_no', 'input'],
     ['pr-company', 'company_id', 'change'],
     ['pr-request-date', 'request_date', 'change'],
     ['po-number', 'po_number', 'input'],
     ['po-company', 'company_id', 'change'],
+    ['pr-project', 'project_id', 'change'],
     ['po-project', 'project_id', 'change'],
     ['po-requisition', 'requisition_id', 'change'],
     ['po-vendor-search', 'vendor_id', 'input'],
     ['po-date', 'po_date', 'change'],
     ['grn-number', 'grn_number', 'input'],
+    ['quote-number', 'quotation_number', 'input'],
     ['grn-po', 'po_id', 'change'],
     ['grn-received-date', 'received_date', 'change'],
     ['f-vendor-name', 'vendor_name', 'input'],
@@ -460,8 +520,7 @@ function setupProcurementModalValidationListeners() {
     ['f-vendor-phone', 'vendor_phone', 'input'],
     ['f-vendor-phone-country', 'vendor_phone', 'change'],
     ['f-vendor-tin', 'vendor_tin', 'input'],
-    ['f-vendor-address', 'vendor_address', 'input'],
-    ['f-vendor-company', 'vendor_company', 'change']
+    ['f-vendor-address', 'vendor_address', 'input']
   ];
 
   bindings.forEach(([id, fieldName, eventName]) => {
@@ -470,9 +529,7 @@ function setupProcurementModalValidationListeners() {
     node.dataset.procurementValidationBound = '1';
     node.addEventListener(eventName, () => {
       setProcurementFieldMessage(fieldName, '');
-      if (id === 'f-vendor-company') {
-        autofillVendorFromSelectedCompany();
-      } else if (id === 'grn-po') {
+      if (id === 'grn-po') {
         syncGoodsReceiptFromPurchaseOrder();
       }
     });
@@ -531,7 +588,9 @@ function clearRequisitionLineItemMessages() {
 
 function initProcurementPage() {
   const integratedApPage = !!$('ap-purchasing-root');
+  const procurementWorkspace = (window.location.pathname || '').replace(/\/+$/, '') === '/procurement';
   if (!integratedApPage && !$('procurement-page')) return;
+  if (integratedApPage && !procurementWorkspace) return;
   setDefaultDates();
   setupProcurementModalValidationListeners();
   bindVendorTinMask();
@@ -544,11 +603,27 @@ function initProcurementPage() {
     switchProcTab(procurementTab, getProcurementTabButton(procurementTab));
   }
   pendingPurchaseOrderRequisitionId = Number(params.get('requisition_id') || 0) || null;
+  pendingRequisitionCompanyId = Number(params.get('company_id') || 0) || null;
+  pendingRequisitionProjectId = Number(params.get('project_id') || 0) || null;
   pendingPurchaseOrderCompanyId = Number(params.get('company_id') || 0) || null;
   pendingPurchaseOrderProjectId = Number(params.get('project_id') || 0) || null;
+  const openRequisition = String(params.get('action') || '').toLowerCase() === 'pr';
   const openPurchaseOrder = String(params.get('action') || '').toLowerCase() === 'po';
   loadProcurementData().then(() => {
-    if (openPurchaseOrder) {
+    if (openRequisition) {
+      if (typeof window.switchApWorkspaceTab === 'function') {
+        window.switchApWorkspaceTab('requisitions', getProcurementTabButton('requisitions'));
+      } else {
+        switchProcTab('requisitions', getProcurementTabButton('requisitions'));
+      }
+      openRequisitionModal(null, {
+        companyId: pendingRequisitionCompanyId,
+        projectId: pendingRequisitionProjectId
+      });
+      clearPurchaseOrderAutoOpenParams();
+      pendingRequisitionCompanyId = null;
+      pendingRequisitionProjectId = null;
+    } else if (openPurchaseOrder) {
       if (typeof window.switchApWorkspaceTab === 'function') {
         window.switchApWorkspaceTab('purchase-orders', getProcurementTabButton('purchase-orders'));
       } else {
@@ -558,11 +633,21 @@ function initProcurementPage() {
         companyId: pendingPurchaseOrderCompanyId,
         projectId: pendingPurchaseOrderProjectId
       });
+      clearPurchaseOrderAutoOpenParams();
       pendingPurchaseOrderRequisitionId = null;
       pendingPurchaseOrderCompanyId = null;
       pendingPurchaseOrderProjectId = null;
     }
   });
+}
+
+function clearPurchaseOrderAutoOpenParams() {
+  if (!window.history?.replaceState) return;
+  const url = new URL(window.location.href);
+  ['action', 'project_id', 'company_id', 'requisition_id'].forEach((key) => {
+    url.searchParams.delete(key);
+  });
+  window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
 }
 
 function setDefaultDates() {
@@ -572,6 +657,7 @@ function setDefaultDates() {
   const defaults = {
     'pr-request-date': today,
     'pr-needed-by': nextWeek,
+    'quote-date': today,
     'po-date': today,
     'po-delivery': nextMonth,
     'grn-received-date': today
@@ -583,12 +669,14 @@ function setDefaultDates() {
 }
 
 function wireBackdropClose() {
-  ['pr-modal-backdrop', 'po-modal-backdrop', 'grn-modal-backdrop', 'vendor-modal-backdrop'].forEach((id) => {
+  ['pr-modal-backdrop', 'quote-modal-backdrop', 'record-documents-modal-backdrop', 'po-modal-backdrop', 'grn-modal-backdrop', 'vendor-modal-backdrop'].forEach((id) => {
     const backdrop = $(id);
     if (!backdrop) return;
     backdrop.addEventListener('click', (event) => {
       if (event.target === event.currentTarget) {
         if (id === 'pr-modal-backdrop') closeRequisitionModal();
+        if (id === 'quote-modal-backdrop') closeQuotationModal();
+        if (id === 'record-documents-modal-backdrop') closeRecordDocumentsModal();
         if (id === 'po-modal-backdrop') closePurchaseOrderModal();
         if (id === 'grn-modal-backdrop') closeGoodsReceiptModal();
         if (id === 'vendor-modal-backdrop') closeVendorModal();
@@ -618,6 +706,8 @@ function switchProcTab(tab, btn) {
   if (section) section.classList.add('active');
   renderProcurementToolbarControls(nextTab);
   if (nextTab === 'requisitions') renderRequisitions();
+  if (nextTab === 'rfq') renderRfqWorkspace();
+  if (nextTab === 'quotations') renderQuotations();
   if (nextTab === 'vendors') renderVendorDirectory();
   if (nextTab === 'purchase-orders') renderPurchaseOrders();
   if (nextTab === 'goods-receipts') renderGoodsReceipts();
@@ -639,7 +729,7 @@ function renderProcurementToolbarControls(tab) {
   if (tab === 'requisitions') {
     actions.innerHTML = `
       <div class="search-wrap top-search-bar module-toolbar-search">
-        <input id="procurement-search-input" type="text" placeholder="Search PR no., company, department, item, or status..." value="${escHtml(state.search || '')}" oninput="renderRequisitions()" />
+        <input id="procurement-search-input" type="text" placeholder="Search PR no., company, item, or status..." value="${escHtml(state.search || '')}" oninput="renderRequisitions()" />
       </div>
       <button class="btn btn-add btn-sm" type="button" onclick="openRequisitionModal()">Add Requisition</button>
     `;
@@ -661,7 +751,17 @@ function renderProcurementToolbarControls(tab) {
       <div class="search-wrap top-search-bar module-toolbar-search">
         <input id="procurement-search-input" type="text" placeholder="Search PO no., vendor, project, item, or status..." value="${escHtml(state.search || '')}" oninput="renderPurchaseOrders()" />
       </div>
-      <button class="btn btn-add btn-sm" type="button" onclick="openPurchaseOrderModal()">Add Purchase Order</button>
+      <button class="btn btn-add btn-sm" type="button" onclick="switchProcTab('quotations', getProcurementTabButton('quotations'))">Create from Approved RFQ</button>
+    `;
+    return;
+  }
+
+  if (tab === 'quotations') {
+    actions.innerHTML = `
+      <div class="search-wrap top-search-bar module-toolbar-search">
+        <input id="procurement-search-input" type="text" placeholder="Search quote, PR, vendor, terms, or status..." value="${escHtml(state.search || '')}" oninput="renderQuotations()" />
+      </div>
+      <button class="btn btn-add btn-sm" type="button" onclick="openQuotationModal()">Add Quotation</button>
     `;
     return;
   }
@@ -676,6 +776,15 @@ function renderProcurementToolbarControls(tab) {
     return;
   }
 
+  if (tab === 'rfq') {
+    actions.innerHTML = `
+      <div class="search-wrap top-search-bar module-toolbar-search">
+        <input id="procurement-search-input" type="text" placeholder="Search approved PR, company, project, or item..." value="${escHtml(state.search || '')}" oninput="renderRfqWorkspace()" />
+      </div>
+    `;
+    return;
+  }
+
   actions.innerHTML = '';
 }
 
@@ -683,12 +792,13 @@ async function loadProcurementData() {
   const loadVersion = ++procurementLoadVersion;
   try {
     const companyQuery = new URLSearchParams({ include_archived: '1' });
-    const [businessEntities, companies, projects, vendors, requisitions, purchaseOrders, goodsReceipts] = await Promise.all([
+    const [businessEntities, companies, projects, vendors, requisitions, quotations, purchaseOrders, goodsReceipts] = await Promise.all([
       loadProcurementRows('/api/business-entities', 'business entities'),
       loadProcurementRows(`/api/company-registry?${companyQuery.toString()}`, 'companies'),
       loadProcurementRows('/api/projects?include_archived=1', 'projects'),
       loadProcurementRows('/api/vendors?include_inactive=1', 'vendors'),
       loadProcurementRows('/api/procurement/requisitions', 'requisitions'),
+      loadProcurementRows('/api/procurement/quotations', 'quotations'),
       loadProcurementRows('/api/procurement/purchase-orders', 'purchase orders'),
       loadProcurementRows('/api/procurement/goods-receipts', 'goods receipts')
     ]);
@@ -706,6 +816,7 @@ async function loadProcurementData() {
       return !companyId || companyIds.has(companyId);
     });
     procurementState.requisitions = Array.isArray(requisitions) ? requisitions : [];
+    procurementState.quotations = Array.isArray(quotations) ? quotations : [];
     procurementState.purchaseOrders = Array.isArray(purchaseOrders) ? purchaseOrders : [];
     procurementState.goodsReceipts = Array.isArray(goodsReceipts) ? goodsReceipts : [];
 
@@ -713,14 +824,16 @@ async function loadProcurementData() {
     renderBusinessEntityOptions('po-business-entity');
     renderCompanyOptions();
     renderCompanyOptions('po-company');
+    renderRequisitionProjectOptions();
     renderPurchaseOrderProjectOptions();
-    renderCompanyOptions('f-vendor-company', 'No company selected');
     renderVendorDirectory();
     renderVendorOptions();
     initVendorSearch();
     renderPurchaseOrderRequisitionOptions();
     renderPurchaseOrderOptions();
     renderRequisitions();
+    renderRfqWorkspace();
+    renderQuotations();
     renderPurchaseOrders();
     renderGoodsReceipts();
     return true;
@@ -746,6 +859,7 @@ function renderSummary() {
   };
   const entityFilter = typeof businessEntityMatches === 'function' ? businessEntityMatches : () => true;
   const requisitionRows = procurementState.requisitions.filter(entityFilter);
+  const quotationRows = procurementState.quotations.filter(entityFilter);
   const purchaseOrderRows = procurementState.purchaseOrders.filter(entityFilter);
   const goodsReceiptRows = procurementState.goodsReceipts.filter(entityFilter);
   const activeVendorCount = getActiveVendors(procurementState.vendors).length;
@@ -767,21 +881,47 @@ function renderSummary() {
   set('metric-vendors-inactive', Math.max(0, inactiveVendorCount));
   set('metric-vendors-total', procurementState.vendors.length);
   set('metric-vendors-with-po', vendorsWithPurchaseOrders.size);
+  set('metric-vendors-payable', new Set(purchaseOrderRows.map((row) => Number(row.vendor_id || 0)).filter(Boolean)).size);
 
   set('metric-pr-count', requisitionRows.length);
   set('metric-pr-approved', requisitionRows.filter((row) => statusIs(row, 'approved')).length);
   set('metric-pr-open', requisitionRows.filter((row) => !['cancelled', 'rejected', 'received'].includes(String(row.status || '').trim().toLowerCase())).length);
   set('metric-pr-total', money(requisitionTotal));
+  set('metric-pr-this-month', requisitionRows.filter((row) => inCurrentMonth(row.created_at || row.request_date)).length);
+
+  const approvedPrRows = requisitionRows.filter((row) => ['approved', 'ordered'].includes(normalizeWorkflowStatus(row.status)));
+  const selectedQuoteRows = quotationRows.filter((row) => statusIs(row, 'selected'));
+  const quoteVendorIds = new Set(quotationRows.map((row) => Number(row.vendor_id || 0)).filter(Boolean));
+
+  set('metric-rfq-count', approvedPrRows.length);
+  set('metric-rfq-open', approvedPrRows.filter((row) => !quotationRows.some((quote) => Number(quote.requisition_id || 0) === Number(row.id || 0))).length);
+  set('metric-rfq-sent', quotationRows.length);
+  set('metric-rfq-closed', selectedQuoteRows.length);
+  set('metric-rfq-linked-pr', approvedPrRows.length);
+
+  set('metric-quote-count', quotationRows.length);
+  set('metric-quote-pending', quotationRows.filter((row) => ['draft', 'submitted'].includes(normalizeWorkflowStatus(row.status))).length);
+  set('metric-quote-awarded', selectedQuoteRows.length);
+  set('metric-quote-total', money(quotationRows.reduce((sum, row) => sum + Number(row.quoted_total || 0), 0)));
+  set('metric-quote-vendors', quoteVendorIds.size);
+
+  set('metric-bid-count', quotationRows.length);
+  set('metric-bid-pending', quotationRows.filter((row) => !statusIs(row, 'selected')).length);
+  set('metric-bid-approved', selectedQuoteRows.length);
+  set('metric-bid-best-value', money(selectedQuoteRows.reduce((sum, row) => sum + Number(row.quoted_total || 0), 0)));
+  set('metric-bid-linked-quotes', quotationRows.length);
 
   set('metric-po-count', purchaseOrderRows.length);
   set('metric-po-ordered', purchaseOrderRows.filter((row) => statusIs(row, 'approved')).length);
   set('metric-po-received', purchaseOrderRows.filter((row) => statusIs(row, 'received')).length);
   set('metric-po-total', money(purchaseOrderTotal));
+  set('metric-po-open', purchaseOrderRows.filter((row) => !['cancelled', 'received'].includes(String(row.status || '').trim().toLowerCase())).length);
 
   set('metric-grn-count', goodsReceiptRows.length);
   set('metric-grn-received', goodsReceiptRows.filter((row) => statusIs(row, 'received')).length);
   set('metric-grn-linked-pos', linkedReceiptPoIds.size);
   set('metric-grn-this-month', goodsReceiptRows.filter((row) => inCurrentMonth(row.received_date)).length);
+  set('metric-grn-pending', goodsReceiptRows.filter((row) => !statusIs(row, 'received')).length);
 }
 
 function renderVendorOptions() {
@@ -935,10 +1075,13 @@ function buildVendorDirectoryRowHtml(vendor) {
     : (
       vendorIsActive
         ? `
+          <button class="btn btn-edit btn-sm" type="button" onclick="openVendorModal(${numericVendorId})">Edit</button>
           <button class="${statusActionClass}" type="button" onclick="toggleVendorStatus(${numericVendorId}, 0)">${statusActionLabel}</button>
-          <button class="btn btn-edit btn-sm" type="button" onclick="openPurchaseOrderModal(null, ${numericVendorId})">Use in PO</button>
         `
-        : `<button class="${statusActionClass}" type="button" onclick="toggleVendorStatus(${numericVendorId}, 1)">${statusActionLabel}</button>`
+        : `
+          <button class="btn btn-edit btn-sm" type="button" onclick="openVendorModal(${numericVendorId})">Edit</button>
+          <button class="${statusActionClass}" type="button" onclick="toggleVendorStatus(${numericVendorId}, 1)">${statusActionLabel}</button>
+        `
     );
   return `
     <tr data-vendor-id="${vendorId}">
@@ -947,7 +1090,7 @@ function buildVendorDirectoryRowHtml(vendor) {
       </td>
       <td>
         <div style="font-weight:600;color:var(--primary)">${escHtml(vendor?.vendor_name || '-')}</div>
-        <div style="font-size:0.76rem;color:var(--text-muted);margin-top:2px;">${escHtml(vendor?.company_name || 'General vendor')} &middot; ${escHtml(vendor?.address || 'No address')}</div>
+        <div style="font-size:0.76rem;color:var(--text-muted);margin-top:2px;">${escHtml(vendor?.company_name || 'Shared vendor')} &middot; ${escHtml(vendor?.address || 'No address')}</div>
       </td>
       <td>${escHtml(vendor?.contact_person || '-')}</td>
       <td>${escHtml(vendor?.email || '-')}</td>
@@ -1013,56 +1156,18 @@ function filterVendorDirectory() {
 }
 
 function resetVendorForm() {
-  ['f-vendor-no', 'f-vendor-name', 'f-vendor-company', 'f-vendor-contact', 'f-vendor-email', 'f-vendor-phone', 'f-vendor-address', 'f-vendor-tin'].forEach((id) => {
+  ['f-vendor-no', 'f-vendor-name', 'f-vendor-contact', 'f-vendor-email', 'f-vendor-phone', 'f-vendor-address', 'f-vendor-tin'].forEach((id) => {
     const el = $(id);
     if (el) el.value = '';
   });
   clearProcurementFieldMessages();
 }
 
-function setVendorFieldFromCompany(id, value, { formatValue } = {}) {
-  const node = $(id);
-  if (!node) return;
-  if (String(node.value || '').trim()) return;
-
-  const text = String(value || '').trim();
-  if (!text) return;
-  node.value = typeof formatValue === 'function' ? formatValue(text) : text;
-}
-
-function autofillVendorFromSelectedCompany() {
-  const companyId = Number($('f-vendor-company')?.value || 0) || 0;
-  if (!companyId) return;
-
-  const company = procurementState.companies.find((entry) => Number(entry.id || 0) === companyId);
-  if (!company) return;
-
-  setVendorFieldFromCompany('f-vendor-name', company.company_name);
-  setVendorFieldFromCompany('f-vendor-contact', company.contact_person);
-  setVendorFieldFromCompany('f-vendor-email', company.email);
-  setVendorFieldFromCompany('f-vendor-phone', company.phone, { formatValue: normalizePhone });
-  setVendorFieldFromCompany('f-vendor-tin', company.tin, { formatValue: (value) => formatTinValue(value) });
-  setVendorFieldFromCompany('f-vendor-address', company.address);
-
-  [
-    ['vendor_name', 'f-vendor-name'],
-    ['vendor_contact', 'f-vendor-contact'],
-    ['vendor_email', 'f-vendor-email'],
-    ['vendor_phone', 'f-vendor-phone'],
-    ['vendor_tin', 'f-vendor-tin'],
-    ['vendor_address', 'f-vendor-address']
-  ].forEach(([fieldName, id]) => {
-    if (String($(id)?.value || '').trim()) {
-      setProcurementFieldMessage(fieldName, '');
-    }
-  });
-}
-
 function syncVendorModalMode() {
   const title = $('vendor-modal-title');
   const saveBtn = $('vendor-save-btn');
-  if (title) title.textContent = 'Add Vendor';
-  if (saveBtn) saveBtn.textContent = 'Create Vendor';
+  if (title) title.textContent = editingVendorId ? 'Edit Vendor' : 'Add Vendor';
+  if (saveBtn) saveBtn.textContent = editingVendorId ? 'Save Changes' : 'Create Vendor';
 }
 
 function findDuplicateVendorEntry(phone, tin, email, excludeId = null) {
@@ -1104,22 +1209,55 @@ function findDuplicateVendorEntry(phone, tin, email, excludeId = null) {
   return null;
 }
 
-async function openVendorModal() {
+async function openVendorModal(id = null) {
+  editingVendorId = id ? Number(id) : null;
   resetVendorForm();
   clearProcurementFieldMessages();
   syncVendorModalMode();
-  renderCompanyOptions('f-vendor-company', 'No company selected');
   bindVendorTinMask();
   openBackdrop('vendor-modal-backdrop');
-  loadVendorNumberPreview();
+  if (editingVendorId) {
+    const vendor = procurementState.vendors.find((entry) => Number(entry.id) === editingVendorId);
+    if (!vendor) {
+      showToast('Vendor record not found.', 'error');
+      editingVendorId = null;
+      forceCloseVendorModal();
+      syncVendorModalMode();
+      return;
+    }
+    if ($('f-vendor-no')) $('f-vendor-no').value = vendor.vendor_no || '';
+    if ($('f-vendor-name')) $('f-vendor-name').value = vendor.vendor_name || '';
+    if ($('f-vendor-contact')) $('f-vendor-contact').value = vendor.contact_person || '';
+    if ($('f-vendor-email')) $('f-vendor-email').value = vendor.email || '';
+    if ($('f-vendor-phone')) $('f-vendor-phone').value = vendor.phone || '';
+    if ($('f-vendor-tin')) $('f-vendor-tin').value = formatTinValue(vendor.tin || '');
+    if ($('f-vendor-address')) $('f-vendor-address').value = vendor.address || '';
+  } else {
+    loadVendorNumberPreview();
+  }
 }
 
 function closeVendorModal() {
+  editingVendorId = null;
   vendorNumberPreviewToken += 1;
-  closeBackdrop('vendor-modal-backdrop');
+  forceCloseVendorModal();
   resetVendorForm();
   clearProcurementFieldMessages();
   syncVendorModalMode();
+}
+
+function forceCloseVendorModal() {
+  const backdrop = $('vendor-modal-backdrop');
+  if (backdrop) {
+    backdrop.classList.remove('open');
+    backdrop.hidden = true;
+    backdrop.style.setProperty('display', 'none', 'important');
+    backdrop.style.setProperty('visibility', 'hidden', 'important');
+    backdrop.style.setProperty('opacity', '0', 'important');
+    backdrop.style.setProperty('pointer-events', 'none', 'important');
+    backdrop.setAttribute('aria-hidden', 'true');
+  }
+  document.body.style.overflow = '';
 }
 
 async function saveVendor() {
@@ -1127,10 +1265,15 @@ async function saveVendor() {
   const vendorTinDigits = normalizeTinDigits(vendorTinInput?.value || '');
   const vendorTin = formatTinValue(vendorTinDigits);
   let vendorNo = String($('f-vendor-no')?.value || '').trim();
-  if (!vendorNo) {
+  if (!editingVendorId && !vendorNo) {
     vendorNo = String(await loadVendorNumberPreview() || '').trim();
     const vendorNoInput = $('f-vendor-no');
     if (vendorNoInput) vendorNoInput.value = vendorNo;
+  }
+  if (!vendorNo) {
+    setProcurementFieldMessage('vendor_no', 'Vendor No. is required.');
+    focusFirstProcurementControl(['f-vendor-no']);
+    return;
   }
 
   if (String(vendorTinInput?.value || '').trim() && vendorTinDigits.length !== 12) {
@@ -1141,7 +1284,7 @@ async function saveVendor() {
 
   const payload = {
     vendor_no: vendorNo,
-    company_id: Number($('f-vendor-company')?.value || 0) || null,
+    company_id: null,
     vendor_name: $('f-vendor-name').value.trim(),
     contact_person: $('f-vendor-contact').value.trim(),
     email: $('f-vendor-email').value.trim(),
@@ -1189,70 +1332,70 @@ async function saveVendor() {
     return;
   }
 
-  const duplicate = findDuplicateVendorEntry(payload.phone, payload.tin, payload.email);
-  if (duplicate) {
-    setProcurementFieldMessage(duplicate.field, duplicate.message);
-    focusFirstProcurementControl([duplicate.selector]);
-    showToast(duplicate.message, 'error');
+  const resolvedDuplicate = findDuplicateVendorEntry(payload.phone, payload.tin, payload.email, editingVendorId);
+  if (resolvedDuplicate) {
+    setProcurementFieldMessage(resolvedDuplicate.field, resolvedDuplicate.message);
+    focusFirstProcurementControl([resolvedDuplicate.selector]);
+    showToast(resolvedDuplicate.message, 'error');
     return;
   }
 
-  procurementLoadVersion += 1;
-  procurementToolbarState.vendors.search = '';
-  const vendorSearch = $('vendor-search');
-  if (vendorSearch) vendorSearch.value = '';
-
-  const tempVendorId = `temp-vendor-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const selectedCompany = procurementState.companies.find((company) => Number(company.id || 0) === Number(payload.company_id || 0)) || null;
-  const optimisticVendor = {
-    ...payload,
-    id: tempVendorId,
-    is_active: 1,
-    company_no: selectedCompany?.company_no || '',
-    company_name: selectedCompany?.company_name || ''
-  };
-  procurementState.vendors = [
-    optimisticVendor,
-    ...procurementState.vendors.filter((entry) => String(entry.id) !== tempVendorId)
-  ];
-  prependVendorDirectoryRow(optimisticVendor);
-  renderVendorDirectory();
-  renderVendorOptions();
-  closeVendorModal();
-  switchProcTab('vendors', getProcurementTabButton('vendors'));
-  setTimeout(() => focusVendorDirectoryTopRow(), 80);
+  const saveBtn = $('vendor-save-btn');
+  const originalSaveText = saveBtn?.textContent || 'Create Vendor';
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving...';
+  }
 
   try {
-    const result = await apiFetch('/api/vendors', {
-      method: 'POST',
+    const result = await apiFetch(editingVendorId ? `/api/vendors/${editingVendorId}` : '/api/vendors', {
+      method: editingVendorId ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    showToast('Vendor created successfully!', 'success');
-    if (result?.id) {
-      const createdVendor = {
-        ...payload,
-        vendor_no: String(result.vendor_no || payload.vendor_no || '').trim(),
-        id: Number(result.id),
-        company_id: Number(result.company_id || payload.company_id || 0) || null,
-        company_no: selectedCompany?.company_no || '',
-        company_name: selectedCompany?.company_name || '',
-        is_active: Number(result.is_active ?? payload.is_active ?? 1) ? 1 : 0
-      };
-      procurementState.vendors = [
-        createdVendor,
-        ...procurementState.vendors.filter((entry) => String(entry.id) !== tempVendorId && Number(entry.id) !== Number(createdVendor.id))
-      ];
-      switchProcTab('vendors', getProcurementTabButton('vendors'));
+    if (!result?.id && !editingVendorId) {
+      throw new Error('Vendor was not saved. Please try again.');
+    }
+
+    forceCloseVendorModal();
+    const savedVendorId = Number(result?.id || editingVendorId || 0) || 0;
+    const wasEditing = !!editingVendorId;
+    editingVendorId = null;
+    vendorNumberPreviewToken += 1;
+    resetVendorForm();
+    clearProcurementFieldMessages();
+    syncVendorModalMode();
+
+    procurementToolbarState.vendors.search = '';
+    const vendorSearch = $('vendor-search');
+    if (vendorSearch) vendorSearch.value = '';
+
+    showToast(wasEditing ? 'Vendor updated successfully!' : 'Vendor created successfully!', 'success');
+    const createdVendor = {
+      ...payload,
+      vendor_no: String(result.vendor_no || payload.vendor_no || '').trim(),
+      id: savedVendorId,
+      company_id: Number(result.company_id || 0) || null,
+      company_no: result.company_no || '',
+      company_name: result.company_name || '',
+      is_active: Number(result.is_active ?? payload.is_active ?? 1) ? 1 : 0
+    };
+    procurementState.vendors = [
+      createdVendor,
+      ...procurementState.vendors.filter((entry) => Number(entry.id) !== Number(createdVendor.id))
+    ];
+    await loadProcurementData();
+    if (!procurementState.vendors.some((entry) => Number(entry.id) === Number(createdVendor.id))) {
+      procurementState.vendors = [createdVendor, ...procurementState.vendors];
+      renderSummary();
       renderVendorDirectory();
       renderVendorOptions();
-      if (typeof loadVendors === 'function') loadVendors();
-      setTimeout(() => focusVendorDirectoryTopRow(), 80);
     }
+    switchProcTab('vendors', getProcurementTabButton('vendors'));
+    if (typeof loadVendors === 'function') await loadVendors();
+    forceCloseVendorModal();
+    setTimeout(() => focusVendorDirectoryTopRow(), 80);
   } catch (err) {
-    procurementState.vendors = procurementState.vendors.filter((entry) => String(entry.id) !== tempVendorId);
-    const tempRow = $('vendor-body')?.querySelector(`tr[data-vendor-id="${tempVendorId}"]`);
-    if (tempRow) tempRow.remove();
     renderVendorDirectory();
     renderVendorOptions();
     const errorText = String(err?.message || '').toLowerCase();
@@ -1281,11 +1424,6 @@ async function saveVendor() {
       focusFirstProcurementControl(['f-vendor-address']);
       return;
     }
-    if (err?.field === 'company_id' || err?.field === 'vendor_company') {
-      setProcurementFieldMessage('vendor_company', err.message || 'Selected company was not found.');
-      focusFirstProcurementControl(['f-vendor-company']);
-      return;
-    }
     if (err?.field === 'phone') {
       setProcurementFieldMessage('vendor_phone', err.message || 'Vendor phone already exists in Vendor Directory.');
       focusFirstProcurementControl(['f-vendor-phone']);
@@ -1297,6 +1435,11 @@ async function saveVendor() {
       return;
     }
     showToast(err.message || 'Unable to save vendor.', 'error');
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+    }
+    syncVendorModalMode();
   }
 }
 
@@ -1402,20 +1545,25 @@ function renderCompanyOptions(selectId = 'pr-company', emptyLabel = 'Select comp
   if (current) select.value = current;
 }
 
-function renderPurchaseOrderRequisitionOptions() {
+function renderPurchaseOrderRequisitionOptions(selectedValue = null) {
   const select = $('po-requisition');
   if (!select) return;
-  const current = select.value;
+  const current = selectedValue !== null && selectedValue !== undefined
+    ? String(selectedValue || '')
+    : select.value;
+  const rows = procurementState.requisitions.filter((row) => requisitionCanShowInPurchaseOrderSelect(row, current));
   select.innerHTML = [
-    '<option value="">Select requisition</option>',
-    ...procurementState.requisitions.map((row) => {
+    '<option value="">Select approved requisition</option>',
+    ...rows.map((row) => {
       const label = [
         row.pr_number,
         row.company_name,
-        row.item_name
+        row.project_name,
+        row.item_summary || row.item_name
       ].filter(Boolean).join(' - ');
       return `<option value="${escHtml(row.id)}">${escHtml(label || row.pr_number || 'Requisition')}</option>`;
-    })
+    }),
+    ...(!rows.length ? ['<option value="" disabled>No approved requisitions available</option>'] : [])
   ].join('');
   if (current) select.value = current;
   if (pendingPurchaseOrderRequisitionId && !select.value) {
@@ -1469,6 +1617,61 @@ function getProcurementProjectLabel(projectId) {
     project.project_docno || project.source_docno || `Project #${project.id}`,
     project.project_name
   ].filter(Boolean).join(' - ');
+}
+
+function renderRequisitionProjectOptions(selectedValue = currentRequisitionProjectId) {
+  const select = $('pr-project');
+  if (!select) return;
+
+  const selected = String(selectedValue || '').trim();
+  const rows = (Array.isArray(procurementState.projects) ? procurementState.projects : [])
+    .filter((project) => !isArchivedProjectRow(project));
+  select.innerHTML = [
+    '<option value="">Select project</option>',
+    ...rows.map((project) => {
+      const id = String(project.id || '');
+      const label = getProcurementProjectLabel(project.id);
+      return `<option value="${escHtml(id)}">${escHtml(label)}</option>`;
+    })
+  ].join('');
+  if (selected && [...select.options].some(option => String(option.value) === selected)) {
+    select.value = selected;
+  } else {
+    select.value = '';
+  }
+}
+
+function syncRequisitionProjectContext(projectId = currentRequisitionProjectId) {
+  currentRequisitionProjectId = Number(projectId || 0) || null;
+  const field = $('pr-project-context-field');
+  const input = $('pr-project-context');
+  const projectSelect = $('pr-project');
+  const companySelect = $('pr-company');
+  const companySearch = $('pr-company-search');
+
+  const label = getProcurementProjectLabel(currentRequisitionProjectId);
+  if (field) field.hidden = !currentRequisitionProjectId;
+  if (input) input.value = label || '';
+  if (projectSelect && String(projectSelect.value || '') !== String(currentRequisitionProjectId || '')) {
+    projectSelect.value = currentRequisitionProjectId ? String(currentRequisitionProjectId) : '';
+  }
+
+  if (currentRequisitionProjectId) {
+    const companyId = getProcurementProjectCompanyId(currentRequisitionProjectId);
+    if (companyId && companySelect) {
+      companySelect.value = String(companyId);
+      companySelect.disabled = true;
+      setProcurementFieldMessage('company_id', '');
+      setProcurementFieldMessage('project_id', '');
+    }
+    if (companySearch) {
+      companySearch.value = '';
+      companySearch.disabled = true;
+    }
+  } else {
+    if (companySelect) companySelect.disabled = false;
+    if (companySearch) companySearch.disabled = false;
+  }
 }
 
 function renderPurchaseOrderProjectOptions(selectedValue = currentPurchaseOrderProjectId) {
@@ -1558,7 +1761,7 @@ function applyPurchaseOrderRequisitionSelection(requisitionId = null) {
 
   const selectedId = Number(select.value || 0) || 0;
   if (!selectedId) {
-    setProcurementFieldMessage('requisition_id', '');
+    setProcurementFieldMessage('requisition_id', 'Select an approved requisition before saving this purchase order.');
     return;
   }
 
@@ -1567,7 +1770,7 @@ function applyPurchaseOrderRequisitionSelection(requisitionId = null) {
     setProcurementFieldMessage('requisition_id', 'Selected requisition was not found.');
     return;
   }
-  if (!editingPurchaseOrderId && !requisitionIsApprovedForPurchaseOrder(requisition)) {
+  if (!requisitionIsApprovedForPurchaseOrder(requisition)) {
     setProcurementFieldMessage('requisition_id', 'Approve this requisition before converting it to a purchase order.');
     return;
   }
@@ -1581,12 +1784,15 @@ function applyPurchaseOrderRequisitionSelection(requisitionId = null) {
     companySelect.value = String(companyId);
     setProcurementFieldMessage('company_id', '');
   }
+  if (Number(requisition.project_id || 0)) {
+    syncPurchaseOrderProjectContext(Number(requisition.project_id || 0));
+    setProcurementFieldMessage('project_id', '');
+  }
 
   const lineContainer = getPurchaseOrderLineItemsContainer();
   const hasMeaningfulLine = Array.from(lineContainer?.querySelectorAll('[data-po-line-item]') || []).some((row) => {
     return Boolean(
       row.querySelector('.po-line-description')?.value?.trim() ||
-      Number(row.querySelector('.po-line-qty')?.value || 0) > 0 ||
       Number(row.querySelector('.po-line-unit-price')?.value || 0) > 0
     );
   });
@@ -1851,6 +2057,87 @@ function formatPurchaseOrderLineAmount(value) {
   return money(Number(value || 0));
 }
 
+function parsePurchaseOrderPaymentSchedulePreview(paymentTerms, totalAmount) {
+  const terms = String(paymentTerms || '').trim();
+  const total = Number(totalAmount || 0);
+  if (!terms || total <= 0) {
+    return { schedule: [], percentTotal: 0, hasPercent: false };
+  }
+
+  const parts = terms
+    .split(/[,;]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const sourceParts = parts.length ? parts : [terms];
+  const schedule = [];
+
+  sourceParts.forEach((part, index) => {
+    const match = part.match(/(\d+(?:\.\d+)?)\s*%/);
+    if (!match) return;
+    const percent = Number(match[1] || 0);
+    if (!Number.isFinite(percent) || percent <= 0) return;
+    const label = part.replace(match[0], '').replace(/^[\s:-]+/, '').trim() || `Payment ${index + 1}`;
+    schedule.push({
+      percent,
+      label,
+      amount: Number(((total * percent) / 100).toFixed(2))
+    });
+  });
+
+  const percentTotal = schedule.reduce((sum, item) => sum + Number(item.percent || 0), 0);
+  if (schedule.length && Math.abs(percentTotal - 100) <= 0.05) {
+    const beforeLastTotal = schedule.slice(0, -1).reduce((sum, item) => sum + Number(item.amount || 0), 0);
+    schedule[schedule.length - 1].amount = Number((total - beforeLastTotal).toFixed(2));
+  }
+
+  return {
+    schedule,
+    percentTotal,
+    hasPercent: /(\d+(?:\.\d+)?)\s*%/.test(terms)
+  };
+}
+
+function getPurchaseOrderModalTotal() {
+  const rows = Array.from(getPurchaseOrderLineItemsContainer()?.querySelectorAll('[data-po-line-item]') || []);
+  return rows.reduce((sum, row) => {
+    const qty = Number(row.querySelector('.po-line-qty')?.value || 0);
+    const unitPrice = Number(row.querySelector('.po-line-unit-price')?.value || 0);
+    return sum + (qty > 0 && unitPrice > 0 ? qty * unitPrice : 0);
+  }, 0);
+}
+
+function renderPurchaseOrderPaymentTermsPreview() {
+  const preview = $('po-payment-terms-preview');
+  if (!preview) return;
+
+  const terms = $('po-payment-terms')?.value || '';
+  const total = getPurchaseOrderModalTotal();
+  const parsed = parsePurchaseOrderPaymentSchedulePreview(terms, total);
+  preview.classList.remove('is-hidden');
+
+  if (!String(terms).trim()) {
+    preview.textContent = 'Use percentages to create bill schedules, e.g. 30% downpayment, 70% upon delivery.';
+    return;
+  }
+  if (!parsed.hasPercent) {
+    preview.textContent = 'No percentage found. Generate Bills needs terms like 100% full payment or 30% downpayment, 70% upon delivery.';
+    return;
+  }
+  if (!parsed.schedule.length || total <= 0) {
+    preview.textContent = 'Add PO line amounts before previewing the bill schedule.';
+    return;
+  }
+
+  const percentTotal = Number(parsed.percentTotal || 0);
+  const summary = parsed.schedule
+    .map((term) => `${term.percent}% ${term.label}: ${money(term.amount)}`)
+    .join(' | ');
+  const totalText = Math.abs(percentTotal - 100) <= 0.05
+    ? 'Total 100%'
+    : `Total ${percentTotal.toFixed(2).replace(/\.00$/, '')}% - must equal 100%`;
+  preview.textContent = `${totalText}. ${summary}`;
+}
+
 function renderPurchaseOrderLineItemRow(item = {}, index = 0) {
   const description = String(item.description || item.item_description || item.item_name || '').trim();
   const quantity = Number(item.quantity || item.qty || 1) > 0 ? Number(item.quantity || item.qty || 1) : 1;
@@ -1962,6 +2249,7 @@ function recalculatePurchaseOrderLineTotals() {
 
   const totalEl = $('po-total-display');
   if (totalEl) totalEl.textContent = `PHP ${total.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`;
+  renderPurchaseOrderPaymentTermsPreview();
 }
 
 function renderPurchaseOrderItemsCell(row) {
@@ -1984,7 +2272,7 @@ function renderPurchaseOrderItemsCell(row) {
   return `
     <div class="po-item-list">
       ${items.map((item, index) => {
-        const description = String(item.description || item.product_name || item.product_description || '').trim() || '-';
+        const description = String(item.description || '').trim() || '-';
         const qty = Number(item.quantity || 0);
         const unitPrice = Number(item.unit_price || 0);
         const lineTotal = Number(item.line_total || (qty * unitPrice) || 0);
@@ -1994,6 +2282,53 @@ function renderPurchaseOrderItemsCell(row) {
             <div class="po-item-copy">
               <div class="po-item-desc">${escHtml(description)}</div>
               <div class="po-item-meta">${qty} x ${money(unitPrice)} = ${money(lineTotal)}</div>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function renderProcurementApprovalTrail(row = {}) {
+  const entries = [
+    ['Submitted', row.submitted_by, row.submitted_at],
+    ['Approved', row.approved_by, row.approved_at],
+    ['Cancelled', row.cancelled_by, row.cancelled_at]
+  ].filter(([, actor, date]) => String(actor || date || '').trim());
+
+  if (!entries.length) {
+    return '<span class="pdf-empty">No approval activity</span>';
+  }
+
+  return `
+    <div class="po-item-list">
+      ${entries.map(([label, actor, date]) => `
+        <div class="po-item-line">
+          <div class="po-item-copy">
+            <div class="po-item-desc">${escHtml(label)}${actor ? ` by ${escHtml(actor)}` : ''}</div>
+            <div class="po-item-meta">${escHtml(dateText(date))}</div>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderPurchaseOrderBillsCell(row = {}) {
+  const bills = Array.isArray(row.bill_details) ? row.bill_details : [];
+  if (!bills.length) return '<span class="pdf-empty">No generated bills</span>';
+
+  return `
+    <div class="po-item-list">
+      ${bills.map((bill) => {
+        const paid = Number(bill.paid_amount || 0);
+        const total = Number(bill.total_amount || 0);
+        return `
+          <div class="po-item-line">
+            <div class="po-item-copy">
+              <div class="po-item-desc">${escHtml(bill.bill_number || `Bill #${bill.id || ''}`)}</div>
+              <div class="po-item-meta">${escHtml(dateText(bill.due_date || bill.bill_date))} | ${money(total)} | ${escHtml(bill.status || (paid >= total && total > 0 ? 'paid' : 'unpaid'))}</div>
             </div>
           </div>
         `;
@@ -2022,8 +2357,7 @@ function collectPurchaseOrderLineItems() {
     items.push({
       description,
       quantity,
-      unit_price: unitPrice,
-      product_id: null
+      unit_price: unitPrice
     });
   });
 
@@ -2043,25 +2377,37 @@ function renderRequisitions() {
   const entityFilter = typeof businessEntityMatches === 'function' ? businessEntityMatches : () => true;
   const rows = filteredRows(procurementState.requisitions.filter(entityFilter), $('procurement-search-input')?.value, [
     'pr_number',
+    'project_docno',
+    'project_name',
     'company_name',
     'company_no',
-    'department',
     'requested_by',
+    'submitted_by',
+    'approved_by',
+    'cancelled_by',
     'item_name',
     'item_summary',
     'status'
   ]);
 
   tbody.innerHTML = rows.length ? rows.map((row) => {
-    const canUseInPo = requisitionIsApprovedForPurchaseOrder(row);
+    const projectLabel = getProcurementProjectLabel(Number(row.project_id || 0) || 0);
+    const companyLabel = [row.company_no, row.company_name].filter(Boolean).join(' - ') || '-';
+    const canCreateRfq = requisitionCanCreateRfq(row);
+    const existingPurchaseOrder = getPurchaseOrderForRequisition(row.id);
     const status = normalizeWorkflowStatus(row.status || 'draft');
     const isAdmin = userCanApproveProcurement();
     const canSubmit = ['draft'].includes(status);
-    const canApprove = isAdmin && ['draft', 'submitted'].includes(status);
+    const canApprove = isAdmin && ['submitted'].includes(status);
     const canCancel = isAdmin && !isFinalProcurementStatus(status);
-    const useInPoButton = canUseInPo
-      ? `<button class="btn btn-edit btn-sm" type="button" onclick="openPurchaseOrderModal(null, null, ${Number(row.id)})">Use in PO</button>`
-      : '<button class="btn btn-edit btn-sm" type="button" disabled title="Approve this PR first">Use in PO</button>';
+    const deleteButton = isAdmin
+      ? `<button class="btn btn-cancel btn-sm" type="button" onclick="deleteRequisition(${Number(row.id)})">Delete</button>`
+      : '';
+    const createRfqButton = existingPurchaseOrder && canCreateRfq
+      ? '<button class="btn btn-add btn-sm" type="button" disabled title="PO already exists for this PR">Create RFQ</button>'
+      : canCreateRfq
+      ? `<button class="btn btn-add btn-sm" type="button" onclick="createRfqFromRequisition(${Number(row.id)})">Create RFQ</button>`
+      : '';
     const submitButton = canSubmit
       ? `<button class="btn btn-save btn-sm" type="button" onclick="submitRequisitionForApproval(${Number(row.id)})">Submit</button>`
       : '';
@@ -2071,31 +2417,617 @@ function renderRequisitions() {
     const cancelButton = canCancel
       ? `<button class="btn btn-cancel btn-sm" type="button" onclick="cancelRequisition(${Number(row.id)})">Cancel</button>`
       : '';
+    const pdfButton = row.pdfFilename
+      ? `<div class="erp-actions" style="justify-content:center;">
+          <button class="btn btn-pdf btn-sm" type="button" onclick="openRequisitionPdfViewer(${Number(row.id)})">View PDF</button>
+          <a class="btn btn-save btn-sm" href="/api/procurement/requisitions/${Number(row.id)}/pdf?download=1" download="${escHtml(row.pdfFilename)}">Download</a>
+        </div>`
+      : '<span class="pdf-empty">N/A</span>';
     return `
       <tr>
         <td style="font-weight:600;color:var(--primary)">${escHtml(row.pr_number)}</td>
-        <td>${escHtml([row.company_no, row.company_name].filter(Boolean).join(' - ') || '-')}</td>
+        <td>
+          <div style="font-weight:600;">${escHtml(projectLabel || 'No linked project')}</div>
+          <div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px;">${escHtml(companyLabel)}</div>
+          ${renderProcurementArchivedProjectBadge(row)}
+          ${renderAwardedRfqBadge(row.id)}
+          ${existingPurchaseOrder ? `<div style="margin-top:4px;"><span class="status-chip status-ordered">PO: ${escHtml(existingPurchaseOrder.po_number || existingPurchaseOrder.id)}</span></div>` : ''}
+        </td>
         <td>${escHtml(dateText(row.request_date))}</td>
-        <td>${escHtml(row.department || '-')}</td>
         <td>${escHtml(row.requested_by || '-')}</td>
         <td>${escHtml(dateText(row.needed_by))}</td>
         <td><span class="status-chip ${statusClass(row.status)}">${escHtml(row.status || 'draft')}</span></td>
+        <td style="min-width:180px;">${renderProcurementApprovalTrail(row)}</td>
         <td>${renderRequisitionItemsCell(row)}</td>
         <td class="text-right">${escHtml(Number(row.item_count || getRequisitionLineItems(row).length || 0))}</td>
         <td class="text-right" style="font-weight:600;">${escHtml(money(row.total_amount || 0))}</td>
+        <td class="text-center">${pdfButton}</td>
         <td>
           <div class="erp-actions" style="justify-content:center;">
             ${submitButton}
             ${approveButton}
-            ${useInPoButton}
+            ${createRfqButton}
             <button class="btn btn-edit btn-sm" type="button" onclick="openRequisitionModal(${Number(row.id)})">Edit</button>
             ${cancelButton}
-            <button class="btn btn-cancel btn-sm" type="button" onclick="deleteRequisition(${Number(row.id)})">Delete</button>
+            ${deleteButton}
           </div>
         </td>
       </tr>
     `;
-  }).join('') : '<tr class="empty-row"><td colspan="11">No requisitions found.</td></tr>';
+  }).join('') : '<tr class="empty-row"><td colspan="12">No requisitions found.</td></tr>';
+}
+
+function openRequisitionPdfViewer(id) {
+  const row = procurementState.requisitions.find((entry) => Number(entry.id) === Number(id));
+  if (!row || !row.pdfFilename) {
+    showToast('No generated PR PDF found yet. Submit the requisition first.', 'error');
+    return;
+  }
+
+  const pdfUrl = `/api/procurement/requisitions/${Number(id)}/pdf`;
+  document.getElementById('pdf-viewer-title').textContent = row.pdfFilename || 'Purchase Requisition PDF';
+  document.getElementById('pdf-dl-btn').href = pdfUrl;
+  document.getElementById('pdf-dl-btn').download = row.pdfFilename;
+  document.getElementById('pdf-fallback-dl').href = pdfUrl;
+  document.getElementById('pdf-fallback-dl').download = row.pdfFilename;
+  const frame = document.getElementById('pdf-frame');
+  const fallback = document.getElementById('pdf-fallback');
+  if (frame) frame.src = pdfUrl;
+  if (fallback) fallback.style.display = 'none';
+  document.getElementById('pdf-viewer-backdrop').classList.add('open');
+}
+
+function getApprovedRequisitionsForQuotes() {
+  const entityFilter = typeof businessEntityMatches === 'function' ? businessEntityMatches : () => true;
+  return procurementState.requisitions
+    .filter(entityFilter)
+    .filter((row) => ['approved', 'ordered'].includes(normalizeWorkflowStatus(row.status)));
+}
+
+function getQuotationById(id) {
+  const quoteId = Number(id || 0) || 0;
+  if (!quoteId) return null;
+  return procurementState.quotations.find((row) => Number(row.id || 0) === quoteId) || null;
+}
+
+function getSelectedQuotationForRequisition(requisitionId) {
+  const normalizedRequisitionId = Number(requisitionId || 0) || 0;
+  if (!normalizedRequisitionId) return null;
+  return procurementState.quotations.find((quote) => {
+    return Number(quote.requisition_id || 0) === normalizedRequisitionId
+      && normalizeWorkflowStatus(quote.status) === 'selected';
+  }) || null;
+}
+
+function getPurchaseOrderForRequisition(requisitionId) {
+  const normalizedRequisitionId = Number(requisitionId || 0) || 0;
+  if (!normalizedRequisitionId) return null;
+  return procurementState.purchaseOrders.find((po) => Number(po.requisition_id || 0) === normalizedRequisitionId) || null;
+}
+
+function renderAwardedRfqBadge(requisitionId) {
+  const selectedQuote = getSelectedQuotationForRequisition(requisitionId);
+  if (!selectedQuote) return '';
+  const label = `Awarded: ${selectedQuote.vendor_name || 'Vendor'} / ${selectedQuote.quote_number || `RFQ-${selectedQuote.id}`}`;
+  return `<div style="margin-top:4px;"><span class="status-chip status-approved">${escHtml(label)}</span></div>`;
+}
+
+function buildPurchaseOrderItemsFromQuotation(quote) {
+  if (!quote) return [];
+  const requisition = procurementState.requisitions.find((entry) => Number(entry.id || 0) === Number(quote.requisition_id || 0)) || null;
+  const requestedItems = getRequisitionLineItems(requisition);
+  const quotedTotal = Number(quote.quoted_total || 0) || 0;
+  if (!requestedItems.length) {
+    return quotedTotal > 0
+      ? [{ description: `Approved RFQ ${quote.quote_number || quote.id}`, quantity: 1, unit_price: quotedTotal }]
+      : [{}];
+  }
+
+  const estimatedTotal = requestedItems.reduce((sum, item) => {
+    const quantity = Number(item.quantity || 1) || 1;
+    return sum + (quantity * (Number(item.estimated_unit_price || 0) || 0));
+  }, 0);
+  const evenUnitTotal = quotedTotal > 0 ? quotedTotal / requestedItems.length : 0;
+
+  return requestedItems.map((item) => {
+    const quantity = Number(item.quantity || 1) || 1;
+    const estimatedLineTotal = quantity * (Number(item.estimated_unit_price || 0) || 0);
+    const targetLineTotal = quotedTotal > 0
+      ? (estimatedTotal > 0 ? quotedTotal * (estimatedLineTotal / estimatedTotal) : evenUnitTotal)
+      : estimatedLineTotal;
+    return {
+      description: [item.item_name, item.description].filter(Boolean).join(' - ') || `Approved RFQ ${quote.quote_number || quote.id}`,
+      quantity,
+      unit_price: quantity > 0 ? targetLineTotal / quantity : targetLineTotal
+    };
+  });
+}
+
+function renderRfqWorkspace() {
+  const tbody = document.querySelector('#rfq tbody');
+  if (!tbody) return;
+
+  const approvedRequisitions = getApprovedRequisitionsForQuotes();
+  const approvedRequisitionIds = new Set(approvedRequisitions.map((row) => Number(row.id || 0)).filter(Boolean));
+  const rows = [];
+
+  approvedRequisitions.forEach((requisition) => {
+    const existingPurchaseOrder = getPurchaseOrderForRequisition(requisition.id);
+    const quotes = procurementState.quotations.filter((quote) => Number(quote.requisition_id || 0) === Number(requisition.id || 0));
+    if (!quotes.length) {
+      rows.push({
+        type: 'pending',
+        requisition,
+        existingPurchaseOrder,
+        pr_number: requisition.pr_number,
+        project_docno: requisition.project_docno,
+        project_name: requisition.project_name,
+        company_name: requisition.company_name,
+        company_no: requisition.company_no,
+        vendor_name: '',
+        rfq_number: `RFQ-${requisition.pr_number || requisition.id}`,
+        issue_date: requisition.request_date,
+        due_date: requisition.needed_by,
+        status: 'open'
+      });
+      return;
+    }
+
+    quotes.forEach((quote, index) => {
+      rows.push({
+        type: 'quote',
+        requisition,
+        existingPurchaseOrder,
+        quote,
+        isFirstQuoteForPr: index === 0,
+        pr_number: quote.pr_number || requisition.pr_number,
+        project_docno: quote.project_docno || requisition.project_docno,
+        project_name: quote.project_name || requisition.project_name,
+        company_name: quote.company_name || requisition.company_name,
+        company_no: quote.company_no || requisition.company_no,
+        vendor_name: quote.vendor_name,
+        rfq_number: quote.quote_number || `RFQ-${quote.id}`,
+        issue_date: quote.quote_date,
+        due_date: requisition.needed_by,
+        status: quote.status || 'draft'
+      });
+    });
+  });
+
+  procurementState.quotations
+    .filter((quote) => !approvedRequisitionIds.has(Number(quote.requisition_id || 0)))
+    .forEach((quote) => {
+      rows.push({
+        type: 'quote',
+        requisition: null,
+        quote,
+        isFirstQuoteForPr: false,
+        pr_number: quote.pr_number,
+        project_docno: quote.project_docno,
+        project_name: quote.project_name,
+        company_name: quote.company_name,
+        company_no: quote.company_no,
+        vendor_name: quote.vendor_name,
+        rfq_number: quote.quote_number || `RFQ-${quote.id}`,
+        issue_date: quote.quote_date,
+        due_date: '',
+        status: quote.status || 'draft'
+      });
+    });
+
+  const visibleRows = filteredRows(rows, $('procurement-search-input')?.value, [
+    'rfq_number',
+    'pr_number',
+    'project_docno',
+    'project_name',
+    'company_name',
+    'company_no',
+    'vendor_name',
+    'status'
+  ]);
+
+  const isAdmin = userCanApproveProcurement();
+  tbody.innerHTML = visibleRows.length ? visibleRows.map((row) => {
+    const quote = row.quote || null;
+    const requisition = row.requisition || null;
+    const requisitionId = Number(requisition?.id || quote?.requisition_id || 0) || 0;
+    const selected = normalizeWorkflowStatus(row.status) === 'selected';
+    const rejected = normalizeWorkflowStatus(row.status) === 'rejected';
+    const existingPurchaseOrder = row.existingPurchaseOrder || getPurchaseOrderForRequisition(requisitionId);
+    const addLinkedRfqButton = !existingPurchaseOrder && requisitionId && (row.type === 'pending' || row.isFirstQuoteForPr)
+      ? `<button class="btn btn-add btn-sm" type="button" onclick="createRfqFromRequisition(${requisitionId})">${row.type === 'pending' ? 'Create RFQ' : 'Add RFQ'}</button>`
+      : existingPurchaseOrder && row.isFirstQuoteForPr
+        ? '<button class="btn btn-add btn-sm" type="button" disabled title="PO already exists for this PR">Add RFQ</button>'
+      : '';
+    const editButton = quote && !rejected
+      ? `<button class="btn btn-edit btn-sm" type="button" onclick="openQuotationModal(${Number(quote.id)})">Edit</button>`
+      : quote
+        ? '<button class="btn btn-edit btn-sm" type="button" disabled title="Rejected RFQs are read-only">Edit</button>'
+        : '';
+    const selectButton = quote && isAdmin && !selected && !rejected && !existingPurchaseOrder
+      ? `<button class="btn btn-save btn-sm" type="button" onclick="selectQuotation(${Number(quote.id)})">Approve RFQ</button>`
+      : '';
+    return `
+      <tr>
+        <td style="font-weight:600;color:var(--primary)">${escHtml(row.rfq_number || '-')}</td>
+        <td>
+          <div style="font-weight:600;">${escHtml(row.pr_number || '-')}</div>
+          <div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px;">${escHtml([row.project_docno, row.project_name].filter(Boolean).join(' - ') || row.company_name || '-')}</div>
+          ${renderAwardedRfqBadge(requisitionId)}
+          ${existingPurchaseOrder ? `<div style="margin-top:4px;"><span class="status-chip status-ordered">PO: ${escHtml(existingPurchaseOrder.po_number || existingPurchaseOrder.id)}</span></div>` : ''}
+        </td>
+        <td>${escHtml(row.vendor_name || 'No vendor RFQ yet')}</td>
+        <td>${escHtml(dateText(row.issue_date))}</td>
+        <td>${escHtml(dateText(row.due_date))}</td>
+        <td><span class="status-chip ${statusClass(selected ? 'approved' : row.status)}">${escHtml(selected ? 'awarded' : row.status)}</span></td>
+        <td>
+          <div class="erp-actions" style="justify-content:center;">
+            ${addLinkedRfqButton}
+            ${selectButton}
+            ${editButton}
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('') : '<tr class="empty-row"><td colspan="7">No RFQs linked to approved requisitions yet.</td></tr>';
+}
+
+function renderQuotations() {
+  const tbody = $('quote-body');
+  if (!tbody) return;
+
+  const entityFilter = typeof businessEntityMatches === 'function' ? businessEntityMatches : () => true;
+  const rows = filteredRows(procurementState.quotations.filter(entityFilter), $('procurement-search-input')?.value, [
+    'quote_number',
+    'pr_number',
+    'vendor_name',
+    'project_docno',
+    'project_name',
+    'payment_terms',
+    'warranty_terms',
+    'status',
+    'remarks'
+  ]);
+
+  tbody.innerHTML = rows.length ? rows.map((row) => {
+    const status = normalizeWorkflowStatus(row.status || 'draft');
+    const isSelected = status === 'selected';
+    const isRejected = status === 'rejected';
+    const existingPurchaseOrder = getPurchaseOrderForRequisition(row.requisition_id);
+    const isAdmin = userCanApproveProcurement();
+    const selectButton = isAdmin && !isSelected && !isRejected && !existingPurchaseOrder
+      ? `<button class="btn btn-save btn-sm" type="button" onclick="selectQuotation(${Number(row.id)})">Approve RFQ</button>`
+      : '';
+    const createPoButton = isSelected && !existingPurchaseOrder
+      ? `<button class="btn btn-add btn-sm" type="button" onclick="createPurchaseOrderFromQuotation(${Number(row.id)})">Create PO</button>`
+      : isSelected && existingPurchaseOrder
+        ? `<button class="btn btn-add btn-sm" type="button" disabled title="PO already exists">${escHtml(existingPurchaseOrder.po_number || 'PO Created')}</button>`
+      : '';
+    const editButton = isRejected
+      ? '<button class="btn btn-edit btn-sm" type="button" disabled title="Rejected RFQs are read-only">Edit</button>'
+      : `<button class="btn btn-edit btn-sm" type="button" onclick="openQuotationModal(${Number(row.id)})">Edit</button>`;
+    const deleteButton = isAdmin && !isRejected
+      ? `<button class="btn btn-cancel btn-sm" type="button" onclick="deleteQuotation(${Number(row.id)})">Delete</button>`
+      : '';
+    return `
+      <tr>
+        <td style="font-weight:600;color:var(--primary)">${escHtml(row.quote_number || `QT-${row.id}`)}</td>
+        <td>
+          <div style="font-weight:600;">RFQ-${escHtml(row.pr_number || row.requisition_id || '-')}</div>
+          <div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px;">${escHtml([row.project_docno, row.project_name].filter(Boolean).join(' - ') || row.company_name || '-')}</div>
+          ${renderAwardedRfqBadge(row.requisition_id)}
+          ${existingPurchaseOrder ? `<div style="margin-top:4px;"><span class="status-chip status-ordered">PO: ${escHtml(existingPurchaseOrder.po_number || existingPurchaseOrder.id)}</span></div>` : ''}
+        </td>
+        <td>${escHtml(row.vendor_name || '-')}</td>
+        <td>${escHtml(dateText(row.quote_date))}</td>
+        <td class="text-right" style="font-weight:600;">${escHtml(money(row.quoted_total || 0))}</td>
+        <td class="text-right">${escHtml(Number(row.delivery_days || 0) ? `${Number(row.delivery_days)} days` : '-')}</td>
+        <td class="text-right">${escHtml(Number(row.score || 0) ? `${Number(row.score)}%` : '-')}</td>
+        <td><span class="status-chip ${statusClass(isSelected ? 'approved' : status)}">${escHtml(row.status || 'draft')}</span></td>
+        <td>
+          <div class="erp-actions" style="justify-content:center;">
+            ${selectButton}
+            ${createPoButton}
+            ${editButton}
+            ${deleteButton}
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('') : '<tr class="empty-row"><td colspan="9">No quotations yet.</td></tr>';
+}
+
+function renderQuotationRequisitionOptions(selectedValue = '') {
+  const select = $('quote-requisition');
+  if (!select) return;
+  const selected = String(selectedValue || select.value || '').trim();
+  const rows = getApprovedRequisitionsForQuotes();
+  select.innerHTML = [
+    '<option value="">Select approved PR</option>',
+    ...rows.map((row) => {
+      const label = [row.pr_number, row.project_name || row.company_name, row.item_summary].filter(Boolean).join(' - ');
+      return `<option value="${escHtml(row.id)}">${escHtml(label || row.pr_number || 'Approved PR')}</option>`;
+    })
+  ].join('');
+  if (selected && Array.from(select.options || []).some((option) => String(option.value) === selected)) {
+    select.value = selected;
+  }
+}
+
+function renderQuotationVendorOptions(selectedValue = '') {
+  const select = $('quote-vendor');
+  if (!select) return;
+  const selected = String(selectedValue || select.value || '').trim();
+  const rows = getPurchaseOrderVendorChoices();
+  select.innerHTML = [
+    '<option value="">Select vendor</option>',
+    ...rows.map((vendor) => `<option value="${escHtml(vendor.id)}">${escHtml([vendor.vendor_no, vendor.vendor_name].filter(Boolean).join(' - ') || vendor.vendor_name || 'Vendor')}</option>`)
+  ].join('');
+  if (selected && Array.from(select.options || []).some((option) => String(option.value) === selected)) {
+    select.value = selected;
+  }
+}
+
+function syncQuotationFromRequisition() {
+  const requisition = procurementState.requisitions.find((row) => Number(row.id || 0) === Number($('quote-requisition')?.value || 0)) || null;
+  const totalInput = $('quote-total');
+  if (requisition && totalInput && !Number(totalInput.value || 0)) {
+    totalInput.value = Number(requisition.total_amount || 0) > 0 ? Number(requisition.total_amount || 0).toFixed(2) : '';
+  }
+}
+
+function resetQuotationForm() {
+  ['quote-number', 'quote-total', 'quote-delivery-days', 'quote-payment-terms', 'quote-warranty-terms', 'quote-score', 'quote-remarks'].forEach((id) => {
+    const el = $(id);
+    if (el) el.value = '';
+  });
+  if ($('quote-date')) $('quote-date').value = new Date().toISOString().slice(0, 10);
+  if ($('quote-status')) $('quote-status').value = 'draft';
+  syncProcurementStatusSelect('quote-status', ['draft', 'submitted'], { lockStaff: false });
+  renderQuotationRequisitionOptions('');
+  renderQuotationVendorOptions('');
+  ['quotation_number', 'quotation_requisition', 'quotation_vendor', 'quotation_total'].forEach((field) => setProcurementFieldMessage(field, ''));
+}
+
+function openQuotationModal(id = null, requisitionId = null) {
+  editingQuotationId = id ? Number(id) : null;
+  resetQuotationForm();
+  const title = $('quote-modal-title');
+  const saveBtn = $('quote-save-btn');
+  if (title) title.textContent = editingQuotationId ? 'Edit Quotation' : 'Add Quotation';
+  if (saveBtn) saveBtn.textContent = editingQuotationId ? 'Save Changes' : 'Save RFQ';
+
+  if (editingQuotationId) {
+    const row = getQuotationById(editingQuotationId);
+    if (!row) {
+      showToast('Quotation not found.', 'error');
+      editingQuotationId = null;
+      return;
+    }
+    if (normalizeWorkflowStatus(row.status) === 'rejected') {
+      showToast('Rejected RFQs are read-only.', 'error');
+      editingQuotationId = null;
+      return;
+    }
+    $('quote-number').value = row.quote_number || '';
+    renderQuotationRequisitionOptions(row.requisition_id || '');
+    renderQuotationVendorOptions(row.vendor_id || '');
+    $('quote-date').value = dateInputValue(row.quote_date);
+    $('quote-total').value = Number(row.quoted_total || 0) > 0 ? Number(row.quoted_total || 0).toFixed(2) : '';
+    $('quote-delivery-days').value = Number(row.delivery_days || 0) || '';
+    $('quote-payment-terms').value = row.payment_terms || '';
+    $('quote-warranty-terms').value = row.warranty_terms || '';
+    $('quote-score').value = Number(row.score || 0) || '';
+    $('quote-status').value = row.status || 'draft';
+    syncProcurementStatusSelect('quote-status', ['draft', 'submitted'], { lockStaff: false });
+    $('quote-remarks').value = row.remarks || '';
+  } else {
+    void loadQuotationNumberPreview();
+    if (requisitionId) {
+      renderQuotationRequisitionOptions(requisitionId);
+      syncQuotationFromRequisition();
+    }
+    syncProcurementStatusSelect('quote-status', ['draft', 'submitted'], { lockStaff: false });
+  }
+
+  openBackdrop('quote-modal-backdrop');
+}
+
+function createRfqFromRequisition(id) {
+  const row = procurementState.requisitions.find((entry) => Number(entry.id) === Number(id));
+  if (!row) {
+    showToast('Requisition not found.', 'error');
+    return;
+  }
+  if (!requisitionCanCreateRfq(row)) {
+    showToast('Approve this requisition before creating an RFQ.', 'error');
+    return;
+  }
+  if (getPurchaseOrderForRequisition(row.id)) {
+    showToast('This PR already has a purchase order. New RFQs are disabled.', 'error');
+    return;
+  }
+
+  if (typeof window.switchApWorkspaceTab === 'function') {
+    window.switchApWorkspaceTab('rfq', getProcurementTabButton('rfq'));
+  } else {
+    switchProcTab('rfq', getProcurementTabButton('rfq'));
+  }
+  openQuotationModal(null, Number(row.id));
+}
+
+function closeQuotationModal() {
+  editingQuotationId = null;
+  closeBackdrop('quote-modal-backdrop');
+  resetQuotationForm();
+}
+
+async function saveQuotation() {
+  ['quotation_requisition', 'quotation_vendor', 'quotation_total'].forEach((field) => setProcurementFieldMessage(field, ''));
+  const requisitionId = Number($('quote-requisition')?.value || 0) || 0;
+  const vendorId = Number($('quote-vendor')?.value || 0) || 0;
+  const quotedTotal = Number($('quote-total')?.value || 0) || 0;
+  const quoteNumber = String($('quote-number')?.value || '').trim();
+  const currentQuotation = editingQuotationId ? getQuotationById(editingQuotationId) : null;
+  if (currentQuotation && normalizeWorkflowStatus(currentQuotation.status) === 'rejected') {
+    showToast('Rejected RFQs are read-only.', 'error');
+    return;
+  }
+  if (getPurchaseOrderForRequisition(requisitionId)) {
+    showToast('This PR already has a purchase order. RFQ changes are disabled.', 'error');
+    return;
+  }
+  let firstInvalid = '';
+  if (!quoteNumber) {
+    setProcurementFieldMessage('quotation_number', 'Quotation No. is required.');
+    firstInvalid = firstInvalid || 'quote-number';
+  }
+  if (!requisitionId) {
+    setProcurementFieldMessage('quotation_requisition', 'Select an approved PR.');
+    firstInvalid = firstInvalid || 'quote-requisition';
+  }
+  if (!vendorId) {
+    setProcurementFieldMessage('quotation_vendor', 'Select a vendor.');
+    firstInvalid = firstInvalid || 'quote-vendor';
+  }
+  if (quotedTotal <= 0) {
+    setProcurementFieldMessage('quotation_total', 'Quoted total is required.');
+    firstInvalid = firstInvalid || 'quote-total';
+  }
+  if (firstInvalid) {
+    focusFirstProcurementControl([firstInvalid]);
+    return;
+  }
+
+  const payload = {
+    quote_number: quoteNumber,
+    requisition_id: requisitionId,
+    vendor_id: vendorId,
+    quote_date: $('quote-date')?.value || new Date().toISOString().slice(0, 10),
+    quoted_total: quotedTotal,
+    delivery_days: Number($('quote-delivery-days')?.value || 0) || 0,
+    payment_terms: $('quote-payment-terms')?.value.trim() || '',
+    warranty_terms: $('quote-warranty-terms')?.value.trim() || '',
+    score: Number($('quote-score')?.value || 0) || 0,
+    status: $('quote-status')?.value || 'draft',
+    remarks: $('quote-remarks')?.value.trim() || ''
+  };
+
+  try {
+    const wasEditing = Boolean(editingQuotationId);
+    await apiFetch(editingQuotationId ? `/api/procurement/quotations/${editingQuotationId}` : '/api/procurement/quotations', {
+      method: editingQuotationId ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    closeQuotationModal();
+    showToast(wasEditing ? 'RFQ updated.' : 'RFQ saved and linked to the PR.', 'success');
+    await loadProcurementData();
+    switchProcTab('rfq', getProcurementTabButton('rfq'));
+  } catch (err) {
+    const message = err.message || 'Unable to save quotation.';
+    if (message.toLowerCase().includes('vendor')) {
+      setProcurementFieldMessage('quotation_vendor', message);
+      focusFirstProcurementControl(['quote-vendor']);
+      return;
+    }
+    showToast(message, 'error');
+  }
+}
+
+async function selectQuotation(id) {
+  const row = getQuotationById(id);
+  if (!row) {
+    showToast('RFQ not found.', 'error');
+    return;
+  }
+  if (normalizeWorkflowStatus(row.status) === 'rejected') {
+    showToast('Rejected RFQs are read-only.', 'error');
+    return;
+  }
+  if (getPurchaseOrderForRequisition(row.requisition_id)) {
+    showToast('This PR already has a purchase order. RFQ approval is locked.', 'error');
+    return;
+  }
+  const confirmed = await openConfirmDialog({
+    title: 'Approve RFQ?',
+    message: `Approve ${row?.quote_number || 'this RFQ'} for ${row?.vendor_name || 'this vendor'}? Other RFQs linked to this PR will be marked rejected.`,
+    noText: 'No',
+    yesText: 'Approve'
+  });
+  if (!confirmed) return;
+  try {
+    await apiFetch(`/api/procurement/quotations/${id}/select`, { method: 'POST' });
+    showToast('RFQ approved. Other RFQs for this PR were rejected.', 'success');
+    await loadProcurementData();
+    if (typeof window.switchApWorkspaceTab === 'function') {
+      window.switchApWorkspaceTab('quotations', getProcurementTabButton('quotations'));
+    } else {
+      switchProcTab('quotations', getProcurementTabButton('quotations'));
+    }
+  } catch (err) {
+    showToast(err.message || 'Unable to approve RFQ.', 'error');
+  }
+}
+
+async function deleteQuotation(id) {
+  const row = getQuotationById(id);
+  if (normalizeWorkflowStatus(row?.status) === 'rejected') {
+    showToast('Rejected RFQs are read-only.', 'error');
+    return;
+  }
+  if (getPurchaseOrderForRequisition(row?.requisition_id)) {
+    showToast('This PR already has a purchase order. RFQ deletion is disabled.', 'error');
+    return;
+  }
+  const confirmed = await openConfirmDialog({
+    title: 'Delete Quotation?',
+    message: `Delete ${row?.quote_number || 'this quotation'}?`,
+    noText: 'No',
+    yesText: 'Delete'
+  });
+  if (!confirmed) return;
+  try {
+    await apiFetch(`/api/procurement/quotations/${id}`, { method: 'DELETE' });
+    showToast('Quotation deleted.', 'success');
+    await loadProcurementData();
+  } catch (err) {
+    showToast(err.message || 'Unable to delete quotation.', 'error');
+  }
+}
+
+async function createPurchaseOrderFromQuotation(id) {
+  let row = getQuotationById(id);
+  if (!row) {
+    showToast('RFQ not found.', 'error');
+    return;
+  }
+  if (normalizeWorkflowStatus(row.status) !== 'selected') {
+    showToast('Approve the RFQ before creating a purchase order.', 'error');
+    return;
+  }
+  if (getPurchaseOrderForRequisition(row.requisition_id)) {
+    showToast('This PR already has a purchase order.', 'error');
+    return;
+  }
+
+  if (typeof window.switchApWorkspaceTab === 'function') {
+    window.switchApWorkspaceTab('purchase-orders', getProcurementTabButton('purchase-orders'));
+  } else {
+    switchProcTab('purchase-orders', getProcurementTabButton('purchase-orders'));
+  }
+  row = getQuotationById(id) || row;
+  openPurchaseOrderModal(null, row.vendor_id, row.requisition_id);
+  currentPurchaseOrderQuotationId = Number(row.id || 0) || null;
+  if ($('po-source-rfq')) $('po-source-rfq').value = row.quote_number || `RFQ #${row.id}`;
+  setPurchaseOrderLineItems(buildPurchaseOrderItemsFromQuotation(row));
+  recalculatePurchaseOrderLineTotals();
+  if ($('po-payment-terms')) $('po-payment-terms').value = row.payment_terms || '';
+  if ($('po-notes')) {
+    const note = `Created from approved RFQ ${row.quote_number || row.id}. ${row.remarks || ''}`.trim();
+    $('po-notes').value = note;
+  }
+  showToast('Purchase order is ready from the approved RFQ.', 'success');
 }
 
 function renderPurchaseOrders() {
@@ -2112,6 +3044,9 @@ function renderPurchaseOrders() {
     'payment_terms',
     'prepared_by',
     'approved_by',
+    'source_quote_number',
+    'submitted_by',
+    'cancelled_by',
     'item_summary',
     'status'
   ]);
@@ -2120,13 +3055,21 @@ function renderPurchaseOrders() {
     const status = normalizeWorkflowStatus(row.status || 'draft');
     const isAdmin = userCanApproveProcurement();
     const canSubmit = ['draft'].includes(status);
-    const canApprove = isAdmin && ['draft', 'pending'].includes(status);
+    const canApprove = isAdmin && ['pending'].includes(status);
     const canCancel = isAdmin && !isFinalProcurementStatus(status);
     const isApproved = status === 'approved';
-    const canGenerateBills = isApproved && String(row.payment_terms || '').trim() && Number(row.bill_count || 0) === 0;
-    const billAction = canGenerateBills
-      ? `<button class="btn btn-save btn-sm" type="button" onclick="generatePurchaseOrderBills(${Number(row.id)})">Generate Bills</button>`
-      : (Number(row.bill_count || 0) > 0 ? '<span class="pdf-empty">Bills generated</span>' : (!isApproved && String(row.payment_terms || '').trim() ? '<span class="pdf-empty">Approve before bills</span>' : ''));
+    const isGeneratingBills = generatingPurchaseOrderBillIds.has(Number(row.id || 0));
+    const canGenerateBills = isApproved && String(row.payment_terms || '').trim() && Number(row.bill_count || 0) === 0 && !isGeneratingBills;
+    let billAction = '';
+    if (canGenerateBills) {
+      billAction = `<button class="btn btn-save btn-sm" type="button" onclick="generatePurchaseOrderBills(${Number(row.id)})">Generate Bills</button>`;
+    } else if (isGeneratingBills) {
+      billAction = '<button class="btn btn-save btn-sm" type="button" disabled>Generating...</button>';
+    } else if (Number(row.bill_count || 0) > 0) {
+      billAction = '<span class="pdf-empty">Bills generated</span>';
+    } else if (!isApproved && String(row.payment_terms || '').trim()) {
+      billAction = '<span class="pdf-empty">Approve before bills</span>';
+    }
     const submitButton = canSubmit
       ? `<button class="btn btn-save btn-sm" type="button" onclick="submitPurchaseOrderForApproval(${Number(row.id)})">Submit</button>`
       : '';
@@ -2141,14 +3084,17 @@ function renderPurchaseOrders() {
         <td style="font-weight:600;color:var(--primary)">${escHtml(row.po_number)}</td>
         <td>${escHtml(row.requisition_number || '-')}</td>
         <td>${escHtml(row.vendor_name || '-')}</td>
-        <td>${escHtml([row.project_docno, row.project_name].filter(Boolean).join(' - ') || '-')}</td>
+        <td>${escHtml([row.project_docno, row.project_name].filter(Boolean).join(' - ') || '-')}${renderProcurementArchivedProjectBadge(row)}</td>
         <td>${escHtml(dateText(row.po_date))}</td>
         <td>${escHtml(dateText(row.delivery_date))}</td>
         <td>${escHtml(row.payment_terms || '-')}</td>
         <td>${escHtml(row.prepared_by || '-')}</td>
         <td>${escHtml(row.approved_by || '-')}</td>
         <td><span class="status-chip ${statusClass(row.status)}">${escHtml(row.status || 'draft')}</span></td>
+        <td>${escHtml(row.source_quote_number || '-')}</td>
+        <td style="min-width:180px;">${renderProcurementApprovalTrail(row)}</td>
         <td style="min-width:300px;">${renderPurchaseOrderItemsCell(row)}</td>
+        <td style="min-width:220px;">${renderPurchaseOrderBillsCell(row)}</td>
         <td class="text-right"><span class="po-line-count">${escHtml(Number(row.line_count || row.line_items?.length || 0))}</span></td>
         <td class="text-right">${escHtml(money(row.computed_total || row.total_amount || 0))}</td>
         <td>
@@ -2156,14 +3102,15 @@ function renderPurchaseOrders() {
             ${submitButton}
             ${approveButton}
             ${billAction}
+            <button class="btn btn-edit btn-sm" type="button" onclick="openPurchaseOrderDocuments(${Number(row.id)})">Docs (${Number(row.document_count || 0)})</button>
             <button class="btn btn-edit btn-sm" type="button" onclick="openPurchaseOrderModal(${Number(row.id)})">Edit</button>
             ${cancelButton}
-            <button class="btn btn-cancel btn-sm" type="button" onclick="deletePurchaseOrder(${Number(row.id)})">Delete</button>
+            ${isAdmin ? `<button class="btn btn-cancel btn-sm" type="button" onclick="deletePurchaseOrder(${Number(row.id)})">Delete</button>` : ''}
           </div>
         </td>
       </tr>
     `;
-  }).join('') : '<tr class="empty-row"><td colspan="14">No purchase orders found.</td></tr>';
+  }).join('') : '<tr class="empty-row"><td colspan="17">No purchase orders found.</td></tr>';
 }
 
 function renderGoodsReceipts() {
@@ -2179,6 +3126,7 @@ function renderGoodsReceipts() {
     'status'
   ]);
 
+  const canDelete = userCanApproveProcurement();
   tbody.innerHTML = rows.length ? rows.map((row) => `
     <tr>
       <td style="font-weight:600;color:var(--primary)">${escHtml(row.grn_number)}</td>
@@ -2190,34 +3138,185 @@ function renderGoodsReceipts() {
       <td>
         <div class="erp-actions" style="justify-content:center;">
           <button class="btn btn-edit btn-sm" type="button" onclick="openGoodsReceiptModal(${Number(row.id)})">Edit</button>
-          <button class="btn btn-cancel btn-sm" type="button" onclick="deleteGoodsReceipt(${Number(row.id)})">Delete</button>
+          ${canDelete ? `<button class="btn btn-cancel btn-sm" type="button" onclick="deleteGoodsReceipt(${Number(row.id)})">Delete</button>` : ''}
         </div>
       </td>
     </tr>
   `).join('') : '<tr class="empty-row"><td colspan="7">No goods receipts found.</td></tr>';
 }
 
+function formatDocumentTypeLabel(value) {
+  const normalized = String(value || 'attachment').trim().replace(/[_-]+/g, ' ');
+  return normalized.replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatFileSize(bytes) {
+  const size = Number(bytes || 0);
+  if (!size) return '-';
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function renderRecordDocuments(rows = []) {
+  const tbody = $('record-documents-body');
+  if (!tbody) return;
+
+  tbody.innerHTML = rows.length ? rows.map((row) => `
+    <tr>
+      <td>${escHtml(formatDocumentTypeLabel(row.document_type))}</td>
+      <td>${escHtml(row.original_filename || row.stored_filename || 'document.pdf')}</td>
+      <td>${escHtml(dateText(row.uploaded_at))}</td>
+      <td class="text-right">${escHtml(formatFileSize(row.file_size))}</td>
+      <td>
+        <div class="erp-actions" style="justify-content:center;">
+          <button class="btn btn-pdf btn-sm" type="button" onclick="viewRecordDocument(${Number(row.id)})">View</button>
+          <button class="btn btn-cancel btn-sm" type="button" onclick="deleteRecordDocument(${Number(row.id)})">Delete</button>
+        </div>
+      </td>
+    </tr>
+  `).join('') : '<tr class="empty-row"><td colspan="5">No documents attached yet.</td></tr>';
+}
+
+async function loadRecordDocuments() {
+  if (!activeDocumentContext) return;
+  try {
+    const rows = await apiFetch(`/api/documents?module_name=${encodeURIComponent(activeDocumentContext.moduleName)}&record_id=${encodeURIComponent(activeDocumentContext.recordId)}`, { cache: 'no-store' });
+    renderRecordDocuments(Array.isArray(rows) ? rows : []);
+  } catch (err) {
+    renderRecordDocuments([]);
+    showToast(err.message || 'Unable to load documents.', 'error');
+  }
+}
+
+function openPurchaseOrderDocuments(id) {
+  const row = procurementState.purchaseOrders.find((entry) => Number(entry.id) === Number(id));
+  if (!row) {
+    showToast('Purchase order not found.', 'error');
+    return;
+  }
+
+  activeDocumentContext = {
+    moduleName: 'purchase_order',
+    recordId: Number(row.id),
+    title: row.po_number || `PO #${row.id}`
+  };
+  const title = $('record-documents-title');
+  if (title) title.textContent = `Documents - ${activeDocumentContext.title}`;
+  const fileInput = $('record-document-file');
+  if (fileInput) fileInput.value = '';
+  const typeInput = $('record-document-type');
+  if (typeInput) typeInput.value = 'signed_po';
+  renderRecordDocuments([]);
+  openBackdrop('record-documents-modal-backdrop');
+  void loadRecordDocuments();
+}
+
+function closeRecordDocumentsModal() {
+  activeDocumentContext = null;
+  closeBackdrop('record-documents-modal-backdrop');
+  const fileInput = $('record-document-file');
+  if (fileInput) fileInput.value = '';
+  renderRecordDocuments([]);
+}
+
+async function uploadRecordDocument() {
+  if (!activeDocumentContext) return;
+  const fileInput = $('record-document-file');
+  const file = fileInput?.files?.[0] || null;
+  if (!file) {
+    showToast('Select a PDF file first.', 'error');
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append('module_name', activeDocumentContext.moduleName);
+  formData.append('record_id', String(activeDocumentContext.recordId));
+  formData.append('document_type', $('record-document-type')?.value || 'attachment');
+  formData.append('pdf_file', file);
+
+  try {
+    await apiFetch('/api/documents', {
+      method: 'POST',
+      body: formData
+    });
+    if (fileInput) fileInput.value = '';
+    showToast('PDF uploaded successfully.', 'success');
+    await loadRecordDocuments();
+    await loadProcurementData();
+  } catch (err) {
+    showToast(err.message || 'Unable to upload PDF.', 'error');
+  }
+}
+
+function viewRecordDocument(id) {
+  window.open(`/api/documents/${Number(id)}/file`, '_blank', 'noopener');
+}
+
+async function deleteRecordDocument(id) {
+  const confirmed = await openConfirmDialog({
+    title: 'Delete PDF',
+    message: 'Delete this attached PDF?',
+    noText: 'No',
+    yesText: 'Yes'
+  });
+  if (!confirmed) return;
+
+  try {
+    await apiFetch(`/api/documents/${Number(id)}`, { method: 'DELETE' });
+    showToast('PDF deleted successfully.', 'success');
+    await loadRecordDocuments();
+    await loadProcurementData();
+  } catch (err) {
+    showToast(err.message || 'Unable to delete PDF.', 'error');
+  }
+}
+
 function openBackdrop(id) {
   const backdrop = $(id);
-  if (backdrop) backdrop.classList.add('open');
+  if (backdrop) {
+    backdrop.hidden = false;
+    backdrop.style.display = 'flex';
+    backdrop.style.visibility = '';
+    backdrop.style.opacity = '';
+    backdrop.style.pointerEvents = '';
+    backdrop.classList.add('open');
+    backdrop.setAttribute('aria-hidden', 'false');
+  }
   document.body.style.overflow = 'hidden';
 }
 
 function closeBackdrop(id) {
   const backdrop = $(id);
-  if (backdrop) backdrop.classList.remove('open');
+  if (backdrop) {
+    backdrop.classList.remove('open');
+    backdrop.style.display = 'none';
+    backdrop.style.visibility = 'hidden';
+    backdrop.style.opacity = '0';
+    backdrop.style.pointerEvents = 'none';
+    backdrop.hidden = true;
+    backdrop.setAttribute('aria-hidden', 'true');
+  }
   const anyModalOpen = document.querySelector('.modal-backdrop.open') || document.getElementById('confirm-modal-backdrop')?.classList.contains('open');
   if (!anyModalOpen) {
     document.body.style.overflow = '';
   }
 }
 
+function forceCloseBackdrop(id) {
+  closeBackdrop(id);
+  setTimeout(() => closeBackdrop(id), 0);
+  window.requestAnimationFrame(() => closeBackdrop(id));
+}
+
 function resetRequisitionForm() {
-  ['pr-number', 'pr-department', 'pr-requested-by', 'pr-notes'].forEach((id) => {
+  ['pr-number', 'pr-requested-by', 'pr-notes'].forEach((id) => {
     const el = $(id);
     if (el) el.value = '';
   });
+  currentRequisitionProjectId = null;
   if ($('pr-company')) $('pr-company').value = '';
+  if ($('pr-company-search')) $('pr-company-search').value = '';
   const dateDefaults = {
     'pr-request-date': new Date().toISOString().slice(0, 10),
     'pr-needed-by': new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
@@ -2227,6 +3326,8 @@ function resetRequisitionForm() {
     const el = $(id);
     if (el) el.value = value;
   });
+  syncProcurementStatusSelect('pr-status', ['draft'], { lockStaff: true });
+  syncRequisitionProjectContext(null);
   setRequisitionLineItems([{}]);
   clearProcurementFieldMessages();
   clearRequisitionLineItemMessages();
@@ -2239,11 +3340,12 @@ function syncRequisitionModalMode() {
   if (saveBtn) saveBtn.textContent = editingRequisitionId ? 'Save Changes' : 'Create Requisition';
 }
 
-function openRequisitionModal(id = null) {
+function openRequisitionModal(id = null, options = {}) {
   editingRequisitionId = id ? Number(id) : null;
   resetRequisitionForm();
   clearProcurementFieldMessages();
   renderCompanyOptions();
+  renderRequisitionProjectOptions();
   if (editingRequisitionId) {
     const row = procurementState.requisitions.find((entry) => Number(entry.id) === editingRequisitionId);
     if (!row) {
@@ -2253,15 +3355,23 @@ function openRequisitionModal(id = null) {
     }
     $('pr-number').value = row.pr_number || '';
     $('pr-company').value = row.company_id || '';
+    renderRequisitionProjectOptions(Number(row.project_id || 0) || null);
+    syncRequisitionProjectContext(Number(row.project_id || 0) || null);
     $('pr-request-date').value = dateInputValue(row.request_date);
-    $('pr-department').value = row.department || '';
     $('pr-requested-by').value = row.requested_by || '';
     $('pr-needed-by').value = dateInputValue(row.needed_by);
     $('pr-status').value = row.status || 'draft';
+    syncProcurementStatusSelect('pr-status', ['draft'], { lockStaff: true });
     setRequisitionLineItems(getRequisitionLineItems(row));
     $('pr-notes').value = row.notes || '';
   } else {
+    const companyId = Number(options.companyId || pendingRequisitionCompanyId || 0) || 0;
+    const projectId = Number(options.projectId || pendingRequisitionProjectId || 0) || 0;
+    if (companyId && $('pr-company')) $('pr-company').value = String(companyId);
+    renderRequisitionProjectOptions(projectId || '');
+    syncRequisitionProjectContext(projectId || null);
     void loadRequisitionNumberPreview();
+    syncProcurementStatusSelect('pr-status', ['draft'], { lockStaff: true });
   }
   syncRequisitionModalMode();
   openBackdrop('pr-modal-backdrop');
@@ -2284,11 +3394,12 @@ async function saveRequisition() {
     pr_number: $('pr-number').value.trim(),
     business_entity_id: (typeof getCurrentBusinessEntityId === 'function' ? getCurrentBusinessEntityId() : '') || getDefaultProcurementBusinessEntityId() || '',
     company_id: companyId,
+    project_id: currentRequisitionProjectId || null,
     request_date: $('pr-request-date').value,
-    department: $('pr-department').value.trim(),
+    department: '',
     requested_by: $('pr-requested-by').value.trim(),
     needed_by: $('pr-needed-by').value,
-    status: $('pr-status').value,
+    status: $('pr-status')?.value || 'draft',
     items,
     notes: $('pr-notes').value.trim()
   };
@@ -2302,7 +3413,9 @@ async function saveRequisition() {
   };
 
   if (!payload.items.length) markError('pr_line_items', 'At least one requested item is required.');
+  if (!payload.pr_number) markError('pr_number', 'PR No. is required.');
   if (incompleteRows.length) markError('pr_line_items', `Complete item name and qty for line ${incompleteRows[0]}.`);
+  if (!payload.project_id) markError('project_id', 'Project selection is required for traceability.');
   if (!payload.company_id) markError('company_id', 'Company selection is required.');
   if (!payload.request_date) markError('request_date', 'Request Date is required.');
 
@@ -2313,6 +3426,7 @@ async function saveRequisition() {
     }
     focusFirstProcurementField(firstInvalidField, {
       company_id: ['pr-company'],
+      project_id: ['pr-project'],
       request_date: ['pr-request-date']
     });
     return;
@@ -2387,7 +3501,7 @@ async function submitRequisitionForApproval(id) {
 
   try {
     await apiFetch(`/api/procurement/requisitions/${id}/submit`, { method: 'POST' });
-    showToast('Requisition submitted for approval.', 'success');
+    showToast('Requisition submitted for approval. PDF generated.', 'success');
     await loadProcurementData();
   } catch (err) {
     showToast(err.message || 'Unable to submit requisition.', 'error');
@@ -2434,12 +3548,19 @@ async function cancelRequisition(id) {
 
 function resetPurchaseOrderForm() {
   currentPurchaseOrderProjectId = null;
+  currentPurchaseOrderQuotationId = null;
   syncPurchaseOrderProjectContext(null);
   ['po-number', 'po-payment-terms', 'po-prepared-by', 'po-approved-by', 'po-notes'].forEach((id) => {
     const el = $(id);
     if (el) el.value = '';
   });
+  const preview = $('po-payment-terms-preview');
+  if (preview) {
+    preview.textContent = '';
+    preview.classList.add('is-hidden');
+  }
   if ($('po-requisition')) $('po-requisition').value = '';
+  if ($('po-source-rfq')) $('po-source-rfq').value = '';
   renderBusinessEntityOptions('po-business-entity');
   renderPurchaseOrderProjectOptions('');
   if ($('po-company')) $('po-company').value = '';
@@ -2447,6 +3568,7 @@ function resetPurchaseOrderForm() {
   if ($('po-vendor')) $('po-vendor').value = '';
   if ($('po-vendor-search')) $('po-vendor-search').value = '';
   if ($('po-status')) $('po-status').value = 'draft';
+  syncProcurementStatusSelect('po-status', ['draft'], { lockStaff: true });
   if ($('po-date')) $('po-date').value = new Date().toISOString().slice(0, 10);
   if ($('po-delivery')) $('po-delivery').value = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   setPurchaseOrderLineItems([]);
@@ -2486,6 +3608,7 @@ function openPurchaseOrderModal(id = null, vendorId = null, requisitionId = null
       return;
     }
     $('po-number').value = row.po_number || '';
+    renderPurchaseOrderRequisitionOptions(row.requisition_id || '');
     renderBusinessEntityOptions('po-business-entity', row.business_entity_id || '');
     $('po-requisition').value = row.requisition_id || '';
     $('po-company').value = Number(row.company_id || 0) || '';
@@ -2497,7 +3620,10 @@ function openPurchaseOrderModal(id = null, vendorId = null, requisitionId = null
     $('po-prepared-by').value = row.prepared_by || '';
     $('po-approved-by').value = row.approved_by || '';
     $('po-status').value = row.status || 'draft';
+    syncProcurementStatusSelect('po-status', ['draft'], { lockStaff: true });
     $('po-notes').value = row.notes || '';
+    currentPurchaseOrderQuotationId = Number(row.quotation_id || 0) || null;
+    if ($('po-source-rfq')) $('po-source-rfq').value = row.source_quote_number || (currentPurchaseOrderQuotationId ? `RFQ #${currentPurchaseOrderQuotationId}` : '');
     if (row.requisition_id) {
       applyPurchaseOrderRequisitionSelection(row.requisition_id);
     }
@@ -2512,6 +3638,7 @@ function openPurchaseOrderModal(id = null, vendorId = null, requisitionId = null
     }
   } else {
     void loadPurchaseOrderNumberPreview();
+    syncProcurementStatusSelect('po-status', ['draft'], { lockStaff: true });
   }
   if (!editingPurchaseOrderId && requisitionId) {
     const requisition = procurementState.requisitions.find((entry) => Number(entry.id) === Number(requisitionId)) || null;
@@ -2568,16 +3695,17 @@ async function savePurchaseOrder() {
     $('po-company').value = String(companyId);
   }
   const payload = {
-    po_number: editingPurchaseOrderId ? $('po-number').value.trim() : '',
+    po_number: $('po-number').value.trim(),
     requisition_id: requisitionId || null,
     business_entity_id: businessEntityId,
     vendor_id: vendorId,
     po_date: $('po-date').value,
     delivery_date: $('po-delivery').value,
     payment_terms: $('po-payment-terms').value.trim(),
+    quotation_id: currentPurchaseOrderQuotationId || null,
     prepared_by: $('po-prepared-by').value.trim(),
     approved_by: $('po-approved-by').value.trim(),
-    status: $('po-status').value,
+    status: $('po-status')?.value || 'draft',
     notes: $('po-notes').value.trim(),
     company_id: companyId,
     project_id: currentPurchaseOrderProjectId || null,
@@ -2593,14 +3721,17 @@ async function savePurchaseOrder() {
   };
 
   if (!payload.vendor_id) markError('vendor_id', 'Vendor selection is required.');
+  if (!payload.po_number) markError('po_number', 'PO No. is required.');
   if (selectedVendor && !vendorCanBeUsedForPurchaseOrder(selectedVendor)) {
     markError('vendor_id', 'Select another vendor. The issuing company cannot be its own supplier on this PO.');
   }
   if (!payload.po_date) markError('po_date', 'PO Date is required.');
+  if (!requisitionId) markError('requisition_id', 'Approved requisition is required before creating a purchase order.');
   if (requisitionId && !requisitionRow) markError('requisition_id', 'Selected requisition was not found.');
-  if (!editingPurchaseOrderId && requisitionId && requisitionRow && !requisitionIsApprovedForPurchaseOrder(requisitionRow)) {
+  if (requisitionId && requisitionRow && !requisitionIsApprovedForPurchaseOrder(requisitionRow)) {
     markError('requisition_id', 'Approve this requisition before converting it to a purchase order.');
   }
+  if (!payload.quotation_id) markError('quotation_id', 'Approve an RFQ before creating a purchase order.');
 
   if (requisitionId && requisitionCompanyId && companyId && requisitionCompanyId !== companyId) {
     markError('requisition_id', 'Selected requisition must belong to the same company.');
@@ -2631,7 +3762,8 @@ async function savePurchaseOrder() {
       project_id: ['po-project'],
       vendor_id: ['po-vendor-search'],
       po_date: ['po-date'],
-      requisition_id: ['po-requisition'],
+      requisition_id: ['po-source-rfq'],
+      quotation_id: ['po-source-rfq'],
       line_items: ['po-line-items']
     });
     if (firstInvalidField === 'line_items') {
@@ -2675,7 +3807,12 @@ async function savePurchaseOrder() {
     }
     if (errorText.includes('requisition')) {
       setProcurementFieldMessage('requisition_id', err.message || 'Selected requisition is not valid for this company.');
-      focusFirstProcurementControl(['po-requisition']);
+      focusFirstProcurementControl(['po-source-rfq']);
+      return;
+    }
+    if (errorText.includes('quotation') || errorText.includes('rfq')) {
+      setProcurementFieldMessage('quotation_id', err.message || 'Approved RFQ is required.');
+      focusFirstProcurementControl(['po-source-rfq']);
       return;
     }
     if (errorText.includes('vendor')) {
@@ -2769,17 +3906,30 @@ async function cancelPurchaseOrder(id) {
 }
 
 async function generatePurchaseOrderBills(id) {
+  const poId = Number(id || 0) || 0;
+  if (!poId || generatingPurchaseOrderBillIds.has(poId)) return;
   const row = procurementState.purchaseOrders.find((entry) => Number(entry.id) === Number(id));
+  if (Number(row?.bill_count || 0) > 0) {
+    showToast('This PO already has generated AP bill(s).', 'error');
+    await loadProcurementData();
+    return;
+  }
+  const preview = parsePurchaseOrderPaymentSchedulePreview(row?.payment_terms || '', row?.computed_total || row?.total_amount || 0);
+  const scheduleText = preview.schedule.length
+    ? ` Detected ${preview.schedule.length} bill(s), total ${preview.percentTotal.toFixed(2).replace(/\.00$/, '')}%.`
+    : '';
   const confirmed = await openConfirmDialog({
     title: 'Generate AP Bills',
-    message: `Generate AP bill schedule from ${row?.po_number || 'this PO'} payment terms? These will be unpaid bills, not payments.`,
+    message: `Generate AP bill schedule from ${row?.po_number || 'this PO'} payment terms?${scheduleText} These will be unpaid bills, not payments.`,
     noText: 'No',
     yesText: 'Generate'
   });
   if (!confirmed) return;
 
+  generatingPurchaseOrderBillIds.add(poId);
+  renderPurchaseOrders();
   try {
-    const result = await apiFetch(`/api/procurement/purchase-orders/${id}/generate-bills`, {
+    const result = await apiFetch(`/api/procurement/purchase-orders/${poId}/generate-bills`, {
       method: 'POST'
     });
     const bills = Array.isArray(result?.bills) ? result.bills : [];
@@ -2790,6 +3940,9 @@ async function generatePurchaseOrderBills(id) {
     if (typeof loadBills === 'function') loadBills();
   } catch (err) {
     showToast(err.message || 'Unable to generate AP bills from PO.', 'error');
+  } finally {
+    generatingPurchaseOrderBillIds.delete(poId);
+    renderPurchaseOrders();
   }
 }
 
@@ -2857,7 +4010,7 @@ async function saveGoodsReceipt() {
     po_id: $('grn-po').value,
     received_date: $('grn-received-date').value,
     received_by: $('grn-received-by').value.trim(),
-    status: $('grn-status').value,
+    status: $('grn-status')?.value || 'received',
     notes: $('grn-notes').value.trim()
   };
 
@@ -2870,6 +4023,7 @@ async function saveGoodsReceipt() {
   };
 
   if (!payload.po_id) markError('po_id', 'PO No. is required.');
+  if (!payload.grn_number) markError('grn_number', 'GRN No. is required.');
   if (!payload.received_date) markError('received_date', 'Received Date is required.');
 
   if (hasValidationError) {

@@ -1,10 +1,18 @@
 // Use DBML to define your database structure
-// Live schema mirrored from the current Kinaadman MySQL database.
+// Live schema mirrored from the current Kinaadman PostgreSQL database.
 // Docs: https://dbml.dbdiagram.io/docs
+//
+// ERP ERD guide:
+// business_entities stores your own operating companies.
+// Company Registry is the external customer/client/company master record.
+// AR flow: company_registry -> projects -> service_orders -> transactions -> accounts_receivable -> payments.
+// AP flow: company_registry/projects -> vendors / purchase_requisitions / purchase_orders -> accounts_payable -> payments.
+// Project flow connects AR and operations: projects can have service orders, transactions, AR invoices, tasks, costs, and resources.
 
 Table company_registry {
   id integer [primary key, increment]
   company_no varchar(20) [not null, unique]
+  business_entity_id integer
   branch_code varchar(10) [not null, default: '000']
   company_name varchar(255) [not null]
   address text
@@ -13,10 +21,24 @@ Table company_registry {
   email varchar(255)
   tin varchar(50)
   industry varchar(100)
-  status enum('active', 'inactive') [not null, default: 'active']
-  archived boolean [not null, default: 0]
+  status varchar [not null, default: 'active']
+  archived boolean [not null, default: false]
   archived_at timestamp
   notes text
+  created_at timestamp
+}
+
+Table business_entities {
+  id integer [primary key, increment]
+  entity_code varchar(20) [not null, unique]
+  company_name varchar(255) [not null, unique]
+  address text
+  contact_person varchar(255)
+  phone varchar(50)
+  email varchar(255)
+  tin varchar(50)
+  status varchar [not null, default: 'active']
+  is_default boolean [not null, default: false]
   created_at timestamp
 }
 
@@ -26,11 +48,14 @@ Table users {
   password varchar(255) [not null]
   email varchar(100) [not null, unique]
   fullname varchar(100) [not null]
-  role enum('admin', 'staff', 'user') [not null, default: 'user']
+  role varchar [not null, default: 'user']
   reset_token varchar(255)
   reset_token_expiry bigint
+  approval_status varchar [not null, default: 'approved']
+  approved_by integer
+  approved_at timestamp
   created_at timestamp
-  active boolean [not null, default: 1]
+  active boolean [not null, default: false]
   last_login datetime
 }
 
@@ -38,7 +63,7 @@ Table departments {
   id integer [primary key, increment]
   department_name varchar(100) [not null, unique]
   description text
-  is_active boolean [not null, default: 1]
+  is_active boolean [not null, default: true]
   created_at timestamp
 }
 
@@ -47,7 +72,7 @@ Table accounting_periods {
   period_name varchar(100) [not null, unique]
   start_date date [not null]
   end_date date [not null]
-  is_closed boolean [not null, default: 0]
+  is_closed boolean [not null, default: false]
   created_at timestamp
 }
 
@@ -57,40 +82,22 @@ Table payroll_periods {
   start_date date [not null]
   end_date date [not null]
   pay_date date
-  status enum('open', 'processing', 'closed', 'paid') [not null, default: 'open']
-  created_at timestamp
-}
-
-Table products {
-  id integer [primary key, increment]
-  sku varchar(50) [not null, unique]
-  name varchar(255) [not null]
-  category varchar(100)
-  description text
-  unit_price decimal(12,2) [not null]
-  reorder_level integer [default: 10]
-  is_active boolean [default: 1]
-  created_at timestamp
-}
-
-Table warehouses {
-  id integer [primary key, increment]
-  name varchar(100) [not null, unique]
-  location varchar(255)
-  is_active boolean [default: 1]
+  status varchar [not null, default: 'open']
   created_at timestamp
 }
 
 Table vendors {
   id integer [primary key, increment]
   company_id integer
+  business_entity_id integer
+  vendor_no varchar(20) [unique]
   vendor_name varchar(255) [not null]
   contact_person varchar(100)
   email varchar(100)
   phone varchar(20)
   address text
   tin varchar(20)
-  is_active boolean [default: 1]
+  is_active boolean [default: true]
   created_at timestamp
 }
 
@@ -98,15 +105,16 @@ Table chart_of_accounts {
   id integer [primary key, increment]
   account_code varchar(30) [not null, unique]
   account_name varchar(255) [not null]
-  account_type enum('asset', 'liability', 'equity', 'revenue', 'expense') [not null]
+  account_type varchar [not null]
   parent_account_id integer
-  is_active boolean [not null, default: 1]
+  is_active boolean [not null, default: true]
   created_at timestamp
 }
 
 Table projects {
   id integer [primary key, increment]
   project_name varchar(255) [not null]
+  business_entity_id integer
   // Legacy reference to the primary transaction used during backfill/migration.
   // The ERP relationship flows through transactions.project_id instead of a hard project -> transaction FK.
   transaction_id integer
@@ -123,10 +131,10 @@ Table projects {
   paused_at date
   cancelled_at date
   project_manager varchar(100)
-  status enum('planning', 'active', 'on_hold', 'completed', 'cancelled') [default: 'planning']
-  priority enum('low', 'medium', 'high', 'critical') [default: 'medium']
-  is_archived boolean [not null, default: 0]
-  archived_auto boolean [not null, default: 0]
+  status varchar [default: 'planning']
+  priority varchar [default: 'medium']
+  is_archived boolean [not null, default: false]
+  archived_auto boolean [not null, default: false]
   budget decimal(15,2) [not null]
   members varchar(255)
   created_at timestamp
@@ -156,17 +164,19 @@ Table projects {
 Table service_orders {
   id integer [primary key, increment]
   so_number varchar(50) [not null, unique]
-  vendor_id integer [not null]
+  business_entity_id integer
+  vendor_id integer
   company_id integer [not null]
   project_id integer
+  service_type varchar(100) [not null, default: 'installation']
   service_date date [not null]
   service_title varchar(255) [not null]
   description text
   total_amount decimal(15,2) [not null, default: 0]
-  status enum('draft', 'issued', 'accepted', 'in_progress', 'completed', 'cancelled') [default: 'draft']
+  status varchar [default: 'issued']
   notes text
   pdfFilename varchar(255)
-  is_archived boolean [not null, default: 0]
+  is_archived boolean [not null, default: false]
   archived_at timestamp
   created_at timestamp
 }
@@ -174,7 +184,8 @@ Table service_orders {
 Table transactions {
   id integer [primary key, increment]
   docno varchar(20) [not null, unique]
-  type enum('receipt', 'invoice') [not null]
+  type varchar [not null]
+  business_entity_id integer
   company_id integer
   client varchar(255) [not null]
   address text
@@ -182,8 +193,8 @@ Table transactions {
   bizstyle varchar(100)
   phone varchar(20)
   description text
-  archived boolean [default: 0]
-  archived_auto boolean [not null, default: 0]
+  archived boolean [default: false]
+  archived_auto boolean [not null, default: false]
   qty integer [not null, default: 1]
   unitprice decimal(12,2)
   amount decimal(12,2) [not null]
@@ -194,7 +205,7 @@ Table transactions {
   checkno varchar(100)
   pono varchar(100)
   date date [not null]
-  status enum('paid', 'unpaid', 'partial') [not null, default: 'unpaid']
+  status varchar [not null, default: 'unpaid']
   pdfFilename varchar(255)
   project_members varchar(255)
   member_role varchar(50)
@@ -214,43 +225,29 @@ Table transactions {
   }
 }
 
-Table stock {
-  id integer [primary key, increment]
-  product_id integer [not null]
-  warehouse_id integer [not null]
-  quantity integer [not null, default: 0]
-  last_updated timestamp
-
-  Indexes {
-    (product_id, warehouse_id) [unique]
-  }
-}
-
-Table stock_movements {
-  id integer [primary key, increment]
-  product_id integer [not null]
-  warehouse_id integer [not null]
-  movement_type enum('inbound', 'outbound', 'adjustment') [not null]
-  quantity integer [not null]
-  source_type enum('manual', 'purchase_requisition', 'purchase_order', 'goods_receipt', 'transaction') [not null, default: 'manual']
-  reference_doc varchar(100)
-  notes text
-  created_at timestamp
-  transaction_id integer
-}
-
 Table purchase_orders {
   id integer [primary key, increment]
   po_number varchar(50) [not null, unique]
   requisition_id integer
+  quotation_id integer
+  business_entity_id integer
   supplier_po_no varchar(100)
   vendor_id integer [not null]
   company_id integer
   project_id integer
   po_date date [not null]
   delivery_date date
+  payment_terms varchar(100)
+  prepared_by varchar(255)
+  approved_by varchar(255)
+  submitted_by varchar(255)
+  submitted_at timestamp
+  approved_at timestamp
+  cancelled_by varchar(255)
+  cancelled_at timestamp
+  cancel_reason text
   total_amount decimal(12,2) [not null]
-  status enum('draft', 'pending', 'approved', 'received', 'cancelled') [default: 'draft']
+  status varchar [default: 'draft']
   notes text
   created_at timestamp
 }
@@ -258,7 +255,6 @@ Table purchase_orders {
 Table po_line_items {
   id integer [primary key, increment]
   po_id integer [not null]
-  product_id integer
   description text
   quantity integer [not null]
   unit_price decimal(12,2) [not null]
@@ -269,15 +265,17 @@ Table po_line_items {
 
 Table accounts_payable {
   id integer [primary key, increment]
+  business_entity_id integer
   vendor_id integer [not null]
   bill_number varchar(50) [not null, unique]
   invoice_number varchar(50)
   bill_date date [not null]
   due_date date
+  project_id integer
   po_id integer
   total_amount decimal(12,2) [not null]
   paid_amount decimal(12,2) [default: 0]
-  status enum('draft', 'pending', 'approved', 'partially_paid', 'paid', 'cancelled') [default: 'pending']
+  status varchar [default: 'pending']
   notes text
   created_at timestamp
   pdfFilename varchar(255)
@@ -285,34 +283,49 @@ Table accounts_payable {
 
 Table accounts_receivable {
   id integer [primary key, increment]
+  business_entity_id integer
   customer_name varchar(255) [not null]
   invoice_number varchar(50) [not null, unique]
   invoice_date date [not null]
   due_date date
+  payment_terms varchar(50)
   total_amount decimal(12,2) [not null]
   paid_amount decimal(12,2) [default: 0]
-  status enum('draft', 'sent', 'partial', 'paid', 'overdue', 'cancelled') [default: 'draft']
+  status varchar [default: 'draft']
   transaction_id integer [not null, unique]
   project_id integer
   project_docno varchar(20)
-  service_order_no varchar(50)
+  service_order_no varchar(50) // Display copy of service_orders.so_number; hard link flows through transactions.service_order_id.
   notes text
-  archived boolean [not null, default: 0]
+  archived boolean [not null, default: false]
   archived_at timestamp
   created_at timestamp
 }
 
 Table payments {
   id integer [primary key, increment]
-  payment_type enum('ap', 'ar') [not null]
-  ap_id integer
-  ar_id integer
+  payment_type varchar [not null]
+  ap_id integer // AP payments link here; AR payments must leave this null.
+  ar_id integer // AR collections link here; AP payments must leave this null.
   payment_date date [not null]
   amount decimal(12,2) [not null]
-  payment_method enum('cash', 'check', 'bank_transfer', 'credit_card') [default: 'cash']
+  payment_method varchar [default: 'cash']
   reference_number varchar(100)
   notes text
   created_at timestamp
+}
+
+Table documents {
+  id integer [primary key, increment]
+  module_name varchar(50) [not null]
+  record_id integer [not null]
+  document_type varchar(80) [not null, default: 'attachment']
+  original_filename varchar(255) [not null]
+  stored_filename varchar(255) [not null]
+  mime_type varchar(100) [not null, default: 'application/pdf']
+  file_size bigint [not null, default: 0]
+  uploaded_by integer
+  uploaded_at timestamp [not null]
 }
 
 Table journal_entries {
@@ -322,7 +335,7 @@ Table journal_entries {
   reference_type varchar(50)
   reference_id varchar(50)
   memo text
-  status enum('draft', 'posted', 'reversed') [not null, default: 'draft']
+  status varchar [not null, default: 'draft']
   created_by integer
   created_at timestamp
 }
@@ -340,13 +353,23 @@ Table journal_lines {
 Table purchase_requisitions {
   id integer [primary key, increment]
   pr_number varchar(50) [not null, unique]
+  business_entity_id integer
   company_id integer
-  project_id integer
+  project_id integer [not null]
   request_date date [not null]
   department varchar(100)
   requested_by varchar(100)
+  requested_by_email varchar(255)
+  pdfFilename varchar(255)
   needed_by date
-  status enum('draft', 'submitted', 'approved', 'ordered', 'received', 'cancelled') [not null, default: 'draft']
+  status varchar [not null, default: 'draft']
+  submitted_by varchar(255)
+  submitted_at timestamp
+  approved_by varchar(255)
+  approved_at timestamp
+  cancelled_by varchar(255)
+  cancelled_at timestamp
+  cancel_reason text
   notes text
   created_at timestamp
 }
@@ -363,13 +386,34 @@ Table purchase_requisition_items {
   created_at timestamp
 }
 
+Table procurement_quotations {
+  id integer [primary key, increment]
+  quote_number varchar(50) [unique]
+  requisition_id integer [not null]
+  vendor_id integer [not null]
+  quote_date date [not null]
+  quoted_total decimal(15,2) [not null, default: 0]
+  delivery_days integer [not null, default: 0]
+  payment_terms varchar(100)
+  warranty_terms varchar(255)
+  score decimal(5,2) [not null, default: 0]
+  status varchar(50) [not null, default: 'draft']
+  remarks text
+  selected_at timestamp
+  created_at timestamp
+
+  indexes {
+    (requisition_id, vendor_id) [unique]
+  }
+}
+
 Table goods_receipts {
   id integer [primary key, increment]
   grn_number varchar(50) [not null, unique]
   po_id integer [not null]
   received_date date [not null]
   received_by varchar(100)
-  status enum('draft', 'received', 'rejected') [not null, default: 'draft']
+  status varchar [not null, default: 'draft']
   notes text
   created_at timestamp
 }
@@ -393,7 +437,7 @@ Table tasks {
   duration integer
   progress integer [default: 0]
   assigned_to varchar(100)
-  status enum('not_started', 'in_progress', 'on_hold', 'completed', 'cancelled') [default: 'not_started']
+  status varchar [default: 'not_started']
   plan_cost decimal(12,2) [default: 0]
   actual_cost decimal(12,2) [default: 0]
   dependencies integer
@@ -418,7 +462,7 @@ Table project_resources {
   project_id integer [not null]
   task_id integer
   resource_name varchar(100) [not null]
-  resource_type enum('labor', 'material', 'equipment', 'other') [default: 'labor']
+  resource_type varchar [default: 'labor']
   quantity decimal(10,2)
   unit_cost decimal(12,2)
   allocation integer [default: 100]
@@ -431,13 +475,13 @@ Table employees {
   full_name varchar(255) [not null]
   department_id integer
   job_title varchar(150)
-  employment_type enum('regular', 'contract', 'probationary', 'part_time') [not null, default: 'regular']
-  pay_frequency enum('monthly', 'semi_monthly', 'biweekly', 'weekly') [not null, default: 'monthly']
+  employment_type varchar [not null, default: 'regular']
+  pay_frequency varchar [not null, default: 'monthly']
   salary_rate decimal(12,2) [not null, default: 0]
   email varchar(100)
   phone varchar(30)
   hire_date date
-  status enum('active', 'on_leave', 'inactive') [not null, default: 'active']
+  status varchar [not null, default: 'active']
   created_at timestamp
 }
 
@@ -448,7 +492,7 @@ Table payroll_runs {
   gross_pay decimal(12,2) [not null, default: 0]
   deductions decimal(12,2) [not null, default: 0]
   net_pay decimal(12,2) [not null, default: 0]
-  status enum('draft', 'approved', 'paid') [not null, default: 'draft']
+  status varchar [not null, default: 'draft']
   notes text
   created_at timestamp
 }
@@ -471,40 +515,87 @@ Table system_logs {
   ip_address varchar(50)
 }
 
-Ref: vendors.company_id > company_registry.id
-Ref: projects.company_id > company_registry.id
-Ref: service_orders.vendor_id > vendors.id
-Ref: service_orders.company_id > company_registry.id
+TableGroup company_registry_flow {
+  company_registry
+  projects
+  service_orders
+  transactions
+  accounts_receivable
+  payments
+}
+
+TableGroup accounts_payable_flow {
+  company_registry
+  vendors
+  purchase_requisitions
+  purchase_requisition_items
+  purchase_orders
+  po_line_items
+  goods_receipts
+  goods_receipt_items
+  projects
+  accounts_payable
+  payments
+}
+
+TableGroup accounts_receivable_flow {
+  company_registry
+  projects
+  service_orders
+  transactions
+  accounts_receivable
+  payments
+}
+
+// Company Registry relationships
+Ref: company_registry.business_entity_id > business_entities.id // Own operating company scope for the external company record.
+Ref: projects.business_entity_id > business_entities.id // Own operating company managing the project.
+Ref: service_orders.business_entity_id > business_entities.id // Own operating company issuing the service order.
+Ref: transactions.business_entity_id > business_entities.id // Own operating company issuing the invoice/receipt.
+Ref: purchase_requisitions.business_entity_id > business_entities.id // Own operating company requesting the purchase.
+Ref: purchase_orders.business_entity_id > business_entities.id // Own operating company buying from the vendor.
+Ref: accounts_payable.business_entity_id > business_entities.id // Own operating company responsible for the bill.
+Ref: accounts_receivable.business_entity_id > business_entities.id // Own operating company that owns the receivable.
+Ref: vendors.company_id > company_registry.id // Company can also be a vendor/supplier profile.
+Ref: vendors.business_entity_id > business_entities.id // Own operating company can also be a vendor/supplier profile.
+Ref: projects.company_id > company_registry.id // Customer/company owns project records.
+Ref: service_orders.company_id > company_registry.id // Service orders are issued for a registered company.
+Ref: transactions.company_id > company_registry.id // Invoices/receipts keep the customer company link.
+
+// AR relationships: Company -> Project -> Service Order -> Transaction -> Receivable -> Collection
 Ref: service_orders.project_id > projects.id
-Ref: transactions.company_id > company_registry.id
 Ref: transactions.project_id > projects.id
 Ref: transactions.service_order_id > service_orders.id
 Ref: accounts_receivable.project_id > projects.id
-Ref: stock.product_id > products.id
-Ref: stock.warehouse_id > warehouses.id
-Ref: stock_movements.product_id > products.id
-Ref: stock_movements.warehouse_id > warehouses.id
-Ref: stock_movements.transaction_id > transactions.id
+Ref: accounts_receivable.transaction_id > transactions.id
+Ref: payments.ar_id > accounts_receivable.id
+Ref: documents.uploaded_by > users.id
+
+// AP relationships: Company/Vendor -> Requisition -> PO -> Goods Receipt -> Bill -> Payment
+Ref: service_orders.vendor_id > vendors.id
 Ref: purchase_orders.vendor_id > vendors.id
 Ref: purchase_orders.company_id > company_registry.id
 Ref: purchase_orders.project_id > projects.id
 Ref: purchase_orders.requisition_id > purchase_requisitions.id
+Ref: purchase_orders.quotation_id > procurement_quotations.id
 Ref: po_line_items.po_id > purchase_orders.id
-Ref: po_line_items.product_id > products.id
 Ref: accounts_payable.vendor_id > vendors.id
 Ref: accounts_payable.po_id > purchase_orders.id
-Ref: accounts_receivable.transaction_id > transactions.id
+Ref: accounts_payable.project_id > projects.id
 Ref: payments.ap_id > accounts_payable.id
-Ref: payments.ar_id > accounts_receivable.id
 Ref: journal_entries.created_by > users.id
+Ref: users.approved_by > users.id
 Ref: journal_lines.journal_entry_id > journal_entries.id
 Ref: journal_lines.account_id > chart_of_accounts.id
 Ref: purchase_requisition_items.pr_id > purchase_requisitions.id
+Ref: procurement_quotations.requisition_id > purchase_requisitions.id
+Ref: procurement_quotations.vendor_id > vendors.id
 Ref: purchase_requisitions.company_id > company_registry.id
 Ref: purchase_requisitions.project_id > projects.id
 Ref: goods_receipts.po_id > purchase_orders.id
 Ref: goods_receipt_items.receipt_id > goods_receipts.id
 Ref: goods_receipt_items.po_line_item_id > po_line_items.id
+
 Ref: chart_of_accounts.parent_account_id > chart_of_accounts.id
 Ref: employees.department_id > departments.id
 Ref: payroll_runs.period_id > payroll_periods.id

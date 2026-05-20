@@ -2,8 +2,167 @@
 
 'use strict';
 
+window.__ERP_BUSINESS_ENTITY_CONTEXT_KEY__ = window.__ERP_BUSINESS_ENTITY_CONTEXT_KEY__ || 'kinaadman_businessEntityContext';
+window.__ERP_BUSINESS_ENTITY_THEME_KEY__ = window.__ERP_BUSINESS_ENTITY_THEME_KEY__ || 'kinaadman_businessEntityTheme';
+var erpCoreBusinessEntitiesDb = [];
+
+function normalizeAccessRole(role) {
+  var safeRole = String(role || 'user').trim().toLowerCase();
+  return ['super_admin', 'admin', 'staff', 'user'].includes(safeRole) ? safeRole : 'user';
+}
+
+function isAdminRoleValue(role) {
+  return ['super_admin', 'admin'].includes(normalizeAccessRole(role));
+}
+
+function isPrivilegedRoleValue(role) {
+  return ['super_admin', 'admin', 'staff'].includes(normalizeAccessRole(role));
+}
+
+function erpGetExplicitBusinessEntityTheme() {
+  var htmlTheme = document.documentElement && document.documentElement.dataset
+    ? String(document.documentElement.dataset.businessEntityTheme || '').trim()
+    : '';
+  var bodyTheme = document.body && document.body.dataset
+    ? String(document.body.dataset.businessEntityTheme || '').trim()
+    : '';
+  return htmlTheme || bodyTheme;
+}
+
+function erpGetBusinessEntityBrandProfile(row) {
+  var name = String(row && row.company_name ? row.company_name : '').trim();
+  var isKitsi = /kitsi|ktiis|kinaadman/i.test(name) || String(row && row.theme ? row.theme : '').toLowerCase() === 'kitsi';
+  if (isKitsi) {
+    return {
+      theme: 'kitsi',
+      logo: '/assets/img/kitsi-logo.png',
+      alt: 'KITSI logo',
+      primary: '#0898c7',
+      primaryLight: '#22c7e8',
+      primaryDark: '#005b96',
+      accent: '#07a6d6',
+      accent2: '#005b96'
+    };
+  }
+  return {
+    theme: 'kvsk',
+    logo: '/assets/img/kvsk-logo-switch.png',
+    alt: 'KVSK logo',
+    primary: '#b42318',
+    primaryLight: '#ef5b4f',
+    primaryDark: '#4b1210',
+    accent: '#d92d20',
+    accent2: '#201313'
+  };
+}
+
+function erpApplyBusinessEntityBrand(row) {
+  var profile = erpGetBusinessEntityBrandProfile(row);
+  document.documentElement.dataset.businessEntityTheme = profile.theme;
+  document.documentElement.dataset.businessEntityThemeReady = '1';
+  document.body.dataset.businessEntityTheme = profile.theme;
+  document.body.dataset.businessEntityThemeReady = '1';
+  document.documentElement.style.setProperty('--primary', profile.primary);
+  document.documentElement.style.setProperty('--primary-light', profile.primaryLight);
+  document.documentElement.style.setProperty('--primary-dark', profile.primaryDark);
+  document.documentElement.style.setProperty('--accent', profile.accent);
+  document.documentElement.style.setProperty('--accent2', profile.accent2);
+
+  document.querySelectorAll('.brand-mark, .sidebar-brand-mark, .user-modal-brand-mark').forEach(function (img) {
+    img.src = profile.logo;
+    img.alt = profile.alt;
+  });
+
+  if (row && row.company_name) {
+    document.querySelectorAll('header .brand-copy .header-logo').forEach(function (node) {
+      node.textContent = row.company_name;
+    });
+  }
+  if (document.documentElement && document.documentElement.dataset) {
+    document.documentElement.dataset.businessEntityBrandTextReady = '1';
+  }
+
+  try {
+    localStorage.setItem(window.__ERP_BUSINESS_ENTITY_THEME_KEY__, JSON.stringify({
+      company_name: row && row.company_name ? row.company_name : '',
+      theme: profile.theme,
+      logo: profile.logo,
+      alt: profile.alt,
+      primary: profile.primary,
+      primaryLight: profile.primaryLight,
+      primaryDark: profile.primaryDark,
+      accent: profile.accent,
+      accent2: profile.accent2
+    }));
+  } catch (_) {}
+}
+
+function erpApplyStoredBusinessEntityBrand() {
+  var explicitTheme = erpGetExplicitBusinessEntityTheme();
+  if (explicitTheme) {
+    erpApplyBusinessEntityBrand({ theme: explicitTheme, company_name: explicitTheme === 'kitsi' ? 'KITSI' : 'KVSK' });
+    return;
+  }
+  try {
+    var raw = localStorage.getItem(window.__ERP_BUSINESS_ENTITY_THEME_KEY__);
+    var stored = raw ? JSON.parse(raw) : null;
+    if (stored && stored.theme) {
+      erpApplyBusinessEntityBrand(stored);
+      return;
+    }
+  } catch (_) {}
+  erpApplyBusinessEntityBrand({ company_name: 'KVSK' });
+}
+
+function erpGetDefaultBusinessEntityId() {
+  var defaultRow = erpCoreBusinessEntitiesDb.find(function (row) {
+    return Number(row && row.is_default ? row.is_default : 0) === 1;
+  }) || erpCoreBusinessEntitiesDb[0] || null;
+  return defaultRow ? String(defaultRow.id || '') : '';
+}
+
+function erpGetCurrentBusinessEntityId() {
+  var stored = String(localStorage.getItem(window.__ERP_BUSINESS_ENTITY_CONTEXT_KEY__) || '').trim();
+  if (stored && erpCoreBusinessEntitiesDb.some(function (row) { return String(row.id || '') === stored; })) {
+    return stored;
+  }
+  var fallback = erpGetDefaultBusinessEntityId();
+  if (fallback) {
+    localStorage.setItem(window.__ERP_BUSINESS_ENTITY_CONTEXT_KEY__, fallback);
+  }
+  return fallback;
+}
+
+function erpLoadBusinessEntitiesForTheme() {
+  fetch('/api/business-entities', { cache: 'no-store' })
+    .then(function (r) {
+      return r.json().catch(function () { return []; }).then(function (data) {
+        if (!r.ok) throw new Error(data.error || 'Unable to load operating companies.');
+        return data;
+      });
+    })
+    .then(function (rows) {
+      erpCoreBusinessEntitiesDb = Array.isArray(rows) ? rows : [];
+      var explicitTheme = erpGetExplicitBusinessEntityTheme();
+      if (explicitTheme) {
+        erpApplyBusinessEntityBrand({ theme: explicitTheme, company_name: explicitTheme === 'kitsi' ? 'KITSI' : 'KVSK' });
+        return;
+      }
+      var current = erpGetCurrentBusinessEntityId();
+      var activeEntity = erpCoreBusinessEntitiesDb.find(function (row) {
+        return String(row.id || '') === String(current || '');
+      }) || erpCoreBusinessEntitiesDb[0] || null;
+      erpApplyBusinessEntityBrand(activeEntity || { company_name: 'KVSK' });
+    })
+    .catch(function (err) {
+      console.error('Business entity theme load error:', err);
+    });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  erpApplyStoredBusinessEntityBrand();
   loadNotificationReadState();
+  const isAdminDashboardPage = document.body?.classList.contains('admin-page') || !!document.getElementById('dashboard');
   const initialParams = new URLSearchParams(window.location.search);
   pendingTransactionProjectId = Number(initialParams.get('project_id') || 0) || null;
   pendingTransactionLaunch = String(initialParams.get('action') || '').toLowerCase() === 'transaction' && !!pendingTransactionProjectId;
@@ -15,28 +174,36 @@ document.addEventListener('DOMContentLoaded', () => {
       window.__CSRF_TOKEN__ = user.csrfToken;
     }
     updateRoleBadge(user.role);
+    if (activeTab === 'users' || document.body?.classList.contains('user-management-page')) {
+      renderUsers();
+    }
     
-    if (user.role === 'admin') {
+    if (isAdminRoleValue(user.role)) {
       const utab = document.getElementById('tab-users');
       if (utab) utab.style.display = 'block';
 
       const menuUsers = document.getElementById('menu-users');
       if (menuUsers) menuUsers.style.display = 'block';
+
+      const menuBusinessEntities = document.getElementById('menu-business-entities');
+      if (menuBusinessEntities) menuBusinessEntities.style.display = 'block';
       
       const menuLogs = document.getElementById('menu-logs');
       if (menuLogs) menuLogs.style.display = 'block';
     }
 
-    const storedTab = localStorage.getItem('kinaadman_activeTab');
-    const archivedMenu = document.getElementById('menu-archived');
-    const allowedTabs = user.role === 'admin' ? ['all', 'archived', 'users'] : ['all'];
+    if (isAdminDashboardPage) {
+      const storedTab = localStorage.getItem('kinaadman_activeTab');
+      const archivedMenu = document.getElementById('menu-archived');
+      const allowedTabs = isAdminRoleValue(user.role) ? ['all', 'archived', 'users'] : ['all'];
 
-    if (archivedMenu) archivedMenu.style.display = user.role === 'admin' ? '' : 'none';
-    activeTab = allowedTabs.includes(storedTab) ? storedTab : 'all';
-    localStorage.setItem('kinaadman_activeTab', activeTab);
-    updateSidebarMenuState('dashboard');
+      if (archivedMenu) archivedMenu.style.display = isAdminRoleValue(user.role) ? '' : 'none';
+      activeTab = allowedTabs.includes(storedTab) ? storedTab : 'all';
+      localStorage.setItem('kinaadman_activeTab', activeTab);
+      updateSidebarMenuState('dashboard');
+    }
 
-    if (document.querySelector('.stats')) {
+    if (isAdminDashboardPage && document.querySelector('.stats')) {
       loadRecords();
       applyInitialAdminView(user);
     }
@@ -70,6 +237,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupSidebarLinkNavigation();
   syncSidebarGroupStates();
   syncSidebarActiveLinks();
+  erpLoadBusinessEntitiesForTheme();
 
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
@@ -95,7 +263,7 @@ function applyInitialAdminView(user) {
   const requestedTab = params.get('tab');
   const rememberedPanel = localStorage.getItem('kinaadman_dashboardPanel');
   const allowedPanels = ['home', 'project-records', 'total-projects', 'ongoing-projects', 'system-logs'];
-  const allowedTabs = user?.role === 'admin' ? ['all', 'archived', 'users'] : ['all'];
+  const allowedTabs = isAdminRoleValue(user?.role) ? ['all', 'archived', 'users'] : ['all'];
   const menuByTab = {
     all: document.getElementById('menu-all'),
     archived: document.getElementById('menu-archived'),
@@ -115,25 +283,30 @@ function applyInitialAdminView(user) {
     return;
   }
 
+  if (requestedPanel === 'service-orders' || requestedView === 'service-orders') {
+    window.location.replace('/accounts-receivable?tab=service-orders');
+    return;
+  }
+
   if (requestedView === 'all') {
     const menuAll = document.getElementById('menu-all');
     switchTab('all', menuAll);
     return;
   }
 
-  if (requestedView === 'archived' && user?.role === 'admin') {
+  if (requestedView === 'archived' && isAdminRoleValue(user?.role)) {
     const menuArchived = document.getElementById('menu-archived');
     switchTab('archived', menuArchived);
     return;
   }
 
-  if (requestedView === 'users' && user?.role === 'admin') {
+  if (requestedView === 'users' && isAdminRoleValue(user?.role)) {
     const menuUsers = document.getElementById('menu-users');
     switchTab('users', menuUsers);
     return;
   }
 
-  if (requestedView === 'logs' && user?.role === 'admin') {
+  if (requestedView === 'logs' && isAdminRoleValue(user?.role)) {
     openLogsPanel();
     return;
   }
@@ -145,7 +318,7 @@ function applyInitialAdminView(user) {
 
   if (!requestedView && requestedPanel && allowedPanels.includes(requestedPanel)) {
     if (requestedPanel === 'system-logs') {
-      if (user?.role === 'admin') {
+      if (isAdminRoleValue(user?.role)) {
         openLogsPanel();
       } else {
         openDashboardPanel('home');
@@ -160,9 +333,9 @@ function applyInitialAdminView(user) {
 
     if (requestedPanel === 'total-projects') {
       const preferredTab = allowedTabs.includes(requestedTab) ? requestedTab : activeTab;
-      const restoredTab = user?.role === 'admin' && preferredTab === 'archived'
+      const restoredTab = isAdminRoleValue(user?.role) && preferredTab === 'archived'
         ? 'archived'
-        : (preferredTab === 'users' && user?.role === 'admin' ? 'users' : 'all');
+        : (preferredTab === 'users' && isAdminRoleValue(user?.role) ? 'users' : 'all');
       switchTab(restoredTab, menuByTab[restoredTab] || null);
       return;
     }
@@ -262,8 +435,9 @@ function updateRoleBadge(role) {
   const badge = document.getElementById('role-badge');
   if (!badge) return;
 
-  const safeRole = String(role || 'user').toLowerCase();
+  const safeRole = normalizeAccessRole(role);
   const labelMap = {
+    super_admin: 'Super Admin',
     admin: 'Administrator',
     staff: 'Staff',
     user: 'User'
@@ -274,6 +448,11 @@ function updateRoleBadge(role) {
 }
 
 function openDashboardPanel(panel = 'home', opts = {}) {
+  if (['project-records', 'ongoing-projects'].includes(panel)) {
+    currentDashboardCompany = 'all';
+    localStorage.setItem('kinaadman_dashboardCompany', 'all');
+    syncDashboardCompanyFilterOptions();
+  }
   currentDashboardPanel = panel;
   localStorage.setItem('kinaadman_dashboardPanel', panel);
   if (opts.syncUrl !== false) {
@@ -284,7 +463,6 @@ function openDashboardPanel(panel = 'home', opts = {}) {
     home: document.getElementById('dashboard-home-section'),
     reports: document.getElementById('reports-section'),
     'project-records': document.getElementById('project-records-section'),
-    'service-orders': document.getElementById('service-orders-section'),
     'total-projects': document.getElementById('total-projects-section'),
     'ongoing-projects': document.getElementById('ongoing-projects-section'),
     'system-logs': document.getElementById('system-logs-section')
@@ -306,8 +484,6 @@ function openDashboardPanel(panel = 'home', opts = {}) {
     updateSidebarMenuState('reports');
   } else if (panel === 'project-records') {
     updateSidebarMenuState('projects');
-  } else if (panel === 'service-orders') {
-    updateSidebarMenuState('service-orders');
   } else if (panel === 'total-projects') {
     updateSidebarMenuState('all');
   } else if (panel === 'ongoing-projects') {
@@ -926,7 +1102,7 @@ function renderProjectMasterTable() {
     const endText = formatDateYmd(project.end_date || project.planned_end_date || getProjectEffectiveEndDate(project));
     const companyName = String(getProjectCompanyName(project) || '-').trim() || '-';
     const checkNo = String(project.checkno || project.source_checkno || '-').trim() || '-';
-    const poNo = String(project.pono || project.source_pono || '-').trim() || '-';
+    const customerPoRef = String(project.pono || project.source_pono || '-').trim() || '-';
     const projectDocNo = String(project.project_docno || project.source_docno || '-').trim() || '-';
     const arInvoiceNo = String(getProjectArInvoiceNo(project) || '-').trim() || '-';
     const apBillNo = String(getProjectApBillNo(project) || '-').trim() || '-';
@@ -949,7 +1125,7 @@ function renderProjectMasterTable() {
         <td style="padding: 15px 20px; font-size: 0.84rem;">${highlight(arInvoiceNo, rawQuery)}</td>
         <td style="padding: 15px 20px; font-size: 0.84rem;">${highlight(apBillNo, rawQuery)}</td>
         <td style="padding: 15px 20px; font-size: 0.84rem;">${highlight(checkNo, rawQuery)}</td>
-        <td style="padding: 15px 20px; font-size: 0.84rem;">${highlight(poNo, rawQuery)}</td>
+        <td style="padding: 15px 20px; font-size: 0.84rem;">${highlight(customerPoRef, rawQuery)}</td>
         <td style="padding: 15px 20px; font-size: 0.8rem; line-height: 1.35; max-width: 240px; white-space: normal;">${highlight(description, rawQuery)}</td>
         <td style="padding: 15px 20px; font-size: 0.76rem; line-height: 1.35; max-width: 300px; white-space: normal;">${memberHtml}</td>
         <td class="text-right" style="padding: 15px 20px; font-size: 0.84rem;">${highlight(unitCostText, rawQuery)}</td>
@@ -964,7 +1140,8 @@ function renderProjectMasterTable() {
         <td class="text-center" style="padding: 15px 20px;">
           <div class="project-master-actions">
             <button class="btn btn-sm btn-edit" type="button" onclick="openProjectModal(${Number(project.id)})">Edit</button>
-            <button class="btn btn-sm btn-add" type="button" onclick="openProjectPurchaseOrder(${Number(project.id)})">Add Purchase Order</button>
+            <button class="btn btn-sm btn-add" type="button" onclick="openProjectRequisition(${Number(project.id)})">Add PR</button>
+            <button class="btn btn-sm btn-add" type="button" onclick="openProjectPurchaseOrder(${Number(project.id)})">Add PO</button>
             ${project.pdfFilename
               ? `<button class="btn btn-sm btn-pdf" type="button" onclick="openProjectPdfViewer(${Number(project.id)})">View PDF</button>`
               : `<span class="pdf-empty">N/A</span>`}
@@ -1021,8 +1198,8 @@ function renderProjectRecordsTable() {
         <td class="text-center" style="padding: 15px 20px;">
           <div class="project-master-actions">
             <button class="btn btn-sm btn-edit" type="button" onclick="openProjectModal(${Number(project.id)})">Edit</button>
-            <button class="btn btn-sm btn-add" type="button" onclick="openProjectTransaction(${Number(project.id)})">Add Transaction</button>
-            <button class="btn btn-sm btn-add" type="button" onclick="openProjectPurchaseOrder(${Number(project.id)})">Add Purchase Order</button>
+            <button class="btn btn-sm btn-add" type="button" onclick="openProjectRequisition(${Number(project.id)})">Add PR</button>
+            <button class="btn btn-sm btn-add" type="button" onclick="openProjectPurchaseOrder(${Number(project.id)})">Add PO</button>
             ${isArchived
               ? `<button class="btn btn-sm btn-restore" type="button" onclick="toggleProjectArchive(${Number(project.id)}, false)" title="Restore Project">Restore</button>`
               : `<button class="btn btn-sm btn-archive" type="button" onclick="toggleProjectArchive(${Number(project.id)}, true)" title="Archive Project">Archive</button>`}
@@ -1835,6 +2012,7 @@ let usersDb = [];
 let editingUserId = null;
 let userModalMode = 'create';
 let userModalSnapshot = null;
+let userManagementView = 'approvals';
 let isSavingRecord = false;
 let projectsDashboardDb = [];
 let allTransactionsDb = [];
@@ -1905,16 +2083,20 @@ if (!window.__CSRF_FETCH_PATCHED__) {
 }
 
 function openModalRouter() {
-  if (activeTab === 'users') openUserModal();
+  if (activeTab === 'users') return;
   else openModal();
 }
 
 function isAdminUser() {
-  return currentUser && currentUser.role === 'admin';
+  return currentUser && isAdminRoleValue(currentUser.role);
+}
+
+function isSuperAdminUser() {
+  return currentUser && normalizeAccessRole(currentUser.role) === 'super_admin';
 }
 
 function isStaffUser() {
-  return currentUser && currentUser.role === 'staff';
+  return currentUser && normalizeAccessRole(currentUser.role) === 'staff';
 }
 
 function getNotificationReadStorageKey() {
@@ -1986,6 +2168,13 @@ function openNotificationItem(notificationId) {
   loadNotifications();
   closeNotificationsPanel();
 
+  if (String(item.type || '') === 'audit') {
+    if (typeof openDashboardPanel === 'function') {
+      openDashboardPanel('system-logs');
+    }
+    return;
+  }
+
   const targetSearch = String(item.source_docno || item.title || '').trim();
   if (document.getElementById('total-projects-section')) {
     openProjectInTotalProjects(targetSearch);
@@ -2002,7 +2191,7 @@ function openNotificationItem(notificationId) {
 
 function loadRecords() {
   const requestSeq = ++recordsLoadSeq;
-  fetch('/api/transactions')
+  return fetch('/api/transactions')
     .then(res => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
@@ -2012,8 +2201,8 @@ function loadRecords() {
       db = data;
       allTransactionsDb = Array.isArray(data) ? data : [];
       updateStats();
-      loadProjectsDashboardData();
       renderTable();
+      return loadProjectsDashboardData();
     })
     .catch(err => {
       console.error('Load error:', err);
@@ -2023,12 +2212,13 @@ function loadRecords() {
       if (tbody) {
         tbody.innerHTML = `<tr class="empty-row"><td colspan="${colCount}">Hindi ma-load ang records.</td></tr>`;
       }
+      return loadProjectsDashboardData();
     });
 }
 
 function loadArchivedRecords() {
   const requestSeq = ++recordsLoadSeq;
-  fetch('/api/transactions/archived')
+  return fetch('/api/transactions/archived')
     .then(res => res.json())
     .then(data => {
       if (requestSeq !== recordsLoadSeq) return;
@@ -2038,8 +2228,8 @@ function loadArchivedRecords() {
         archived_auto: 0
       }));
       updateStats();
-      loadProjectsDashboardData();
       renderTable();
+      return loadProjectsDashboardData();
     })
     .catch(err => {
       console.error('Load archived error:', err);
@@ -2049,22 +2239,27 @@ function loadArchivedRecords() {
       if (tbody) {
         tbody.innerHTML = `<tr class="empty-row"><td colspan="${colCount}">Hindi ma-load ang archived records.</td></tr>`;
       }
+      return loadProjectsDashboardData();
     });
 }
 
 function loadUsers() {
-  return fetch('/api/admin/users')
+  return fetch('/api/admin/users', { cache: 'no-store' })
     .then(res => res.json())
     .then(data => {
       usersDb = Array.isArray(data) ? data : [];
-      renderTable();
+      if (typeof renderUsers === 'function') {
+        renderUsers();
+      } else {
+        renderTable();
+      }
       return usersDb;
     })
     .catch(err => {
       console.error('Load Users Error:', err);
       const tbody = document.getElementById('table-body');
       if (tbody) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center">Failed to load users.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center">Failed to load users.</td></tr>';
       }
       throw err;
     });
@@ -2104,7 +2299,7 @@ function switchTab(tab, btn) {
   }
   if (searchInput) {
     searchInput.placeholder = tab === 'users'
-      ? 'Search users by name, username, email, or role...'
+      ? 'Search users by name, email, or role...'
       : 'Search client, document number, or items here...';
   }
 
@@ -2121,14 +2316,14 @@ function switchTab(tab, btn) {
   if (tab === 'users') {
     openDashboardPanel('home');
     if (pageTitle) pageTitle.textContent = 'User Management';
-    if (pageSub) pageSub.textContent = '';
+    if (pageSub) pageSub.textContent = 'Approve registered accounts and manage existing users.';
     if (mainCont) mainCont.style.maxWidth = '100%';
 
     if (addBtn) {
-      addBtn.textContent = 'Add User';
-      addBtn.onclick = openUserModal;
-      addBtn.style.display = '';
+      addBtn.style.display = 'none';
+      addBtn.onclick = null;
     }
+    if (typeof setUserManagementView === 'function') setUserManagementView('approvals');
     loadUsers();
     renderUsers();
   } else if (tab === 'project-records') {
@@ -2233,23 +2428,11 @@ function updateProjectStatsModal() {
 
   const totalEl = document.getElementById('proj-stats-total');
   const ongoingEl = document.getElementById('proj-stats-ongoing');
-  const txEl = document.getElementById('proj-stats-transactions');
-  const poEl = document.getElementById('proj-stats-po');
-  const soEl = document.getElementById('proj-stats-so');
 
   const ongoing = projects.filter((p) => getProjectPhase(p) === 'ongoing').length;
-  const txCount = (Array.isArray(allTransactionsDb) ? allTransactionsDb : [])
-    .filter((t) => Number(t.project_id || 0) > 0 && Number(t.archived || 0) === 0).length;
-  const poCount = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
-    .reduce((count, p) => count + (Number(p.purchase_order_count || 0) > 0 ? Number(p.purchase_order_count || 0) : 0), 0);
-  const soCount = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
-    .reduce((count, p) => count + (Number(p.service_order_count || 0) > 0 ? Number(p.service_order_count || 0) : 0), 0);
 
   if (totalEl) totalEl.textContent = String(projects.length);
   if (ongoingEl) ongoingEl.textContent = String(ongoing);
-  if (txEl) txEl.textContent = String(txCount);
-  if (poEl) poEl.textContent = String(poCount);
-  if (soEl) soEl.textContent = String(soCount);
 }
 
 function openAllTransactionsFromDashboard() {
@@ -2257,7 +2440,7 @@ function openAllTransactionsFromDashboard() {
 }
 
 function openReportsPanel() {
-  openDashboardPanel('reports');
+  window.location.href = '/reports';
   setSidebarOpen(false);
 }
 
@@ -2266,13 +2449,8 @@ function openProjectsDashboard() {
   setSidebarOpen(false);
 }
 
-function openProjectPurchaseOrdersDashboard() {
-  window.location.href = '/procurement';
-}
-
 function openServiceOrdersDashboard() {
-  openDashboardPanel('service-orders');
-  setSidebarOpen(false);
+  window.location.href = '/accounts-receivable?tab=service-orders';
 }
 
 function goBackSmart(fallback = '/admin?view=dashboard', forceFallback = false) {
@@ -2300,7 +2478,6 @@ function formatBackButtonLabel(target = '') {
 
   if (path === '/admin' && (!view || view === 'dashboard')) return 'Back to Dashboard';
   if (path === '/admin' && panel === 'project-records') return 'Back to Project Operations';
-  if (path === '/admin' && panel === 'service-orders') return 'Back to Service Orders';
   if (path === '/admin' && view === 'ongoing-projects') return 'Back to Ongoing Projects';
   if (path === '/admin' && view === 'archived') return 'Back to Archived Projects';
   if (path === '/admin' && view === 'all') return 'Back to Project Transactions';
@@ -2310,9 +2487,7 @@ function formatBackButtonLabel(target = '') {
     '/accounts-receivable': 'Back to Accounts Receivable',
     '/company': 'Back to Company Registry',
     '/gantt-chart': 'Back to Gantt Chart',
-    '/inventory': 'Back to Inventory',
     '/login': 'Back to Login',
-    '/procurement': 'Back to Procurement',
     '/reports': 'Back to Reports',
     '/reset-password': 'Back to Login',
     '/user-management': 'Back to User Management',
@@ -2479,7 +2654,7 @@ function openProjectModal(projectId = null) {
       saveBtn.disabled = false;
     }
     if (!project) {
-      fetch('/api/projects/next-docno')
+      fetch(`/api/projects/next-docno?business_entity_id=${encodeURIComponent(erpGetCurrentBusinessEntityId() || '')}`)
         .then(res => res.json().catch(() => ({})).then(data => ({ ok: res.ok, data })))
         .then(({ ok, data }) => {
           if (!ok || editingProjectId) return;
@@ -2832,10 +3007,173 @@ function formatMemberCell(entries, key, q) {
   return lines.join('<br>');
 }
 
+function getUserApprovalStatus(user) {
+  const status = String(user?.approval_status || '').trim().toLowerCase();
+  if (status === 'pending' || status === 'rejected') return status;
+  return Number(user?.active || 0) === 1 ? 'active' : 'inactive';
+}
+
+function getUserManagementView() {
+  return userManagementView === 'users' ? 'users' : 'approvals';
+}
+
+function getUserManagementCounts() {
+  const rows = Array.isArray(usersDb) ? usersDb : [];
+  return rows.reduce((counts, user) => {
+    if (getUserApprovalStatus(user) === 'pending') {
+      counts.approvals += 1;
+    } else {
+      counts.users += 1;
+    }
+    return counts;
+  }, { approvals: 0, users: 0 });
+}
+
+function updateUserManagementViewControls() {
+  const view = getUserManagementView();
+  const approvalsTab = document.getElementById('user-management-tab-approvals');
+  const usersTab = document.getElementById('user-management-tab-users');
+  const statusFilter = document.getElementById('user-status-filter');
+  const approvalCount = document.getElementById('user-approval-count');
+  const userCount = document.getElementById('user-list-count');
+  const counts = getUserManagementCounts();
+
+  if (approvalsTab) {
+    approvalsTab.classList.toggle('active', view === 'approvals');
+    approvalsTab.setAttribute('aria-selected', String(view === 'approvals'));
+  }
+  if (usersTab) {
+    usersTab.classList.toggle('active', view === 'users');
+    usersTab.setAttribute('aria-selected', String(view === 'users'));
+  }
+  if (statusFilter) {
+    statusFilter.style.display = view === 'approvals' ? 'none' : '';
+    statusFilter.disabled = view === 'approvals';
+  }
+  if (approvalCount) approvalCount.textContent = String(counts.approvals);
+  if (userCount) userCount.textContent = String(counts.users);
+}
+
+function setUserManagementView(view) {
+  userManagementView = view === 'users' ? 'users' : 'approvals';
+  updateUserManagementViewControls();
+  renderUsers();
+}
+
+function getSafeUserRole(user) {
+  return normalizeAccessRole(user?.role || 'user');
+}
+
+function getUserRoleBadgeHtml(user, q) {
+  const role = getSafeUserRole(user);
+  const roleColor = role === 'super_admin'
+    ? { bg: '#e0f2fe', fg: '#075985' }
+    : (role === 'admin'
+      ? { bg: '#fee2e2', fg: '#991b1b' }
+      : (role === 'staff' ? { bg: '#fef3c7', fg: '#92400e' } : { bg: '#eef2ff', fg: '#3355cc' }));
+  return `<span class="admin-badge" data-role="${role}" style="background:${roleColor.bg}; color:${roleColor.fg}">${highlight(role.replace('_', ' '), q)}</span>`;
+}
+
+function getUserStatusMeta(user) {
+  const approvalStatus = getUserApprovalStatus(user);
+  if (approvalStatus === 'pending') {
+    return { label: 'Pending', className: 'status-upcoming' };
+  }
+  if (approvalStatus === 'rejected') {
+    return { label: 'Rejected', className: 'status-cancelled' };
+  }
+  return Number(user?.active || 0) === 1
+    ? { label: 'Active', className: 'status-active' }
+    : { label: 'Inactive', className: 'status-inactive' };
+}
+
+function formatUserDateParts(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return {
+    date: date.toLocaleDateString('en-PH', {
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit'
+    }),
+    time: date.toLocaleTimeString('en-PH', {
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  };
+}
+
+function renderUserDateCell(value, emptyLabel = 'Never') {
+  const parts = formatUserDateParts(value);
+  return parts
+    ? `<div style="display:flex;flex-direction:column;line-height:1.2;"><span>${escHtml(parts.date)}</span><span>${escHtml(parts.time)}</span></div>`
+    : escHtml(emptyLabel);
+}
+
+function renderApprovalUserRow(u, q) {
+  const safeRole = getSafeUserRole(u);
+  const approvalRole = safeRole === 'user' ? 'staff' : safeRole;
+  const isSelf = Number(u.id) === Number(currentUser?.id || 0);
+  const statusMeta = getUserStatusMeta(u);
+  const approveAttrs = isSelf
+    ? 'disabled title="Hindi puwedeng i-approve ang sarili mong account dito."'
+    : `onclick="approveUser(${u.id}, '${approvalRole}')"`;
+  const rejectAttrs = isSelf
+    ? 'disabled title="Hindi puwedeng i-reject ang sarili mong account dito."'
+    : `onclick="rejectUser(${u.id})"`;
+
+  return `
+    <tr style="height: 70px;">
+      <td style="padding: 15px 20px; font-size: 0.95rem;"><strong>${highlight(u.fullname || '', q)}</strong></td>
+      <td style="padding: 15px 20px; font-size: 0.9rem; color: var(--text);">${highlight(u.email || '—', q)}</td>
+      <td class="text-center" style="padding: 15px 20px; font-size: 0.95rem;">${getUserRoleBadgeHtml(u, q)}</td>
+      <td class="text-center" style="padding: 15px 20px; font-size: 0.8rem; color: var(--muted); white-space: nowrap;">${renderUserDateCell(u.created_at, '—')}</td>
+      <td class="text-center" style="padding: 15px 20px; font-size: 0.95rem;"><span class="status-pill ${statusMeta.className}">${statusMeta.label}</span></td>
+      <td class="text-center" style="padding: 15px 20px;">
+        <div class="actions" style="justify-content:center; gap:6px;">
+          <button class="btn btn-sm btn-edit" onclick="editUser(${u.id})">Edit</button>
+          <button class="btn btn-sm btn-add" ${approveAttrs}>Approve Staff</button>
+          <button class="btn btn-sm btn-delete" ${rejectAttrs}>Reject</button>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+function renderManagedUserRow(u, q) {
+  const isSelf = Number(u.id) === Number(currentUser?.id || 0);
+  const approvalStatus = getUserApprovalStatus(u);
+  const isRejected = approvalStatus === 'rejected';
+  const statusMeta = getUserStatusMeta(u);
+  const toggleAttrs = isSelf
+    ? 'disabled title="Hindi puwedeng baguhin ang sarili mong account status."'
+    : (isRejected ? 'disabled title="Edit the rejected account to approve it first."' : `onclick="toggleUser(${u.id})"`);
+  const deleteAttrs = isSelf ? 'disabled title="Hindi puwedeng i-delete ang sarili mong account."' : `onclick="deleteUser(${u.id})"`;
+
+  return `
+    <tr style="height: 70px;">
+      <td style="padding: 15px 20px; font-size: 0.95rem;"><strong>${highlight(u.fullname || '', q)}</strong></td>
+      <td style="padding: 15px 20px; font-size: 0.9rem; color: var(--text);">${highlight(u.email || '—', q)}</td>
+      <td class="text-center" style="padding: 15px 20px; font-size: 0.95rem;">${getUserRoleBadgeHtml(u, q)}</td>
+      <td class="text-center" style="padding: 15px 20px; font-size: 0.95rem;"><span class="status-pill ${statusMeta.className}">${statusMeta.label}</span></td>
+      <td class="text-center" style="padding: 15px 20px; font-size: 0.8rem; color: var(--muted); white-space: nowrap;">${renderUserDateCell(u.last_login, 'Never')}</td>
+      <td class="text-center" style="padding: 15px 20px;">
+        <div class="actions" style="justify-content:center; gap:6px;">
+          <button class="btn btn-sm btn-edit" onclick="editUser(${u.id})">Edit</button>
+          <button class="btn btn-sm ${u.active ? 'btn-delete' : 'btn-add'}" ${toggleAttrs}>${u.active ? 'Disable' : 'Enable'}</button>
+          <button class="btn btn-sm btn-delete" ${deleteAttrs}>Delete</button>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
 function renderUsers() {
   const tbody = document.getElementById('table-body');
   const thead = document.querySelector('thead tr');
   if (!tbody || !thead) return;
+  const view = getUserManagementView();
   const searchInput = document.getElementById('search-input');
   const q = (searchInput?.value || '').trim().toLowerCase();
   const exportRecordsActions = document.getElementById('export-records-actions');
@@ -2844,18 +3182,24 @@ function renderUsers() {
   const userRoleFilter = document.getElementById('user-role-filter');
   const userStatusFilter = document.getElementById('user-status-filter');
 
+  updateUserManagementViewControls();
   if (projectStatusFilter) projectStatusFilter.style.display = 'none';
   if (exportRecordsActions) exportRecordsActions.style.display = 'none';
   if (userControls) userControls.style.display = 'inline-flex';
-  if (searchInput) searchInput.placeholder = 'Search users by name, username, email, or role...';
+  if (searchInput) {
+    searchInput.placeholder = view === 'approvals'
+      ? 'Search approval requests by name, email, or role...'
+      : 'Search users by name, email, or role...';
+  }
   
-  thead.innerHTML = `
-    <th style="padding:15px">Full Name</th><th>Username</th><th>Email</th><th class="text-center">Role</th><th class="text-center">Status</th><th class="text-center">Last Login</th><th class="text-center">Actions</th>
-  `;
+  thead.innerHTML = view === 'approvals'
+    ? `<th style="padding:15px">Full Name</th><th>Email</th><th class="text-center">Requested Role</th><th class="text-center">Registered</th><th class="text-center">Status</th><th class="text-center">Actions</th>`
+    : `<th style="padding:15px">Full Name</th><th>Email</th><th class="text-center">Role</th><th class="text-center">Status</th><th class="text-center">Last Login</th><th class="text-center">Actions</th>`;
 
   const filteredUsers = usersDb.filter(u => {
     if (!q) return true;
-    const haystack = [u.fullname, u.username, u.email, u.role, u.active ? 'active' : 'inactive']
+    const approvalStatus = getUserApprovalStatus(u);
+    const haystack = [u.fullname, u.email, u.role, approvalStatus, u.active ? 'active' : 'inactive']
       .join(' ')
       .toLowerCase();
     return haystack.includes(q);
@@ -2864,58 +3208,26 @@ function renderUsers() {
   const roleFilter = String(userRoleFilter?.value || 'all');
   const statusFilter = String(userStatusFilter?.value || 'all');
   const scopedUsers = filteredUsers.filter(u => {
+    const statusValue = getUserApprovalStatus(u);
+    const viewOk = view === 'approvals'
+      ? statusValue === 'pending'
+      : statusValue !== 'pending';
     const roleOk = roleFilter === 'all' || String(u.role || '') === roleFilter;
-    const statusValue = u.active ? 'active' : 'inactive';
-    const statusOk = statusFilter === 'all' || statusValue === statusFilter;
-    return roleOk && statusOk;
+    const statusOk = view === 'approvals' || statusFilter === 'all' || statusValue === statusFilter;
+    return viewOk && roleOk && statusOk;
   });
 
   if (!scopedUsers.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center">Walang users na nahanap.</td></tr>';
+    const emptyMessage = view === 'approvals'
+      ? 'Walang pending registration requests.'
+      : 'Walang users na nahanap.';
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center">${emptyMessage}</td></tr>`;
     return;
   }
 
-  tbody.innerHTML = scopedUsers.map(u => {
-    const isSelf = Number(u.id) === Number(currentUser?.id || 0);
-    const editAttrs = `onclick="editUser(${u.id})"`;
-    const toggleAttrs = isSelf ? 'disabled title="Hindi puwedeng baguhin ang sarili mong account status."' : `onclick="toggleUser(${u.id})"`;
-    const deleteAttrs = isSelf ? 'disabled title="Hindi puwedeng i-delete ang sarili mong account."' : `onclick="deleteUser(${u.id})"`;
-    const resetAttrs = isSelf ? 'disabled title="Hindi puwedeng i-reset ang sarili mong password mula rito."' : `onclick="resetUserPassword(${u.id})"`;
-    const lastLogin = u.last_login
-      ? {
-          date: new Date(u.last_login).toLocaleDateString('en-PH', {
-            year: 'numeric',
-            month: 'short',
-            day: '2-digit'
-          }),
-          time: new Date(u.last_login).toLocaleTimeString('en-PH', {
-            hour: '2-digit',
-            minute: '2-digit'
-          })
-        }
-      : null;
-
-    return `
-      <tr style="height: 70px;">
-        <td style="padding: 15px 20px; font-size: 0.95rem;"><strong>${highlight(u.fullname || '', q)}</strong></td>
-        <td style="padding: 15px 20px; font-size: 0.95rem;">${highlight(u.username || '', q)}</td>
-        <td style="padding: 15px 20px; font-size: 0.9rem; color: var(--text);">${highlight(u.email || '—', q)}</td>
-        <td class="text-center" style="padding: 15px 20px; font-size: 0.95rem;"><span class="admin-badge" style="background:${u.role==='admin'?'#fee2e2':'#eef2ff'}; color:${u.role==='admin'?'#991b1b':'#3355cc'}">${highlight(u.role, q)}</span></td>
-        <td class="text-center" style="padding: 15px 20px; font-size: 0.95rem;"><span class="status-pill ${u.active ? 'status-active' : 'status-inactive'}">${u.active?'Active':'Inactive'}</span></td>
-        <td class="text-center" style="padding: 15px 20px; font-size: 0.8rem; color: var(--muted); white-space: nowrap;">
-          ${lastLogin ? `<div style="display:flex;flex-direction:column;line-height:1.2;"><span>${escHtml(lastLogin.date)}</span><span>${escHtml(lastLogin.time)}</span></div>` : 'Never'}
-        </td>
-        <td class="text-center" style="padding: 15px 20px;">
-          <div class="actions" style="justify-content:center; gap:6px;">
-            <button class="btn btn-sm btn-edit" ${editAttrs}>Edit</button>
-            <button class="btn btn-sm btn-primary" ${resetAttrs}>Reset Password</button>
-            <button class="btn btn-sm ${u.active?'btn-delete':'btn-add'}" ${toggleAttrs}>${u.active?'Disable':'Enable'}</button>
-            <button class="btn btn-sm btn-delete" ${deleteAttrs}>Delete</button>
-          </div>
-        </td>
-      </tr>
-    `;
-  }).join('');
+  tbody.innerHTML = scopedUsers
+    .map(u => view === 'approvals' ? renderApprovalUserRow(u, q) : renderManagedUserRow(u, q))
+    .join('');
 }
 
 function renderTable() {
@@ -2929,7 +3241,7 @@ function renderTable() {
   if (isStaff) {
     thead.innerHTML = `<th>Transaction No.</th><th class="text-center">Type</th><th>Client</th><th>Project</th><th>Description</th><th class="text-center">Qty</th><th class="text-right">Amount</th><th class="text-right">Bal</th><th class="text-center">Date</th><th class="text-center">Status</th><th class="text-center">Actions</th>`;
   } else {
-    thead.innerHTML = `<th>Transaction No.</th><th class="text-center">Type</th><th>Client</th><th>Project</th><th>Description</th><th class="text-center">Qty</th><th class="text-center">Check</th><th class="text-center">PO</th><th class="text-right">Amount</th><th class="text-right">Bal</th><th class="text-center">Date</th><th class="text-center">Status</th><th class="text-center">Actions</th>`;
+    thead.innerHTML = `<th>Transaction No.</th><th class="text-center">Type</th><th>Client</th><th>Project</th><th>Description</th><th class="text-center">Qty</th><th class="text-center">Check</th><th class="text-center">Customer PO Ref.</th><th class="text-right">Amount</th><th class="text-right">Bal</th><th class="text-center">Date</th><th class="text-center">Status</th><th class="text-center">Actions</th>`;
   }
 
   const searchInput = document.getElementById('search-input');
@@ -2967,7 +3279,7 @@ function renderTable() {
     return `
       <tr>
         <td>${docCell}</td>
-        <td class="text-center"><span class="type-pill type-${r.type}" style="white-space: nowrap;">${r.type === 'receipt' ? 'Collection Receipt' : 'Charge Sales Invoice'}</span></td>
+        <td class="text-center"><span class="type-pill type-${r.type}" style="white-space: nowrap;">${r.type === 'receipt' ? 'Payment Receipt' : 'Sales Invoice'}</span></td>
         <td><div style="font-weight:500; color:var(--text)">${hClient}</div></td>
         <td style="font-weight:500; color:var(--primary); line-height:1.35">${hProject}</td>
         <td>${hDesc}</td>
@@ -4397,17 +4709,50 @@ function renderImportedGanttChart() {
   }).join('');
 }
 
-function setupRequiredFieldMarkers() {
-  [
-    'f-type',
-    'f-client',
-    'f-desc',
-    'f-amount'
-  ].forEach(id => {
-    const field = document.getElementById(id)?.closest('.field');
-    const label = field?.querySelector('label');
-    if (!label || label.querySelector('.req-star')) return;
-    label.insertAdjacentHTML('beforeend', ' <span class="req-star">*</span>');
+function getModalFieldLabelBaseText(label) {
+  if (!label) return '';
+  const cached = String(label.dataset.labelBase || '').trim();
+  if (cached) return cached;
+  const base = Array.from(label.childNodes)
+    .map((node) => (node.nodeType === 3 ? node.textContent : ''))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim() || String(label.textContent || '').replace(/\s+/g, ' ').trim();
+  const normalizedBase = base.replace(/\s*\*+\s*$/, '').trim();
+  label.dataset.labelBase = normalizedBase;
+  return normalizedBase;
+}
+
+function getModalFieldStatus(field, label, control) {
+  const explicitStatus = String(
+    field?.dataset.fieldStatus ||
+    label?.dataset.fieldStatus ||
+    control?.dataset.fieldStatus ||
+    ''
+  ).trim().toLowerCase();
+  if (explicitStatus === 'required' || explicitStatus === 'optional') {
+    return explicitStatus;
+  }
+  if (label?.querySelector('.req-star')) return 'required';
+  if (control?.required || control?.getAttribute('aria-required') === 'true') return 'required';
+  return 'optional';
+}
+
+function setupRequiredFieldMarkers(root = document) {
+  const scope = root && typeof root.querySelectorAll === 'function' ? root : document;
+  scope.querySelectorAll('.modal .field label, .modal .form-group label').forEach((label) => {
+    const field = label.closest('.field, .form-group') || label.parentElement;
+    if (!field) return;
+    const control = field.querySelector('input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled])');
+    const baseLabel = getModalFieldLabelBaseText(label);
+    if (!baseLabel) return;
+
+    const status = getModalFieldStatus(field, label, control);
+    label.textContent = baseLabel;
+    const badge = document.createElement('span');
+    badge.className = `field-label-status is-${status}`;
+    badge.textContent = status === 'required' ? 'Required' : 'Optional';
+    label.appendChild(badge);
   });
 }
 
@@ -4427,18 +4772,60 @@ function setupProjectCalculationListeners() {
   });
 }
 
+const PHONE_PH_DIGITS = 11;
+const PHONE_MAX_DIGITS = 15;
+
+function getPhoneCountryValue(id) {
+  const select = document.getElementById(`${id}-country`);
+  return String(select?.value || 'PH').trim().toUpperCase();
+}
+
+function getPhoneMaxDigits(id) {
+  return getPhoneCountryValue(id) === 'PH' ? PHONE_PH_DIGITS : PHONE_MAX_DIGITS;
+}
+
+function getPhonePlaceholder(id) {
+  return getPhoneCountryValue(id) === 'PH'
+    ? '11 digits, e.g. 09171234567'
+    : 'Digits only, up to 15';
+}
+
+function bindPhoneField(id) {
+  const el = document.getElementById(id);
+  if (!el || el.dataset.phoneBound === '1') return;
+
+  el.dataset.phoneBound = '1';
+  const country = document.getElementById(`${id}-country`);
+  const applyPhoneRules = () => {
+    const maxDigits = getPhoneMaxDigits(id);
+    el.setAttribute('maxlength', String(maxDigits));
+    el.setAttribute('placeholder', getPhonePlaceholder(id));
+    const normalized = normalizeDigits(el.value, maxDigits);
+    if (el.value !== normalized) el.value = normalized;
+  };
+  if (country && country.dataset.phoneCountryBound !== '1') {
+    country.dataset.phoneCountryBound = '1';
+    country.addEventListener('change', applyPhoneRules);
+  }
+  el.setAttribute('inputmode', 'numeric');
+  el.setAttribute('autocomplete', 'tel');
+  el.addEventListener('input', () => {
+    const normalized = normalizeDigits(el.value, getPhoneMaxDigits(id));
+    if (el.value !== normalized) el.value = normalized;
+  });
+  applyPhoneRules();
+}
+
 function setupPhoneValidation() {
   [
-    ['f-member-phone', 11],
-    ['f-member-phone-2', 11],
-    ['f-member-phone-3', 11]
-  ].forEach(([id, maxLength]) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.addEventListener('input', () => {
-      el.value = normalizeDigits(el.value, maxLength);
-    });
-  });
+    'f-member-phone',
+    'f-member-phone-2',
+    'f-member-phone-3',
+    'erp-company-phone',
+    'f-vendor-phone',
+    'erp-vendor-phone',
+    'erp-employee-phone'
+  ].forEach(bindPhoneField);
 }
 
 function getMemberSlotElements() {
@@ -4517,7 +4904,7 @@ async function updateStats() {
   if (statLabel1) statLabel1.textContent = 'Projects';
   if (statLabel2) statLabel2.textContent = 'Ongoing Projects';
   if (statLabel3) statLabel3.textContent = 'Accounts Payable';
-  if (statLabel4) statLabel4.textContent = 'A/R';
+  if (statLabel4) statLabel4.textContent = 'Accounts Receivable';
   if (statOngoingMini) statOngoingMini.textContent = `Year ${statsYear}`;
 
   if (statCard3) {
@@ -4527,7 +4914,7 @@ async function updateStats() {
 
   if (statCard4) {
     statCard4.classList.add('stat-card-link');
-    statCard4.onclick = () => { window.location.href = '/accounts-receivable'; };
+    statCard4.onclick = () => { window.location.href = '/accounts-receivable?tab=invoices'; };
   }
 
   const visibleProjects = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
@@ -4545,7 +4932,12 @@ async function updateStats() {
 
   try {
     const companyParam = normalizeDashboardCompanyName(currentDashboardCompany || localStorage.getItem('kinaadman_dashboardCompany') || 'all');
-    const projectStatsRes = await fetch(`/api/projects/stats?year=${statsYear}&company=${encodeURIComponent(companyParam)}`);
+    const statsParams = new URLSearchParams({
+      year: String(statsYear),
+      company: companyParam,
+      business_entity_id: String(localStorage.getItem('kinaadman_businessEntityContext') || '').trim()
+    });
+    const projectStatsRes = await fetch(`/api/projects/stats?${statsParams.toString()}`);
     const projectStats = await projectStatsRes.json();
     if (projectStatsRes.ok) {
       if (statProjects) statProjects.textContent = Number(projectStats.total_projects ?? totalProjectsCount);
@@ -4668,7 +5060,7 @@ function renderNotifications(items = notificationsDb) {
   if (!list) return;
 
   if (!items.length) {
-    list.innerHTML = '<div class="notifications-empty">No project alerts right now.</div>';
+    list.innerHTML = '<div class="notifications-empty">No notifications right now.</div>';
     return;
   }
 
@@ -4724,13 +5116,13 @@ function updateDownpaymentMode() {
   const balance = Math.max(0, amount - totalPaid);
 
   if (label) {
-    label.textContent = 'Downpayment (PHP)';
+    label.textContent = 'Payment Received (PHP)';
   }
 
   if (helpText) {
     if (additionalPayment > 0) {
       helpText.style.display = 'block';
-      helpText.textContent = `Current downpayment: PHP ${additionalPayment.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`;
+      helpText.textContent = `Current payment received: PHP ${additionalPayment.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`;
     } else {
       helpText.style.display = 'none';
       helpText.textContent = '';
@@ -4760,7 +5152,7 @@ async function openModal(id = null, preselectProjectId = null) {
   stagedPdf = null;   // Reset
   setSaveButtonState(false);
 
-  document.getElementById('modal-title').textContent = id ? 'Edit Transaction' : (preselectProjectId ? 'Add Transaction' : 'Transaction Entry');
+  document.getElementById('modal-title').textContent = id ? 'Edit Transaction' : 'Add Transaction';
   resetRecordForm();
 
   if (normalizedId) {
@@ -4920,7 +5312,7 @@ function handleDrop(event) {
   }
 }
 
-// 3. stagePdfFile â€” ITO ANG PINAKAIMPORTANTE
+// 3. stagePdfFile - store the selected PDF for upload.
 function stagePdfFile(file) {
   stagedPdf = file;               // Store the actual File object, not just the name
 
@@ -4951,7 +5343,6 @@ function updateBalance() {
 
   updateDownpaymentMode();
 }
-// âœ… PAGkatapos
 function debounce(fn, ms) {
   let timer;
   return (...args) => {
@@ -4965,7 +5356,7 @@ function normalizeDigits(value, maxLength) {
 }
 
 function normalizePhone(value) {
-  return normalizeDigits(value, 11);
+  return normalizeDigits(value, PHONE_MAX_DIGITS);
 }
 
 function normalizeTin(value) {
@@ -4973,7 +5364,21 @@ function normalizeTin(value) {
 }
 
 function isValidPhone(value) {
-  return /^\d{11}$/.test(String(value || ''));
+  const phone = String(value || '').trim();
+  return /^\d+$/.test(phone) && phone.length > 0 && phone.length <= PHONE_MAX_DIGITS;
+}
+
+function isValidPhoneForField(id, value) {
+  const phone = normalizePhone(value);
+  if (!phone) return false;
+  if (getPhoneCountryValue(id) === 'PH') return phone.length === PHONE_PH_DIGITS;
+  return phone.length >= 7 && phone.length <= PHONE_MAX_DIGITS;
+}
+
+function getPhoneValidationMessage(id, label = 'Phone') {
+  return getPhoneCountryValue(id) === 'PH'
+    ? `${label} must be exactly 11 digits for PH numbers.`
+    : `${label} must be digits only, 7 to 15 digits.`;
 }
 
 async function ensureGeneratedDocno() {
@@ -4981,7 +5386,7 @@ async function ensureGeneratedDocno() {
   const currentDocno = docnoInput.value.trim();
   if (currentDocno) return currentDocno;
 
-  const res = await fetch('/api/transactions/next-docno');
+  const res = await fetch(`/api/transactions/next-docno?business_entity_id=${encodeURIComponent(erpGetCurrentBusinessEntityId() || '')}`);
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.docno) {
     throw new Error(data.error || 'Hindi ma-generate ang Transaction No.');
@@ -5029,6 +5434,10 @@ async function saveRecord() {
     }
   }
 
+  if (!docno) {
+    return showToast('Transaction No. is required.', 'error');
+  }
+
   const url = isEdit ? `/api/transactions/${editingId}` : '/api/transactions';
   const method = isEdit ? 'PUT' : 'POST';
 
@@ -5070,7 +5479,7 @@ async function saveRecord() {
   else if (stagedPdf && typeof stagedPdf === 'string') {
     formData.append('pdfFilename', stagedPdf);
   }
-  // Kung wala talagang PDF, walang idadagdag â€” OK lang
+  // If there is no PDF, nothing needs to be added.
 
   isSavingRecord = true;
   setSaveButtonState(true);
@@ -5152,7 +5561,7 @@ function openArchivedModal(id) {
   if (!r) return showToast('Record not found', 'error');
 
   document.getElementById('a-docno').value = r.docno || '';
-  document.getElementById('a-type').value = r.type === 'receipt' ? 'Collection Receipt' : 'Charge Sales Invoice';
+  document.getElementById('a-type').value = r.type === 'receipt' ? 'Payment Receipt' : 'Sales Invoice';
   document.getElementById('a-date').value = r.date || '';
   document.getElementById('a-status').value = r.status || '';
   document.getElementById('a-client').value = r.client || '';
@@ -5245,15 +5654,14 @@ function setupSidebarLinkNavigation() {
 
     link.dataset.navBound = '1';
     link.dataset.navHref = rawHref;
-    link.setAttribute('href', '#');
 
     link.addEventListener('click', (event) => {
       if (event.defaultPrevented) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+      const target = String(link.dataset.navHref || link.getAttribute('href') || '').trim();
+      if (!target || target === '#') return;
       event.preventDefault();
-
-      const target = String(link.dataset.navHref || '').trim();
-      if (!target) return;
-      window.location.href = target;
+      window.location.assign(target);
     });
   });
 }
@@ -5262,20 +5670,62 @@ function syncSidebarActiveLinks() {
   const currentUrl = new URL(window.location.href);
   const currentPath = currentUrl.pathname.replace(/\/+$/, '') || '/';
   const currentSearch = currentUrl.search || '';
+  let activeLink = null;
+  const routeAliases = {
+    '/admin?view=dashboard': ['/admin'],
+    '/reports': ['/admin?panel=reports'],
+    '/company-registry': ['/company'],
+    '/admin?panel=project-records': ['/admin?view=project-records'],
+    '/admin?view=all': ['/admin?view=total-projects'],
+    '/admin?view=ongoing-projects': ['/admin?view=ongoing'],
+    '/admin?view=logs': ['/admin?panel=logs'],
+    '/admin?view=archived': ['/admin?panel=archived'],
+    '/procurement?tab=vendors': ['/procurement', '/accounts-payable?tab=vendors'],
+    '/procurement?tab=requisitions': ['/accounts-payable?tab=requisitions'],
+    '/procurement?tab=rfq': ['/accounts-payable?tab=rfq'],
+    '/procurement?tab=quotations': ['/accounts-payable?tab=quotations', '/procurement?tab=bid-evaluation', '/accounts-payable?tab=bid-evaluation'],
+    '/procurement?tab=purchase-orders': ['/accounts-payable?tab=purchase-orders'],
+    '/procurement?tab=goods-receipts': ['/accounts-payable?tab=goods-receipts'],
+    '/accounts-payable?tab=bills': ['/accounts-payable'],
+    '/accounts-receivable?tab=service-orders': ['/accounts-receivable', '/accounts-receivable?tab=overview', '/accounts-receivable?tab=transactions'],
+    '/accounts-receivable?tab=invoices': ['/accounts-receivable?tab=receivables'],
+    '/accounts-receivable?tab=collections': ['/accounts-receivable?tab=payments']
+  };
+
+  function sameRoute(candidateHref) {
+    try {
+      const targetUrl = new URL(candidateHref, window.location.origin);
+      const targetPath = targetUrl.pathname.replace(/\/+$/, '') || '/';
+      const targetSearch = targetUrl.search || '';
+      return targetPath === currentPath && targetSearch === currentSearch;
+    } catch (_) {
+      return false;
+    }
+  }
 
   document.querySelectorAll('.sidebar-link').forEach((link) => {
     const rawHref = link.dataset.navHref || link.getAttribute('href') || '';
     if (!rawHref || rawHref === '#' || rawHref.startsWith('javascript:')) return;
 
-    try {
-      const targetUrl = new URL(rawHref, window.location.origin);
-      const targetPath = targetUrl.pathname.replace(/\/+$/, '') || '/';
-      const targetSearch = targetUrl.search || '';
-      const isActive = targetPath === currentPath && targetSearch === currentSearch;
-      link.classList.toggle('active', isActive);
-    } catch (_) {
-      // Ignore malformed hrefs and keep existing state.
-    }
+    const candidates = [rawHref].concat(routeAliases[rawHref] || []);
+    const isActive = candidates.some(sameRoute);
+    link.classList.toggle('active', isActive);
+    if (isActive) activeLink = link;
+  });
+
+  if (!activeLink) return;
+
+  const activeGroup = activeLink.closest('.sidebar-group');
+  if (activeGroup) {
+    activeGroup.classList.remove('is-collapsed');
+    const toggle = activeGroup.querySelector('.sidebar-group-toggle');
+    if (toggle) toggle.setAttribute('aria-expanded', 'true');
+    const key = String(activeGroup.getAttribute('data-sidebar-group') || '').trim();
+    if (key) localStorage.setItem(`kinaadman_sidebarGroup_${key}`, '0');
+  }
+
+  window.requestAnimationFrame(() => {
+    activeLink.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   });
 }
 
@@ -5344,7 +5794,31 @@ function openProjectPdfViewer(id) {
 function openProjectPurchaseOrder(projectId) {
   const selectedId = Number(projectId || 0) || 0;
   if (!selectedId) return;
-  window.location.href = `/procurement?project_id=${encodeURIComponent(String(selectedId))}&action=po`;
+  const project = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
+    .find((entry) => Number(entry.id || 0) === selectedId) || null;
+  const companyId = Number(project?.company_id || project?.registry_company_id || 0) || 0;
+  const params = new URLSearchParams({
+    tab: 'purchase-orders',
+    project_id: String(selectedId),
+    action: 'po'
+  });
+  if (companyId) params.set('company_id', String(companyId));
+  window.location.href = `/procurement?${params.toString()}`;
+}
+
+function openProjectRequisition(projectId) {
+  const selectedId = Number(projectId || 0) || 0;
+  if (!selectedId) return;
+  const project = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
+    .find((entry) => Number(entry.id || 0) === selectedId) || null;
+  const companyId = Number(project?.company_id || project?.registry_company_id || 0) || 0;
+  const params = new URLSearchParams({
+    tab: 'requisitions',
+    project_id: String(selectedId),
+    action: 'pr'
+  });
+  if (companyId) params.set('company_id', String(companyId));
+  window.location.href = `/procurement?${params.toString()}`;
 }
 
 function openProjectTransaction(projectId) {
@@ -5384,7 +5858,12 @@ function closePdfViewer() {
 }
 
 function showToast(msg, type = 'success') {
-  const t = document.getElementById('toast');
+  let t = document.getElementById('toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'toast';
+    document.body.appendChild(t);
+  }
   t.textContent = msg;
   t.className = 'show ' + type;
   clearTimeout(t._timer);
@@ -5400,7 +5879,11 @@ function highlight(text, query) {
   if (!tokens.length) return escapedText;
 
   const pattern = tokens.sort((a, b) => b.length - a.length).join('|');
-  return escapedText.replace(new RegExp(`(${pattern})`, 'gi'), '<mark>$1</mark>');
+  try {
+    return escapedText.replace(new RegExp(`(${pattern})`, 'gi'), '<mark>$1</mark>');
+  } catch (_) {
+    return escapedText;
+  }
 }
 
 function escHtml(str) {
@@ -5548,38 +6031,95 @@ async function submitUserCreatePayload({ name, username, email, role, password, 
   }
 }
 
+function normalizeUserDuplicateValue(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function findUserDuplicateField(username, email, excludeId = 0) {
+  const normalizedUsername = normalizeUserDuplicateValue(username);
+  const normalizedEmail = normalizeUserDuplicateValue(email);
+  const currentId = Number(excludeId || 0) || 0;
+
+  if (!normalizedUsername && !normalizedEmail) return '';
+
+  const duplicate = (usersDb || []).find((entry) => {
+    if (!entry) return false;
+    if (currentId && Number(entry.id || 0) === currentId) return false;
+    if (normalizedUsername && normalizeUserDuplicateValue(entry.username) === normalizedUsername) return 'username';
+    if (normalizedEmail && normalizeUserDuplicateValue(entry.email) === normalizedEmail) return 'email';
+    return false;
+  });
+
+  return duplicate || '';
+}
+
+function userModalNeedsAdminPassword() {
+  if (userModalMode !== 'edit' || !userModalSnapshot) return false;
+  const roleInput = document.getElementById('u-role');
+  const statusInput = document.getElementById('u-status');
+  const snapshotRole = normalizeAccessRole(userModalSnapshot.role || 'staff');
+  const nextRole = normalizeAccessRole(roleInput?.value || (snapshotRole === 'user' ? 'staff' : snapshotRole));
+  const nextActive = Number(statusInput?.value || 0) === 1;
+  const previousRole = normalizeAccessRole(userModalSnapshot.role || 'user');
+  const previousApprovalStatus = String(userModalSnapshot.approval_status || 'approved').toLowerCase();
+  const isSelf = Number(editingUserId || 0) === Number(currentUser?.id || 0);
+  return !isSelf && isPrivilegedRoleValue(nextRole) && (nextRole !== previousRole || (previousApprovalStatus === 'pending' && nextActive));
+}
+
+function syncUserAdminPasswordField() {
+  const field = document.getElementById('u-admin-password-field');
+  const input = document.getElementById('u-admin-pass');
+  const shouldShow = userModalNeedsAdminPassword();
+  if (field) field.style.display = shouldShow ? '' : 'none';
+  if (input) {
+    input.required = shouldShow;
+    input.setAttribute('aria-required', String(shouldShow));
+    if (!shouldShow) input.value = '';
+  }
+}
+
+function syncSuperAdminRoleOption() {
+  const allowSuperAdmin = isSuperAdminUser();
+  document.querySelectorAll('#u-role option[value="super_admin"]').forEach((option) => {
+    option.disabled = !allowSuperAdmin;
+    option.hidden = !allowSuperAdmin;
+  });
+}
+
 function syncUserModalMode() {
   const title = document.getElementById('user-modal-title');
   const saveBtn = document.getElementById('user-save-btn');
-  const passLabel = document.getElementById('u-pass-label');
-  const passHelp = document.getElementById('u-pass-help');
-  const passInput = document.getElementById('u-pass');
 
-  if (title) title.textContent = userModalMode === 'edit' ? 'Edit User' : 'Add New User';
-  if (saveBtn) saveBtn.textContent = userModalMode === 'edit' ? 'Save Changes' : 'Create User';
-  if (passLabel) passLabel.textContent = userModalMode === 'edit' ? 'New Password' : 'Initial Password';
-  if (passHelp) {
-    passHelp.textContent = userModalMode === 'edit'
-      ? 'Leave blank to keep the current password.'
-      : 'Use a strong password for the new account.';
-  }
-  if (passInput) passInput.placeholder = userModalMode === 'edit' ? 'Leave blank to keep current password' : 'At least 8 chars';
+  if (title) title.textContent = 'Edit User';
+  if (saveBtn) saveBtn.textContent = 'Save Changes';
+  syncSuperAdminRoleOption();
+  syncUserAdminPasswordField();
+  setupRequiredFieldMarkers(document.getElementById('user-modal-backdrop') || document);
 }
 
 function resetUserModalForm() {
-  ['u-name', 'u-username', 'u-email', 'u-pass'].forEach(id => {
+  ['u-name', 'u-username', 'u-email', 'u-admin-pass'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
   const status = document.getElementById('u-status');
   if (status) status.value = '1';
   const role = document.getElementById('u-role');
-  if (role) role.value = 'user';
-  const passInput = document.getElementById('u-pass');
-  if (passInput) passInput.type = 'password';
+  if (role) role.value = 'staff';
+  const adminPassInput = document.getElementById('u-admin-pass');
+  if (adminPassInput) adminPassInput.type = 'password';
+}
+
+function isStandaloneUserManagementPage() {
+  return document.body?.classList.contains('user-management-page');
 }
 
 function openUserModal(user = null) {
+  if (!user) {
+    showToast('Use Register for new accounts. User Management is edit and approval only.', 'error');
+    return;
+  }
+
   userModalMode = user ? 'edit' : 'create';
   editingUserId = user ? Number(user.id || 0) : null;
   userModalSnapshot = user ? { ...user } : null;
@@ -5598,18 +6138,21 @@ function openUserModal(user = null) {
     if (nameInput) nameInput.value = user.fullname || '';
     if (usernameInput) usernameInput.value = user.username || '';
     if (emailInput) emailInput.value = user.email || '';
-    if (roleInput) roleInput.value = user.role || 'user';
+    if (roleInput) {
+      const safeRole = normalizeAccessRole(user.role || 'staff');
+      roleInput.value = safeRole === 'user' ? 'staff' : safeRole;
+    }
     if (statusInput) statusInput.value = Number(user.active || 0) === 1 ? '1' : '0';
   }
 
   syncUserModalMode();
+  ['u-role', 'u-status'].forEach((id) => {
+    const node = document.getElementById(id);
+    if (!node || node.dataset.userPrivilegeBound === '1') return;
+    node.dataset.userPrivilegeBound = '1';
+    node.addEventListener('change', syncUserAdminPasswordField);
+  });
 
-  const passToggle = document.querySelector('.password-toggle[data-target="u-pass"]');
-  if (passToggle) {
-    passToggle.classList.remove('is-visible');
-    passToggle.setAttribute('aria-label', 'Show password');
-    passToggle.setAttribute('title', 'Show password');
-  }
 }
 
 function closeUserModal() {
@@ -5628,7 +6171,33 @@ async function saveUser() {
   const email    = document.getElementById('u-email').value.trim().toLowerCase();
   const role     = document.getElementById('u-role').value;
   const status   = document.getElementById('u-status').value;
-  const password = document.getElementById('u-pass').value;
+  const adminPassword = String(document.getElementById('u-admin-pass')?.value || '');
+  const duplicateField = findUserDuplicateField(
+    username,
+    email,
+    userModalMode === 'edit' ? editingUserId : 0
+  );
+
+  if (duplicateField) {
+    const duplicateMessage = duplicateField === 'username'
+      ? 'Username already exists.'
+      : 'Email already exists.';
+    showToast(duplicateMessage, 'error');
+    const duplicateInput = duplicateField === 'username'
+      ? document.getElementById('u-username')
+      : document.getElementById('u-email');
+    if (duplicateInput && typeof duplicateInput.focus === 'function') {
+      duplicateInput.focus();
+    }
+    return;
+  }
+
+  if (userModalNeedsAdminPassword() && !adminPassword) {
+    showToast('Current admin password is required for staff/admin access.', 'error');
+    const adminPassInput = document.getElementById('u-admin-pass');
+    if (adminPassInput && typeof adminPassInput.focus === 'function') adminPassInput.focus();
+    return;
+  }
 
   if (userModalMode === 'edit' && editingUserId) {
     try {
@@ -5637,9 +6206,9 @@ async function saveUser() {
         username,
         email,
         role,
-        active: Number(status || 1)
+        active: Number(status || 1),
+        adminPassword
       };
-      if (password.trim()) payload.password = password.trim();
 
       const res = await fetch(`/api/admin/users/${editingUserId}`, {
         method: 'PATCH',
@@ -5663,12 +6232,16 @@ async function saveUser() {
     }
   }
 
+  if (isStandaloneUserManagementPage()) {
+    showToast('Use Register for new accounts. User Management is edit and approval only.', 'error');
+    return;
+  }
+
   const created = await submitUserCreatePayload({
     name,
     username,
     email,
     role,
-    password,
     active: Number(status || 1)
   });
 
@@ -5702,6 +6275,57 @@ function toggleUser(id) {
     });
 }
 
+async function approveUser(id, role = 'staff') {
+  if (!id) return;
+  const targetRole = String(role || 'staff');
+  let adminPassword = '';
+  if (targetRole === 'super_admin' || targetRole === 'admin' || targetRole === 'staff') {
+    adminPassword = window.prompt('Enter your current admin password to approve this privileged role:') || '';
+    if (!adminPassword) return;
+  }
+
+  try {
+    const res = await fetch(`/api/admin/users/${id}/approve`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: targetRole, adminPassword })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+      showToast(data.error || 'Failed to approve user.', 'error');
+      return;
+    }
+    showToast('User approved successfully.', 'success');
+    await loadUsers();
+  } catch (err) {
+    showToast('Network error o hindi maka-connect sa server.', 'error');
+  }
+}
+
+async function rejectUser(id) {
+  if (!id) return;
+  const confirmed = await openConfirmDialog({
+    title: 'Reject Registration?',
+    message: 'Reject this pending account request?',
+    noText: 'No',
+    yesText: 'Yes'
+  });
+  if (!confirmed) return;
+
+  try {
+    const res = await fetch(`/api/admin/users/${id}/reject`, { method: 'PATCH' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+      showToast(data.error || 'Failed to reject user.', 'error');
+      return;
+    }
+    showToast('Registration rejected.', 'success');
+    await loadUsers();
+  } catch (err) {
+    showToast('Network error o hindi maka-connect sa server.', 'error');
+  }
+}
+
 async function deleteUser(id) {
   if (!id) return;
   const confirmed = await openConfirmDialog({
@@ -5729,7 +6353,7 @@ async function deleteUser(id) {
 
 // ==================== SYSTEM LOGS LOGIC ====================
 function openLogsPanel() {
-  if (!currentUser || currentUser.role !== 'admin') return;
+  if (!isAdminUser()) return;
   openDashboardPanel('system-logs');
   setSidebarOpen(false);
 }
@@ -5933,7 +6557,8 @@ let projectCompanies = [];
 
 async function loadProjectCompanies() {
   try {
-    const r = await fetch('/api/company-registry?include_archived=1');
+    const query = new URLSearchParams({ include_archived: '1' });
+    const r = await fetch(`/api/company-registry?${query.toString()}`);
     const d = await r.json();
     projectCompanies = Array.isArray(d) ? d : [];
   } catch (e) {

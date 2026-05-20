@@ -5,15 +5,18 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KVSK CCTV & IT Solution - Accounts Payable</title>
-  <script src="/assets/js/auth-guard.js?v=20260514f"></script>
+  <script src="/assets/js/auth-guard.js?v=20260518d"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/css/shared.css?v=20260514d" />
-  <link rel="stylesheet" href="/accounts-payable/accounts-payable.css?v=20260514b" />
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260516f" />
+  <link rel="stylesheet" href="/accounts-payable/accounts-payable.css?v=20260516c" />
   <link rel="stylesheet" href="/accounts-payable/ap-purchasing.css?v=20260505a" />
 
   
 </head>
 <body class="erp-clean-page accounts-payable-page">
+<script>
+  document.body.dataset.workspaceMode = window.location.pathname.replace(/\/+$/, '') === '/procurement' ? 'procurement' : 'ap';
+</script>
 
 <!-- Header -->
 <header>
@@ -28,14 +31,14 @@
       <img class="brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
       <div class="brand-copy">
       <div class="header-logo">KVSK CCTV & IT Solution</div>
-      <div class="header-sub">Accounts Payable</div>
+      <div class="header-sub" id="module-header-sub">Accounts Payable</div>
       </div>
       </div>
     </button>
   </div>
   <div class="header-right">
     <span class="workspace-badge" id="current-workspace-badge">Workspace</span>
-    <span class="admin-badge">Payables Module</span>
+    <span class="admin-badge" id="module-admin-badge">Payables Module</span>
     <div class="notification-wrap">
       <button class="btn-icon notification-btn" type="button" onclick="toggleNotificationsPanel()" aria-label="Notifications" title="Notifications">
         <svg viewBox="0 0 24 24" aria-hidden="true" class="notification-icon">
@@ -66,8 +69,8 @@
 <main>
   <div class="page-hero">
     <div class="page-hero-copy" style="max-width:none;">
-      <div class="page-title">Accounts Payable Management</div>
-      <div class="page-sub">Manage vendors, requisitions, purchase orders, receipts, bills, and payments in one workspace.</div>
+      <div class="page-title" id="module-page-title">Accounts Payable Management</div>
+      <div class="page-sub" id="module-page-subtitle">Manage bills and supplier payments in one workspace.</div>
     </div>
   </div>
 
@@ -93,6 +96,10 @@
       <span class="module-summary-label">Vendors With POs</span>
       <div class="module-summary-value" id="metric-vendors-with-po">0</div>
     </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="vendors">
+      <span class="module-summary-label">Payable Vendors</span>
+      <div class="module-summary-value" id="metric-vendors-payable">0</div>
+    </div>
 
     <div class="module-summary-card ap-summary-card" data-summary-tabs="requisitions" hidden>
       <span class="module-summary-label">Total Requisitions</span>
@@ -109,6 +116,73 @@
     <div class="module-summary-card ap-summary-card" data-summary-tabs="requisitions" hidden>
       <span class="module-summary-label">Estimated Total</span>
       <div class="module-summary-value" id="metric-pr-total">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="requisitions" hidden>
+      <span class="module-summary-label">This Month</span>
+      <div class="module-summary-value" id="metric-pr-this-month">0</div>
+    </div>
+
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="rfq" hidden>
+      <span class="module-summary-label">RFQs</span>
+      <div class="module-summary-value" id="metric-rfq-count">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="rfq" hidden>
+      <span class="module-summary-label">Open RFQs</span>
+      <div class="module-summary-value" id="metric-rfq-open">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="rfq" hidden>
+      <span class="module-summary-label">Sent</span>
+      <div class="module-summary-value" id="metric-rfq-sent">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="rfq" hidden>
+      <span class="module-summary-label">Closed</span>
+      <div class="module-summary-value" id="metric-rfq-closed">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="rfq" hidden>
+      <span class="module-summary-label">Linked PRs</span>
+      <div class="module-summary-value" id="metric-rfq-linked-pr">0</div>
+    </div>
+
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="quotations" hidden>
+      <span class="module-summary-label">Quotations</span>
+      <div class="module-summary-value" id="metric-quote-count">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="quotations" hidden>
+      <span class="module-summary-label">Pending Review</span>
+      <div class="module-summary-value" id="metric-quote-pending">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="quotations" hidden>
+      <span class="module-summary-label">Awarded</span>
+      <div class="module-summary-value" id="metric-quote-awarded">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="quotations" hidden>
+      <span class="module-summary-label">Quoted Total</span>
+      <div class="module-summary-value" id="metric-quote-total">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="quotations" hidden>
+      <span class="module-summary-label">Vendors</span>
+      <div class="module-summary-value" id="metric-quote-vendors">0</div>
+    </div>
+
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="quotations" hidden>
+      <span class="module-summary-label">Evaluations</span>
+      <div class="module-summary-value" id="metric-bid-count">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="quotations" hidden>
+      <span class="module-summary-label">Pending</span>
+      <div class="module-summary-value" id="metric-bid-pending">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="quotations" hidden>
+      <span class="module-summary-label">Approved</span>
+      <div class="module-summary-value" id="metric-bid-approved">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="quotations" hidden>
+      <span class="module-summary-label">Best Value</span>
+      <div class="module-summary-value" id="metric-bid-best-value">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="quotations" hidden>
+      <span class="module-summary-label">Linked Quotes</span>
+      <div class="module-summary-value" id="metric-bid-linked-quotes">0</div>
     </div>
 
     <div class="module-summary-card ap-summary-card" data-summary-tabs="purchase-orders" hidden>
@@ -127,6 +201,10 @@
       <span class="module-summary-label">PO Total</span>
       <div class="module-summary-value" id="metric-po-total">PHP 0.00</div>
     </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="purchase-orders" hidden>
+      <span class="module-summary-label">Open POs</span>
+      <div class="module-summary-value" id="metric-po-open">0</div>
+    </div>
 
     <div class="module-summary-card ap-summary-card" data-summary-tabs="goods-receipts" hidden>
       <span class="module-summary-label">Goods Receipts</span>
@@ -143,6 +221,10 @@
     <div class="module-summary-card ap-summary-card" data-summary-tabs="goods-receipts" hidden>
       <span class="module-summary-label">This Month</span>
       <div class="module-summary-value" id="metric-grn-this-month">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="goods-receipts" hidden>
+      <span class="module-summary-label">Pending</span>
+      <div class="module-summary-value" id="metric-grn-pending">0</div>
     </div>
 
     <div class="module-summary-card ap-summary-card" data-summary-tabs="bills" hidden>
@@ -161,6 +243,52 @@
       <span class="module-summary-label">Paid Bills</span>
       <div class="module-summary-value" id="metric-paid-bills">0</div>
     </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="bills" hidden>
+      <span class="module-summary-label">Total Bills</span>
+      <div class="module-summary-value" id="metric-bills-total-count">0</div>
+    </div>
+
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="vendor-balances" hidden>
+      <span class="module-summary-label">Vendors</span>
+      <div class="module-summary-value" id="metric-vb-vendors">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="vendor-balances" hidden>
+      <span class="module-summary-label">With Balance</span>
+      <div class="module-summary-value" id="metric-vb-open-vendors">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="vendor-balances" hidden>
+      <span class="module-summary-label">Total Balance</span>
+      <div class="module-summary-value" id="metric-vb-total-balance">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="vendor-balances" hidden>
+      <span class="module-summary-label">Overdue Vendors</span>
+      <div class="module-summary-value" id="metric-vb-overdue-vendors">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="vendor-balances" hidden>
+      <span class="module-summary-label">Top Balance</span>
+      <div class="module-summary-value" id="metric-vb-top-balance">PHP 0.00</div>
+    </div>
+
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="ap-aging" hidden>
+      <span class="module-summary-label">Current</span>
+      <div class="module-summary-value" id="metric-aging-current">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="ap-aging" hidden>
+      <span class="module-summary-label">1-30 Days</span>
+      <div class="module-summary-value" id="metric-aging-30">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="ap-aging" hidden>
+      <span class="module-summary-label">31-60 Days</span>
+      <div class="module-summary-value" id="metric-aging-60">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="ap-aging" hidden>
+      <span class="module-summary-label">61-90 Days</span>
+      <div class="module-summary-value" id="metric-aging-90">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="ap-aging" hidden>
+      <span class="module-summary-label">Over 90 Days</span>
+      <div class="module-summary-value" id="metric-aging-over-90">PHP 0.00</div>
+    </div>
 
     <div class="module-summary-card ap-summary-card" data-summary-tabs="payments" hidden>
       <span class="module-summary-label">Payments</span>
@@ -178,19 +306,49 @@
       <span class="module-summary-label">Payment Methods</span>
       <div class="module-summary-value" id="metric-payment-methods">0</div>
     </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="payments" hidden>
+      <span class="module-summary-label">Linked Bills</span>
+      <div class="module-summary-value" id="metric-payment-linked-bills">0</div>
+    </div>
+
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="disbursements" hidden>
+      <span class="module-summary-label">Disbursements</span>
+      <div class="module-summary-value" id="metric-disbursement-count">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="disbursements" hidden>
+      <span class="module-summary-label">Total Released</span>
+      <div class="module-summary-value" id="metric-disbursement-total">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="disbursements" hidden>
+      <span class="module-summary-label">This Month</span>
+      <div class="module-summary-value" id="metric-disbursement-this-month">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="disbursements" hidden>
+      <span class="module-summary-label">Methods</span>
+      <div class="module-summary-value" id="metric-disbursement-methods">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="disbursements" hidden>
+      <span class="module-summary-label">Linked Bills</span>
+      <div class="module-summary-value" id="metric-disbursement-linked-bills">0</div>
+    </div>
   </div>
 
   <!-- Navigation Tabs -->
   <div class="module-tabs">
     <div class="module-tab ap-workspace-tab active" data-proc-tab="vendors" data-workspace-tab="vendors" onclick="switchApWorkspaceTab('vendors', this)">Vendors</div>
     <div class="module-tab ap-workspace-tab" data-proc-tab="requisitions" data-workspace-tab="requisitions" onclick="switchApWorkspaceTab('requisitions', this)">Purchase Requisitions</div>
+    <div class="module-tab ap-workspace-tab" data-proc-tab="rfq" data-workspace-tab="rfq" onclick="switchApWorkspaceTab('rfq', this)">RFQ</div>
+    <div class="module-tab ap-workspace-tab" data-proc-tab="quotations" data-workspace-tab="quotations" onclick="switchApWorkspaceTab('quotations', this)">Quotations &amp; Evaluation</div>
     <div class="module-tab ap-workspace-tab" data-proc-tab="purchase-orders" data-workspace-tab="purchase-orders" onclick="switchApWorkspaceTab('purchase-orders', this)">Purchase Orders</div>
     <div class="module-tab ap-workspace-tab" data-proc-tab="goods-receipts" data-workspace-tab="goods-receipts" onclick="switchApWorkspaceTab('goods-receipts', this)">Goods Receipts</div>
     <div class="module-tab ap-workspace-tab" data-tab="bills" data-workspace-tab="bills" onclick="switchApWorkspaceTab('bills', this)">Bills</div>
+    <div class="module-tab ap-workspace-tab" data-tab="vendor-balances" data-workspace-tab="vendor-balances" onclick="switchApWorkspaceTab('vendor-balances', this)">Vendor Balances</div>
+    <div class="module-tab ap-workspace-tab" data-tab="ap-aging" data-workspace-tab="ap-aging" onclick="switchApWorkspaceTab('ap-aging', this)">AP Aging</div>
     <div class="module-tab ap-workspace-tab" data-tab="payments" data-workspace-tab="payments" onclick="switchApWorkspaceTab('payments', this)">Payments</div>
+    <div class="module-tab ap-workspace-tab" data-tab="disbursements" data-workspace-tab="disbursements" onclick="switchApWorkspaceTab('disbursements', this)">Disbursements</div>
   </div>
 
-  <div id="ap-purchasing-root">
+  <div id="ap-purchasing-root" data-procurement-only>
     <div id="vendors" class="content-section ap-workspace-section active" data-proc-section="vendors">
       <div class="module-panel-head">
         <div>
@@ -236,17 +394,70 @@
               <th>PR No.</th>
               <th>Project</th>
               <th>Request Date</th>
-              <th>Department</th>
               <th>Requested By</th>
               <th>Needed By</th>
               <th>Status</th>
+              <th>Approval Trail</th>
               <th>Requested Items</th>
               <th class="text-right">Lines</th>
               <th class="text-right">Total</th>
+              <th class="text-center">Document</th>
               <th class="text-center">Actions</th>
             </tr>
           </thead>
           <tbody id="pr-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="rfq" class="content-section ap-workspace-section" data-proc-section="rfq">
+      <div class="module-panel-head">
+        <div>
+          <div class="section-title">Request for Quotation</div>
+          <div class="proc-help">RFQ workspace for supplier pricing requests linked to approved purchase requisitions.</div>
+        </div>
+      </div>
+      <div class="table-wrap" style="margin-top: 12px;">
+        <table class="registry-table">
+          <thead>
+            <tr>
+              <th>RFQ No.</th>
+              <th>Linked PR</th>
+              <th>Vendor Group</th>
+              <th>Issue Date</th>
+              <th>Due Date</th>
+              <th>Status</th>
+              <th class="text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody><tr class="empty-row"><td colspan="7">No RFQs yet.</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="quotations" class="content-section ap-workspace-section" data-proc-section="quotations">
+      <div class="module-panel-head">
+        <div>
+          <div class="section-title">Quotations &amp; Evaluation</div>
+          <div class="proc-help">Record vendor offers, score them, select the winner, then create the purchase order.</div>
+        </div>
+      </div>
+      <div class="table-wrap" style="margin-top: 12px;">
+        <table class="registry-table">
+          <thead>
+            <tr>
+              <th>Quotation No.</th>
+              <th>PR / RFQ</th>
+              <th>Vendor</th>
+              <th>Quote Date</th>
+              <th class="text-right">Quoted Total</th>
+              <th class="text-right">Delivery</th>
+              <th class="text-right">Score</th>
+              <th>Status</th>
+              <th class="text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="quote-body"><tr class="empty-row"><td colspan="9">No quotations yet.</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -272,7 +483,10 @@
               <th>Prepared By</th>
               <th>Approved By</th>
               <th>Status</th>
+              <th>Source Quote</th>
+              <th>Approval Trail</th>
               <th>Descriptions</th>
+              <th>Generated Bills</th>
               <th class="text-right">Lines</th>
               <th class="text-right">Total</th>
               <th class="text-center">Actions</th>
@@ -310,7 +524,7 @@
   </div>
 
   <!-- BILLS SECTION -->
-  <div id="bills" class="content-section ap-workspace-section" data-ap-section="bills">
+  <div id="bills" class="content-section ap-workspace-section" data-ap-section="bills" data-ap-only>
     <div class="module-panel-head">
       <div>
         <div class="section-title">Bills Register</div>
@@ -330,6 +544,7 @@
             <th>Paid Amount</th>
             <th>Balance</th>
             <th>Status</th>
+            <th>Approval</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -340,8 +555,58 @@
     </div>
   </div>
 
+  <div id="vendor-balances" class="content-section ap-workspace-section" data-ap-section="vendor-balances" data-ap-only>
+    <div class="module-panel-head">
+      <div>
+        <div class="section-title">Vendor Balances</div>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Vendor</th>
+            <th class="text-right">Bills</th>
+            <th class="text-right">Open Bills</th>
+            <th class="text-right">Total Amount</th>
+            <th class="text-right">Paid Amount</th>
+            <th class="text-right">Balance</th>
+            <th class="text-right">Overdue</th>
+          </tr>
+        </thead>
+        <tbody id="vendor-balances-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="ap-aging" class="content-section ap-workspace-section" data-ap-section="ap-aging" data-ap-only>
+    <div class="module-panel-head">
+      <div>
+        <div class="section-title">AP Aging</div>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Vendor</th>
+            <th>Bill Number</th>
+            <th>Due Date</th>
+            <th class="text-right">Current</th>
+            <th class="text-right">1-30 Days</th>
+            <th class="text-right">31-60 Days</th>
+            <th class="text-right">61-90 Days</th>
+            <th class="text-right">Over 90 Days</th>
+            <th class="text-right">Total Balance</th>
+          </tr>
+        </thead>
+        <tbody id="ap-aging-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- PAYMENTS SECTION -->
-  <div id="payments" class="content-section ap-workspace-section" data-ap-section="payments">
+  <div id="payments" class="content-section ap-workspace-section" data-ap-section="payments" data-ap-only>
     <div class="module-panel-head">
       <div>
         <div class="section-title">Payments Ledger</div>
@@ -358,12 +623,38 @@
             <th>Amount Paid</th>
             <th>Method</th>
             <th>Reference</th>
+            <th>Approval</th>
             <th>Notes</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody id="payments-tbody">
           
         </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="disbursements" class="content-section ap-workspace-section" data-ap-section="disbursements" data-ap-only>
+    <div class="module-panel-head">
+      <div>
+        <div class="section-title">Disbursements</div>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Disbursement Date</th>
+            <th>Bill Number</th>
+            <th>Vendor</th>
+            <th class="text-right">Amount</th>
+            <th>Method</th>
+            <th>Reference</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody id="disbursements-tbody"></tbody>
       </table>
     </div>
   </div>
@@ -373,35 +664,29 @@
   &copy; 2025 KVSK CCTV & IT Solution | ERP System
 </footer>
 
+<div id="toast" role="status" aria-live="polite"></div>
+
 <!-- VENDOR MODAL -->
-<div class="modal-backdrop" id="vendor-modal-backdrop">
+<div class="modal-backdrop" id="vendor-modal-backdrop" data-procurement-only>
   <div class="modal modal-project" style="max-width: 760px;">
     <button class="modal-close" onclick="closeVendorModal()">X</button>
     <div class="user-modal-brand">
       <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
       <div>
-        <div class="user-modal-kicker">Accounts Payable</div>
+        <div class="user-modal-kicker">Procurement</div>
         <div class="modal-title" id="vendor-modal-title" style="margin-bottom:0;">Add Vendor</div>
       </div>
     </div>
     <div class="section-divider">Vendor Details</div>
     <div class="modal-grid-compact">
       <div class="field">
-        <label>Vendor No.</label>
-        <input id="f-vendor-no" type="text" placeholder="Auto-generated" readonly />
+        <label>Vendor No. <span class="req-star">*</span></label>
+        <input id="f-vendor-no" type="text" placeholder="Auto-generated" readonly required aria-required="true" />
       </div>
       <div class="field full">
         <label>Vendor Name <span class="req-star">*</span></label>
         <input id="f-vendor-name" type="text" placeholder="Supplier name" required />
         <div class="modal-inline-message is-hidden" data-procurement-field-message="vendor_name" aria-live="polite"></div>
-      </div>
-      <div class="field full">
-        <label>Company</label>
-        <input id="f-vendor-company-search" type="text" placeholder="Search company..." autocomplete="off" oninput="renderCompanyOptions('f-vendor-company', 'No company selected')" />
-        <select id="f-vendor-company">
-          <option value="">No company selected</option>
-        </select>
-        <div class="modal-inline-message is-hidden" data-procurement-field-message="vendor_company" aria-live="polite"></div>
       </div>
       <div class="field">
         <label>Contact Person <span class="req-star">*</span></label>
@@ -434,45 +719,52 @@
       </div>
     </div>
     <div class="modal-actions">
-      <button class="btn btn-cancel btn-sm" onclick="closeVendorModal()">Cancel</button>
-      <button class="btn btn-save btn-sm" id="vendor-save-btn" onclick="saveVendor()">Create Vendor</button>
+      <button class="btn btn-cancel btn-sm" type="button" onclick="closeVendorModal()">Cancel</button>
+      <button class="btn btn-save btn-sm" id="vendor-save-btn" type="button" onclick="saveVendor()">Create Vendor</button>
     </div>
   </div>
 </div>
 
 <!-- REQUISITION MODAL -->
-<div class="modal-backdrop" id="pr-modal-backdrop">
+<div class="modal-backdrop" id="pr-modal-backdrop" data-procurement-only>
   <div class="modal modal-project" style="max-width: 760px;">
     <button class="modal-close" onclick="closeRequisitionModal()">X</button>
     <div class="user-modal-brand">
       <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
       <div>
-        <div class="user-modal-kicker">Accounts Payable</div>
+        <div class="user-modal-kicker">Procurement</div>
         <div class="modal-title" id="pr-modal-title" style="margin-bottom:0;">Add Requisition</div>
       </div>
     </div>
     <div class="section-divider">Request Details</div>
     <div class="modal-grid-compact">
       <div class="field">
-        <label>PR No.</label>
-        <input id="pr-number" type="text" placeholder="Auto-generated" readonly style="background:var(--surface2);cursor:default;color:var(--muted);" />
+        <label>PR No. <span class="req-star">*</span></label>
+        <input id="pr-number" type="text" placeholder="Auto-generated" readonly required aria-required="true" style="background:var(--surface2);cursor:default;color:var(--muted);" />
         <div class="modal-inline-message is-hidden" data-procurement-field-message="pr_number" aria-live="polite"></div>
       </div>
       <div class="field full">
         <label>Company <span class="req-star">*</span></label>
         <input id="pr-company-search" type="text" placeholder="Search company..." autocomplete="off" oninput="renderCompanyOptions('pr-company')" />
         <select id="pr-company"></select>
-        <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">Select the company requesting this purchase.</div>
+        <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">Auto-filled from the selected project.</div>
         <div class="modal-inline-message is-hidden" data-procurement-field-message="company_id" aria-live="polite"></div>
+      </div>
+      <div class="field full">
+        <label>Project <span class="req-star">*</span></label>
+        <select id="pr-project" onchange="syncRequisitionProjectContext(this.value)"></select>
+        <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">A requisition must be tied to a project for traceability.</div>
+        <div class="modal-inline-message is-hidden" data-procurement-field-message="project_id" aria-live="polite"></div>
+      </div>
+      <div class="field full" id="pr-project-context-field" hidden>
+        <label>Linked Project</label>
+        <input id="pr-project-context" type="text" readonly style="background:var(--surface2);cursor:default;color:var(--text);" />
+        <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">This requisition will stay attached to the selected project.</div>
       </div>
       <div class="field">
         <label>Request Date <span class="req-star">*</span></label>
         <input id="pr-request-date" type="date" />
         <div class="modal-inline-message is-hidden" data-procurement-field-message="request_date" aria-live="polite"></div>
-      </div>
-      <div class="field">
-        <label>Department</label>
-        <input id="pr-department" type="text" placeholder="Operations" />
       </div>
       <div class="field">
         <label>Requested By</label>
@@ -482,7 +774,7 @@
         <label>Needed By</label>
         <input id="pr-needed-by" type="date" />
       </div>
-      <div class="field">
+      <div class="field" hidden>
         <label>Status</label>
         <select id="pr-status">
           <option value="draft">Draft</option>
@@ -523,14 +815,145 @@
   </div>
 </div>
 
+<!-- QUOTATION / EVALUATION MODAL -->
+<div class="modal-backdrop" id="quote-modal-backdrop" data-procurement-only>
+  <div class="modal modal-project" style="max-width: 760px;">
+    <button class="modal-close" onclick="closeQuotationModal()">X</button>
+    <div class="user-modal-brand">
+      <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <div>
+        <div class="user-modal-kicker">Procurement</div>
+        <div class="modal-title" id="quote-modal-title" style="margin-bottom:0;">Add Quotation</div>
+      </div>
+    </div>
+    <div class="section-divider">Vendor Offer</div>
+    <div class="modal-grid-compact">
+      <div class="field">
+        <label>Quotation No. <span class="req-star">*</span></label>
+        <input id="quote-number" type="text" placeholder="Auto-generated" readonly required aria-required="true" style="background:var(--surface2);cursor:default;color:var(--muted);" />
+        <div class="modal-inline-message is-hidden" data-procurement-field-message="quotation_number" aria-live="polite"></div>
+      </div>
+      <div class="field full">
+        <label>Approved PR <span class="req-star">*</span></label>
+        <select id="quote-requisition" onchange="syncQuotationFromRequisition()"></select>
+        <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">Only approved purchase requisitions can receive quotations.</div>
+        <div class="modal-inline-message is-hidden" data-procurement-field-message="quotation_requisition" aria-live="polite"></div>
+      </div>
+      <div class="field full">
+        <label>Vendor <span class="req-star">*</span></label>
+        <select id="quote-vendor"></select>
+        <div class="modal-inline-message is-hidden" data-procurement-field-message="quotation_vendor" aria-live="polite"></div>
+      </div>
+      <div class="field">
+        <label>Quote Date</label>
+        <input id="quote-date" type="date" />
+      </div>
+      <div class="field">
+        <label>Quoted Total <span class="req-star">*</span></label>
+        <input id="quote-total" type="number" step="0.01" min="0" placeholder="0.00" />
+        <div class="modal-inline-message is-hidden" data-procurement-field-message="quotation_total" aria-live="polite"></div>
+      </div>
+      <div class="field">
+        <label>Delivery Days</label>
+        <input id="quote-delivery-days" type="number" step="1" min="0" placeholder="0" />
+      </div>
+      <div class="field">
+        <label>Score</label>
+        <input id="quote-score" type="number" step="1" min="0" max="100" placeholder="0-100" />
+      </div>
+      <div class="field" hidden>
+        <label>Status</label>
+        <select id="quote-status">
+          <option value="draft">Draft</option>
+          <option value="submitted">Submitted</option>
+          <option value="selected">Selected</option>
+          <option value="rejected">Rejected</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Payment Terms</label>
+        <input id="quote-payment-terms" type="text" placeholder="e.g. Net 30, COD" />
+      </div>
+      <div class="field">
+        <label>Warranty / Terms</label>
+        <input id="quote-warranty-terms" type="text" placeholder="Warranty or supplier terms" />
+      </div>
+      <div class="field full">
+        <label>Remarks</label>
+        <textarea id="quote-remarks" style="height:70px" placeholder="Evaluation notes..."></textarea>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-cancel btn-sm" onclick="closeQuotationModal()">Cancel</button>
+      <button class="btn btn-save btn-sm" id="quote-save-btn" onclick="saveQuotation()">Save Quotation</button>
+    </div>
+  </div>
+</div>
+
+<!-- RECORD DOCUMENTS MODAL -->
+<div class="modal-backdrop" id="record-documents-modal-backdrop" data-procurement-only>
+  <div class="modal modal-project" style="max-width: 760px;">
+    <button class="modal-close" onclick="closeRecordDocumentsModal()">X</button>
+    <div class="user-modal-brand">
+      <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <div>
+        <div class="user-modal-kicker">Documents</div>
+        <div class="modal-title" id="record-documents-title" style="margin-bottom:0;">Attached PDFs</div>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div class="section-divider">Upload PDF</div>
+      <div class="modal-grid-compact">
+        <div class="field">
+          <label>Document Type</label>
+          <select id="record-document-type">
+            <option value="signed_po">Signed PO</option>
+            <option value="supplier_quotation">Supplier Quotation</option>
+            <option value="delivery_receipt">Delivery Receipt</option>
+            <option value="approval_proof">Approval Proof</option>
+            <option value="attachment">Other Attachment</option>
+          </select>
+        </div>
+        <div class="field full">
+          <label>PDF File</label>
+          <input id="record-document-file" type="file" accept="application/pdf,.pdf" />
+        </div>
+      </div>
+      <div class="modal-actions" style="justify-content:flex-start;padding:0;margin:8px 0 14px;">
+        <button class="btn btn-save btn-sm" type="button" onclick="uploadRecordDocument()">Upload PDF</button>
+      </div>
+      <div class="section-divider">Attached PDFs</div>
+      <div class="table-wrap">
+        <table class="registry-table">
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Filename</th>
+              <th>Uploaded</th>
+              <th class="text-right">Size</th>
+              <th class="text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="record-documents-body">
+            <tr class="empty-row"><td colspan="5">No documents attached yet.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-cancel btn-sm" onclick="closeRecordDocumentsModal()">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- PURCHASE ORDER MODAL -->
-<div class="modal-backdrop" id="po-modal-backdrop">
+<div class="modal-backdrop" id="po-modal-backdrop" data-procurement-only>
   <div class="modal modal-project" style="max-width: 940px;">
     <button class="modal-close" onclick="closePurchaseOrderModal()">X</button>
     <div class="user-modal-brand">
       <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
       <div>
-        <div class="user-modal-kicker">Accounts Payable</div>
+        <div class="user-modal-kicker">Procurement</div>
         <div class="modal-title" id="po-modal-title" style="margin-bottom:0;">Add Purchase Order</div>
       </div>
     </div>
@@ -538,8 +961,8 @@
       <div class="section-divider">Order Details</div>
       <div class="modal-grid-compact">
         <div class="field">
-          <label>PO No.</label>
-          <input id="po-number" type="text" placeholder="Auto-generated" readonly style="background:var(--surface2);cursor:default;color:var(--muted);" />
+          <label>PO No. <span class="req-star">*</span></label>
+          <input id="po-number" type="text" placeholder="Auto-generated" readonly required aria-required="true" style="background:var(--surface2);cursor:default;color:var(--muted);" />
         </div>
         <div class="field full">
           <label>Project</label>
@@ -555,9 +978,11 @@
           <div class="modal-inline-message is-hidden" data-procurement-field-message="company_id" aria-live="polite"></div>
         </div>
         <div class="field full">
-          <label>Requisition</label>
-          <select id="po-requisition" onchange="applyPurchaseOrderRequisitionSelection()"></select>
-          <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">Optional. Select a requisition to inherit the company and line items.</div>
+          <label>Approved RFQ <span class="req-star">*</span></label>
+          <input id="po-source-rfq" type="text" readonly placeholder="Create this PO from an approved RFQ" style="background:var(--surface2);cursor:default;color:var(--muted);" />
+          <select id="po-requisition" onchange="applyPurchaseOrderRequisitionSelection()" hidden></select>
+          <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">POs are created from the approved RFQ. The linked PR is carried automatically.</div>
+          <div class="modal-inline-message is-hidden" data-procurement-field-message="quotation_id" aria-live="polite"></div>
           <div class="modal-inline-message is-hidden" data-procurement-field-message="requisition_id" aria-live="polite"></div>
         </div>
         <div class="field full">
@@ -572,16 +997,17 @@
         </div>
         <div class="field">
           <label>PO Date <span class="req-star">*</span></label>
-          <input id="po-date" type="date" />
+          <input id="po-date" type="date" onchange="renderPurchaseOrderPaymentTermsPreview()" />
           <div class="modal-inline-message is-hidden" data-procurement-field-message="po_date" aria-live="polite"></div>
         </div>
         <div class="field">
           <label>Delivery Date</label>
-          <input id="po-delivery" type="date" />
+          <input id="po-delivery" type="date" onchange="renderPurchaseOrderPaymentTermsPreview()" />
         </div>
         <div class="field">
           <label>Payment Terms</label>
-          <input id="po-payment-terms" type="text" placeholder="e.g. Net 30, COD" />
+          <input id="po-payment-terms" type="text" placeholder="e.g. 30% downpayment, 70% upon delivery" oninput="renderPurchaseOrderPaymentTermsPreview()" />
+          <div class="modal-inline-message is-hidden" id="po-payment-terms-preview" aria-live="polite"></div>
         </div>
         <div class="field">
           <label>Prepared By</label>
@@ -591,7 +1017,7 @@
           <label>Approved By</label>
           <input id="po-approved-by" type="text" placeholder="Approved by" />
         </div>
-        <div class="field">
+        <div class="field" hidden>
           <label>Status</label>
           <select id="po-status">
             <option value="draft">Draft</option>
@@ -633,21 +1059,21 @@
 </div>
 
 <!-- GOODS RECEIPT MODAL -->
-<div class="modal-backdrop" id="grn-modal-backdrop">
+<div class="modal-backdrop" id="grn-modal-backdrop" data-procurement-only>
   <div class="modal modal-project" style="max-width: 680px;">
     <button class="modal-close" onclick="closeGoodsReceiptModal()">X</button>
     <div class="user-modal-brand">
       <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
       <div>
-        <div class="user-modal-kicker">Accounts Payable</div>
+        <div class="user-modal-kicker">Procurement</div>
         <div class="modal-title" id="grn-modal-title" style="margin-bottom:0;">Add Goods Receipt</div>
       </div>
     </div>
     <div class="section-divider">Receiving Details</div>
     <div class="modal-grid-compact">
       <div class="field">
-        <label>GRN No.</label>
-        <input id="grn-number" type="text" placeholder="Auto-generated" readonly style="background:var(--surface2);cursor:default;color:var(--muted);" />
+        <label>GRN No. <span class="req-star">*</span></label>
+        <input id="grn-number" type="text" placeholder="Auto-generated" readonly required aria-required="true" style="background:var(--surface2);cursor:default;color:var(--muted);" />
         <div class="modal-inline-message is-hidden" data-procurement-field-message="grn_number" aria-live="polite"></div>
       </div>
       <div class="field">
@@ -680,7 +1106,7 @@
         <label>Received By</label>
         <input id="grn-received-by" type="text" placeholder="Receiver name" />
       </div>
-      <div class="field">
+      <div class="field" hidden>
         <label>Status</label>
         <select id="grn-status">
           <option value="received">Received</option>
@@ -701,7 +1127,7 @@
 </div>
 
 <!-- BILL MODAL -->
-<div id="bill-modal-backdrop" class="modal-backdrop">
+<div id="bill-modal-backdrop" class="modal-backdrop" data-ap-only>
   <div class="modal">
     <div class="modal-header">
       <h3>New Bill</h3>
@@ -724,7 +1150,7 @@
       </div>
       <div class="form-group">
         <label>Bill Number *</label>
-        <input id="f-bill-number" type="text" placeholder="Auto-generated" readonly style="background:var(--surface2);cursor:default;color:var(--muted);" />
+        <input id="f-bill-number" type="text" placeholder="Auto-generated" readonly required aria-required="true" style="background:var(--surface2);cursor:default;color:var(--muted);" />
       </div>
       <div class="form-group">
         <label>Project</label>
@@ -782,7 +1208,7 @@
 </div>
 
 <!-- PAYMENT MODAL -->
-<div id="payment-modal-backdrop" class="modal-backdrop">
+<div id="payment-modal-backdrop" class="modal-backdrop" data-ap-only>
   <div class="modal">
     <div class="modal-header">
       <h3>Record Payment</h3>
@@ -867,8 +1293,22 @@
         <span class="sidebar-group-caret">?</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/admin?view=ongoing-projects" class="sidebar-link is-subitem" id="menu-ongoing-projects">Ongoing Projects</a>
         <a href="/company-registry" class="sidebar-link is-subitem">Company Registry</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="procurement">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Procurement</span>
+        <span class="sidebar-group-caret">?</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/procurement?tab=vendors" class="sidebar-link is-subitem active">Vendors</a>
+        <a href="/procurement?tab=requisitions" class="sidebar-link is-subitem">Purchase Requisitions</a>
+        <a href="/procurement?tab=rfq" class="sidebar-link is-subitem">RFQ</a>
+        <a href="/procurement?tab=quotations" class="sidebar-link is-subitem">Quotations &amp; Evaluation</a>
+        <a href="/procurement?tab=purchase-orders" class="sidebar-link is-subitem">Purchase Orders</a>
+        <a href="/procurement?tab=goods-receipts" class="sidebar-link is-subitem">Goods Receipts</a>
       </div>
     </div>
 
@@ -878,12 +1318,11 @@
         <span class="sidebar-group-caret">?</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/accounts-payable?tab=vendors" class="sidebar-link is-subitem active">Vendors</a>
-        <a href="/accounts-payable?tab=requisitions" class="sidebar-link is-subitem">Purchase Requisitions</a>
-        <a href="/accounts-payable?tab=purchase-orders" class="sidebar-link is-subitem">Purchase Orders</a>
-        <a href="/accounts-payable?tab=goods-receipts" class="sidebar-link is-subitem">Goods Receipts</a>
         <a href="/accounts-payable?tab=bills" class="sidebar-link is-subitem">Bills</a>
+        <a href="/accounts-payable?tab=vendor-balances" class="sidebar-link is-subitem">Vendor Balances</a>
+        <a href="/accounts-payable?tab=ap-aging" class="sidebar-link is-subitem">AP Aging</a>
         <a href="/accounts-payable?tab=payments" class="sidebar-link is-subitem">Payments</a>
+        <a href="/accounts-payable?tab=disbursements" class="sidebar-link is-subitem">Disbursements</a>
       </div>
     </div>
 
@@ -918,7 +1357,7 @@
         <span class="sidebar-group-caret">?</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/admin?view=archived" class="sidebar-link">Archived</a>
+        <a href="/admin?panel=archive-center" class="sidebar-link">Archive Center</a>
       </div>
     </div>
   </nav>
@@ -935,9 +1374,9 @@
   </div>
 </div>
 
-  <script src="/assets/js/erp-core.js?v=20260514c"></script>
-  <script src="/accounts-payable/ap-purchasing.js?v=20260515a"></script>
-  <script src="/accounts-payable/accounts-payable.js?v=20260514a"></script>
+  <script src="/assets/js/erp-core.js?v=20260519a"></script>
+  <script src="/accounts-payable/ap-purchasing.js?v=20260519d"></script>
+  <script src="/accounts-payable/accounts-payable.js?v=20260518e"></script>
 </body>
 </html>
 

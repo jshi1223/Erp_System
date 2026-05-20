@@ -2,11 +2,25 @@
 
 'use strict';
 
+function normalizeAccessRole(role) {
+  const safeRole = String(role || 'user').trim().toLowerCase();
+  return ['super_admin', 'admin', 'staff', 'user'].includes(safeRole) ? safeRole : 'user';
+}
+
+function isAdminRoleValue(role) {
+  return ['super_admin', 'admin'].includes(normalizeAccessRole(role));
+}
+
+function isPrivilegedRoleValue(role) {
+  return ['super_admin', 'admin', 'staff'].includes(normalizeAccessRole(role));
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  applyStoredBusinessEntityBrand();
   loadNotificationReadState();
   const initialParams = new URLSearchParams(window.location.search);
-  pendingTransactionProjectId = Number(initialParams.get('project_id') || 0) || null;
-  pendingTransactionLaunch = String(initialParams.get('action') || '').toLowerCase() === 'transaction' && !!pendingTransactionProjectId;
+  pendingTransactionProjectId = null;
+  pendingTransactionLaunch = false;
 
   // 1. I-verify ang User Role at I-restore ang huling active tab
   fetch('/api/me').then(r => r.json()).then(user => {
@@ -16,22 +30,31 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     updateRoleBadge(user.role);
     
-    if (user.role === 'admin') {
+    if (isAdminRoleValue(user.role)) {
       const utab = document.getElementById('tab-users');
       if (utab) utab.style.display = 'block';
 
       const menuUsers = document.getElementById('menu-users');
       if (menuUsers) menuUsers.style.display = 'block';
+
+      const menuBusinessEntities = document.getElementById('menu-business-entities');
+      if (menuBusinessEntities) menuBusinessEntities.style.display = 'block';
       
       const menuLogs = document.getElementById('menu-logs');
       if (menuLogs) menuLogs.style.display = 'block';
+
+      const menuArchiveCenter = document.getElementById('menu-archive-center');
+      if (menuArchiveCenter) menuArchiveCenter.style.display = 'block';
     }
 
     const storedTab = localStorage.getItem('kinaadman_activeTab');
+    if (storedTab === 'archived') {
+      localStorage.setItem('kinaadman_dashboardPanel', 'archive-center');
+    }
     const archivedMenu = document.getElementById('menu-archived');
-    const allowedTabs = user.role === 'admin' ? ['all', 'archived', 'users'] : ['all'];
+    const allowedTabs = isAdminRoleValue(user.role) ? ['all', 'users'] : ['all'];
 
-    if (archivedMenu) archivedMenu.style.display = user.role === 'admin' ? '' : 'none';
+    if (archivedMenu) archivedMenu.style.display = isAdminRoleValue(user.role) ? '' : 'none';
     activeTab = allowedTabs.includes(storedTab) ? storedTab : 'all';
     localStorage.setItem('kinaadman_activeTab', activeTab);
     updateSidebarMenuState('dashboard');
@@ -46,10 +69,10 @@ document.addEventListener('DOMContentLoaded', () => {
       const pageSub = document.querySelector('.page-sub');
       const addBtn = document.getElementById('btn-main-add');
       if (pageTitle) pageTitle.textContent = 'User Management';
-      if (pageSub) pageSub.textContent = 'Create and manage admin, staff, and user accounts.';
+      if (pageSub) pageSub.textContent = 'Approve registered accounts and manage existing users.';
       if (addBtn) {
-        addBtn.textContent = 'Add User';
-        addBtn.onclick = () => openUserModal();
+        addBtn.style.display = 'none';
+        addBtn.onclick = null;
       }
 
       loadUsers();
@@ -97,6 +120,7 @@ document.addEventListener('DOMContentLoaded', () => {
   syncSidebarGroupStates();
   syncSidebarActiveLinks();
   syncBackButtonLabels();
+  loadBusinessEntities();
 
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
@@ -121,8 +145,9 @@ function applyInitialAdminView(user) {
   const requestedPanel = params.get('panel');
   const requestedTab = params.get('tab');
   const rememberedPanel = localStorage.getItem('kinaadman_dashboardPanel');
-  const allowedPanels = ['home', 'project-records', 'total-projects', 'ongoing-projects', 'system-logs'];
-  const allowedTabs = user?.role === 'admin' ? ['all', 'archived', 'users'] : ['all'];
+  const rememberedProjectWorkspaceTab = localStorage.getItem('kinaadman_projectWorkspaceTab');
+  const allowedPanels = ['home', 'project-records', 'project-ledger', 'total-projects', 'ongoing-projects', 'system-logs', 'archive-center'];
+  const allowedTabs = isAdminRoleValue(user?.role) ? ['all', 'archived', 'users'] : ['all'];
   const menuByTab = {
     all: document.getElementById('menu-all'),
     archived: document.getElementById('menu-archived'),
@@ -138,30 +163,46 @@ function applyInitialAdminView(user) {
   }
 
   if (requestedPanel === 'project-records') {
+    currentProjectWorkspaceTab = normalizeProjectWorkspaceTab(requestedTab || rememberedProjectWorkspaceTab || currentProjectWorkspaceTab);
     openDashboardPanel('project-records');
     return;
   }
 
+  if (requestedPanel === 'project-ledger') {
+    currentProjectLedgerId = Number(params.get('project_id') || 0) || null;
+    openDashboardPanel('project-ledger');
+    return;
+  }
+
+  if (requestedPanel === 'service-orders' || requestedView === 'service-orders') {
+    window.location.replace('/accounts-receivable?tab=service-orders');
+    return;
+  }
+
   if (requestedView === 'all') {
-    const menuAll = document.getElementById('menu-all');
-    switchTab('all', menuAll);
+    currentProjectWorkspaceTab = normalizeProjectWorkspaceTab(requestedTab || rememberedProjectWorkspaceTab || currentProjectWorkspaceTab);
+    window.location.replace(`/admin?panel=project-records&tab=${encodeURIComponent(currentProjectWorkspaceTab)}`);
     return;
   }
 
-  if (requestedView === 'archived' && user?.role === 'admin') {
-    const menuArchived = document.getElementById('menu-archived');
-    switchTab('archived', menuArchived);
+  if ((requestedView === 'archived' || requestedView === 'archive-center') && isAdminRoleValue(user?.role)) {
+    openArchiveCenter();
     return;
   }
 
-  if (requestedView === 'users' && user?.role === 'admin') {
+  if (requestedView === 'users' && isAdminRoleValue(user?.role)) {
     const menuUsers = document.getElementById('menu-users');
     switchTab('users', menuUsers);
     return;
   }
 
-  if (requestedView === 'logs' && user?.role === 'admin') {
+  if (requestedView === 'logs' && isAdminRoleValue(user?.role)) {
     openLogsPanel();
+    return;
+  }
+
+  if (requestedPanel === 'reports') {
+    window.location.replace('/reports');
     return;
   }
 
@@ -172,8 +213,17 @@ function applyInitialAdminView(user) {
 
   if (!requestedView && requestedPanel && allowedPanels.includes(requestedPanel)) {
     if (requestedPanel === 'system-logs') {
-      if (user?.role === 'admin') {
+      if (isAdminRoleValue(user?.role)) {
         openLogsPanel();
+      } else {
+        openDashboardPanel('home');
+      }
+      return;
+    }
+
+    if (requestedPanel === 'archive-center') {
+      if (isAdminRoleValue(user?.role)) {
+        openArchiveCenter();
       } else {
         openDashboardPanel('home');
       }
@@ -186,20 +236,26 @@ function applyInitialAdminView(user) {
     }
 
     if (requestedPanel === 'total-projects') {
-      const preferredTab = allowedTabs.includes(requestedTab) ? requestedTab : activeTab;
-      const restoredTab = user?.role === 'admin' && preferredTab === 'archived'
-        ? 'archived'
-        : (preferredTab === 'users' && user?.role === 'admin' ? 'users' : 'all');
-      switchTab(restoredTab, menuByTab[restoredTab] || null);
+      openDashboardPanel('project-records');
       return;
     }
 
-    openDashboardPanel('home');
+    if (requestedPanel === 'project-records') {
+      currentProjectWorkspaceTab = normalizeProjectWorkspaceTab(requestedTab || rememberedProjectWorkspaceTab || currentProjectWorkspaceTab);
+      openDashboardPanel('project-records');
+      return;
+    }
+
+    openDashboardPanel(requestedPanel || 'home');
     return;
   }
 
   if (!requestedView) {
-    openDashboardPanel('home');
+    const restoredPanel = allowedPanels.includes(rememberedPanel) ? rememberedPanel : 'home';
+    if (restoredPanel === 'project-records') {
+      currentProjectWorkspaceTab = normalizeProjectWorkspaceTab(rememberedProjectWorkspaceTab || currentProjectWorkspaceTab);
+    }
+    openDashboardPanel(restoredPanel);
     return;
   }
 
@@ -213,20 +269,37 @@ function syncAdminViewUrl(panel, tab) {
 
     if (panel === 'project-records') {
       url.searchParams.set('panel', 'project-records');
+      url.searchParams.set('tab', normalizeProjectWorkspaceTab(currentProjectWorkspaceTab));
+      url.searchParams.delete('project_id');
+    } else if (panel === 'project-ledger') {
+      url.searchParams.set('panel', 'project-ledger');
       url.searchParams.delete('tab');
+      if (currentProjectLedgerId) {
+        url.searchParams.set('project_id', String(currentProjectLedgerId));
+      } else {
+        url.searchParams.delete('project_id');
+      }
     } else if (panel === 'total-projects') {
       const safeTab = isAdminUser() && tab === 'archived' ? 'archived' : (isAdminUser() && tab === 'users' ? 'users' : 'all');
-      url.searchParams.set('panel', 'total-projects');
+      url.searchParams.set('panel', safeTab === 'archived' ? 'total-projects' : 'project-records');
       url.searchParams.set('tab', safeTab);
+      url.searchParams.delete('project_id');
     } else if (panel === 'ongoing-projects') {
       url.searchParams.set('panel', 'ongoing-projects');
       url.searchParams.delete('tab');
+      url.searchParams.delete('project_id');
+    } else if (panel === 'archive-center') {
+      url.searchParams.set('panel', 'archive-center');
+      url.searchParams.delete('tab');
+      url.searchParams.delete('project_id');
     } else if (panel === 'system-logs') {
       url.searchParams.set('panel', 'system-logs');
       url.searchParams.delete('tab');
+      url.searchParams.delete('project_id');
     } else {
       url.searchParams.delete('panel');
       url.searchParams.delete('tab');
+      url.searchParams.delete('project_id');
     }
 
     const search = url.searchParams.toString();
@@ -237,10 +310,29 @@ function syncAdminViewUrl(panel, tab) {
   }
 }
 
+function clearTransactionLaunchUrlParams() {
+  try {
+    const url = new URL(window.location.href);
+    const hadLaunchParams = url.searchParams.has('action') || url.searchParams.has('project_id');
+    if (!hadLaunchParams) return;
+    url.searchParams.delete('action');
+    url.searchParams.delete('project_id');
+    const search = url.searchParams.toString();
+    const nextUrl = `${url.pathname}${search ? `?${search}` : ''}${url.hash || ''}`;
+    window.history.replaceState({}, '', nextUrl);
+  } catch (_) {
+    // Ignore URL parsing issues; UI state is already applied.
+  }
+}
+
 function updateSidebarMenuState(tab) {
+  const menuIdMap = {
+    'archive-center': 'menu-archive-center'
+  };
+  const activeMenuId = menuIdMap[tab] || `menu-${tab}`;
   document.querySelectorAll('.sidebar-link').forEach(l => {
     if (l.id && l.id.startsWith('menu-')) {
-      l.classList.toggle('active', l.id === 'menu-' + tab);
+      l.classList.toggle('active', l.id === activeMenuId);
     }
   });
 }
@@ -257,8 +349,14 @@ function updateDashboardHero(panel) {
     return;
   }
 
+  if (panel === 'project-ledger') {
+    pageTitle.textContent = 'Project Overview';
+    pageSub.textContent = '';
+    return;
+  }
+
   if (panel === 'total-projects') {
-    pageTitle.textContent = activeTab === 'archived' ? 'Archived Project Transactions' : 'Project Transactions';
+    pageTitle.textContent = activeTab === 'archived' ? 'Archived Transactions' : 'Transactions';
     pageSub.textContent = '';
     return;
   }
@@ -271,6 +369,12 @@ function updateDashboardHero(panel) {
 
   if (panel === 'system-logs') {
     pageTitle.textContent = 'System Logs';
+    pageSub.textContent = '';
+    return;
+  }
+
+  if (panel === 'archive-center') {
+    pageTitle.textContent = 'Archive Center';
     pageSub.textContent = '';
     return;
   }
@@ -289,8 +393,9 @@ function updateRoleBadge(role) {
   const badge = document.getElementById('role-badge');
   if (!badge) return;
 
-  const safeRole = String(role || 'user').toLowerCase();
+  const safeRole = normalizeAccessRole(role);
   const labelMap = {
+    super_admin: 'Super Admin',
     admin: 'Administrator',
     staff: 'Staff',
     user: 'User'
@@ -301,20 +406,29 @@ function updateRoleBadge(role) {
 }
 
 function openDashboardPanel(panel = 'home', opts = {}) {
+  if (panel === 'total-projects' && activeTab !== 'archived') {
+    panel = 'project-records';
+  }
+  if (['project-records', 'project-ledger', 'ongoing-projects'].includes(panel)) {
+    currentDashboardCompany = 'all';
+    localStorage.setItem('kinaadman_dashboardCompany', 'all');
+    syncDashboardCompanyFilterOptions();
+  }
   currentDashboardPanel = panel;
+  document.body.dataset.dashboardPanel = panel;
   localStorage.setItem('kinaadman_dashboardPanel', panel);
   if (opts.syncUrl !== false) {
     syncAdminViewUrl(panel, activeTab);
   }
 
   const sections = {
-    home: document.getElementById('dashboard-home-section'),
     reports: document.getElementById('reports-section'),
     'project-records': document.getElementById('project-records-section'),
-    'service-orders': document.getElementById('service-orders-section'),
+    'project-ledger': document.getElementById('project-ledger-page-section'),
     'total-projects': document.getElementById('total-projects-section'),
     'ongoing-projects': document.getElementById('ongoing-projects-section'),
-    'system-logs': document.getElementById('system-logs-section')
+    'system-logs': document.getElementById('system-logs-section'),
+    'archive-center': document.getElementById('archive-center-section')
   };
 
   Object.entries(sections).forEach(([key, section]) => {
@@ -333,14 +447,16 @@ function openDashboardPanel(panel = 'home', opts = {}) {
     updateSidebarMenuState('reports');
   } else if (panel === 'project-records') {
     updateSidebarMenuState('projects');
-  } else if (panel === 'service-orders') {
-    updateSidebarMenuState('service-orders');
+  } else if (panel === 'project-ledger') {
+    updateSidebarMenuState('projects');
   } else if (panel === 'total-projects') {
     updateSidebarMenuState('all');
   } else if (panel === 'ongoing-projects') {
     updateSidebarMenuState('ongoing-projects');
   } else if (panel === 'system-logs') {
     updateSidebarMenuState('logs');
+  } else if (panel === 'archive-center') {
+    updateSidebarMenuState('archive-center');
   }
 
   updateDashboardHero(panel);
@@ -350,10 +466,12 @@ function openDashboardPanel(panel = 'home', opts = {}) {
     renderOngoingProjects();
   } else if (panel === 'system-logs') {
     loadLogs();
+  } else if (panel === 'archive-center') {
+    loadArchiveCenter();
   } else if (panel === 'project-records') {
-    renderProjectRecordsTable();
-  } else if (panel === 'service-orders') {
-    renderServiceOrdersTable();
+    renderProjectWorkspace();
+  } else if (panel === 'project-ledger') {
+    loadProjectLedgerPage(currentProjectLedgerId);
   } else if (panel === 'total-projects') {
     renderTable();
   }
@@ -373,7 +491,7 @@ function loadProjectsDashboardData() {
       populateTransactionProjectSelect(document.getElementById('f-project-id')?.value || '');
       populateServiceOrderProjectSelect(document.getElementById('so-project-id')?.value || '');
       renderOngoingProjects();
-      renderProjectRecordsTable();
+      renderProjectWorkspace();
       renderProjectMasterTable();
       if (document.getElementById('gantt-project-cards')) {
         renderGanttProjectSwitcher();
@@ -384,19 +502,18 @@ function loadProjectsDashboardData() {
         });
       }
       if (currentDashboardPanel === 'project-records') {
-        renderProjectRecordsTable();
+        renderProjectWorkspace();
       }
       if (currentDashboardPanel === 'total-projects') {
         renderTable();
       }
-      if (pendingTransactionLaunch && pendingTransactionProjectId) {
-        const projectExists = projectsDashboardDb.some(project => Number(project.id || 0) === Number(pendingTransactionProjectId));
-        if (projectExists && document.getElementById('total-projects-section')) {
-          const projectId = Number(pendingTransactionProjectId);
-          pendingTransactionLaunch = false;
-          pendingTransactionProjectId = null;
-          setTimeout(() => openModal(null, projectId), 0);
-        }
+      if (currentDashboardPanel === 'project-ledger') {
+        loadProjectLedgerPage(currentProjectLedgerId);
+      }
+      if (pendingTransactionLaunch || pendingTransactionProjectId) {
+        pendingTransactionLaunch = false;
+        pendingTransactionProjectId = null;
+        clearTransactionLaunchUrlParams();
       }
     })
     .catch(err => {
@@ -489,6 +606,16 @@ function getTransactionCompanyName(record) {
   ).trim();
 }
 
+function getServiceOrderCompanyName(row) {
+  if (!row) return '';
+  const companyId = Number(row.company_id || 0) || 0;
+  if (companyId) {
+    const companyRecord = findRegistryCompanyById(companyId);
+    if (companyRecord?.company_name) return String(companyRecord.company_name || '').trim();
+  }
+  return String(row.company_name || row.company_no || '').trim();
+}
+
 function getReceivableCompanyName(row) {
   if (!row) return '';
   const linkedProjectId = Number(row.project_id || 0);
@@ -575,6 +702,39 @@ function findRegistryCompanyById(companyId) {
   return getRegistryCompanyEntries().find((row) => Number(row.id || 0) === target) || null;
 }
 
+function findRegistryCompanyBySearchValue(value) {
+  const target = String(value || '').trim().toLowerCase();
+  if (!target) return null;
+  const matches = getRegistryCompanySearchMatches(value);
+  return matches.exact || (matches.partial.length === 1 ? matches.partial[0] : null);
+}
+
+function getRegistryCompanySearchMatches(value) {
+  const target = String(value || '').trim().toLowerCase();
+  const empty = { exact: null, partial: [] };
+  if (!target) return empty;
+  const entries = getRegistryCompanyEntries();
+  const exact = entries.find((row) => {
+    const label = getRegistryCompanyLabel(row).toLowerCase();
+    return String(row.id || '').toLowerCase() === target
+      || String(row.company_no || '').toLowerCase() === target
+      || String(row.company_name || '').toLowerCase() === target
+      || label === target;
+  });
+
+  const partial = entries.filter((row) => {
+    const haystack = [
+      row.company_no,
+      row.company_name,
+      getRegistryCompanyLabel(row),
+      row.address
+    ].map((part) => String(part || '').toLowerCase()).join(' ');
+    return haystack.includes(target);
+  });
+
+  return { exact: exact || null, partial };
+}
+
 function collectDashboardCompanies() {
   const companies = new Map();
   const addCompany = (value, label = '') => {
@@ -601,6 +761,11 @@ function collectDashboardCompanies() {
 
   (Array.isArray(allReceivablesDb) ? allReceivablesDb : []).forEach(row => {
     const companyName = getReceivableCompanyName(row);
+    addCompany(companyName, companyName);
+  });
+
+  (Array.isArray(serviceOrdersDb) ? serviceOrdersDb : []).forEach(row => {
+    const companyName = getServiceOrderCompanyName(row);
     addCompany(companyName, companyName);
   });
 
@@ -720,6 +885,7 @@ function populateTransactionProjectSelect(selectedProjectId = '', locked = false
   if (!select) return;
 
   const projects = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
+    .filter((project) => businessEntityMatches(project))
     .slice()
     .sort((a, b) => String(getProjectLinkLabel(a)).localeCompare(String(getProjectLinkLabel(b))));
   const current = String(selectedProjectId || '').trim();
@@ -752,6 +918,7 @@ function fillTransactionProjectData(project) {
   if (projectStartInput) projectStartInput.value = startDate || '';
   if (projectEndInput) projectEndInput.value = endDate || '';
   if (projectCompanyInput) projectCompanyInput.value = companyName || '';
+  populateBusinessEntitySelect('f-business-entity-id', project?.business_entity_id || '');
 }
 
 function getNextProjectTransactionNo(projectId, excludeTransactionId = null) {
@@ -898,31 +1065,24 @@ async function syncTransactionServiceOrderFromProject(projectId = null, preferre
       const projectSelect = document.getElementById('f-project-id');
       const linkedProject = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
         .find((entry) => Number(entry.id || 0) === linkedProjectId);
-
-      if (projectSelect) {
-        projectSelect.value = String(linkedProjectId);
-      }
-      if (linkedProject) {
-        fillTransactionProjectData(linkedProject);
-      }
+      if (projectSelect) projectSelect.value = String(linkedProjectId);
+      if (linkedProject) fillTransactionProjectData(linkedProject);
     }
-
     setTransactionServiceOrderSelection(selectedRecord.id, getTransactionServiceOrderLabel(selectedRecord));
     setTransactionFieldMessage('service_order_id', '');
     return selectedRecord;
   }
 
   setTransactionServiceOrderSelection('', '');
-  if (normalizedProjectId) {
-    setTransactionFieldMessage('service_order_id', 'No service order is linked to the selected project.');
-  } else {
-    setTransactionFieldMessage('service_order_id', '');
-  }
+  setTransactionFieldMessage('service_order_id', '');
   return null;
 }
 
 function getProjectCompanyInputValue() {
   const hidden = document.getElementById('p-company-id');
+  if (hidden && !String(hidden.value || '').trim()) {
+    resolveProjectCompanySearch();
+  }
   return String(hidden?.value || '').trim();
 }
 
@@ -940,7 +1100,7 @@ function setDashboardCompanyFilter(value = 'all') {
   currentDashboardCompany = nextValue;
   localStorage.setItem('kinaadman_dashboardCompany', nextValue);
   syncDashboardCompanyFilterOptions();
-  renderProjectRecordsTable();
+  renderProjectWorkspace();
   if (currentDashboardPanel === 'total-projects') {
     renderTable();
   } else {
@@ -949,6 +1109,7 @@ function setDashboardCompanyFilter(value = 'all') {
   renderOngoingProjects();
   renderDashboardAnalytics(getDashboardInvoiceRows());
   renderInvoiceStatusQuickView(getDashboardInvoiceRows());
+  updateCompanyRegistryStatCard();
   if (typeof updateStats === 'function') {
     updateStats();
   }
@@ -990,10 +1151,24 @@ async function toggleProjectArchive(projectId, archive = true) {
   if (!id) return;
 
   const verb = archive ? 'archive' : 'restore';
-  const prompt = archive
-    ? 'Archive this project? It will move to Archived Projects.'
-    : 'Restore this project back to Project Transactions?';
-  if (!confirm(prompt)) return;
+  let confirmed = false;
+  if (archive) {
+    const summary = await loadProjectArchiveSummary(id);
+    confirmed = await openConfirmDialog({
+      title: 'Archive Project',
+      message: buildProjectArchiveWarningMessage(summary),
+      noText: 'Cancel',
+      yesText: 'Archive Project'
+    });
+  } else {
+    confirmed = await openConfirmDialog({
+      title: 'Restore Project',
+      message: 'Restore this project record? New linked activity will be allowed again after restore.',
+      noText: 'Cancel',
+      yesText: 'Restore'
+    });
+  }
+  if (!confirmed) return;
 
   try {
     const res = await fetch(`/api/projects/${id}/${verb}`, { method: 'PUT' });
@@ -1006,6 +1181,49 @@ async function toggleProjectArchive(projectId, archive = true) {
   }
 }
 
+async function loadProjectArchiveSummary(projectId) {
+  try {
+    const res = await fetch(`/api/projects/${Number(projectId)}/archive-summary`, { cache: 'no-store' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Unable to load project archive summary.');
+    return data;
+  } catch (err) {
+    showToast(err.message || 'Unable to load archive warning. Showing basic confirmation.', 'error');
+    return null;
+  }
+}
+
+function buildProjectArchiveWarningMessage(summary) {
+  if (!summary) {
+    return 'Archive this project only? Related records will stay visible in their modules for accounting, procurement, and audit history.';
+  }
+
+  const project = summary.project || {};
+  const counts = summary.counts || {};
+  const rows = [
+    ['Open PR', counts.purchase_requisitions?.open, counts.purchase_requisitions?.total],
+    ['Open PO', counts.purchase_orders?.open, counts.purchase_orders?.total],
+    ['Unpaid AP Bills', counts.accounts_payable?.open, counts.accounts_payable?.total],
+    ['Unpaid AR Invoices', counts.accounts_receivable?.open, counts.accounts_receivable?.total],
+    ['Active Service Orders', counts.service_orders?.open, counts.service_orders?.total],
+    ['Pending Tasks', counts.tasks?.open, counts.tasks?.total]
+  ];
+
+  const detail = rows
+    .map(([label, open, total]) => `${label}: ${Number(open || 0)} open / ${Number(total || 0)} total`)
+    .join('\n');
+  const projectLabel = [project.project_docno, project.project_name].filter(Boolean).join(' - ') || 'this project';
+
+  return [
+    `Archive ${projectLabel}?`,
+    '',
+    detail,
+    '',
+    'Only the project will move to archive. Related PR, PO, AP, AR, Service Orders, and Tasks will stay visible for audit/history.',
+    'New activity for this project will be blocked until it is restored.'
+  ].join('\n');
+}
+
 function renderProjectMasterTable() {
   const tbody = document.getElementById('project-table-body');
   if (!tbody) return;
@@ -1015,6 +1233,7 @@ function renderProjectMasterTable() {
 
   const list = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
     .map(project => ({ ...project, lifecycle: getProjectLifecycleLabel(project) }))
+    .filter(project => businessEntityMatches(project))
     .filter(project => {
       const isArchived = Number(project.is_archived || 0) === 1;
       if (lifecycleFilter === 'archived') return isArchived;
@@ -1071,7 +1290,7 @@ function renderProjectMasterTable() {
     const endText = formatDateYmd(project.end_date || project.planned_end_date || getProjectEffectiveEndDate(project));
     const companyName = String(getProjectCompanyName(project) || '-').trim() || '-';
     const checkNo = String(project.checkno || project.source_checkno || '-').trim() || '-';
-    const poNo = String(project.pono || project.source_pono || '-').trim() || '-';
+    const customerPoRef = String(project.pono || project.source_pono || '-').trim() || '-';
     const projectDocNo = String(project.project_docno || project.source_docno || '-').trim() || '-';
     const arInvoiceNo = String(getProjectArInvoiceNo(project) || '-').trim() || '-';
     const apBillNo = String(getProjectApBillNo(project) || '-').trim() || '-';
@@ -1094,7 +1313,7 @@ function renderProjectMasterTable() {
         <td style="padding: 15px 20px; font-size: 0.84rem;">${highlight(arInvoiceNo, rawQuery)}</td>
         <td style="padding: 15px 20px; font-size: 0.84rem;">${highlight(apBillNo, rawQuery)}</td>
         <td style="padding: 15px 20px; font-size: 0.84rem;">${highlight(checkNo, rawQuery)}</td>
-        <td style="padding: 15px 20px; font-size: 0.84rem;">${highlight(poNo, rawQuery)}</td>
+        <td style="padding: 15px 20px; font-size: 0.84rem;">${highlight(customerPoRef, rawQuery)}</td>
         <td style="padding: 15px 20px; font-size: 0.8rem; line-height: 1.35; max-width: 240px; white-space: normal;">${highlight(description, rawQuery)}</td>
         <td style="padding: 15px 20px; font-size: 0.76rem; line-height: 1.35; max-width: 300px; white-space: normal;">${memberHtml}</td>
         <td class="text-right" style="padding: 15px 20px; font-size: 0.84rem;">${highlight(unitCostText, rawQuery)}</td>
@@ -1109,7 +1328,8 @@ function renderProjectMasterTable() {
         <td class="text-center" style="padding: 15px 20px;">
           <div class="project-master-actions">
             <button class="btn btn-sm btn-edit" type="button" onclick="openProjectModal(${Number(project.id)})">Edit</button>
-            <button class="btn btn-sm btn-add" type="button" onclick="openProjectPurchaseOrder(${Number(project.id)})">Add Purchase Order</button>
+            <button class="btn btn-sm btn-add" type="button" onclick="openProjectRequisition(${Number(project.id)})">Add PR</button>
+            <button class="btn btn-sm btn-add" type="button" onclick="openProjectPurchaseOrder(${Number(project.id)})">Add PO</button>
             ${project.pdfFilename
               ? `<button class="btn btn-sm btn-pdf" type="button" onclick="openProjectPdfViewer(${Number(project.id)})">View PDF</button>`
               : `<span class="pdf-empty">N/A</span>`}
@@ -1130,21 +1350,26 @@ function renderProjectRecordsTable() {
   const rawQuery = String(document.getElementById('project-records-search-input')?.value || '').trim();
   const q = rawQuery.toLowerCase();
 
-  const list = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
-    .filter(project => companyMatchesDashboardFilter(getProjectCompanyName(project)))
+  const list = getProjectWorkspaceProjects()
     .filter(project => {
       if (!q) return true;
       return [
         project.project_docno || '',
         project.project_name || '',
         project.company_name || project.registry_company_name || '',
-        project.company_no || project.registry_company_no || ''
+        project.company_no || project.registry_company_no || '',
+        project.project_manager || '',
+        project.status || '',
+        project.priority || '',
+        project.description || '',
+        project.pono || '',
+        project.checkno || ''
       ].join(' ').toLowerCase().includes(q);
     })
     .sort((a, b) => String(b.project_docno || '').localeCompare(String(a.project_docno || '')));
 
   if (!list.length) {
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="6">No project records found.</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="10">No project records found.</td></tr>`;
     return;
   }
 
@@ -1154,6 +1379,11 @@ function renderProjectRecordsTable() {
     const companyName = String(getProjectCompanyName(project) || '-').trim() || '-';
     const startDate = formatDateYmd(project.start_date || project.planned_start_date || '') || '-';
     const endDate = formatDateYmd(project.end_date || project.planned_end_date || '') || '-';
+    const manager = String(project.project_manager || '-').trim() || '-';
+    const projectStatusLabel = String(project.status || getProjectLifecycleLabel(project) || 'planning').replace(/_/g, ' ');
+    const projectStatusClass = `status-${String(project.status || getProjectLifecycleLabel(project) || 'planning').replace(/_/g, '-')}`;
+    const priorityLabel = String(project.priority || 'medium').replace(/_/g, ' ');
+    const contractAmountText = formatPhpCurrency(project.budget || 0);
     const isArchived = Number(project.is_archived || 0) === 1;
 
     return `
@@ -1161,13 +1391,18 @@ function renderProjectRecordsTable() {
         <td style="padding: 15px 20px; font-size: 0.85rem;">${highlight(projectDocNo, rawQuery)}</td>
         <td style="padding: 15px 20px; font-size: 0.92rem;"><strong>${highlight(projectTitle, rawQuery)}</strong></td>
         <td style="padding: 15px 20px; font-size: 0.85rem;">${highlight(companyName, rawQuery)}</td>
+        <td style="padding: 15px 20px; font-size: 0.85rem;">${highlight(manager, rawQuery)}</td>
+        <td class="text-center" style="padding: 15px 20px;"><span class="status-pill ${projectStatusClass}">${highlight(projectStatusLabel, rawQuery)}</span></td>
+        <td class="text-center" style="padding: 15px 20px; font-size: 0.85rem;">${highlight(priorityLabel, rawQuery)}</td>
         <td class="text-center" style="padding: 15px 20px; font-size: 0.85rem;">${highlight(startDate, rawQuery)}</td>
         <td class="text-center" style="padding: 15px 20px; font-size: 0.85rem;">${highlight(endDate, rawQuery)}</td>
+        <td class="text-right" style="padding: 15px 20px; font-size: 0.85rem;">${highlight(contractAmountText, rawQuery)}</td>
         <td class="text-center" style="padding: 15px 20px;">
           <div class="project-master-actions">
             <button class="btn btn-sm btn-edit" type="button" onclick="openProjectModal(${Number(project.id)})">Edit</button>
-            <button class="btn btn-sm btn-add" type="button" onclick="openProjectTransaction(${Number(project.id)})">Add Transaction</button>
-            <button class="btn btn-sm btn-add" type="button" onclick="openProjectPurchaseOrder(${Number(project.id)})">Add Purchase Order</button>
+            <button class="btn btn-sm btn-pdf" type="button" onclick="openProjectLedger(${Number(project.id)})">Overview</button>
+            <button class="btn btn-sm btn-add" type="button" onclick="openProjectRequisition(${Number(project.id)})">Add PR</button>
+            <button class="btn btn-sm btn-add" type="button" onclick="openProjectPurchaseOrder(${Number(project.id)})">Add PO</button>
             ${isArchived
               ? `<button class="btn btn-sm btn-restore" type="button" onclick="toggleProjectArchive(${Number(project.id)}, false)" title="Restore Project">Restore</button>`
               : `<button class="btn btn-sm btn-archive" type="button" onclick="toggleProjectArchive(${Number(project.id)}, true)" title="Archive Project">Archive</button>`}
@@ -1176,6 +1411,1292 @@ function renderProjectRecordsTable() {
       </tr>
     `;
   }).join('');
+}
+
+function normalizeProjectWorkspaceTab(tab) {
+  const safeTab = String(tab || '').trim().toLowerCase();
+  return ['projects', 'ongoing', 'transactions', 'service-orders', 'ledger', 'documents'].includes(safeTab)
+    ? safeTab
+    : 'projects';
+}
+
+function getProjectWorkspaceQuery() {
+  return String(document.getElementById('project-records-search-input')?.value || '').trim().toLowerCase();
+}
+
+function getProjectWorkspaceProjects({ includeArchived = false } = {}) {
+  return (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
+    .filter((project) => includeArchived || Number(project.is_archived || 0) === 0)
+    .filter((project) => businessEntityMatches(project))
+    .filter((project) => companyMatchesDashboardFilter(getProjectCompanyName(project)));
+}
+
+function projectWorkspaceMatchesSearch(values, query = getProjectWorkspaceQuery()) {
+  if (!query) return true;
+  return values.map((value) => String(value || '')).join(' ').toLowerCase().includes(query);
+}
+
+function renderProjectWorkspaceTable(title, headers, rows, emptyText) {
+  const headerHtml = headers.map((header) => `<th${header.className ? ` class="${header.className}"` : ''}>${escHtml(header.label)}</th>`).join('');
+  const bodyHtml = rows.length
+    ? rows.join('')
+    : `<tr class="empty-row"><td colspan="${headers.length}">${escHtml(emptyText)}</td></tr>`;
+
+  return `
+    <div class="section-divider">${escHtml(title)}</div>
+    <div class="table-wrap project-records-wrap">
+      <table class="project-records-table">
+        <thead><tr>${headerHtml}</tr></thead>
+        <tbody>${bodyHtml}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function setProjectWorkspaceSummaryCard(index, label, value, mini) {
+  const n = index + 1;
+  const labelNode = document.getElementById(`project-workspace-summary-label-${n}`);
+  const valueNode = document.getElementById(`project-workspace-summary-value-${n}`);
+  const miniNode = document.getElementById(`project-workspace-summary-mini-${n}`);
+  if (labelNode) labelNode.textContent = label;
+  if (valueNode) valueNode.textContent = value;
+  if (miniNode) miniNode.textContent = mini;
+}
+
+function getProjectWorkspaceMetrics() {
+  const projects = getProjectWorkspaceProjects();
+  const ongoing = projects.filter((project) => getProjectPhase(project) === 'ongoing');
+  const upcoming = projects.filter((project) => getProjectPhase(project) === 'upcoming');
+  const transactions = getDashboardInvoiceRows(allTransactionsDb)
+    .filter((row) => businessEntityMatches(row))
+    .filter((row) => companyMatchesDashboardFilter(row.company_name || row.client || getTransactionCompanyName(row)));
+  const receivables = (Array.isArray(allReceivablesDb) ? allReceivablesDb : [])
+    .filter((row) => businessEntityMatches(row))
+    .filter((row) => companyMatchesDashboardFilter(row.company_name || row.customer_name || ''));
+  const serviceOrders = (Array.isArray(serviceOrdersDb) ? serviceOrdersDb : [])
+    .filter((row) => Number(row.is_archived || 0) === 0)
+    .filter((row) => businessEntityMatches(row))
+    .filter((row) => companyMatchesDashboardFilter(getServiceOrderCompanyName(row)));
+  const documents = projects.filter((project) => String(project.pdfFilename || '').trim());
+  const arTotal = receivables.reduce((sum, row) => sum + Number(row.total_amount || row.amount || 0), 0);
+  const collected = receivables.reduce((sum, row) => sum + Number(row.paid_amount || 0), 0);
+  const serviceOrderTotal = serviceOrders.reduce((sum, row) => sum + Number(row.total_amount || row.amount || 0), 0);
+
+  return {
+    projects,
+    ongoing,
+    upcoming,
+    transactions,
+    receivables,
+    serviceOrders,
+    documents,
+    arTotal,
+    collected,
+    serviceOrderTotal
+  };
+}
+
+function updateProjectWorkspaceSummary() {
+  const metrics = getProjectWorkspaceMetrics();
+  const activeTab = normalizeProjectWorkspaceTab(currentProjectWorkspaceTab);
+
+  if (activeTab === 'ongoing') {
+    setProjectWorkspaceSummaryCard(0, 'Ongoing', String(metrics.ongoing.length), 'Currently in progress');
+    setProjectWorkspaceSummaryCard(1, 'Upcoming', String(metrics.upcoming.length), 'Scheduled next');
+    setProjectWorkspaceSummaryCard(2, 'All Active', String(metrics.ongoing.length + metrics.upcoming.length), 'Ongoing + upcoming');
+    setProjectWorkspaceSummaryCard(3, 'Contract', formatPhpCurrency(metrics.ongoing.reduce((sum, row) => sum + Number(row.budget || 0), 0)), 'Ongoing contract amount');
+    return;
+  }
+
+  if (activeTab === 'transactions') {
+    setProjectWorkspaceSummaryCard(0, 'Transactions', String(metrics.transactions.length), 'Linked invoices and receipts');
+    setProjectWorkspaceSummaryCard(1, 'Receivables', String(metrics.receivables.length), 'AR records');
+    setProjectWorkspaceSummaryCard(2, 'AR Total', formatPhpCurrency(metrics.arTotal), 'Total receivable amount');
+    setProjectWorkspaceSummaryCard(3, 'Collected', formatPhpCurrency(metrics.collected), 'Recorded paid amount');
+    return;
+  }
+
+  if (activeTab === 'service-orders') {
+    setProjectWorkspaceSummaryCard(0, 'Service Orders', String(metrics.serviceOrders.length), 'Linked service records');
+    setProjectWorkspaceSummaryCard(1, 'Issued', String(metrics.serviceOrders.filter((row) => String(row.status || '').toLowerCase() === 'issued').length), 'Issued SOs');
+    setProjectWorkspaceSummaryCard(2, 'In Progress', String(metrics.serviceOrders.filter((row) => String(row.status || '').toLowerCase() === 'in_progress').length), 'Active service work');
+    setProjectWorkspaceSummaryCard(3, 'SO Total', formatPhpCurrency(metrics.serviceOrderTotal), 'Total service amount');
+    return;
+  }
+
+  if (activeTab === 'ledger') {
+    setProjectWorkspaceSummaryCard(0, 'Projects', String(metrics.projects.length), 'Ledger-ready project records');
+    setProjectWorkspaceSummaryCard(1, 'Transactions', String(metrics.transactions.length), 'AR-linked records');
+    setProjectWorkspaceSummaryCard(2, 'Service Orders', String(metrics.serviceOrders.length), 'SO-linked records');
+    setProjectWorkspaceSummaryCard(3, 'Net AR', formatPhpCurrency(metrics.arTotal - metrics.collected), 'Open receivable balance');
+    return;
+  }
+
+  if (activeTab === 'documents') {
+    setProjectWorkspaceSummaryCard(0, 'Documents', String(metrics.documents.length), 'Projects with PDF');
+    setProjectWorkspaceSummaryCard(1, 'Projects', String(metrics.projects.length), 'Active project records');
+    setProjectWorkspaceSummaryCard(2, 'Missing PDF', String(Math.max(0, metrics.projects.length - metrics.documents.length)), 'No document attached');
+    setProjectWorkspaceSummaryCard(3, 'Companies', String(new Set(metrics.projects.map((project) => getProjectCompanyName(project)).filter(Boolean)).size), 'With project records');
+    return;
+  }
+
+  setProjectWorkspaceSummaryCard(0, 'Total Projects', String(metrics.projects.length), `${getCurrentDashboardCompanyLabel()} active records`);
+  setProjectWorkspaceSummaryCard(1, 'Ongoing', String(metrics.ongoing.length), 'Currently active');
+  setProjectWorkspaceSummaryCard(2, 'Transactions', String(metrics.transactions.length), 'Linked records');
+  setProjectWorkspaceSummaryCard(3, 'Documents', String(metrics.documents.length), 'Attached files');
+}
+
+function syncProjectWorkspaceTabs() {
+  const activeTab = normalizeProjectWorkspaceTab(currentProjectWorkspaceTab);
+  document.querySelectorAll('[data-project-workspace-tab]').forEach((node) => {
+    const isActive = node.getAttribute('data-project-workspace-tab') === activeTab;
+    node.classList.toggle('active', isActive);
+    node.setAttribute('aria-selected', String(isActive));
+  });
+}
+
+function renderProjectWorkspaceOngoing() {
+  const query = getProjectWorkspaceQuery();
+  const rows = getProjectWorkspaceProjects()
+    .map((project) => ({ ...project, phase: getProjectPhase(project) }))
+    .filter((project) => project.phase === 'ongoing' || project.phase === 'upcoming')
+    .filter((project) => projectWorkspaceMatchesSearch([
+      project.project_docno,
+      project.project_name,
+      getProjectCompanyName(project),
+      project.project_manager,
+      project.members,
+      project.status,
+      project.phase
+    ], query))
+    .sort((a, b) => String(formatDateYmd(getProjectEffectiveStartDate(a))).localeCompare(String(formatDateYmd(getProjectEffectiveStartDate(b)))))
+    .map((project) => `
+      <tr>
+        <td><strong>${highlight(project.project_name || 'Untitled Project', query)}</strong></td>
+        <td>${highlight(getProjectCompanyName(project) || '-', query)}</td>
+        <td class="text-center">${highlight(project.project_manager || '-', query)}</td>
+        <td class="text-center">${escHtml(formatDateYmd(getProjectEffectiveStartDate(project)) || '-')}</td>
+        <td class="text-center">${escHtml(formatDateYmd(getProjectEffectiveEndDate(project)) || '-')}</td>
+        <td class="text-center"><span class="status-pill ${project.phase === 'upcoming' ? 'status-upcoming' : 'status-ongoing'}">${escHtml(project.phase)}</span></td>
+        <td class="text-center"><button class="btn btn-sm btn-pdf" type="button" onclick="openProjectLedger(${Number(project.id || 0)})">Overview</button></td>
+      </tr>
+    `);
+
+  return renderProjectWorkspaceTable(
+    'Ongoing & Upcoming Projects',
+    [
+      { label: 'Project' },
+      { label: 'Company' },
+      { label: 'Manager', className: 'text-center' },
+      { label: 'Start', className: 'text-center' },
+      { label: 'End', className: 'text-center' },
+      { label: 'Phase', className: 'text-center' },
+      { label: 'Actions', className: 'text-center' }
+    ],
+    rows,
+    'No ongoing or upcoming projects found.'
+  );
+}
+
+function renderProjectWorkspaceTransactions() {
+  const query = getProjectWorkspaceQuery();
+  const rows = getDashboardInvoiceRows(allTransactionsDb)
+    .filter((row) => businessEntityMatches(row))
+    .filter((row) => companyMatchesDashboardFilter(row.company_name || row.client || getTransactionCompanyName(row)))
+    .filter((row) => projectWorkspaceMatchesSearch([row.docno, row.project_name, row.client, row.description, row.status, row.amount], query))
+    .slice(0, 200)
+    .map((row) => `
+      <tr>
+        <td>${highlight(row.docno || row.invoice_number || '-', query)}</td>
+        <td>${highlight(row.project_name || row.project_docno || '-', query)}</td>
+        <td>${highlight(row.client || row.company_name || '-', query)}</td>
+        <td class="text-right">${formatPhpCurrency(row.amount || row.total_amount || 0)}</td>
+        <td class="text-center">${escHtml(getProjectLedgerRowStatus(row))}</td>
+      </tr>
+    `);
+
+  return renderProjectWorkspaceTable(
+    'Project Transactions',
+    [
+      { label: 'Doc No.' },
+      { label: 'Project' },
+      { label: 'Client' },
+      { label: 'Amount', className: 'text-right' },
+      { label: 'Status', className: 'text-center' }
+    ],
+    rows,
+    'No linked project transactions found.'
+  );
+}
+
+function renderProjectWorkspaceServiceOrders() {
+  const query = getProjectWorkspaceQuery();
+  const rows = (Array.isArray(serviceOrdersDb) ? serviceOrdersDb : [])
+    .filter((row) => Number(row.is_archived || 0) === 0)
+    .filter((row) => businessEntityMatches(row))
+    .filter((row) => companyMatchesDashboardFilter(getServiceOrderCompanyName(row)))
+    .filter((row) => projectWorkspaceMatchesSearch([row.so_number, row.project_name, row.service_title, getServiceOrderCompanyName(row), row.status], query))
+    .slice(0, 200)
+    .map((row) => `
+      <tr>
+        <td>${highlight(row.so_number || '-', query)}</td>
+        <td>${highlight(row.project_name || row.project_docno || '-', query)}</td>
+        <td>${highlight(getServiceOrderCompanyName(row) || '-', query)}</td>
+        <td>${highlight(row.service_title || '-', query)}</td>
+        <td class="text-right">${formatPhpCurrency(row.total_amount || row.amount || 0)}</td>
+        <td class="text-center">${escHtml(getProjectLedgerRowStatus(row))}</td>
+      </tr>
+    `);
+
+  return renderProjectWorkspaceTable(
+    'Project Service Orders',
+    [
+      { label: 'SO No.' },
+      { label: 'Project' },
+      { label: 'Company' },
+      { label: 'Service' },
+      { label: 'Amount', className: 'text-right' },
+      { label: 'Status', className: 'text-center' }
+    ],
+    rows,
+    'No linked service orders found.'
+  );
+}
+
+function renderProjectWorkspaceLedger() {
+  const query = getProjectWorkspaceQuery();
+  const transactionsByProject = new Map();
+  getDashboardInvoiceRows(allTransactionsDb).forEach((row) => {
+    const projectId = Number(row.project_id || 0);
+    if (!projectId) return;
+    const current = transactionsByProject.get(projectId) || { count: 0, amount: 0 };
+    current.count += 1;
+    current.amount += Number(row.amount || row.total_amount || 0);
+    transactionsByProject.set(projectId, current);
+  });
+
+  const serviceOrdersByProject = new Map();
+  (Array.isArray(serviceOrdersDb) ? serviceOrdersDb : []).forEach((row) => {
+    const projectId = Number(row.project_id || 0);
+    if (!projectId) return;
+    serviceOrdersByProject.set(projectId, (serviceOrdersByProject.get(projectId) || 0) + 1);
+  });
+
+  const rows = getProjectWorkspaceProjects()
+    .filter((project) => projectWorkspaceMatchesSearch([project.project_docno, project.project_name, getProjectCompanyName(project), project.status], query))
+    .map((project) => {
+      const tx = transactionsByProject.get(Number(project.id || 0)) || { count: 0, amount: 0 };
+      const soCount = serviceOrdersByProject.get(Number(project.id || 0)) || 0;
+      return `
+        <tr>
+          <td>${highlight(project.project_docno || '-', query)}</td>
+          <td><strong>${highlight(project.project_name || 'Untitled Project', query)}</strong></td>
+          <td>${highlight(getProjectCompanyName(project) || '-', query)}</td>
+          <td class="text-right">${tx.count}</td>
+          <td class="text-right">${soCount}</td>
+          <td class="text-right">${formatPhpCurrency(tx.amount)}</td>
+          <td class="text-center"><button class="btn btn-sm btn-pdf" type="button" onclick="openProjectLedger(${Number(project.id || 0)})">Overview</button></td>
+        </tr>
+      `;
+    });
+
+  return renderProjectWorkspaceTable(
+    'Project Overview Summary',
+    [
+      { label: 'Project No.' },
+      { label: 'Project' },
+      { label: 'Company' },
+      { label: 'Transactions', className: 'text-right' },
+      { label: 'Service Orders', className: 'text-right' },
+      { label: 'AR Amount', className: 'text-right' },
+      { label: 'Actions', className: 'text-center' }
+    ],
+    rows,
+    'No project overview records found.'
+  );
+}
+
+function renderProjectWorkspaceDocuments() {
+  const query = getProjectWorkspaceQuery();
+  const rows = getProjectWorkspaceProjects()
+    .filter((project) => String(project.pdfFilename || '').trim())
+    .filter((project) => projectWorkspaceMatchesSearch([project.project_docno, project.project_name, getProjectCompanyName(project), project.pdfFilename], query))
+    .map((project) => `
+      <tr>
+        <td>${highlight(project.project_docno || '-', query)}</td>
+        <td><strong>${highlight(project.project_name || 'Untitled Project', query)}</strong></td>
+        <td>${highlight(getProjectCompanyName(project) || '-', query)}</td>
+        <td>${highlight(project.pdfFilename || '-', query)}</td>
+        <td class="text-center"><button class="btn btn-sm btn-pdf" type="button" onclick="openProjectPdfViewer(${Number(project.id || 0)})">View PDF</button></td>
+      </tr>
+    `);
+
+  return renderProjectWorkspaceTable(
+    'Project Documents',
+    [
+      { label: 'Project No.' },
+      { label: 'Project' },
+      { label: 'Company' },
+      { label: 'File' },
+      { label: 'Actions', className: 'text-center' }
+    ],
+    rows,
+    'No project documents attached yet.'
+  );
+}
+
+function renderProjectWorkspace() {
+  const recordsWrap = document.querySelector('#project-records-section .project-records-wrap');
+  const altContent = document.getElementById('project-workspace-alt-content');
+  const activeTab = normalizeProjectWorkspaceTab(currentProjectWorkspaceTab);
+  currentProjectWorkspaceTab = activeTab;
+
+  syncProjectWorkspaceTabs();
+  updateProjectWorkspaceSummary();
+
+  if (activeTab === 'projects') {
+    if (recordsWrap) recordsWrap.classList.remove('is-hidden');
+    if (altContent) {
+      altContent.classList.add('is-hidden');
+      altContent.innerHTML = '';
+    }
+    renderProjectRecordsTable();
+    return;
+  }
+
+  if (recordsWrap) recordsWrap.classList.add('is-hidden');
+  if (!altContent) return;
+
+  altContent.classList.remove('is-hidden');
+  if (activeTab === 'ongoing') {
+    altContent.innerHTML = renderProjectWorkspaceOngoing();
+  } else if (activeTab === 'transactions') {
+    altContent.innerHTML = renderProjectWorkspaceTransactions();
+  } else if (activeTab === 'service-orders') {
+    altContent.innerHTML = renderProjectWorkspaceServiceOrders();
+  } else if (activeTab === 'ledger') {
+    altContent.innerHTML = renderProjectWorkspaceLedger();
+  } else if (activeTab === 'documents') {
+    altContent.innerHTML = renderProjectWorkspaceDocuments();
+  }
+}
+
+function switchProjectWorkspaceTab(tab) {
+  currentProjectWorkspaceTab = normalizeProjectWorkspaceTab(tab);
+  localStorage.setItem('kinaadman_projectWorkspaceTab', currentProjectWorkspaceTab);
+  if (currentDashboardPanel === 'project-records') {
+    syncAdminViewUrl('project-records', activeTab);
+  }
+  if (currentProjectWorkspaceTab === 'service-orders' && !serviceOrdersInitialLoadAttempted) {
+    loadServiceOrdersData(true).finally(() => renderProjectWorkspace());
+  }
+  renderProjectWorkspace();
+}
+
+function handleProjectWorkspaceSummaryClick(index) {
+  const tabMap = {
+    projects: ['projects', 'ongoing', 'transactions', 'documents'],
+    ongoing: ['ongoing', 'ongoing', 'ongoing', 'ongoing'],
+    transactions: ['transactions', 'transactions', 'transactions', 'transactions'],
+    'service-orders': ['service-orders', 'service-orders', 'service-orders', 'service-orders'],
+    ledger: ['ledger', 'transactions', 'service-orders', 'ledger'],
+    documents: ['documents', 'projects', 'documents', 'projects']
+  };
+  const activeTab = normalizeProjectWorkspaceTab(currentProjectWorkspaceTab);
+  switchProjectWorkspaceTab((tabMap[activeTab] || tabMap.projects)[index] || activeTab);
+}
+
+function getProjectLedgerRowStatus(row, fallback = '') {
+  return String(row?.status || fallback || '-').replace(/_/g, ' ');
+}
+
+function renderProjectLedgerTable(title, headers, rows, emptyText) {
+  const headerHtml = headers.map((header) => `<th${header.className ? ` class="${header.className}"` : ''}>${escHtml(header.label)}</th>`).join('');
+  const bodyHtml = rows.length
+    ? rows.join('')
+    : `<tr class="empty-row"><td colspan="${headers.length}">${escHtml(emptyText)}</td></tr>`;
+
+  return `
+    <div class="section-divider">${escHtml(title)}</div>
+    <div class="table-wrap project-ledger-table-wrap">
+      <table class="registry-table">
+        <thead><tr>${headerHtml}</tr></thead>
+        <tbody>${bodyHtml}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function setProjectLedgerMetric(id, value) {
+  const node = document.getElementById(id);
+  if (node) node.textContent = value;
+}
+
+async function fetchProjectLedgerData() {
+  const [transactionsRes, receivablesRes, billsRes, requisitionsRes, quotationsRes, purchaseOrdersRes, goodsReceiptsRes, apPaymentsRes, arPaymentsRes, serviceOrdersRes] = await Promise.all([
+    fetch('/api/transactions', { cache: 'no-store' }),
+    fetch('/api/receivables?include_archived=1', { cache: 'no-store' }),
+    fetch('/api/bills', { cache: 'no-store' }),
+    fetch('/api/procurement/requisitions', { cache: 'no-store' }),
+    fetch('/api/procurement/quotations', { cache: 'no-store' }),
+    fetch('/api/procurement/purchase-orders', { cache: 'no-store' }),
+    fetch('/api/procurement/goods-receipts', { cache: 'no-store' }),
+    fetch('/api/payments?type=ap', { cache: 'no-store' }),
+    fetch('/api/payments?type=ar', { cache: 'no-store' }),
+    fetch('/api/service-orders?include_archived=1', { cache: 'no-store' })
+  ]);
+
+  const responses = [transactionsRes, receivablesRes, billsRes, requisitionsRes, quotationsRes, purchaseOrdersRes, goodsReceiptsRes, apPaymentsRes, arPaymentsRes, serviceOrdersRes];
+  const failed = responses.find((response) => !response.ok);
+  if (failed) throw new Error(`Unable to load project ledger data (${failed.status}).`);
+
+  const [transactions, receivables, bills, requisitions, quotations, purchaseOrders, goodsReceipts, apPayments, arPayments, serviceOrders] = await Promise.all(
+    responses.map((response) => response.json().catch(() => []))
+  );
+
+  return {
+    transactions: Array.isArray(transactions) ? transactions : [],
+    receivables: Array.isArray(receivables) ? receivables : [],
+    bills: Array.isArray(bills) ? bills : [],
+    requisitions: Array.isArray(requisitions) ? requisitions : [],
+    quotations: Array.isArray(quotations) ? quotations : [],
+    purchaseOrders: Array.isArray(purchaseOrders) ? purchaseOrders : [],
+    goodsReceipts: Array.isArray(goodsReceipts) ? goodsReceipts : [],
+    apPayments: Array.isArray(apPayments) ? apPayments : [],
+    arPayments: Array.isArray(arPayments) ? arPayments : [],
+    serviceOrders: Array.isArray(serviceOrders) ? serviceOrders : []
+  };
+}
+
+function buildProjectLedgerSnapshot(project, data) {
+  const id = Number(project?.id || 0);
+  const transactions = data.transactions.filter((row) => Number(row.project_id || 0) === id);
+  const transactionIds = new Set(transactions.map((row) => Number(row.id || 0)).filter(Boolean));
+  const receivables = data.receivables.filter((row) => Number(row.project_id || 0) === id || transactionIds.has(Number(row.transaction_id || 0)));
+  const receivableIds = new Set(receivables.map((row) => Number(row.id || 0)).filter(Boolean));
+  const bills = data.bills.filter((row) => Number(row.project_id || 0) === id);
+  const requisitions = data.requisitions.filter((row) => Number(row.project_id || 0) === id);
+  const requisitionIds = new Set(requisitions.map((row) => Number(row.id || 0)).filter(Boolean));
+  const quotations = data.quotations.filter((row) => Number(row.project_id || 0) === id || requisitionIds.has(Number(row.requisition_id || 0)));
+  const purchaseOrders = data.purchaseOrders.filter((row) => Number(row.project_id || 0) === id);
+  const purchaseOrderIds = new Set(purchaseOrders.map((row) => Number(row.id || 0)).filter(Boolean));
+  const goodsReceipts = data.goodsReceipts.filter((row) => purchaseOrderIds.has(Number(row.po_id || 0)));
+  const billIds = new Set(bills.map((row) => Number(row.id || 0)).filter(Boolean));
+  const apPayments = data.apPayments.filter((row) => billIds.has(Number(row.ap_id || 0)));
+  const arPayments = data.arPayments.filter((row) => receivableIds.has(Number(row.ar_id || 0)));
+  const serviceOrders = data.serviceOrders.filter((row) => Number(row.project_id || 0) === id);
+
+  const arTotal = receivables.reduce((sum, row) => sum + Number(row.total_amount || 0), 0);
+  const collectedFromPayments = arPayments.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const collectedFromRows = receivables.reduce((sum, row) => sum + Number(row.paid_amount || 0), 0);
+  const collectedTotal = Math.max(collectedFromPayments, collectedFromRows);
+  const apTotal = bills.reduce((sum, row) => sum + Number(row.total_amount || 0), 0);
+  const apPaidFromPayments = apPayments.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const apPaidFromRows = bills.reduce((sum, row) => sum + Number(row.paid_amount || 0), 0);
+  const apPaidTotal = Math.max(apPaidFromPayments, apPaidFromRows);
+  const contractAmount = Number(project?.budget || 0) || 0;
+  const revenueBase = arTotal || contractAmount;
+  const grossProfit = revenueBase - apTotal;
+  const marginPercent = revenueBase > 0 ? Math.round((grossProfit / revenueBase) * 100) : 0;
+
+  return {
+    project,
+    transactions,
+    receivables,
+    bills,
+    requisitions,
+    quotations,
+    purchaseOrders,
+    goodsReceipts,
+    apPayments,
+    arPayments,
+    serviceOrders,
+    totals: {
+      arTotal,
+      collectedTotal,
+      apTotal,
+      apPaidTotal,
+      contractAmount,
+      grossProfit,
+      marginPercent,
+      netTotal: arTotal - apTotal,
+      recordCount: transactions.length + receivables.length + bills.length + requisitions.length + quotations.length + purchaseOrders.length + goodsReceipts.length + apPayments.length + arPayments.length + serviceOrders.length
+    }
+  };
+}
+
+function projectLedgerMatchesSearch(values, query) {
+  if (!query) return true;
+  return values.map((value) => String(value || '')).join(' ').toLowerCase().includes(query);
+}
+
+function normalizeProjectLedgerSubmodule(value) {
+  const tab = String(value || '').trim().toLowerCase();
+  return ['overview', 'ar', 'ap', 'payments', 'service-orders', 'documents'].includes(tab) ? tab : 'overview';
+}
+
+function syncProjectLedgerSubmoduleTabs() {
+  const activeTab = normalizeProjectLedgerSubmodule(currentProjectLedgerSubmodule);
+  document.querySelectorAll('[data-project-ledger-tab]').forEach((node) => {
+    const tab = normalizeProjectLedgerSubmodule(node.getAttribute('data-project-ledger-tab'));
+    const isActive = tab === activeTab;
+    node.classList.toggle('active', isActive);
+    node.setAttribute('aria-selected', String(isActive));
+  });
+}
+
+function switchProjectLedgerSubmodule(tab) {
+  currentProjectLedgerSubmodule = normalizeProjectLedgerSubmodule(tab);
+  syncProjectLedgerSubmoduleTabs();
+  renderProjectLedgerPage();
+}
+
+function renderProjectLedgerDocuments(snapshot) {
+  const project = snapshot?.project || {};
+  const docs = [];
+  if (project.pdfFilename) {
+    docs.push(`
+      <tr>
+        <td>${escHtml(project.project_docno || '-')}</td>
+        <td>Project PDF</td>
+        <td>${escHtml(project.pdfFilename)}</td>
+        <td class="text-center">
+          <button class="btn btn-sm btn-pdf" type="button" onclick="openProjectPdfViewer(${Number(project.id || 0)})">View PDF</button>
+        </td>
+      </tr>
+    `);
+  }
+
+  return renderProjectLedgerTable(
+    'Documents',
+    [
+      { label: 'Project No.' },
+      { label: 'Type' },
+      { label: 'File' },
+      { label: 'Actions', className: 'text-center' }
+    ],
+    docs,
+    'No project documents attached yet.'
+  );
+}
+
+function renderProjectOverviewDetail(label, value) {
+  return `
+    <div class="project-overview-detail">
+      <span>${escHtml(label)}</span>
+      <strong>${escHtml(String(value || '-').trim() || '-')}</strong>
+    </div>
+  `;
+}
+
+function renderProjectOverviewMetric(label, value, note = '', tone = '') {
+  return `
+    <div class="project-overview-metric${tone ? ` is-${escHtml(tone)}` : ''}">
+      <span>${escHtml(label)}</span>
+      <strong>${escHtml(String(value || '-').trim() || '-')}</strong>
+      ${note ? `<em>${escHtml(note)}</em>` : ''}
+    </div>
+  `;
+}
+
+function renderProjectOverviewStep(number, label, value, tone = '') {
+  return `
+    <div class="project-overview-step${tone ? ` is-${escHtml(tone)}` : ''}">
+      <span>${escHtml(number)}</span>
+      <div>
+        <strong>${escHtml(label)}</strong>
+        <em>${escHtml(String(value || '-').trim() || '-')}</em>
+      </div>
+    </div>
+  `;
+}
+
+function renderProjectRelationshipItem(label, value, note = '', tone = '') {
+  return `
+    <div class="project-relationship-item${tone ? ` is-${escHtml(tone)}` : ''}">
+      <span>${escHtml(label)}</span>
+      <strong>${escHtml(String(value || '0'))}</strong>
+      ${note ? `<em>${escHtml(note)}</em>` : ''}
+    </div>
+  `;
+}
+
+function renderProjectRelationshipCard(title, subtitle, items = []) {
+  return `
+    <div class="project-overview-card project-relationship-card">
+      <div class="project-overview-section-head">
+        <div>
+          <div class="project-overview-kicker">${escHtml(title)}</div>
+          <h4>${escHtml(subtitle)}</h4>
+        </div>
+      </div>
+      <div class="project-relationship-chain">${items.join('')}</div>
+    </div>
+  `;
+}
+
+function renderProjectOverview(snapshot) {
+  const project = snapshot?.project || {};
+  const totals = snapshot?.totals || {};
+  const arBalance = Math.max(0, Number(totals.arTotal || 0) - Number(totals.collectedTotal || 0));
+  const apBalance = Math.max(0, Number(totals.apTotal || 0) - Number(totals.apPaidTotal || 0));
+  const startDate = formatDateYmd(project.actual_start_date || project.start_date || project.planned_start_date || '') || '-';
+  const endDate = formatDateYmd(project.actual_end_date || project.end_date || project.planned_end_date || '') || '-';
+  const status = getProjectLifecycleLabel(project).replace(/_/g, ' ');
+  const companyName = getProjectCompanyName(project) || '-';
+  const customerPoRef = String(project.pono || project.source_pono || '').trim() || '-';
+  const projectDocNo = String(project.project_docno || project.source_docno || '').trim() || '-';
+  const description = String(project.description || project.source_transaction_description || '').trim() || 'No description set.';
+  const contractAmount = Number(project.budget || 0) || 0;
+  const projectDownpayment = Number(project.downpayment || 0) || 0;
+  const projectBalance = Math.max(0, contractAmount - projectDownpayment);
+  const serviceOrderCount = (snapshot.serviceOrders || []).length;
+  const transactionCount = (snapshot.transactions || []).length;
+  const receivableCount = (snapshot.receivables || []).length;
+  const requisitionCount = (snapshot.requisitions || []).length;
+  const quotationCount = (snapshot.quotations || []).length;
+  const purchaseOrderCount = (snapshot.purchaseOrders || []).length;
+  const goodsReceiptCount = (snapshot.goodsReceipts || []).length;
+  const billCount = (snapshot.bills || []).length;
+  const documentCount = project.pdfFilename ? 1 : 0;
+  const arPaymentCount = (snapshot.arPayments || []).length;
+  const apPaymentCount = (snapshot.apPayments || []).length;
+  const netTotal = Number(totals.netTotal || 0);
+  const collectionRate = Number(totals.arTotal || 0) > 0
+    ? Math.min(100, Math.round((Number(totals.collectedTotal || 0) / Number(totals.arTotal || 0)) * 100))
+    : 0;
+  const apPaidRate = Number(totals.apTotal || 0) > 0
+    ? Math.min(100, Math.round((Number(totals.apPaidTotal || 0) / Number(totals.apTotal || 0)) * 100))
+    : 0;
+  const healthLabel = arBalance <= 0 && Number(totals.arTotal || 0) > 0
+    ? 'Fully collected'
+    : arBalance > 0
+      ? 'Collection pending'
+      : 'No AR yet';
+  const costLabel = apBalance <= 0 && Number(totals.apTotal || 0) > 0
+    ? 'Supplier costs paid'
+    : apBalance > 0
+      ? 'Supplier balance pending'
+      : 'No AP cost yet';
+  const netTone = netTotal >= 0 ? 'positive' : 'negative';
+  const grossProfit = Number(totals.grossProfit || 0);
+  const marginPercent = Number(totals.marginPercent || 0);
+  const profitTone = grossProfit >= 0 ? 'positive' : 'negative';
+  const members = getProjectSourceMembers(project);
+  const memberHtml = members.length
+    ? members.map((member, index) => formatProjectMemberSummary(member, index)).join('')
+    : '<div class="project-overview-empty">No project team listed yet.</div>';
+  const latestServiceOrders = [...(snapshot.serviceOrders || [])]
+    .sort((a, b) => String(b.service_date || b.created_at || '').localeCompare(String(a.service_date || a.created_at || '')))
+    .slice(0, 4);
+  const latestRows = latestServiceOrders.length
+    ? latestServiceOrders.map((row) => `
+      <div class="project-overview-activity">
+        <div>
+          <strong>${escHtml(row.so_number || 'Service Order')}</strong>
+          <span>${escHtml(row.service_title || 'Untitled service')} ${row.service_date ? `| ${formatDateYmd(row.service_date)}` : ''}</span>
+        </div>
+        <em>${escHtml(getProjectLedgerRowStatus(row))}</em>
+      </div>
+    `).join('')
+    : '<div class="project-overview-empty">No linked service orders yet.</div>';
+  const isStatus = (value, expected) => String(value || '').trim().toLowerCase() === expected;
+  const timelineRows = [
+    { label: 'Project created', value: projectDocNo, tone: projectDocNo !== '-' ? '' : 'muted' },
+    { label: 'PR approved', value: (snapshot.requisitions || []).some(row => isStatus(row.status, 'approved') || row.approved_at) ? 'Done' : 'Pending', tone: (snapshot.requisitions || []).some(row => isStatus(row.status, 'approved') || row.approved_at) ? 'positive' : 'muted' },
+    { label: 'PO approved', value: (snapshot.purchaseOrders || []).some(row => isStatus(row.status, 'approved') || row.approved_at) ? 'Done' : 'Pending', tone: (snapshot.purchaseOrders || []).some(row => isStatus(row.status, 'approved') || row.approved_at) ? 'positive' : 'muted' },
+    { label: 'AP bill generated', value: billCount ? `${billCount} bill${billCount === 1 ? '' : 's'}` : 'Pending', tone: billCount ? 'positive' : 'muted' },
+    { label: 'AR collected', value: arBalance <= 0 && Number(totals.arTotal || 0) > 0 ? 'Done' : 'Pending', tone: arBalance <= 0 && Number(totals.arTotal || 0) > 0 ? 'positive' : 'muted' },
+    { label: 'Project completed', value: isStatus(project.status, 'completed') ? 'Done' : 'Pending', tone: isStatus(project.status, 'completed') ? 'positive' : 'muted' }
+  ];
+  const arRelationship = renderProjectRelationshipCard('Project to AR', 'Income and collection trail', [
+    renderProjectRelationshipItem('Project', projectDocNo, 'Source record', 'positive'),
+    renderProjectRelationshipItem('Service Orders', serviceOrderCount, 'Work order / scope', serviceOrderCount ? 'positive' : 'muted'),
+    renderProjectRelationshipItem('Transactions', transactionCount, 'Customer billing source', transactionCount ? 'positive' : 'muted'),
+    renderProjectRelationshipItem('Receivables', receivableCount, formatPhpCurrency(totals.arTotal || 0), receivableCount ? 'positive' : 'muted'),
+    renderProjectRelationshipItem('Collections', arPaymentCount, formatPhpCurrency(totals.collectedTotal || 0), arPaymentCount ? 'positive' : 'warning')
+  ]);
+  const apRelationship = renderProjectRelationshipCard('Project to Procurement/AP', 'Cost and supplier payment trail', [
+    renderProjectRelationshipItem('PR', requisitionCount, 'Project need/request', requisitionCount ? 'positive' : 'muted'),
+    renderProjectRelationshipItem('Quotations', quotationCount, 'Vendor offers', quotationCount ? 'positive' : 'muted'),
+    renderProjectRelationshipItem('PO', purchaseOrderCount, 'Approved buying', purchaseOrderCount ? 'positive' : 'muted'),
+    renderProjectRelationshipItem('GRN', goodsReceiptCount, 'Received goods/services', goodsReceiptCount ? 'positive' : 'muted'),
+    renderProjectRelationshipItem('AP Bills', billCount, formatPhpCurrency(totals.apTotal || 0), billCount ? 'positive' : 'muted'),
+    renderProjectRelationshipItem('AP Payments', apPaymentCount, formatPhpCurrency(totals.apPaidTotal || 0), apPaymentCount ? 'positive' : 'warning')
+  ]);
+
+  return `
+    <section class="project-overview-shell">
+      <div class="project-overview-card project-overview-hero">
+        <div class="project-overview-hero-copy">
+          <div class="project-overview-kicker">Project Overview</div>
+          <h3>${escHtml(project.project_name || 'Untitled Project')}</h3>
+          <p>${escHtml(description)}</p>
+          <div class="project-overview-tags">
+            <span>${escHtml(status)}</span>
+            <span>${escHtml(companyName)}</span>
+            <span>${escHtml(startDate)} to ${escHtml(endDate)}</span>
+          </div>
+        </div>
+        <div class="project-overview-hero-side">
+          ${renderProjectOverviewDetail('Project No.', projectDocNo)}
+          ${renderProjectOverviewDetail('Customer PO Ref.', customerPoRef)}
+        </div>
+      </div>
+
+      <div class="project-overview-grid">
+        ${arRelationship}
+        ${apRelationship}
+      </div>
+
+      <div class="project-overview-card">
+        <div class="project-overview-section-head">
+          <div>
+            <div class="project-overview-kicker">Money Summary</div>
+            <h4>AR vs AP at a glance</h4>
+          </div>
+          <span class="project-overview-health is-${escHtml(netTone)}">${escHtml(netTotal >= 0 ? 'Positive position' : 'Negative position')}</span>
+        </div>
+        <div class="project-overview-metric-grid">
+          ${renderProjectOverviewMetric('Contract amount', formatPhpCurrency(contractAmount), 'Project agreed amount')}
+          ${renderProjectOverviewMetric('Project downpayment', formatPhpCurrency(projectDownpayment), 'Recorded in project')}
+          ${renderProjectOverviewMetric('Project balance', formatPhpCurrency(projectBalance), 'Contract minus downpayment', projectBalance > 0 ? 'warning' : 'positive')}
+          ${renderProjectOverviewMetric('Gross profit', formatPhpCurrency(grossProfit), `${marginPercent}% margin`, profitTone)}
+          ${renderProjectOverviewMetric('Customer billing', formatPhpCurrency(totals.arTotal || 0), 'Total AR expected')}
+          ${renderProjectOverviewMetric('Collected', formatPhpCurrency(totals.collectedTotal || 0), `${collectionRate}% collected`, 'positive')}
+          ${renderProjectOverviewMetric('Still collectible', formatPhpCurrency(arBalance), healthLabel, arBalance > 0 ? 'warning' : 'positive')}
+          ${renderProjectOverviewMetric('Supplier cost', formatPhpCurrency(totals.apTotal || 0), 'Total AP cost')}
+          ${renderProjectOverviewMetric('Supplier balance', formatPhpCurrency(apBalance), `${apPaidRate}% paid`, apBalance > 0 ? 'warning' : 'positive')}
+          ${renderProjectOverviewMetric('Net position', formatPhpCurrency(netTotal), 'AR total minus AP total', netTone)}
+        </div>
+      </div>
+
+      <div class="project-overview-grid">
+        <div class="project-overview-card">
+          <div class="project-overview-section-head">
+            <div>
+              <div class="project-overview-kicker">Project Flow</div>
+              <h4>How the records connect</h4>
+            </div>
+          </div>
+          <div class="project-overview-steps">
+            ${renderProjectOverviewStep('1', 'Project created', projectDocNo)}
+            ${renderProjectOverviewStep('2', 'Service Orders', `${serviceOrderCount} linked`, serviceOrderCount ? 'positive' : 'muted')}
+            ${renderProjectOverviewStep('3', 'AR records', `${transactionCount} transaction${transactionCount === 1 ? '' : 's'} / ${receivableCount} receivable${receivableCount === 1 ? '' : 's'}`, receivableCount ? 'positive' : 'muted')}
+            ${renderProjectOverviewStep('4', 'Procurement/AP', `${requisitionCount} PR / ${quotationCount} quote / ${purchaseOrderCount} PO / ${goodsReceiptCount} GRN / ${billCount} bill`, requisitionCount || quotationCount || purchaseOrderCount || goodsReceiptCount || billCount ? 'positive' : 'muted')}
+          </div>
+        </div>
+
+        <div class="project-overview-card">
+          <div class="project-overview-kicker">Linked Record Counts</div>
+          <div class="project-overview-counts">
+            ${renderProjectOverviewDetail('Service Orders', serviceOrderCount)}
+            ${renderProjectOverviewDetail('Transactions', transactionCount)}
+            ${renderProjectOverviewDetail('Receivables', receivableCount)}
+            ${renderProjectOverviewDetail('Purchase Requisitions', requisitionCount)}
+            ${renderProjectOverviewDetail('Quotations', quotationCount)}
+            ${renderProjectOverviewDetail('Purchase Orders', purchaseOrderCount)}
+            ${renderProjectOverviewDetail('Goods Receipts', goodsReceiptCount)}
+            ${renderProjectOverviewDetail('Bills', billCount)}
+            ${renderProjectOverviewDetail('Documents', documentCount)}
+          </div>
+        </div>
+      </div>
+
+      <div class="project-overview-grid">
+        <div class="project-overview-card">
+          <div class="project-overview-kicker">Status Timeline</div>
+          <div class="project-overview-steps">
+            ${timelineRows.map((row, index) => renderProjectOverviewStep(String(index + 1), row.label, row.value, row.tone)).join('')}
+          </div>
+        </div>
+        <div class="project-overview-card">
+          <div class="project-overview-kicker">Project Team</div>
+          <div class="project-overview-members">${memberHtml}</div>
+        </div>
+      </div>
+
+      <div class="project-overview-grid">
+        <div class="project-overview-card">
+          <div class="project-overview-kicker">Recent Service Orders</div>
+          <div class="project-overview-activity-list">${latestRows}</div>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderProjectLedgerPage() {
+  const content = document.getElementById('project-ledger-page-content');
+  if (!content) return;
+
+  const snapshot = currentProjectLedgerSnapshot;
+  if (!snapshot) {
+    content.innerHTML = '<div class="empty-row" style="padding:18px;text-align:center;">Select a project to view its ledger.</div>';
+    return;
+  }
+
+  const query = String(document.getElementById('project-ledger-page-search')?.value || '').trim().toLowerCase();
+  const type = normalizeProjectLedgerSubmodule(currentProjectLedgerSubmodule);
+  syncProjectLedgerSubmoduleTabs();
+  const showSection = (key) => type === 'overview' || type === key;
+  const { transactions, receivables, bills, requisitions, quotations, purchaseOrders, goodsReceipts, apPayments, arPayments, serviceOrders } = snapshot;
+
+  const filteredReceivables = receivables.filter((row) => projectLedgerMatchesSearch([row.invoice_number, row.due_date, row.payment_terms, row.status, row.total_amount], query));
+  const filteredBills = bills.filter((row) => projectLedgerMatchesSearch([row.bill_number, row.vendor_name, row.vendor_id, row.due_date, row.status, row.total_amount], query));
+  const filteredRequisitions = requisitions.filter((row) => projectLedgerMatchesSearch([row.pr_number, row.company_name, row.request_date, row.needed_by, row.status, row.total_amount, row.item_summary], query));
+  const filteredQuotations = quotations.filter((row) => projectLedgerMatchesSearch([row.quote_number, row.pr_number, row.vendor_name, row.quote_date, row.quoted_total, row.status], query));
+  const filteredPurchaseOrders = purchaseOrders.filter((row) => projectLedgerMatchesSearch([row.po_number, row.vendor_name, row.company_name, row.po_date, row.status, row.total_amount], query));
+  const filteredGoodsReceipts = goodsReceipts.filter((row) => projectLedgerMatchesSearch([row.grn_number, row.po_number, row.vendor_name, row.received_date, row.status], query));
+  const filteredPayments = [
+    ...arPayments.map((row) => ({ ...row, ledgerType: 'AR' })),
+    ...apPayments.map((row) => ({ ...row, ledgerType: 'AP' }))
+  ].filter((row) => projectLedgerMatchesSearch([row.ledgerType, row.payment_date, row.reference_number, row.payment_method, row.amount], query));
+  const filteredServiceOrders = serviceOrders.filter((row) => projectLedgerMatchesSearch([row.so_number, row.service_date, row.service_title, row.status, row.total_amount], query));
+
+  const sections = [];
+  if (type === 'overview') {
+    sections.push(renderProjectOverview(snapshot));
+  }
+
+  if (showSection('ar')) {
+    sections.push(renderProjectLedgerTable(
+      'Accounts Receivable',
+      [
+        { label: 'Invoice No.' },
+        { label: 'Due Date' },
+        { label: 'Terms' },
+        { label: 'Total', className: 'text-right' },
+        { label: 'Paid', className: 'text-right' },
+        { label: 'Status' }
+      ],
+      filteredReceivables.map((row) => `
+        <tr>
+          <td>${escHtml(row.invoice_number || '-')}</td>
+          <td>${escHtml(row.due_date || '-')}</td>
+          <td>${escHtml(row.payment_terms || '-')}</td>
+          <td class="text-right">${formatPhpCurrency(row.total_amount || 0)}</td>
+          <td class="text-right">${formatPhpCurrency(row.paid_amount || 0)}</td>
+          <td>${escHtml(getProjectLedgerRowStatus(row))}</td>
+        </tr>
+      `),
+      'No linked receivables yet.'
+    ));
+  }
+
+  if (showSection('ap')) {
+    sections.push(renderProjectLedgerTable(
+      'Purchase Requisitions',
+      [
+        { label: 'PR No.' },
+        { label: 'Company' },
+        { label: 'Request Date' },
+        { label: 'Needed By' },
+        { label: 'Total', className: 'text-right' },
+        { label: 'Status' }
+      ],
+      filteredRequisitions.map((row) => `
+        <tr>
+          <td>${escHtml(row.pr_number || '-')}</td>
+          <td>${escHtml(row.company_name || row.company_no || '-')}</td>
+          <td>${escHtml(row.request_date || '-')}</td>
+          <td>${escHtml(row.needed_by || '-')}</td>
+          <td class="text-right">${formatPhpCurrency(row.total_amount || 0)}</td>
+          <td>${escHtml(getProjectLedgerRowStatus(row))}</td>
+        </tr>
+      `),
+      'No linked purchase requisitions yet.'
+    ));
+
+    sections.push(renderProjectLedgerTable(
+      'Quotations',
+      [
+        { label: 'Quote No.' },
+        { label: 'PR No.' },
+        { label: 'Vendor' },
+        { label: 'Quote Date' },
+        { label: 'Total', className: 'text-right' },
+        { label: 'Status' }
+      ],
+      filteredQuotations.map((row) => `
+        <tr>
+          <td>${escHtml(row.quote_number || '-')}</td>
+          <td>${escHtml(row.pr_number || '-')}</td>
+          <td>${escHtml(row.vendor_name || row.vendor_id || '-')}</td>
+          <td>${escHtml(row.quote_date || '-')}</td>
+          <td class="text-right">${formatPhpCurrency(row.quoted_total || 0)}</td>
+          <td>${escHtml(getProjectLedgerRowStatus(row))}</td>
+        </tr>
+      `),
+      'No linked quotations yet.'
+    ));
+
+    sections.push(renderProjectLedgerTable(
+      'Purchase Orders',
+      [
+        { label: 'PO No.' },
+        { label: 'Vendor' },
+        { label: 'PO Date' },
+        { label: 'Delivery' },
+        { label: 'Total', className: 'text-right' },
+        { label: 'Status' }
+      ],
+      filteredPurchaseOrders.map((row) => `
+        <tr>
+          <td>${escHtml(row.po_number || '-')}</td>
+          <td>${escHtml(row.vendor_name || row.vendor_id || '-')}</td>
+          <td>${escHtml(row.po_date || '-')}</td>
+          <td>${escHtml(row.delivery_date || '-')}</td>
+          <td class="text-right">${formatPhpCurrency(row.total_amount || row.computed_total || 0)}</td>
+          <td>${escHtml(getProjectLedgerRowStatus(row))}</td>
+        </tr>
+      `),
+      'No linked purchase orders yet.'
+    ));
+
+    sections.push(renderProjectLedgerTable(
+      'Goods Receipts',
+      [
+        { label: 'GRN No.' },
+        { label: 'PO No.' },
+        { label: 'Vendor' },
+        { label: 'Received Date' },
+        { label: 'Received By' },
+        { label: 'Status' }
+      ],
+      filteredGoodsReceipts.map((row) => `
+        <tr>
+          <td>${escHtml(row.grn_number || '-')}</td>
+          <td>${escHtml(row.po_number || '-')}</td>
+          <td>${escHtml(row.vendor_name || '-')}</td>
+          <td>${escHtml(row.received_date || '-')}</td>
+          <td>${escHtml(row.received_by || '-')}</td>
+          <td>${escHtml(getProjectLedgerRowStatus(row))}</td>
+        </tr>
+      `),
+      'No linked goods receipts yet.'
+    ));
+
+    sections.push(renderProjectLedgerTable(
+      'Accounts Payable',
+      [
+        { label: 'Bill No.' },
+        { label: 'Vendor' },
+        { label: 'Due Date' },
+        { label: 'Total', className: 'text-right' },
+        { label: 'Paid', className: 'text-right' },
+        { label: 'Status' }
+      ],
+      filteredBills.map((row) => `
+        <tr>
+          <td>${escHtml(row.bill_number || '-')}</td>
+          <td>${escHtml(row.vendor_name || row.vendor_id || '-')}</td>
+          <td>${escHtml(row.due_date || '-')}</td>
+          <td class="text-right">${formatPhpCurrency(row.total_amount || 0)}</td>
+          <td class="text-right">${formatPhpCurrency(row.paid_amount || 0)}</td>
+          <td>${escHtml(getProjectLedgerRowStatus(row))}</td>
+        </tr>
+      `),
+      'No linked AP bills yet.'
+    ));
+  }
+
+  if (showSection('payments')) {
+    sections.push(renderProjectLedgerTable(
+      'Payments',
+      [
+        { label: 'Type' },
+        { label: 'Date' },
+        { label: 'Reference' },
+        { label: 'Method' },
+        { label: 'Amount', className: 'text-right' }
+      ],
+      filteredPayments.map((row) => `
+        <tr>
+          <td>${escHtml(row.ledgerType || '-')}</td>
+          <td>${escHtml(row.payment_date || '-')}</td>
+          <td>${escHtml(row.reference_number || '-')}</td>
+          <td>${escHtml(row.payment_method || '-')}</td>
+          <td class="text-right">${formatPhpCurrency(row.amount || 0)}</td>
+        </tr>
+      `),
+      'No linked payments yet.'
+    ));
+  }
+
+  if (showSection('service-orders')) {
+    sections.push(renderProjectLedgerTable(
+      'Service Orders',
+      [
+        { label: 'SO No.' },
+        { label: 'Date' },
+        { label: 'Title' },
+        { label: 'Amount', className: 'text-right' },
+        { label: 'Status' }
+      ],
+      filteredServiceOrders.map((row) => `
+        <tr>
+          <td>${escHtml(row.so_number || '-')}</td>
+          <td>${escHtml(row.service_date || '-')}</td>
+          <td>${escHtml(row.service_title || '-')}</td>
+          <td class="text-right">${formatPhpCurrency(row.total_amount || 0)}</td>
+          <td>${escHtml(getProjectLedgerRowStatus(row))}</td>
+        </tr>
+      `),
+      'No linked service orders yet.'
+    ));
+  }
+
+  if (showSection('documents')) {
+    sections.push(renderProjectLedgerDocuments(snapshot));
+  }
+
+  content.innerHTML = sections.join('') || '<div class="empty-row" style="padding:18px;text-align:center;">No overview records found.</div>';
+}
+
+async function loadProjectLedgerPage(projectId) {
+  const id = Number(projectId || 0);
+  const project = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
+    .find((row) => Number(row.id || 0) === id);
+  const content = document.getElementById('project-ledger-page-content');
+
+  if (!id) {
+    currentProjectLedgerSnapshot = null;
+    if (content) content.innerHTML = '<div class="empty-row" style="padding:18px;text-align:center;">No project selected.</div>';
+    return;
+  }
+
+  if (!project) {
+    currentProjectLedgerSnapshot = null;
+    if (content) content.innerHTML = '<div class="empty-row" style="padding:18px;text-align:center;">Loading project...</div>';
+    return;
+  }
+
+  const projectLabel = [project.project_docno || project.source_docno, project.project_name]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .join(' - ') || 'Project Overview';
+  const companyName = getProjectCompanyName(project) || 'No company';
+
+  const heading = document.getElementById('project-ledger-page-heading');
+  const subtitle = document.getElementById('project-ledger-page-subtitle');
+  if (heading) heading.textContent = projectLabel;
+  if (subtitle) {
+    subtitle.textContent = `${companyName} | ${formatDateYmd(project.start_date || project.planned_start_date || '') || '-'} to ${formatDateYmd(project.end_date || project.planned_end_date || '') || '-'}`;
+  }
+  if (content) content.innerHTML = '<div class="empty-row" style="padding:18px;text-align:center;">Loading project overview...</div>';
+
+  try {
+    const data = await fetchProjectLedgerData();
+    currentProjectLedgerSnapshot = buildProjectLedgerSnapshot(project, data);
+    const { totals, receivables, bills, requisitions, quotations, purchaseOrders, goodsReceipts } = currentProjectLedgerSnapshot;
+    setProjectLedgerMetric('project-ledger-page-ar-total', formatPhpCurrency(totals.arTotal));
+    setProjectLedgerMetric('project-ledger-page-collected-total', formatPhpCurrency(totals.collectedTotal));
+    setProjectLedgerMetric('project-ledger-page-ap-total', formatPhpCurrency(totals.apTotal));
+    setProjectLedgerMetric('project-ledger-page-net-total', formatPhpCurrency(totals.netTotal));
+    setProjectLedgerMetric('project-ledger-page-ar-mini', `${receivables.length} receivable${receivables.length === 1 ? '' : 's'}`);
+    setProjectLedgerMetric('project-ledger-page-collected-mini', `${formatPhpCurrency(Math.max(0, totals.arTotal - totals.collectedTotal))} AR balance`);
+    setProjectLedgerMetric('project-ledger-page-ap-mini', `${requisitions.length} PR | ${quotations.length} quote | ${purchaseOrders.length} PO | ${goodsReceipts.length} GRN | ${bills.length} bill | ${formatPhpCurrency(Math.max(0, totals.apTotal - totals.apPaidTotal))} balance`);
+    setProjectLedgerMetric('project-ledger-page-count-mini', `${totals.recordCount} linked record${totals.recordCount === 1 ? '' : 's'}`);
+    renderProjectLedgerPage();
+  } catch (err) {
+    console.error('Project ledger page load error:', err);
+    currentProjectLedgerSnapshot = null;
+    if (content) content.innerHTML = `<div class="empty-row" style="padding:18px;text-align:center;">${escHtml(err.message || 'Unable to load project overview.')}</div>`;
+  }
+}
+
+async function openProjectLedger(projectId) {
+  const id = Number(projectId || 0);
+  const project = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
+    .find((row) => Number(row.id || 0) === id);
+  if (!id || !project) {
+    showToast('Project not found.', 'error');
+    return;
+  }
+
+  currentProjectLedgerId = id;
+  currentProjectLedgerSnapshot = null;
+  currentProjectLedgerSubmodule = 'overview';
+  const searchInput = document.getElementById('project-ledger-page-search');
+  if (searchInput) searchInput.value = '';
+  syncProjectLedgerSubmoduleTabs();
+  openDashboardPanel('project-ledger');
+  return;
+
+  const backdrop = document.getElementById('project-ledger-modal-backdrop');
+  const content = document.getElementById('project-ledger-content');
+  if (!backdrop || !content) return;
+
+  const projectLabel = [project.project_docno || project.source_docno, project.project_name]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean)
+    .join(' - ') || 'Project Overview';
+  const companyName = getProjectCompanyName(project) || 'No company';
+
+  document.getElementById('project-ledger-title').textContent = projectLabel;
+  document.getElementById('project-ledger-subtitle').textContent = `${companyName} | ${formatDateYmd(project.start_date || project.planned_start_date || '') || '-'} to ${formatDateYmd(project.end_date || project.planned_end_date || '') || '-'}`;
+  content.innerHTML = '<div class="empty-row" style="padding:18px;text-align:center;">Loading project overview...</div>';
+  backdrop.classList.add('open');
+
+  try {
+    const data = await fetchProjectLedgerData();
+    const transactions = data.transactions.filter((row) => Number(row.project_id || 0) === id);
+    const transactionIds = new Set(transactions.map((row) => Number(row.id || 0)).filter(Boolean));
+    const receivables = data.receivables.filter((row) => Number(row.project_id || 0) === id || transactionIds.has(Number(row.transaction_id || 0)));
+    const receivableIds = new Set(receivables.map((row) => Number(row.id || 0)).filter(Boolean));
+    const bills = data.bills.filter((row) => Number(row.project_id || 0) === id);
+    const billIds = new Set(bills.map((row) => Number(row.id || 0)).filter(Boolean));
+    const apPayments = data.apPayments.filter((row) => billIds.has(Number(row.ap_id || 0)));
+    const arPayments = data.arPayments.filter((row) => receivableIds.has(Number(row.ar_id || 0)));
+    const serviceOrders = data.serviceOrders.filter((row) => Number(row.project_id || 0) === id);
+
+    const arTotal = receivables.reduce((sum, row) => sum + Number(row.total_amount || 0), 0);
+    const collectedFromPayments = arPayments.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+    const collectedFromRows = receivables.reduce((sum, row) => sum + Number(row.paid_amount || 0), 0);
+    const collectedTotal = Math.max(collectedFromPayments, collectedFromRows);
+    const apTotal = bills.reduce((sum, row) => sum + Number(row.total_amount || 0), 0);
+    const apPaidFromPayments = apPayments.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+    const apPaidFromRows = bills.reduce((sum, row) => sum + Number(row.paid_amount || 0), 0);
+    const apPaidTotal = Math.max(apPaidFromPayments, apPaidFromRows);
+    const netTotal = arTotal - apTotal;
+
+    setProjectLedgerMetric('ledger-ar-total', formatPhpCurrency(arTotal));
+    setProjectLedgerMetric('ledger-collected-total', formatPhpCurrency(collectedTotal));
+    setProjectLedgerMetric('ledger-ap-total', formatPhpCurrency(apTotal));
+    setProjectLedgerMetric('ledger-net-total', formatPhpCurrency(netTotal));
+    setProjectLedgerMetric('ledger-ar-mini', `${receivables.length} receivable${receivables.length === 1 ? '' : 's'} | ${formatPhpCurrency(Math.max(0, arTotal - collectedTotal))} balance`);
+    setProjectLedgerMetric('ledger-ap-mini', `${bills.length} bill${bills.length === 1 ? '' : 's'} | ${formatPhpCurrency(Math.max(0, apTotal - apPaidTotal))} balance`);
+
+    const transactionsTable = renderProjectLedgerTable(
+      'Transactions',
+      [
+        { label: 'Doc No.' },
+        { label: 'Date' },
+        { label: 'Description' },
+        { label: 'Amount', className: 'text-right' },
+        { label: 'Status' }
+      ],
+      transactions.map((row) => `
+        <tr>
+          <td>${escHtml(row.docno || '-')}</td>
+          <td>${escHtml(row.date || '-')}</td>
+          <td>${escHtml(row.description || '-')}</td>
+          <td class="text-right">${formatPhpCurrency(row.amount || 0)}</td>
+          <td>${escHtml(getProjectLedgerRowStatus(row))}</td>
+        </tr>
+      `),
+      'No linked transactions yet.'
+    );
+
+    const arTable = renderProjectLedgerTable(
+      'Accounts Receivable',
+      [
+        { label: 'Invoice No.' },
+        { label: 'Due Date' },
+        { label: 'Terms' },
+        { label: 'Total', className: 'text-right' },
+        { label: 'Paid', className: 'text-right' },
+        { label: 'Status' }
+      ],
+      receivables.map((row) => `
+        <tr>
+          <td>${escHtml(row.invoice_number || '-')}</td>
+          <td>${escHtml(row.due_date || '-')}</td>
+          <td>${escHtml(row.payment_terms || '-')}</td>
+          <td class="text-right">${formatPhpCurrency(row.total_amount || 0)}</td>
+          <td class="text-right">${formatPhpCurrency(row.paid_amount || 0)}</td>
+          <td>${escHtml(getProjectLedgerRowStatus(row))}</td>
+        </tr>
+      `),
+      'No linked receivables yet.'
+    );
+
+    const apTable = renderProjectLedgerTable(
+      'Accounts Payable',
+      [
+        { label: 'Bill No.' },
+        { label: 'Vendor' },
+        { label: 'Due Date' },
+        { label: 'Total', className: 'text-right' },
+        { label: 'Paid', className: 'text-right' },
+        { label: 'Status' }
+      ],
+      bills.map((row) => `
+        <tr>
+          <td>${escHtml(row.bill_number || '-')}</td>
+          <td>${escHtml(row.vendor_name || row.vendor_id || '-')}</td>
+          <td>${escHtml(row.due_date || '-')}</td>
+          <td class="text-right">${formatPhpCurrency(row.total_amount || 0)}</td>
+          <td class="text-right">${formatPhpCurrency(row.paid_amount || 0)}</td>
+          <td>${escHtml(getProjectLedgerRowStatus(row))}</td>
+        </tr>
+      `),
+      'No linked AP bills yet.'
+    );
+
+    const paymentsTable = renderProjectLedgerTable(
+      'Payments',
+      [
+        { label: 'Type' },
+        { label: 'Date' },
+        { label: 'Reference' },
+        { label: 'Method' },
+        { label: 'Amount', className: 'text-right' }
+      ],
+      [
+        ...arPayments.map((row) => `
+          <tr>
+            <td>AR</td>
+            <td>${escHtml(row.payment_date || '-')}</td>
+            <td>${escHtml(row.reference_number || '-')}</td>
+            <td>${escHtml(row.payment_method || '-')}</td>
+            <td class="text-right">${formatPhpCurrency(row.amount || 0)}</td>
+          </tr>
+        `),
+        ...apPayments.map((row) => `
+          <tr>
+            <td>AP</td>
+            <td>${escHtml(row.payment_date || '-')}</td>
+            <td>${escHtml(row.reference_number || '-')}</td>
+            <td>${escHtml(row.payment_method || '-')}</td>
+            <td class="text-right">${formatPhpCurrency(row.amount || 0)}</td>
+          </tr>
+        `)
+      ],
+      'No linked payments yet.'
+    );
+
+    const soTable = renderProjectLedgerTable(
+      'Service Orders',
+      [
+        { label: 'SO No.' },
+        { label: 'Date' },
+        { label: 'Title' },
+        { label: 'Amount', className: 'text-right' },
+        { label: 'Status' }
+      ],
+      serviceOrders.map((row) => `
+        <tr>
+          <td>${escHtml(row.so_number || '-')}</td>
+          <td>${escHtml(row.service_date || '-')}</td>
+          <td>${escHtml(row.service_title || '-')}</td>
+          <td class="text-right">${formatPhpCurrency(row.total_amount || 0)}</td>
+          <td>${escHtml(getProjectLedgerRowStatus(row))}</td>
+        </tr>
+      `),
+      'No linked service orders yet.'
+    );
+
+    content.innerHTML = `${transactionsTable}${arTable}${apTable}${paymentsTable}${soTable}`;
+  } catch (err) {
+    console.error('Project ledger load error:', err);
+    content.innerHTML = `<div class="empty-row" style="padding:18px;text-align:center;">${escHtml(err.message || 'Unable to load project overview.')}</div>`;
+  }
+}
+
+function closeProjectLedger() {
+  document.getElementById('project-ledger-modal-backdrop')?.classList.remove('open');
 }
 
 function formatCompactCurrency(value) {
@@ -1549,6 +3070,11 @@ function formatDateYmd(value) {
   return `${year}-${month}-${day}`;
 }
 
+function formatDateInputValue(value) {
+  const formatted = formatDateYmd(value);
+  return /^\d{4}-\d{2}-\d{2}$/.test(formatted) ? formatted : '';
+}
+
 function getProjectTimelineDates(project) {
   return {
     plannedStart: toDateOnly(project?.planned_start_date || project?.start_date),
@@ -1766,30 +3292,16 @@ function getProjectQuantity(project) {
 }
 
 function updateProjectPaymentDisplay() {
-  const qtyEl = document.getElementById('p-qty');
-  const unitCostEl = document.getElementById('p-unit-cost');
   const amountEl = document.getElementById('p-budget');
   const downpaymentEl = document.getElementById('p-downpayment');
   const balanceEl = document.getElementById('p-balance-display');
   const statusEl = document.getElementById('p-payment-status-display');
 
-  const qty = parseFloat(qtyEl?.value) || 0;
-  const unitCost = parseFloat(unitCostEl?.value) || 0;
-  const storedAmount = parseFloat(amountEl?.value) || 0;
-  let amount = storedAmount;
-  if (qty > 0 && unitCost > 0) {
-    amount = qty * unitCost;
-  } else if (qty > 0 || unitCost > 0) {
-    amount = 0;
-  }
+  const amount = parseFloat(amountEl?.value) || 0;
   const downpayment = parseFloat(downpaymentEl?.value) || 0;
   const balance = Math.max(0, amount - downpayment);
   const status = amount > 0 && balance <= 0 ? 'paid' : (downpayment > 0 ? 'partial' : 'unpaid');
   const statusLabel = status === 'paid' ? 'Paid' : status === 'partial' ? 'Partial' : 'Unpaid';
-
-  if (amountEl) {
-    amountEl.value = amount > 0 ? amount.toFixed(2) : '';
-  }
 
   if (balanceEl) {
     balanceEl.textContent = 'PHP ' + balance.toLocaleString('en-PH', { minimumFractionDigits: 2 });
@@ -1801,7 +3313,7 @@ function updateProjectPaymentDisplay() {
     statusEl.style.display = 'inline-flex';
   }
 
-  return { amount, downpayment, balance, status, qty, unitCost };
+  return { amount, downpayment, balance, status };
 }
 
 function getProjectStatusFilterValue() {
@@ -1902,7 +3414,7 @@ function renderOngoingProjects() {
     const projectName = project.project_name || 'Untitled Project';
     const memberText = String(project.members || '-').trim() || '-';
     const managerText = String(project.project_manager || '-').trim() || '-';
-    const budgetText = `PHP ${parseFloat(project.budget || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`;
+    const contractAmountText = `PHP ${parseFloat(project.budget || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`;
     const startText = formatDateYmd(getProjectEffectiveStartDate(project));
     const endText = formatDateYmd(getProjectEffectiveEndDate(project));
 
@@ -1915,7 +3427,7 @@ function renderOngoingProjects() {
       <td class="text-center" style="padding: 15px 20px; font-size: 0.95rem;">${escHtml(endText)}</td>
       <td class="text-center" style="padding: 15px 20px; font-size: 0.95rem;">${Math.round(project.avg_progress || 0)}%</td>
       <td class="text-center" style="padding: 15px 20px; font-size: 0.95rem;"><span class="status-pill ${statusClass}">${highlight(statusLabel, q)}</span></td>
-      <td class="text-right" style="padding: 15px 20px; font-size: 0.95rem;">${highlight(budgetText, q)}</td>
+      <td class="text-right" style="padding: 15px 20px; font-size: 0.95rem;">${highlight(contractAmountText, q)}</td>
       <td class="text-center" style="padding: 15px 20px;">
         <button class="btn btn-sm btn-edit" type="button" onclick="openProjectInTotalProjects(${JSON.stringify(String(lookupQuery || focusKey))})">View</button>
       </td>
@@ -2008,6 +3520,10 @@ let allReceivablesDb = [];
 let serviceOrdersDb = [];
 let serviceOrdersLoadPromise = null;
 let serviceOrdersInitialLoadAttempted = false;
+let businessEntitiesDb = [];
+const BUSINESS_ENTITY_CONTEXT_KEY = 'kinaadman_businessEntityContext';
+const BUSINESS_ENTITY_THEME_KEY = 'kinaadman_businessEntityTheme';
+let currentBusinessEntityContextId = '';
 let companyRegistryDb = [];
 let serviceOrderCompanyPickerDb = [];
 let serviceOrderVendorPickerDb = [];
@@ -2015,19 +3531,27 @@ let serviceOrderPickerLoadPromise = null;
 let currentDashboardCompany = normalizeDashboardCompanyName(localStorage.getItem('kinaadman_dashboardCompany') || 'all') || 'all';
 let logsDb = [];
 let notificationsDb = [];
+let archiveCenterDb = [];
+let archiveCenterActiveTab = 'project';
 let notificationReadIds = new Set();
 let invoiceStatusView = 'paid';
 let dashboardBarRange = 6;
 let currentDashboardPanel = 'home';
+let currentProjectLedgerId = null;
+let currentProjectLedgerSnapshot = null;
+let currentProjectLedgerSubmodule = 'overview';
+let currentProjectWorkspaceTab = 'projects';
 let ongoingProjectsViewMode = 'ongoing';
 let recordsLoadSeq = 0;
 let projectsLoadSeq = 0;
+let dashboardStatsSeq = 0;
 let pendingTransactionProjectId = null;
 let pendingTransactionLaunch = false;
 let memberSlotVisibleCount = 1;
 let resetPasswordUserId = null;
 let resetPasswordUserLabel = '';
 let editingProjectId = null;
+let editingServiceOrderId = null;
 let currentProjectStartDate = '';
 let currentProjectEndDate = '';
 let stagedProjectPdfDeleted = false;
@@ -2082,12 +3606,285 @@ function openModalRouter() {
   else openModal();
 }
 
+function getDefaultBusinessEntityId() {
+  const rows = Array.isArray(businessEntitiesDb) ? businessEntitiesDb : [];
+  const defaultRow = rows.find(row => Number(row.is_default || 0) === 1) || rows[0] || null;
+  return defaultRow ? String(defaultRow.id || '') : '';
+}
+
+function getCurrentBusinessEntityId() {
+  const rows = Array.isArray(businessEntitiesDb) ? businessEntitiesDb : [];
+  const stored = String(currentBusinessEntityContextId || localStorage.getItem(BUSINESS_ENTITY_CONTEXT_KEY) || '').trim();
+  if (!rows.length) return stored;
+  if (stored && rows.some(row => String(row.id || '') === stored)) {
+    currentBusinessEntityContextId = stored;
+    return stored;
+  }
+  const fallback = getDefaultBusinessEntityId();
+  currentBusinessEntityContextId = fallback;
+  if (fallback) localStorage.setItem(BUSINESS_ENTITY_CONTEXT_KEY, fallback);
+  return fallback;
+}
+
+function findBusinessEntityById(id) {
+  const target = String(id || '').trim();
+  if (!target) return null;
+  return (Array.isArray(businessEntitiesDb) ? businessEntitiesDb : [])
+    .find(row => String(row.id || '') === target) || null;
+}
+
+function businessEntityShortLabel(row) {
+  const code = String(row?.entity_code || '').replace(/^ENT-\d+\s*/i, '').trim();
+  const name = String(row?.company_name || code || '').trim();
+  if (/kvsk/i.test(name)) return 'KVSK';
+  if (/kitsi|ktiis/i.test(name)) return 'KITSI';
+  return (code || name || 'Company').replace(/[^a-z0-9]/gi, '').slice(0, 6) || 'Company';
+}
+
+function businessEntityProfileValue(value, fallback = 'Not set') {
+  const text = String(value || '').trim();
+  return text || fallback;
+}
+
+function renderBusinessEntityProfilePanel(current = getCurrentBusinessEntityId()) {
+  const panel = document.getElementById('business-profile-panel');
+  if (!panel) return;
+  const rows = Array.isArray(businessEntitiesDb) ? businessEntitiesDb : [];
+  panel.innerHTML = rows.length
+    ? rows.map((row) => {
+        const id = String(row.id || '');
+        const isActive = id === String(current || '');
+        const profile = getBusinessEntityBrandProfile(row);
+        return `
+          <button class="business-profile-card${isActive ? ' is-active' : ''}" type="button" onclick="setBusinessEntityContext('${escHtml(id)}')">
+            <span class="business-profile-logo-wrap"><img src="${escHtml(profile.logo)}" alt="${escHtml(profile.alt)}" /></span>
+            <span class="business-profile-copy">
+              <span class="business-profile-name">${escHtml(row.company_name || businessEntityShortLabel(row))}</span>
+              <span class="business-profile-meta">${escHtml(row.entity_code || 'Operating company')} · ${escHtml(businessEntityProfileValue(row.status, 'active'))}${Number(row.is_default || 0) ? ' · Default' : ''}</span>
+              <span class="business-profile-line">${escHtml(businessEntityProfileValue(row.contact_person, 'Contact person not set'))}</span>
+              <span class="business-profile-line">${escHtml(businessEntityProfileValue(row.email || row.phone, 'Email/phone not set'))}</span>
+            </span>
+          </button>
+        `;
+      }).join('')
+    : '<div class="business-profile-empty">Business profiles unavailable</div>';
+}
+
+function renderCurrentWorkspaceBadge(row = findBusinessEntityById(getCurrentBusinessEntityId())) {
+  const badge = document.getElementById('current-workspace-badge');
+  if (!badge) return;
+  const label = businessEntityShortLabel(row || {});
+  const title = String(row?.company_name || label || 'Workspace').trim();
+  badge.textContent = `${label || 'ERP'} Workspace`;
+  badge.title = title;
+  badge.setAttribute('aria-label', `Current workspace: ${title}`);
+}
+
+function syncModalBusinessContext(row = findBusinessEntityById(getCurrentBusinessEntityId())) {
+  const label = businessEntityShortLabel(row || findBusinessEntityById(getCurrentBusinessEntityId()) || {});
+  const title = String(row?.company_name || label || 'Operating Company').trim();
+  document.querySelectorAll('.modal-header, .modal-header-tight, .user-modal-brand').forEach((header) => {
+    let badge = header.querySelector(':scope > .modal-business-context');
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'modal-business-context';
+      const closeBtn = header.querySelector(':scope > .modal-close, :scope > .close-btn');
+      if (closeBtn) {
+        header.insertBefore(badge, closeBtn);
+      } else {
+        header.appendChild(badge);
+      }
+    }
+    badge.textContent = label || 'Company';
+    badge.title = title;
+    badge.setAttribute('aria-label', `Current business profile: ${title}`);
+  });
+}
+
+function businessEntityMatches(row) {
+  const selected = getCurrentBusinessEntityId();
+  if (!selected) return true;
+  const rowId = String(row?.business_entity_id || '').trim();
+  return rowId === selected;
+}
+
+function getBusinessEntityBrandProfile(row) {
+  const name = String(row?.company_name || '').trim();
+  const isKitsi = /kitsi|ktiis|kinaadman/i.test(name) || String(row?.theme || '').toLowerCase() === 'kitsi';
+  if (isKitsi) {
+    return {
+      theme: 'kitsi',
+      logo: '/assets/img/kitsi-logo.png',
+      alt: 'KITSI logo',
+      primary: '#0898c7',
+      primaryLight: '#22c7e8',
+      primaryDark: '#005b96',
+      accent: '#07a6d6',
+      accent2: '#005b96'
+    };
+  }
+  return {
+    theme: 'kvsk',
+    logo: '/assets/img/kvsk-logo-switch.png',
+    alt: 'KVSK logo',
+    primary: '#b42318',
+    primaryLight: '#ef5b4f',
+    primaryDark: '#4b1210',
+    accent: '#d92d20',
+    accent2: '#201313'
+  };
+}
+
+function applyStoredBusinessEntityBrand() {
+  try {
+    const raw = localStorage.getItem(BUSINESS_ENTITY_THEME_KEY);
+    const stored = raw ? JSON.parse(raw) : null;
+    if (stored && stored.theme) {
+      applyBusinessEntityBrand(stored);
+      return;
+    }
+  } catch (_) {}
+  applyBusinessEntityBrand({ company_name: 'KVSK' });
+}
+
+function applyBusinessEntityBrand(row) {
+  const profile = getBusinessEntityBrandProfile(row);
+  if (document.documentElement && document.documentElement.dataset) {
+    document.documentElement.dataset.businessEntityTheme = profile.theme;
+    document.documentElement.dataset.businessEntityThemeReady = '1';
+  }
+  if (document.body && document.body.dataset) {
+    document.body.dataset.businessEntityTheme = profile.theme;
+    document.body.dataset.businessEntityThemeReady = '1';
+  }
+  document.documentElement.style.setProperty('--primary', profile.primary);
+  document.documentElement.style.setProperty('--primary-light', profile.primaryLight);
+  document.documentElement.style.setProperty('--primary-dark', profile.primaryDark);
+  document.documentElement.style.setProperty('--accent', profile.accent);
+  document.documentElement.style.setProperty('--accent2', profile.accent2);
+
+  document.querySelectorAll('.brand-mark, .sidebar-brand-mark, .user-modal-brand-mark').forEach((img) => {
+    img.src = profile.logo;
+    img.alt = profile.alt;
+  });
+  document.querySelectorAll('.sidebar-header .header-logo').forEach((node) => {
+    node.textContent = profile.theme === 'kitsi' ? 'KITSI' : 'KVSK CCTV';
+  });
+  document.querySelectorAll('.user-modal-kicker').forEach((node) => {
+    const currentText = String(node.textContent || '').trim();
+    if (/^(KVSK|KITSI)\s+Access Control$/i.test(currentText)) {
+      node.textContent = `${profile.theme === 'kitsi' ? 'KITSI' : 'KVSK'} Access Control`;
+    }
+  });
+  try {
+    localStorage.setItem(BUSINESS_ENTITY_THEME_KEY, JSON.stringify({
+      company_name: row?.company_name || '',
+      theme: profile.theme,
+      logo: profile.logo,
+      alt: profile.alt,
+      primary: profile.primary,
+      primaryLight: profile.primaryLight,
+      primaryDark: profile.primaryDark,
+      accent: profile.accent,
+      accent2: profile.accent2
+    }));
+  } catch (_) {}
+}
+
+function renderBusinessEntitySwitcher() {
+  const host = document.getElementById('business-entity-switcher');
+  const rows = Array.isArray(businessEntitiesDb) ? businessEntitiesDb : [];
+  const current = getCurrentBusinessEntityId();
+  if (host) {
+    host.innerHTML = rows.map(row => {
+      const id = String(row.id || '');
+      const label = businessEntityShortLabel(row);
+      return `<button class="business-entity-switch${id === current ? ' is-active' : ''}" type="button" data-business-entity-id="${escHtml(id)}" aria-pressed="${id === current ? 'true' : 'false'}" onclick="setBusinessEntityContext('${escHtml(id)}')">${escHtml(label)}</button>`;
+    }).join('');
+  }
+  const activeEntity = findBusinessEntityById(current);
+  applyBusinessEntityBrand(activeEntity);
+  renderBusinessEntityProfilePanel(current);
+  renderCurrentWorkspaceBadge(activeEntity);
+  syncModalBusinessContext(activeEntity);
+  document.querySelectorAll('header .brand-copy .header-logo').forEach((node) => {
+    node.textContent = activeEntity?.company_name || 'Kinaadman ERP';
+  });
+  if (document.documentElement?.dataset) {
+    document.documentElement.dataset.businessEntityBrandTextReady = '1';
+  }
+}
+
+function setBusinessEntityContext(id) {
+  const nextId = String(id || '').trim();
+  if (!nextId) return;
+  currentBusinessEntityContextId = nextId;
+  localStorage.setItem(BUSINESS_ENTITY_CONTEXT_KEY, nextId);
+  serviceOrderCompanyPickerDb = [];
+  serviceOrderVendorPickerDb = [];
+  projectCompanies = [];
+  renderBusinessEntitySwitcher();
+  populateBusinessEntitySelect('f-business-entity-id');
+  populateBusinessEntitySelect('p-business-entity-id');
+  populateBusinessEntitySelect('so-business-entity-id');
+  renderProjectWorkspace();
+  renderTable();
+  renderOngoingProjects();
+  updateStats().catch((err) => console.error('Business entity stats refresh error:', err));
+}
+
+function populateBusinessEntitySelect(selectId, selectedValue = '') {
+  const select = document.getElementById(selectId);
+  if (!select) return;
+  const rows = Array.isArray(businessEntitiesDb) ? businessEntitiesDb : [];
+  const selected = String(selectedValue || getCurrentBusinessEntityId() || getDefaultBusinessEntityId() || '').trim();
+
+  if (String(select.tagName || '').toLowerCase() !== 'select') {
+    select.value = selected || getDefaultBusinessEntityId() || '';
+    return;
+  }
+
+  select.innerHTML = rows.length
+    ? rows.map(row => `<option value="${escHtml(row.id)}">${escHtml(row.company_name || row.entity_code || 'Operating Company')}</option>`).join('')
+    : '<option value="">Default company</option>';
+  if (selected && Array.from(select.options || []).some(option => String(option.value) === selected)) {
+    select.value = selected;
+  } else if (rows.length) {
+    select.value = getDefaultBusinessEntityId();
+  }
+}
+
+async function loadBusinessEntities() {
+  try {
+    const res = await fetch('/api/business-entities', { cache: 'no-store' });
+    const data = await res.json().catch(() => []);
+    if (!res.ok) throw new Error(data.error || 'Unable to load operating companies.');
+    businessEntitiesDb = Array.isArray(data) ? data : [];
+  } catch (err) {
+    console.error('Load business entities error:', err);
+    businessEntitiesDb = [];
+  }
+  renderBusinessEntitySwitcher();
+  populateBusinessEntitySelect('f-business-entity-id');
+  populateBusinessEntitySelect('p-business-entity-id');
+  populateBusinessEntitySelect('so-business-entity-id');
+  renderProjectWorkspace();
+  renderTable();
+  renderOngoingProjects();
+  renderProjectRecordsTable();
+  updateStats().catch((err) => console.error('Business entity stats refresh error:', err));
+}
+
 function isAdminUser() {
-  return currentUser && currentUser.role === 'admin';
+  return currentUser && isAdminRoleValue(currentUser.role);
+}
+
+function isSuperAdminUser() {
+  return currentUser && normalizeAccessRole(currentUser.role) === 'super_admin';
 }
 
 function isStaffUser() {
-  return currentUser && currentUser.role === 'staff';
+  return currentUser && normalizeAccessRole(currentUser.role) === 'staff';
 }
 
 function getNotificationReadStorageKey() {
@@ -2159,14 +3956,21 @@ function openNotificationItem(notificationId) {
   loadNotifications();
   closeNotificationsPanel();
 
+  if (String(item.type || '') === 'audit') {
+    if (typeof openDashboardPanel === 'function') {
+      openDashboardPanel('system-logs');
+    }
+    return;
+  }
+
   const targetSearch = String(item.source_docno || item.title || '').trim();
-  if (document.getElementById('total-projects-section')) {
+  if (document.getElementById('project-records-section')) {
     openProjectInTotalProjects(targetSearch);
     return;
   }
 
   const url = new URL('/admin', window.location.origin);
-  url.searchParams.set('view', 'all');
+  url.searchParams.set('panel', 'project-records');
   if (targetSearch) {
     url.searchParams.set('search', targetSearch);
   }
@@ -2175,7 +3979,7 @@ function openNotificationItem(notificationId) {
 
 function loadRecords() {
   const requestSeq = ++recordsLoadSeq;
-  fetch('/api/transactions')
+  return fetch('/api/transactions')
     .then(res => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
@@ -2185,8 +3989,8 @@ function loadRecords() {
       db = data;
       allTransactionsDb = Array.isArray(data) ? data : [];
       updateStats();
-      loadProjectsDashboardData();
       renderTable();
+      return loadProjectsDashboardData();
     })
     .catch(err => {
       console.error('Load error:', err);
@@ -2196,12 +4000,13 @@ function loadRecords() {
       if (tbody) {
         tbody.innerHTML = `<tr class="empty-row"><td colspan="${colCount}">Hindi ma-load ang records.</td></tr>`;
       }
+      return loadProjectsDashboardData();
     });
 }
 
 function loadArchivedRecords() {
   const requestSeq = ++recordsLoadSeq;
-  fetch('/api/transactions/archived')
+  return fetch('/api/transactions/archived')
     .then(res => res.json())
     .then(data => {
       if (requestSeq !== recordsLoadSeq) return;
@@ -2211,8 +4016,8 @@ function loadArchivedRecords() {
         archived_auto: 0
       }));
       updateStats();
-      loadProjectsDashboardData();
       renderTable();
+      return loadProjectsDashboardData();
     })
     .catch(err => {
       console.error('Load archived error:', err);
@@ -2222,22 +4027,173 @@ function loadArchivedRecords() {
       if (tbody) {
         tbody.innerHTML = `<tr class="empty-row"><td colspan="${colCount}">Hindi ma-load ang archived records.</td></tr>`;
       }
+      return loadProjectsDashboardData();
     });
 }
 
+async function loadArchiveCenter() {
+  const body = document.getElementById('archive-center-body');
+  if (body) {
+    body.innerHTML = '<tr class="empty-row"><td colspan="6">Loading archived records...</td></tr>';
+  }
+
+  try {
+    const res = await fetch('/api/archive-center', { cache: 'no-store' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+
+    archiveCenterDb = (Array.isArray(data.rows) ? data.rows : []).map((row) => ({
+      type: row.type || 'Record',
+      typeKey: normalizeArchiveCenterTypeKey(row.type_key || row.typeKey || row.type || ''),
+      key: row.key || `${row.type_key || 'record'}:${row.id}`,
+      id: Number(row.id || 0),
+      restoreUrl: row.restore_url || row.restoreUrl || '',
+      title: row.title || 'Archived record',
+      party: row.party || '-',
+      status: row.status || 'archived',
+      date: formatDateYmd(row.date || ''),
+      search: row.search || [row.type, row.title, row.party, row.status, row.date].join(' ')
+    }));
+
+    const counts = data.counts || {};
+    setArchiveCount('projects', counts.projects || 0);
+    setArchiveCount('transactions', counts.transactions || 0);
+    setArchiveCount('companies', counts.companies || 0);
+    setArchiveCount('receivables', counts.receivables || 0);
+    setArchiveCount('service-orders', counts.service_orders || counts.serviceOrders || 0);
+    updateArchiveCenterTabs();
+    renderArchiveCenter();
+  } catch (err) {
+    console.error('Archive center load error:', err);
+    archiveCenterDb = [];
+    if (body) {
+      body.innerHTML = '<tr class="empty-row"><td colspan="6">Unable to load archived records.</td></tr>';
+    }
+    showToast(err.message || 'Unable to load archive center.', 'error');
+  }
+}
+
+function setArchiveCount(key, value) {
+  const node = document.getElementById(`archive-count-${key}`);
+  if (node) node.textContent = String(Number(value || 0));
+  const tabNode = document.getElementById(`archive-tab-count-${key}`);
+  if (tabNode) tabNode.textContent = String(Number(value || 0));
+}
+
+function normalizeArchiveCenterTypeKey(value) {
+  const safe = String(value || '').trim().toLowerCase().replace(/_/g, '-');
+  if (['project', 'transaction', 'company', 'receivable', 'service-order'].includes(safe)) return safe;
+  if (safe === 'a/r' || safe === 'ar' || safe === 'accounts-receivable') return 'receivable';
+  if (safe.includes('service')) return 'service-order';
+  if (safe.includes('trans')) return 'transaction';
+  if (safe.includes('comp')) return 'company';
+  if (safe.includes('project')) return 'project';
+  return 'project';
+}
+
+function getArchiveCenterTabLabel(typeKey = archiveCenterActiveTab) {
+  const labels = {
+    project: 'projects',
+    transaction: 'transactions',
+    company: 'companies',
+    receivable: 'AR records',
+    'service-order': 'service orders'
+  };
+  return labels[typeKey] || 'records';
+}
+
+function updateArchiveCenterTabs() {
+  const activeType = normalizeArchiveCenterTypeKey(archiveCenterActiveTab);
+  archiveCenterActiveTab = activeType;
+
+  document.querySelectorAll('[data-archive-center-tab]').forEach((node) => {
+    const isActive = normalizeArchiveCenterTypeKey(node.getAttribute('data-archive-center-tab')) === activeType;
+    node.classList.toggle('active', isActive);
+    node.setAttribute('aria-selected', String(isActive));
+  });
+
+  const searchInput = document.getElementById('archive-center-search');
+  if (searchInput) {
+    searchInput.placeholder = `Search archived ${getArchiveCenterTabLabel(activeType)}...`;
+  }
+}
+
+function setArchiveCenterTab(typeKey) {
+  archiveCenterActiveTab = normalizeArchiveCenterTypeKey(typeKey);
+  updateArchiveCenterTabs();
+  renderArchiveCenter();
+}
+
+function renderArchiveCenter() {
+  const body = document.getElementById('archive-center-body');
+  if (!body) return;
+
+  updateArchiveCenterTabs();
+  const query = String(document.getElementById('archive-center-search')?.value || '').trim().toLowerCase();
+  const activeType = normalizeArchiveCenterTypeKey(archiveCenterActiveTab);
+  const rows = (Array.isArray(archiveCenterDb) ? archiveCenterDb : [])
+    .filter((row) => {
+      if (normalizeArchiveCenterTypeKey(row.typeKey || row.type || '') !== activeType) return false;
+      if (!query) return true;
+      return [row.type, row.title, row.party, row.status, row.date, row.search]
+        .join(' ')
+        .toLowerCase()
+        .includes(query);
+    });
+
+  if (!rows.length) {
+    body.innerHTML = `<tr class="empty-row"><td colspan="6">No archived ${getArchiveCenterTabLabel(activeType)} found.</td></tr>`;
+    return;
+  }
+
+  body.innerHTML = rows.map((row) => `
+    <tr>
+      <td><span class="archive-type-pill">${escHtml(row.type || '-')}</span></td>
+      <td><strong>${escHtml(row.title || '-')}</strong></td>
+      <td>${escHtml(row.party || '-')}</td>
+      <td>${escHtml(row.status || 'archived')}</td>
+      <td>${escHtml(row.date || '-')}</td>
+      <td class="text-center">
+        <button class="btn btn-restore btn-sm" type="button" onclick="restoreArchiveCenterItem('${escHtml(row.key)}')">Restore</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function restoreArchiveCenterItem(key) {
+  const row = (Array.isArray(archiveCenterDb) ? archiveCenterDb : []).find((entry) => entry.key === key);
+  if (!row?.restoreUrl) return;
+  if (!confirm(`Restore this ${row.type || 'record'} from archive?`)) return;
+
+  try {
+    const res = await fetch(row.restoreUrl, { method: 'PUT' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || data.message || 'Unable to restore record.');
+    showToast(`${row.type || 'Record'} restored.`, 'success');
+    await loadArchiveCenter();
+    await loadProjectsDashboardData();
+  } catch (err) {
+    showToast(err.message || 'Unable to restore archived record.', 'error');
+  }
+}
+
 function loadUsers() {
-  return fetch('/api/admin/users')
+  return fetch('/api/admin/users', { cache: 'no-store' })
     .then(res => res.json())
     .then(data => {
       usersDb = Array.isArray(data) ? data : [];
-      renderTable();
+      if (typeof renderUsers === 'function') {
+        renderUsers();
+      } else {
+        renderTable();
+      }
       return usersDb;
     })
     .catch(err => {
       console.error('Load Users Error:', err);
       const tbody = document.getElementById('table-body');
       if (tbody) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center">Failed to load users.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center">Failed to load users.</td></tr>';
       }
       throw err;
     });
@@ -2277,7 +4233,7 @@ function switchTab(tab, btn) {
   }
   if (searchInput) {
     searchInput.placeholder = tab === 'users'
-      ? 'Search users by name, username, email, or role...'
+      ? 'Search users by name, email, or role...'
       : 'Search client, document number, or items here...';
   }
 
@@ -2298,9 +4254,8 @@ function switchTab(tab, btn) {
     if (mainCont) mainCont.style.maxWidth = '100%';
 
     if (addBtn) {
-      addBtn.textContent = 'Add User';
-      addBtn.onclick = openUserModal;
-      addBtn.style.display = '';
+      addBtn.style.display = 'none';
+      addBtn.onclick = null;
     }
     loadUsers();
     renderUsers();
@@ -2315,10 +4270,10 @@ function switchTab(tab, btn) {
       addBtn.onclick = openProjectModal;
       addBtn.style.display = (!isAdminUser() && !isStaffUser()) ? 'none' : '';
     }
-    renderProjectRecordsTable();
-  } else {
+    renderProjectWorkspace();
+  } else if (tab === 'archived') {
     openDashboardPanel('total-projects');
-    if (pageTitle) pageTitle.textContent = tab === 'archived' ? 'Archived Project Transactions' : 'Project Transactions';
+    if (pageTitle) pageTitle.textContent = tab === 'archived' ? 'Archived Transactions' : 'Transactions';
     if (pageSub) pageSub.textContent = '';
     if (mainCont) mainCont.style.maxWidth = '1400px';
     if (projectStatusFilter) {
@@ -2330,15 +4285,25 @@ function switchTab(tab, btn) {
     if (userControls) userControls.style.display = 'none';
 
     if (addBtn) {
-      addBtn.textContent = 'Add Transaction';
-      addBtn.onclick = openModal;
-      addBtn.style.display = (!isAdminUser() && !isStaffUser()) ? 'none' : '';
+      addBtn.style.display = 'none';
     }
     if (tab === 'archived') {
       loadArchivedRecords();
       return;
     }
     renderTable();
+  } else {
+    openDashboardPanel('project-records');
+    if (pageTitle) pageTitle.textContent = 'Projects';
+    if (pageSub) pageSub.textContent = '';
+    if (mainCont) mainCont.style.maxWidth = '1400px';
+
+    if (addBtn) {
+      addBtn.textContent = 'Add Project';
+      addBtn.onclick = openProjectModal;
+      addBtn.style.display = (!isAdminUser() && !isStaffUser()) ? 'none' : '';
+    }
+    renderProjectWorkspace();
   }
 }
 
@@ -2353,7 +4318,7 @@ function openSidebarDashboard(btn) {
 }
 
 function openTotalProjectsFromDashboard() {
-  openDashboardPanel('total-projects');
+  openDashboardPanel('project-records');
 }
 
 function openProjectsFromDashboard() {
@@ -2362,7 +4327,14 @@ function openProjectsFromDashboard() {
 }
 
 function openProjectStatsModal() {
-  const showModal = () => {
+  const showModal = async () => {
+    if (!Array.isArray(serviceOrdersDb) || !serviceOrdersDb.length) {
+      try {
+        await loadServiceOrdersData(true);
+      } catch (err) {
+        console.error('Failed to load service orders for project stats:', err);
+      }
+    }
     updateProjectStatsModal();
     const backdrop = document.getElementById('project-stats-modal-backdrop');
     if (backdrop) {
@@ -2406,23 +4378,11 @@ function updateProjectStatsModal() {
 
   const totalEl = document.getElementById('proj-stats-total');
   const ongoingEl = document.getElementById('proj-stats-ongoing');
-  const txEl = document.getElementById('proj-stats-transactions');
-  const poEl = document.getElementById('proj-stats-po');
-  const soEl = document.getElementById('proj-stats-so');
 
   const ongoing = projects.filter((p) => getProjectPhase(p) === 'ongoing').length;
-  const txCount = (Array.isArray(allTransactionsDb) ? allTransactionsDb : [])
-    .filter((t) => Number(t.project_id || 0) > 0 && Number(t.archived || 0) === 0).length;
-  const poCount = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
-    .reduce((count, p) => count + (Number(p.purchase_order_count || 0) > 0 ? Number(p.purchase_order_count || 0) : 0), 0);
-  const soCount = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
-    .reduce((count, p) => count + (Number(p.service_order_count || 0) > 0 ? Number(p.service_order_count || 0) : 0), 0);
 
   if (totalEl) totalEl.textContent = String(projects.length);
   if (ongoingEl) ongoingEl.textContent = String(ongoing);
-  if (txEl) txEl.textContent = String(txCount);
-  if (poEl) poEl.textContent = String(poCount);
-  if (soEl) soEl.textContent = String(soCount);
 }
 
 function openAllTransactionsFromDashboard() {
@@ -2430,8 +4390,7 @@ function openAllTransactionsFromDashboard() {
 }
 
 function openReportsPanel() {
-  openDashboardPanel('reports');
-  setSidebarOpen(false);
+  window.location.href = '/reports';
 }
 
 function openProjectsDashboard() {
@@ -2439,13 +4398,8 @@ function openProjectsDashboard() {
   setSidebarOpen(false);
 }
 
-function openProjectPurchaseOrdersDashboard() {
-  window.location.href = '/procurement';
-}
-
 function openServiceOrdersDashboard() {
-  openDashboardPanel('service-orders');
-  setSidebarOpen(false);
+  window.location.href = '/accounts-receivable?tab=service-orders';
 }
 
 function goBackSmart(fallback = '/admin?view=dashboard', forceFallback = false) {
@@ -2473,19 +4427,16 @@ function formatBackButtonLabel(target = '') {
 
   if (path === '/admin' && (!view || view === 'dashboard')) return 'Back to Dashboard';
   if (path === '/admin' && panel === 'project-records') return 'Back to Project Operations';
-  if (path === '/admin' && panel === 'service-orders') return 'Back to Service Orders';
   if (path === '/admin' && view === 'ongoing-projects') return 'Back to Ongoing Projects';
   if (path === '/admin' && view === 'archived') return 'Back to Archived Projects';
-  if (path === '/admin' && view === 'all') return 'Back to Project Transactions';
+  if (path === '/admin' && view === 'all') return 'Back to Project Operations';
 
   const routeLabels = {
     '/accounts-payable': 'Back to Accounts Payable',
     '/accounts-receivable': 'Back to Accounts Receivable',
     '/company': 'Back to Company Registry',
     '/gantt-chart': 'Back to Gantt Chart',
-    '/inventory': 'Back to Inventory',
     '/login': 'Back to Login',
-    '/procurement': 'Back to Procurement',
     '/reports': 'Back to Reports',
     '/reset-password': 'Back to Login',
     '/user-management': 'Back to User Management',
@@ -2563,11 +4514,13 @@ function submitResetPasswordModal() {
 
   if (password.length < 8) {
     setResetPasswordFieldMessage('password', 'Password must be at least 8 characters.');
+    focusFirstModalControl(['reset-pass-input']);
     return;
   }
 
   if (password !== confirm) {
     setResetPasswordFieldMessage('confirm', 'Passwords do not match.');
+    focusFirstModalControl(['reset-pass-confirm']);
     return;
   }
 
@@ -2586,6 +4539,7 @@ function submitResetPasswordModal() {
       const errorText = String(err?.message || '').toLowerCase();
       if (errorText.includes('password')) {
         setResetPasswordFieldMessage('password', err.message || 'Unable to reset password.');
+        focusFirstModalControl(['reset-pass-input']);
         return;
       }
       showToast(err.message || 'Unable to reset password.', 'error');
@@ -2595,9 +4549,9 @@ function submitResetPasswordModal() {
 function openProjectInTotalProjects(searchValue) {
   const targetSearch = String(searchValue || '').trim();
 
-  if (!document.getElementById('total-projects-section')) {
+  if (!document.getElementById('project-records-section')) {
     const url = new URL('/admin', window.location.origin);
-    url.searchParams.set('view', 'all');
+    url.searchParams.set('panel', 'project-records');
     if (targetSearch) {
       url.searchParams.set('search', targetSearch);
     }
@@ -2605,17 +4559,141 @@ function openProjectInTotalProjects(searchValue) {
     return;
   }
 
-  openDashboardPanel('total-projects');
-  const menuAll = document.getElementById('menu-all');
-  if (menuAll) menuAll.classList.add('active');
-  activeTab = 'all';
-  localStorage.setItem('kinaadman_activeTab', 'all');
+  openDashboardPanel('project-records');
   currentPage = 1;
 
-  const searchInput = document.getElementById('search-input');
+  const searchInput = document.getElementById('project-records-search-input');
   if (searchInput) searchInput.value = targetSearch;
-  renderTable();
+  renderProjectWorkspace();
   setSidebarOpen(false);
+}
+
+function switchProjectFormTab(tabName = 'details') {
+  const activeTab = String(tabName || 'details');
+  const tabs = document.querySelectorAll('[data-project-form-tab]');
+  const panels = document.querySelectorAll('[data-project-form-panel]');
+
+  tabs.forEach((tab) => {
+    const isActive = tab.dataset.projectFormTab === activeTab;
+    tab.classList.toggle('active', isActive);
+    tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
+
+  panels.forEach((panel) => {
+    const isActive = panel.dataset.projectFormPanel === activeTab;
+    panel.classList.toggle('active', isActive);
+    panel.hidden = !isActive;
+  });
+}
+
+function getProjectFormTabForField(fieldName) {
+  const dateFields = ['planned_start_date', 'planned_end_date', 'actual_start_date', 'actual_end_date', 'status_reason'];
+  const financialFields = ['budget', 'downpayment', 'checkno', 'pono'];
+  const teamFields = ['project_members', 'member_role', 'member_phone', 'project_members_2', 'member_role_2', 'member_phone_2', 'project_members_3', 'member_role_3', 'member_phone_3'];
+  if (dateFields.includes(fieldName)) return 'dates';
+  if (financialFields.includes(fieldName)) return 'financials';
+  if (teamFields.includes(fieldName)) return 'team';
+  return 'details';
+}
+
+function focusProjectFieldOnTab(fieldName, controlIds = []) {
+  switchProjectFormTab(getProjectFormTabForField(fieldName));
+  focusFirstModalControl(controlIds);
+}
+
+const PROJECT_TEAM_ROWS = [
+  { row: 1, name: 'p-project-members', role: 'p-member-role', phone: 'p-member-phone' },
+  { row: 2, name: 'p-project-members-2', role: 'p-member-role-2', phone: 'p-member-phone-2' },
+  { row: 3, name: 'p-project-members-3', role: 'p-member-role-3', phone: 'p-member-phone-3' }
+];
+
+function getProjectTeamRowConfig(rowNumber) {
+  const safeRow = Number(rowNumber) || 1;
+  return PROJECT_TEAM_ROWS.find(entry => entry.row === safeRow) || PROJECT_TEAM_ROWS[0];
+}
+
+function getProjectTeamRowFields(rowNumber) {
+  const config = getProjectTeamRowConfig(rowNumber);
+  return [config.name, config.role, config.phone]
+    .map(id => document.getElementById(id))
+    .filter(Boolean);
+}
+
+function projectTeamRowHasValue(rowNumber) {
+  return getProjectTeamRowFields(rowNumber).some(field => String(field.value || '').trim());
+}
+
+function setProjectTeamRowVisible(rowNumber, visible, { clear = false } = {}) {
+  const row = Number(rowNumber) || 1;
+  document.querySelectorAll(`[data-project-team-row="${row}"]`).forEach((node) => {
+    node.hidden = !visible;
+  });
+
+  if (clear) {
+    getProjectTeamRowFields(row).forEach((field) => {
+      field.value = '';
+    });
+  }
+}
+
+function getVisibleProjectTeamRowCount() {
+  return PROJECT_TEAM_ROWS.reduce((count, entry) => {
+    const firstNode = document.querySelector(`[data-project-team-row="${entry.row}"]`);
+    return count + (firstNode && !firstNode.hidden ? 1 : 0);
+  }, 0);
+}
+
+function syncProjectTeamControls() {
+  const addBtn = document.getElementById('project-add-team-member-btn');
+  if (!addBtn) return;
+  const visibleCount = getVisibleProjectTeamRowCount();
+  addBtn.style.display = visibleCount >= PROJECT_TEAM_ROWS.length ? 'none' : '';
+  addBtn.textContent = visibleCount <= 1 ? 'Add Member' : `Add Member ${visibleCount + 1}`;
+}
+
+function syncProjectTeamRowsFromValues() {
+  let lastRowWithValue = 1;
+  PROJECT_TEAM_ROWS.forEach((entry) => {
+    if (projectTeamRowHasValue(entry.row)) lastRowWithValue = entry.row;
+  });
+
+  PROJECT_TEAM_ROWS.forEach((entry) => {
+    setProjectTeamRowVisible(entry.row, entry.row <= lastRowWithValue);
+  });
+  syncProjectTeamControls();
+}
+
+function addProjectTeamMember() {
+  const nextRow = PROJECT_TEAM_ROWS.find((entry) => {
+    const firstNode = document.querySelector(`[data-project-team-row="${entry.row}"]`);
+    return firstNode && firstNode.hidden;
+  });
+  if (!nextRow) return;
+
+  setProjectTeamRowVisible(nextRow.row, true);
+  syncProjectTeamControls();
+  const nameField = document.getElementById(nextRow.name);
+  if (nameField) nameField.focus();
+}
+
+function setProjectRoleValue(id, value) {
+  const select = document.getElementById(id);
+  if (!select) return;
+
+  const roleValue = String(value || '').trim();
+  if (!roleValue) {
+    select.value = '';
+    return;
+  }
+
+  const hasOption = Array.from(select.options || []).some(option => option.value === roleValue);
+  if (!hasOption) {
+    const option = document.createElement('option');
+    option.value = roleValue;
+    option.textContent = roleValue;
+    select.appendChild(option);
+  }
+  select.value = roleValue;
 }
 
 function openProjectModal(projectId = null) {
@@ -2638,6 +4716,7 @@ function openProjectModal(projectId = null) {
 
   if (title) title.textContent = project ? 'Edit Project' : 'Create Project';
   if (saveBtn) saveBtn.textContent = project ? 'Update Project' : 'Save Project';
+  switchProjectFormTab('details');
   clearProjectFieldMessages();
   setProjectModalNotice('');
 
@@ -2645,8 +4724,27 @@ function openProjectModal(projectId = null) {
     document.getElementById('p-project-name').value = projectData.project_name || '';
     const projectDocNoInput = document.getElementById('p-project-docno');
     if (projectDocNoInput) projectDocNoInput.value = String(projectData.project_docno || '').trim();
-    currentProjectStartDate = formatDateYmd(projectData.planned_start_date || projectData.start_date || '');
-    currentProjectEndDate = formatDateYmd(projectData.planned_end_date || projectData.end_date || '');
+    populateBusinessEntitySelect('p-business-entity-id', projectData.business_entity_id || '');
+    setProjectModalValue('p-project-manager', projectData.project_manager || '');
+    setProjectModalValue('p-status', projectData.status || (project ? 'active' : 'planning'));
+    setProjectModalValue('p-priority', projectData.priority || 'medium');
+    setProjectModalValue('p-description', projectData.description || '');
+    setProjectModalValue('p-budget', Number(projectData.budget || 0) > 0 ? Number(projectData.budget || 0).toFixed(2) : '');
+    setProjectModalValue('p-downpayment', Number(projectData.downpayment || 0) > 0 ? Number(projectData.downpayment || 0).toFixed(2) : '');
+    setProjectModalValue('p-checkno', projectData.checkno || '');
+    setProjectModalValue('p-pono', projectData.pono || '');
+    setProjectModalValue('p-project-members', projectData.project_members || '');
+    setProjectRoleValue('p-member-role', projectData.member_role || '');
+    setProjectModalValue('p-member-phone', projectData.member_phone || '');
+    setProjectModalValue('p-project-members-2', projectData.project_members_2 || '');
+    setProjectRoleValue('p-member-role-2', projectData.member_role_2 || '');
+    setProjectModalValue('p-member-phone-2', projectData.member_phone_2 || '');
+    setProjectModalValue('p-project-members-3', projectData.project_members_3 || '');
+    setProjectRoleValue('p-member-role-3', projectData.member_role_3 || '');
+    setProjectModalValue('p-member-phone-3', projectData.member_phone_3 || '');
+    syncProjectTeamRowsFromValues();
+    currentProjectStartDate = formatDateInputValue(projectData.planned_start_date || projectData.start_date || '');
+    currentProjectEndDate = formatDateInputValue(projectData.planned_end_date || projectData.end_date || '');
     populateProjectCompanySelect(projectData.company_id || projectData.registry_company_id || projectData.company_no || projectData.company_name || projectData.client_name || '');
     const startDateInput = document.getElementById('p-planned-start-date');
     const endDateInput = document.getElementById('p-planned-end-date');
@@ -2654,6 +4752,10 @@ function openProjectModal(projectId = null) {
     currentProjectEndDate = project ? (currentProjectEndDate || '') : nextMonth;
     if (startDateInput) startDateInput.value = currentProjectStartDate || '';
     if (endDateInput) endDateInput.value = currentProjectEndDate || '';
+    setProjectModalValue('p-actual-start-date', formatDateInputValue(projectData.actual_start_date || ''));
+    setProjectModalValue('p-actual-end-date', formatDateInputValue(projectData.actual_end_date || ''));
+    setProjectModalValue('p-status-reason', projectData.status_reason || '');
+    updateProjectPaymentDisplay();
     const hasCompanyOptions = getRegistryCompanyEntries().length > 0;
     if (!hasCompanyOptions) {
       setProjectFieldMessage('company', 'No companies available yet. Please add a company in Company Registry first.');
@@ -2662,7 +4764,7 @@ function openProjectModal(projectId = null) {
       saveBtn.disabled = false;
     }
     if (!project) {
-      fetch('/api/projects/next-docno')
+      fetch(`/api/projects/next-docno?business_entity_id=${encodeURIComponent(getCurrentBusinessEntityId() || getDefaultBusinessEntityId() || '')}`)
         .then(res => res.json().catch(() => ({})).then(data => ({ ok: res.ok, data })))
         .then(({ ok, data }) => {
           if (!ok || editingProjectId) return;
@@ -2690,6 +4792,7 @@ function closeProjectModal() {
   currentProjectStartDate = '';
   currentProjectEndDate = '';
   document.body.style.overflow = '';
+  switchProjectFormTab('details');
   clearProjectFieldMessages();
   setProjectModalNotice('');
 }
@@ -2718,6 +4821,7 @@ function openConfirmDialog({
 
   titleEl.textContent = title;
   messageEl.textContent = message;
+  messageEl.style.whiteSpace = 'pre-line';
   noBtn.textContent = noText;
   yesBtn.textContent = yesText;
 
@@ -2786,7 +4890,9 @@ function getProjectFieldNodes(fieldName) {
     project_docno: ['p-project-docno'],
     project_name: ['p-project-name'],
     planned_start_date: ['p-planned-start-date'],
-    planned_end_date: ['p-planned-end-date']
+    planned_end_date: ['p-planned-end-date'],
+    actual_end_date: ['p-actual-end-date'],
+    budget: ['p-budget']
   };
 
   return (map[fieldName] || [])
@@ -2813,8 +4919,27 @@ function setProjectFieldMessage(fieldName, message = '') {
   });
 }
 
+function setProjectFieldHint(fieldName, message = '') {
+  const notice = getProjectFieldMessageNode(fieldName);
+  const text = String(message || '').trim();
+  const field = notice?.closest('.field') || null;
+
+  if (notice) {
+    notice.textContent = text;
+    notice.classList.toggle('is-hidden', !text);
+  }
+
+  if (field) {
+    field.classList.remove('has-error');
+  }
+
+  getProjectFieldNodes(fieldName).forEach((node) => {
+    node.setAttribute('aria-invalid', 'false');
+  });
+}
+
 function clearProjectFieldMessages() {
-  ['company', 'project_docno', 'project_name', 'planned_start_date', 'planned_end_date'].forEach((fieldName) => {
+  ['company', 'project_docno', 'project_name', 'planned_start_date', 'planned_end_date', 'actual_end_date', 'budget'].forEach((fieldName) => {
     setProjectFieldMessage(fieldName, '');
   });
 }
@@ -2822,12 +4947,13 @@ function clearProjectFieldMessages() {
 function setupProjectModalValidationListeners() {
   const bindings = [
     ['p-company-search', 'company', 'input', () => {
-      const hidden = document.getElementById('p-company-id');
-      if (hidden) hidden.value = '';
+      filterProjectCompanies();
     }],
     ['p-project-name', 'project_name', 'input'],
     ['p-planned-start-date', 'planned_start_date', 'change'],
-    ['p-planned-end-date', 'planned_end_date', 'change']
+    ['p-planned-end-date', 'planned_end_date', 'change'],
+    ['p-actual-end-date', 'actual_end_date', 'change'],
+    ['p-budget', 'budget', 'input']
   ];
 
   bindings.forEach(([id, fieldName, eventName, onChange]) => {
@@ -2850,37 +4976,89 @@ async function saveProject() {
     ? (projectsDashboardDb || []).find(entry => Number(entry.id) === Number(editingProjectId))
     : null;
   const priority = existingProject?.priority || 'medium';
-  const status = String(existingProject?.status || 'active').trim() || 'active';
+  const status = String(document.getElementById('p-status')?.value || existingProject?.status || 'planning').trim() || 'planning';
+  const projectPriority = String(document.getElementById('p-priority')?.value || existingProject?.priority || priority || 'medium').trim() || 'medium';
   const projectDocNoValue = String(document.getElementById('p-project-docno')?.value || '').trim() || String(existingProject?.project_docno || '').trim();
+  const businessEntityId = getCurrentBusinessEntityId() || getDefaultBusinessEntityId() || '';
+  const businessEntitySelect = document.getElementById('p-business-entity-id');
+  if (businessEntitySelect) businessEntitySelect.value = businessEntityId;
   const companyId = Number(getProjectCompanyInputValue() || existingProject?.company_id || 0) || 0;
   const companyRecord = findRegistryCompanyById(companyId);
   const companyNo = String(companyRecord?.company_no || existingProject?.company_no || '').trim();
   const companyName = getProjectCompanyNameFromSelection(companyId) || String(existingProject?.company_name || existingProject?.client_name || '').trim();
   const plannedStartDate = document.getElementById('p-planned-start-date')?.value || currentProjectStartDate || '';
   const plannedEndDate = document.getElementById('p-planned-end-date')?.value || currentProjectEndDate || '';
+  const actualStartDate = document.getElementById('p-actual-start-date')?.value || '';
+  const actualEndDate = document.getElementById('p-actual-end-date')?.value || '';
+  const projectManager = String(document.getElementById('p-project-manager')?.value || '').trim();
+  const description = String(document.getElementById('p-description')?.value || '').trim();
+  const statusReason = String(document.getElementById('p-status-reason')?.value || '').trim();
+  const checkNo = String(document.getElementById('p-checkno')?.value || '').trim();
+  const customerPoRef = String(document.getElementById('p-pono')?.value || '').trim();
+  const budgetValue = Number(document.getElementById('p-budget')?.value || 0) || 0;
+  const downpaymentValue = Number(document.getElementById('p-downpayment')?.value || 0) || 0;
+  const teamFields = {
+    project_members: String(document.getElementById('p-project-members')?.value || '').trim(),
+    member_role: String(document.getElementById('p-member-role')?.value || '').trim(),
+    member_phone: String(document.getElementById('p-member-phone')?.value || '').trim(),
+    project_members_2: String(document.getElementById('p-project-members-2')?.value || '').trim(),
+    member_role_2: String(document.getElementById('p-member-role-2')?.value || '').trim(),
+    member_phone_2: String(document.getElementById('p-member-phone-2')?.value || '').trim(),
+    project_members_3: String(document.getElementById('p-project-members-3')?.value || '').trim(),
+    member_role_3: String(document.getElementById('p-member-role-3')?.value || '').trim(),
+    member_phone_3: String(document.getElementById('p-member-phone-3')?.value || '').trim()
+  };
   const hasCompanyOptions = getRegistryCompanyEntries().length > 0;
+  let firstInvalidField = null;
+  const markProjectError = (fieldName, message) => {
+    setProjectFieldMessage(fieldName, message);
+    if (!firstInvalidField) firstInvalidField = fieldName;
+  };
 
-  if (!projectName || !plannedStartDate || !plannedEndDate || !companyId) {
-    if (!projectName) setProjectFieldMessage('project_name', 'Project title is required.');
+  if (!projectDocNoValue || !projectName || !plannedStartDate || !plannedEndDate || !companyId) {
+    if (!projectDocNoValue) markProjectError('project_docno', 'Project No. is required.');
+    if (!projectName) markProjectError('project_name', 'Project title is required.');
     if (!companyId) {
       if (!hasCompanyOptions) {
-        setProjectFieldMessage('company', 'No companies available yet. Please add a company in Company Registry first.');
+        markProjectError('company', 'No companies available yet. Please add a company in Company Registry first.');
       } else {
-        setProjectFieldMessage('company', 'Please choose a company from the search results.');
+        markProjectError('company', 'Type an exact company no/name, or a search with one match.');
       }
     }
-    if (!plannedStartDate) setProjectFieldMessage('planned_start_date', 'Start date is required.');
-    if (!plannedEndDate) setProjectFieldMessage('planned_end_date', 'End date is required.');
+    if (!plannedStartDate) markProjectError('planned_start_date', 'Start date is required.');
+    if (!plannedEndDate) markProjectError('planned_end_date', 'End date is required.');
+    const projectFieldFocusMap = {
+      project_name: ['p-project-name'],
+      project_docno: ['p-project-docno'],
+      company: ['p-company-search'],
+      planned_start_date: ['p-planned-start-date'],
+      planned_end_date: ['p-planned-end-date']
+    };
+    focusProjectFieldOnTab(firstInvalidField, projectFieldFocusMap[firstInvalidField] || []);
     return;
   }
 
   if (plannedEndDate < plannedStartDate) {
     setProjectFieldMessage('planned_end_date', 'End date must be later than or equal to start date.');
+    focusProjectFieldOnTab('planned_end_date', ['p-planned-end-date']);
+    return;
+  }
+
+  if (actualStartDate && actualEndDate && actualEndDate < actualStartDate) {
+    setProjectFieldMessage('actual_end_date', 'Actual end must be later than or equal to actual start.');
+    focusProjectFieldOnTab('actual_end_date', ['p-actual-end-date']);
+    return;
+  }
+
+  if (budgetValue < 0 || downpaymentValue < 0) {
+    setProjectFieldMessage('budget', 'Financial values cannot be negative.');
+    focusProjectFieldOnTab('budget', ['p-budget']);
     return;
   }
 
   if (!companyRecord) {
-    setProjectFieldMessage('company', 'Please choose a company from the search results.');
+    setProjectFieldMessage('company', 'Type an exact company no/name, or a search with one match.');
+    focusProjectFieldOnTab('company', ['p-company-search']);
     return;
   }
 
@@ -2895,16 +5073,38 @@ async function saveProject() {
 
   const formData = new FormData();
   formData.append('project_name', projectName);
+  formData.append('project_docno', projectDocNoValue);
+  formData.append('business_entity_id', businessEntityId);
   formData.append('status', status);
-  formData.append('priority', priority);
+  formData.append('priority', projectPriority);
   formData.append('company_id', companyId || '');
   formData.append('company_no', companyNo || '');
   formData.append('company_name', companyName || '');
   formData.append('client_name', companyName || '');
+  formData.append('description', description);
+  formData.append('project_manager', projectManager);
+  formData.append('checkno', checkNo);
+  formData.append('pono', customerPoRef);
+  formData.append('budget', budgetValue || 0);
+  formData.append('downpayment', downpaymentValue || 0);
+  formData.append('qty', 0);
+  formData.append('unit_cost', 0);
   formData.append('start_date', plannedStartDate);
   formData.append('end_date', plannedEndDate);
   formData.append('planned_start_date', plannedStartDate);
   formData.append('planned_end_date', plannedEndDate);
+  formData.append('actual_start_date', actualStartDate);
+  formData.append('actual_end_date', actualEndDate);
+  formData.append('status_reason', statusReason);
+  formData.append('project_members', teamFields.project_members);
+  formData.append('member_role', teamFields.member_role);
+  formData.append('member_phone', teamFields.member_phone);
+  formData.append('project_members_2', teamFields.project_members_2);
+  formData.append('member_role_2', teamFields.member_role_2);
+  formData.append('member_phone_2', teamFields.member_phone_2);
+  formData.append('project_members_3', teamFields.project_members_3);
+  formData.append('member_role_3', teamFields.member_role_3);
+  formData.append('member_phone_3', teamFields.member_phone_3);
 
   try {
     const res = await fetch(url, {
@@ -2933,11 +5133,21 @@ async function saveProject() {
   } catch (err) {
     const errorText = String(err?.message || '').toLowerCase();
     let handled = false;
-    if (errorText.includes('duplicate') || errorText.includes('already exists')) {
+    if (errorText.includes('same company') || errorText.includes('same project') || errorText.includes('same title')) {
+      const duplicateMessage = err.message || 'A project with the same company, title, start date, and end date already exists.';
+      setProjectFieldMessage('project_name', duplicateMessage);
+      setProjectFieldMessage('company', duplicateMessage);
+      setProjectFieldMessage('planned_start_date', duplicateMessage);
+      setProjectFieldMessage('planned_end_date', duplicateMessage);
+      focusProjectFieldOnTab('project_name', ['p-project-name']);
+      handled = true;
+    } else if (errorText.includes('duplicate') || errorText.includes('already exists')) {
       setProjectFieldMessage('project_docno', 'Project No. already exists. Please refresh and try again.');
+      focusProjectFieldOnTab('project_docno', ['p-project-docno']);
       handled = true;
     } else if (errorText.includes('company is required') || errorText.includes('selected company')) {
-      setProjectFieldMessage('company', err.message || 'Please choose a company from the search results.');
+      setProjectFieldMessage('company', err.message || 'Type an exact company no/name, or a search with one match.');
+      focusProjectFieldOnTab('company', ['p-company-search']);
       handled = true;
     }
     if (!handled) {
@@ -3050,8 +5260,9 @@ function getFiltered() {
     ].join(' ').toLowerCase();
     const searchMatch = !tokens.length || tokens.every(token => haystack.includes(token));
     const statusMatch = !statusFilter || String(r.status || '').toLowerCase() === statusFilter;
+    const entityMatch = businessEntityMatches(r);
     const companyMatch = companyFilter === 'all' || companyMatchesDashboardFilter(getTransactionCompanyName(r));
-    return tabMatch && searchMatch && statusMatch && companyMatch;
+    return tabMatch && searchMatch && statusMatch && entityMatch && companyMatch;
   });
 }
 
@@ -3097,6 +5308,12 @@ function formatMemberCell(entries, key, q) {
   return lines.join('<br>');
 }
 
+function getUserApprovalStatus(user) {
+  const status = String(user?.approval_status || '').trim().toLowerCase();
+  if (status === 'pending' || status === 'rejected') return status;
+  return Number(user?.active || 0) === 1 ? 'active' : 'inactive';
+}
+
 function renderUsers() {
   const tbody = document.getElementById('table-body');
   const thead = document.querySelector('thead tr');
@@ -3112,15 +5329,16 @@ function renderUsers() {
   if (projectStatusFilter) projectStatusFilter.style.display = 'none';
   if (exportRecordsActions) exportRecordsActions.style.display = 'none';
   if (userControls) userControls.style.display = 'inline-flex';
-  if (searchInput) searchInput.placeholder = 'Search users by name, username, email, or role...';
+  if (searchInput) searchInput.placeholder = 'Search users by name, email, or role...';
   
   thead.innerHTML = `
-    <th style="padding:15px">Full Name</th><th>Username</th><th>Email</th><th class="text-center">Role</th><th class="text-center">Status</th><th class="text-center">Last Login</th><th class="text-center">Actions</th>
+    <th style="padding:15px">Full Name</th><th>Email</th><th class="text-center">Role</th><th class="text-center">Status</th><th class="text-center">Last Login</th><th class="text-center">Actions</th>
   `;
 
   const filteredUsers = usersDb.filter(u => {
     if (!q) return true;
-    const haystack = [u.fullname, u.username, u.email, u.role, u.active ? 'active' : 'inactive']
+    const approvalStatus = getUserApprovalStatus(u);
+    const haystack = [u.fullname, u.email, u.role, approvalStatus, u.active ? 'active' : 'inactive']
       .join(' ')
       .toLowerCase();
     return haystack.includes(q);
@@ -3130,13 +5348,13 @@ function renderUsers() {
   const statusFilter = String(userStatusFilter?.value || 'all');
   const scopedUsers = filteredUsers.filter(u => {
     const roleOk = roleFilter === 'all' || String(u.role || '') === roleFilter;
-    const statusValue = u.active ? 'active' : 'inactive';
+    const statusValue = getUserApprovalStatus(u);
     const statusOk = statusFilter === 'all' || statusValue === statusFilter;
     return roleOk && statusOk;
   });
 
   if (!scopedUsers.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center">Walang users na nahanap.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center">Walang users na nahanap.</td></tr>';
     return;
   }
 
@@ -3145,7 +5363,19 @@ function renderUsers() {
     const editAttrs = `onclick="editUser(${u.id})"`;
     const toggleAttrs = isSelf ? 'disabled title="Hindi puwedeng baguhin ang sarili mong account status."' : `onclick="toggleUser(${u.id})"`;
     const deleteAttrs = isSelf ? 'disabled title="Hindi puwedeng i-delete ang sarili mong account."' : `onclick="deleteUser(${u.id})"`;
-    const resetAttrs = isSelf ? 'disabled title="Hindi puwedeng i-reset ang sarili mong password mula rito."' : `onclick="resetUserPassword(${u.id})"`;
+    const approvalStatus = getUserApprovalStatus(u);
+    const statusLabel = approvalStatus === 'pending'
+      ? 'Pending'
+      : (approvalStatus === 'rejected' ? 'Rejected' : (u.active ? 'Active' : 'Inactive'));
+    const statusClass = approvalStatus === 'pending'
+      ? 'status-upcoming'
+      : (approvalStatus === 'rejected' ? 'status-cancelled' : (u.active ? 'status-active' : 'status-inactive'));
+    const safeRole = normalizeAccessRole(u.role);
+    const roleColor = safeRole === 'super_admin'
+      ? { bg: '#e0f2fe', fg: '#075985' }
+      : (safeRole === 'admin'
+        ? { bg: '#fee2e2', fg: '#991b1b' }
+        : (safeRole === 'staff' ? { bg: '#fef3c7', fg: '#92400e' } : { bg: '#eef2ff', fg: '#3355cc' }));
     const lastLogin = u.last_login
       ? {
           date: new Date(u.last_login).toLocaleDateString('en-PH', {
@@ -3163,17 +5393,16 @@ function renderUsers() {
     return `
       <tr style="height: 70px;">
         <td style="padding: 15px 20px; font-size: 0.95rem;"><strong>${highlight(u.fullname || '', q)}</strong></td>
-        <td style="padding: 15px 20px; font-size: 0.95rem;">${highlight(u.username || '', q)}</td>
         <td style="padding: 15px 20px; font-size: 0.9rem; color: var(--text);">${highlight(u.email || '—', q)}</td>
-        <td class="text-center" style="padding: 15px 20px; font-size: 0.95rem;"><span class="admin-badge" style="background:${u.role==='admin'?'#fee2e2':'#eef2ff'}; color:${u.role==='admin'?'#991b1b':'#3355cc'}">${highlight(u.role, q)}</span></td>
-        <td class="text-center" style="padding: 15px 20px; font-size: 0.95rem;"><span class="status-pill ${u.active ? 'status-active' : 'status-inactive'}">${u.active?'Active':'Inactive'}</span></td>
+        <td class="text-center" style="padding: 15px 20px; font-size: 0.95rem;"><span class="admin-badge" data-role="${safeRole}" style="background:${roleColor.bg}; color:${roleColor.fg}">${highlight(safeRole.replace('_', ' '), q)}</span></td>
+        <td class="text-center" style="padding: 15px 20px; font-size: 0.95rem;"><span class="status-pill ${statusClass}">${statusLabel}</span></td>
         <td class="text-center" style="padding: 15px 20px; font-size: 0.8rem; color: var(--muted); white-space: nowrap;">
           ${lastLogin ? `<div style="display:flex;flex-direction:column;line-height:1.2;"><span>${escHtml(lastLogin.date)}</span><span>${escHtml(lastLogin.time)}</span></div>` : 'Never'}
         </td>
         <td class="text-center" style="padding: 15px 20px;">
           <div class="actions" style="justify-content:center; gap:6px;">
             <button class="btn btn-sm btn-edit" ${editAttrs}>Edit</button>
-            <button class="btn btn-sm btn-primary" ${resetAttrs}>Reset Password</button>
+            ${approvalStatus === 'pending' && !isSelf ? `<button class="btn btn-sm btn-add" onclick="approveUser(${u.id}, 'staff')">Approve Staff</button><button class="btn btn-sm btn-delete" onclick="rejectUser(${u.id})">Reject</button>` : ''}
             <button class="btn btn-sm ${u.active?'btn-delete':'btn-add'}" ${toggleAttrs}>${u.active?'Disable':'Enable'}</button>
             <button class="btn btn-sm btn-delete" ${deleteAttrs}>Delete</button>
           </div>
@@ -3194,7 +5423,7 @@ function renderTable() {
   if (isStaff) {
     thead.innerHTML = `<th>Transaction No.</th><th class="text-center">Type</th><th>Client</th><th>Project</th><th>Service Order</th><th>Description</th><th class="text-center">Qty</th><th class="text-right">Amount</th><th class="text-right">Bal</th><th class="text-center">Date</th><th class="text-center">Status</th><th class="text-center">Actions</th>`;
   } else {
-    thead.innerHTML = `<th>Transaction No.</th><th class="text-center">Type</th><th>Client</th><th>Project</th><th>Service Order</th><th>Description</th><th class="text-center">Qty</th><th class="text-center">Check</th><th class="text-center">PO</th><th class="text-right">Amount</th><th class="text-right">Bal</th><th class="text-center">Date</th><th class="text-center">Status</th><th class="text-center">Actions</th>`;
+    thead.innerHTML = `<th>Transaction No.</th><th class="text-center">Type</th><th>Client</th><th>Project</th><th>Service Order</th><th>Description</th><th class="text-center">Qty</th><th class="text-center">Check</th><th class="text-center">Customer PO Ref.</th><th class="text-right">Amount</th><th class="text-right">Bal</th><th class="text-center">Date</th><th class="text-center">Status</th><th class="text-center">Actions</th>`;
   }
 
   const searchInput = document.getElementById('search-input');
@@ -3237,7 +5466,7 @@ function renderTable() {
     return `
       <tr>
         <td>${docCell}</td>
-        <td class="text-center"><span class="type-pill type-${r.type}" style="white-space: nowrap;">${r.type === 'receipt' ? 'Collection Receipt' : 'Charge Sales Invoice'}</span></td>
+        <td class="text-center"><span class="type-pill type-${r.type}" style="white-space: nowrap;">${r.type === 'receipt' ? 'Payment Receipt' : 'Sales Invoice'}</span></td>
         <td><div style="font-weight:500; color:var(--text)">${hClient}</div></td>
         <td style="font-weight:500; color:var(--primary); line-height:1.35">${hProject}</td>
         <td style="font-weight:500; color:var(--primary); line-height:1.35; max-width:220px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${hServiceOrder}</td>
@@ -3261,7 +5490,7 @@ function renderTable() {
             ${r.pdfFilename ? `<button class="btn btn-pdf btn-sm" onclick="event.stopPropagation(); openPdfViewer(${r.id})" title="View PDF">PDF</button>` : ''}
             ${activeTab === 'archived'
               ? `<button class="btn btn-edit btn-sm" onclick="event.stopPropagation(); openArchivedModal(${r.id})" title="View Record">View</button><button class="btn btn-restore btn-sm" onclick="event.stopPropagation(); restoreArchivedDirect(${r.id})" title="Restore Record">Restore</button>`
-              : `${Number(r.project_id || 0) ? `<button class="btn btn-add btn-sm" onclick="event.stopPropagation(); openProjectTransaction(${Number(r.project_id)})" title="Add Transaction">Add Transaction</button>` : ''}<button class="btn btn-edit btn-sm" onclick="event.stopPropagation(); openModal(${r.id})">Edit</button><button class="btn btn-archive btn-sm" onclick="event.stopPropagation(); openDelModal(${r.id})" title="Archive Record">Archive</button>`}
+              : `<button class="btn btn-edit btn-sm" onclick="event.stopPropagation(); openModal(${r.id})">Edit</button><button class="btn btn-archive btn-sm" onclick="event.stopPropagation(); openDelModal(${r.id})" title="Archive Record">Archive</button>`}
           </div>
         </td>` : `
         <td class="text-center">
@@ -4668,18 +6897,50 @@ function renderImportedGanttChart() {
   }).join('');
 }
 
-function setupRequiredFieldMarkers() {
-  [
-    'f-type',
-    'f-client',
-    'f-desc',
-    'f-qty',
-    'f-unitprice'
-  ].forEach(id => {
-    const field = document.getElementById(id)?.closest('.field');
-    const label = field?.querySelector('label');
-    if (!label || label.querySelector('.req-star')) return;
-    label.insertAdjacentHTML('beforeend', ' <span class="req-star">*</span>');
+function getModalFieldLabelBaseText(label) {
+  if (!label) return '';
+  const cached = String(label.dataset.labelBase || '').trim();
+  if (cached) return cached;
+  const base = Array.from(label.childNodes)
+    .map((node) => (node.nodeType === 3 ? node.textContent : ''))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim() || String(label.textContent || '').replace(/\s+/g, ' ').trim();
+  const normalizedBase = base.replace(/\s*\*+\s*$/, '').trim();
+  label.dataset.labelBase = normalizedBase;
+  return normalizedBase;
+}
+
+function getModalFieldStatus(field, label, control) {
+  const explicitStatus = String(
+    field?.dataset.fieldStatus ||
+    label?.dataset.fieldStatus ||
+    control?.dataset.fieldStatus ||
+    ''
+  ).trim().toLowerCase();
+  if (explicitStatus === 'required' || explicitStatus === 'optional') {
+    return explicitStatus;
+  }
+  if (label?.querySelector('.req-star')) return 'required';
+  if (control?.required || control?.getAttribute('aria-required') === 'true') return 'required';
+  return 'optional';
+}
+
+function setupRequiredFieldMarkers(root = document) {
+  const scope = root && typeof root.querySelectorAll === 'function' ? root : document;
+  scope.querySelectorAll('.modal .field label, .modal .form-group label').forEach((label) => {
+    const field = label.closest('.field, .form-group') || label.parentElement;
+    if (!field) return;
+    const control = field.querySelector('input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled])');
+    const baseLabel = getModalFieldLabelBaseText(label);
+    if (!baseLabel) return;
+
+    const status = getModalFieldStatus(field, label, control);
+    label.textContent = baseLabel;
+    const badge = document.createElement('span');
+    badge.className = `field-label-status is-${status}`;
+    badge.textContent = status === 'required' ? 'Required' : 'Optional';
+    label.appendChild(badge);
   });
 }
 
@@ -4728,6 +6989,34 @@ function clearTransactionFieldMessages() {
   });
 }
 
+function focusModalElement(node) {
+  if (!node || typeof node.focus !== 'function') return false;
+  if (typeof node.scrollIntoView === 'function') {
+    node.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+  }
+  node.focus({ preventScroll: true });
+  if (typeof node.select === 'function' && ['INPUT', 'TEXTAREA'].includes(node.tagName)) {
+    node.select();
+  }
+  return true;
+}
+
+function focusFirstModalControl(ids = []) {
+  for (const id of ids) {
+    if (focusModalElement(document.getElementById(id))) {
+      return id;
+    }
+  }
+  return null;
+}
+
+function focusFirstModalField(fieldName, focusMap = {}) {
+  const ids = Array.isArray(focusMap[fieldName])
+    ? focusMap[fieldName]
+    : (focusMap[fieldName] ? [focusMap[fieldName]] : []);
+  return focusFirstModalControl(ids);
+}
+
 function setupTransactionModalValidationListeners() {
   const bindings = [
     ['f-docno', 'docno', 'input'],
@@ -4756,24 +7045,38 @@ function setupCalculationListeners() {
 }
 
 function setupProjectCalculationListeners() {
-  ['p-qty', 'p-unit-cost', 'p-downpayment'].forEach(id => {
+  ['p-budget', 'p-downpayment'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('input', debounce(updateProjectPaymentDisplay, 100));
   });
 }
 
+const PHONE_PH_DIGITS = 11;
+const PHONE_MAX_DIGITS = 15;
+
+function bindPhoneField(id) {
+  const el = document.getElementById(id);
+  if (!el || el.dataset.phoneBound === '1') return;
+
+  el.dataset.phoneBound = '1';
+  el.setAttribute('maxlength', String(PHONE_PH_DIGITS));
+  el.setAttribute('inputmode', 'numeric');
+  el.setAttribute('autocomplete', 'tel');
+  el.addEventListener('input', () => {
+    const normalized = normalizeDigits(el.value, PHONE_PH_DIGITS);
+    if (el.value !== normalized) el.value = normalized;
+  });
+}
+
 function setupPhoneValidation() {
   [
-    ['f-member-phone', 11],
-    ['f-member-phone-2', 11],
-    ['f-member-phone-3', 11]
-  ].forEach(([id, maxLength]) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.addEventListener('input', () => {
-      el.value = normalizeDigits(el.value, maxLength);
-    });
-  });
+    'f-member-phone',
+    'f-member-phone-2',
+    'f-member-phone-3',
+    'p-member-phone',
+    'p-member-phone-2',
+    'p-member-phone-3'
+  ].forEach(bindPhoneField);
 }
 
 function getMemberSlotElements() {
@@ -4834,7 +7137,23 @@ function removeMemberSlot(slotNumber) {
   setMemberSlotVisibility(safeSlot - 1);
 }
 
+function updateCompanyRegistryStatCard() {
+  const statCompanyRegistry = document.getElementById('stat-company-registry');
+  const statCompanyRegistryMini = document.getElementById('stat-company-registry-mini');
+  const companyRows = (Array.isArray(companyRegistryDb) ? companyRegistryDb : [])
+    .filter((company) => Number(company.archived || 0) === 0);
+  const visibleCompanyRows = companyRows.filter((company) => companyMatchesDashboardFilter(company.company_name));
+  const selectedCompany = normalizeDashboardCompanyName(currentDashboardCompany || localStorage.getItem('kinaadman_dashboardCompany') || 'all');
+  const companyCount = selectedCompany === 'all' ? companyRows.length : visibleCompanyRows.length;
+
+  if (statCompanyRegistry) statCompanyRegistry.textContent = String(companyCount);
+  if (statCompanyRegistryMini) {
+    statCompanyRegistryMini.textContent = `${getCurrentDashboardCompanyLabel()} • ${companyCount} active record${companyCount === 1 ? '' : 's'}`;
+  }
+}
+
 async function updateStats() {
+  const statsSeq = ++dashboardStatsSeq;
   const statLabel1 = document.getElementById('stat-label-1');
   const statLabel2 = document.getElementById('stat-label-2');
   const statLabel3 = document.getElementById('stat-label-3');
@@ -4845,28 +7164,32 @@ async function updateStats() {
   const statOngoingMini = document.getElementById('stat-ongoing-mini');
   const statProjects = document.getElementById('stat-projects');
   const statOngoing = document.getElementById('stat-ongoing');
+  const statProcurement = document.getElementById('stat-procurement');
+  const statProcurementMini = document.getElementById('stat-procurement-mini');
   const statAp = document.getElementById('stat-ap');
+  const statApMini = document.getElementById('stat-ap-mini');
   const statAr = document.getElementById('stat-ar');
   const statsYear = new Date().getFullYear();
 
   if (statLabel1) statLabel1.textContent = 'Projects';
   if (statLabel2) statLabel2.textContent = 'Ongoing Projects';
   if (statLabel3) statLabel3.textContent = 'Accounts Payable';
-  if (statLabel4) statLabel4.textContent = 'A/R';
+  if (statLabel4) statLabel4.textContent = 'Accounts Receivable';
   if (statOngoingMini) statOngoingMini.textContent = `Year ${statsYear}`;
 
   if (statCard3) {
     statCard3.classList.add('stat-card-link');
-    statCard3.onclick = () => { window.location.href = '/accounts-payable'; };
+    statCard3.onclick = () => { window.location.href = '/accounts-payable?tab=bills'; };
   }
 
   if (statCard4) {
     statCard4.classList.add('stat-card-link');
-    statCard4.onclick = () => { window.location.href = '/accounts-receivable'; };
+    statCard4.onclick = () => { window.location.href = '/accounts-receivable?tab=invoices'; };
   }
 
   const visibleProjects = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
     .filter(project => Number(project.is_archived || 0) === 0)
+    .filter(project => businessEntityMatches(project))
     .filter(project => companyMatchesDashboardFilter(getProjectCompanyName(project)));
   const totalProjectsCount = visibleProjects.filter(project => String(project.status || '').toLowerCase() !== 'cancelled').length;
   const ongoingProjectsCount = visibleProjects.filter(project => {
@@ -4877,12 +7200,7 @@ async function updateStats() {
 
   if (statProjects) statProjects.textContent = String(totalProjectsCount);
   if (statOngoing) statOngoing.textContent = String(ongoingProjectsCount);
-  const summaryTotalProjects = document.getElementById('project-summary-total');
-  const summaryOngoingProjects = document.getElementById('project-summary-ongoing');
-  const summaryTransactions = document.getElementById('project-summary-transactions');
-  if (summaryTotalProjects) summaryTotalProjects.textContent = String(totalProjectsCount);
-  if (summaryOngoingProjects) summaryOngoingProjects.textContent = String(ongoingProjectsCount);
-  if (summaryTransactions) summaryTransactions.textContent = String((Array.isArray(allTransactionsDb) ? allTransactionsDb : []).filter((row) => Number(row.archived || 0) === 0).length);
+  updateProjectWorkspaceSummary();
   const projectsMini = document.getElementById('stat-projects-mini');
   if (projectsMini) {
     projectsMini.textContent = `${getCurrentDashboardCompanyLabel()} • ${totalProjectsCount} project${totalProjectsCount === 1 ? '' : 's'}`;
@@ -4890,7 +7208,12 @@ async function updateStats() {
 
   try {
     const companyParam = normalizeDashboardCompanyName(currentDashboardCompany || localStorage.getItem('kinaadman_dashboardCompany') || 'all');
-    const projectStatsRes = await fetch(`/api/projects/stats?year=${statsYear}&company=${encodeURIComponent(companyParam)}`);
+    const statsParams = new URLSearchParams({
+      year: String(statsYear),
+      company: companyParam,
+      business_entity_id: getCurrentBusinessEntityId() || getDefaultBusinessEntityId() || ''
+    });
+    const projectStatsRes = await fetch(`/api/projects/stats?${statsParams.toString()}`);
     const projectStats = await projectStatsRes.json();
     if (projectStatsRes.ok) {
       if (statProjects) statProjects.textContent = Number(projectStats.total_projects ?? totalProjectsCount);
@@ -4901,20 +7224,42 @@ async function updateStats() {
   }
 
   try {
+    const companiesRes = await fetch('/api/company-registry', { cache: 'no-store' });
+    const companies = await companiesRes.json().catch(() => []);
+    if (statsSeq !== dashboardStatsSeq) return;
+    if (!companiesRes.ok) throw new Error(companies.error || 'Unable to load company registry stats.');
+    companyRegistryDb = Array.isArray(companies) ? companies : [];
+    syncDashboardCompanyFilterOptions();
+    updateCompanyRegistryStatCard();
+  } catch (err) {
+    console.error('Error fetching company registry stats:', err);
+    if (Array.isArray(companyRegistryDb) && companyRegistryDb.length) {
+      updateCompanyRegistryStatCard();
+    }
+  }
+
+  try {
     const transactionsRes = await fetch('/api/transactions');
     const transactions = await transactionsRes.json();
+    if (statsSeq !== dashboardStatsSeq) return;
     allTransactionsDb = Array.isArray(transactions) ? transactions : [];
 
     const receivablesRes = await fetch('/api/receivables');
     const receivables = await receivablesRes.json();
+    if (statsSeq !== dashboardStatsSeq) return;
     allReceivablesDb = Array.isArray(receivables) ? receivables : [];
 
-    const companiesRes = await fetch('/api/company-registry');
-    const companies = await companiesRes.json();
-    companyRegistryDb = Array.isArray(companies) ? companies : [];
+    try {
+      await loadServiceOrdersData(true);
+    } catch (err) {
+      console.error('Error fetching service order stats:', err);
+      serviceOrdersDb = [];
+    }
+    if (statsSeq !== dashboardStatsSeq) return;
     syncDashboardCompanyFilterOptions();
+    updateCompanyRegistryStatCard();
 
-    const invoiceRows = getDashboardInvoiceRows(allTransactionsDb);
+    const invoiceRows = getDashboardInvoiceRows(allTransactionsDb).filter(row => businessEntityMatches(row));
     const totalReceivable = invoiceRows.reduce((sum, r) => {
       const amount = parseFloat(r.amount) || 0;
       const paidAmount = getTransactionPaidAmountValue(r);
@@ -4925,6 +7270,7 @@ async function updateStats() {
     if (statArMini) {
       statArMini.textContent = `${getCurrentDashboardCompanyLabel()} • ${invoiceRows.length} invoice${invoiceRows.length === 1 ? '' : 's'}`;
     }
+    updateProjectWorkspaceSummary();
 
     renderDashboardAnalytics(invoiceRows);
     renderInvoiceStatusQuickView(invoiceRows);
@@ -4932,6 +7278,7 @@ async function updateStats() {
   } catch (err) {
     console.error('Error fetching transactions stats:', err);
     allReceivablesDb = [];
+    updateCompanyRegistryStatCard();
     if (statAr) statAr.textContent = 'PHP 0.00';
     if (statArMini) statArMini.textContent = `${getCurrentDashboardCompanyLabel()} • 0 invoices`;
     renderInvoiceStatusQuickView([]);
@@ -4939,18 +7286,50 @@ async function updateStats() {
   }
 
   try {
+    const [vendorsRes, requisitionsRes, purchaseOrdersRes, goodsReceiptsRes] = await Promise.all([
+      fetch('/api/vendors?include_inactive=1'),
+      fetch('/api/procurement/requisitions'),
+      fetch('/api/procurement/purchase-orders'),
+      fetch('/api/procurement/goods-receipts')
+    ]);
+    const [vendors, requisitions, purchaseOrders, goodsReceipts] = await Promise.all([
+      vendorsRes.json().catch(() => []),
+      requisitionsRes.json().catch(() => []),
+      purchaseOrdersRes.json().catch(() => []),
+      goodsReceiptsRes.json().catch(() => [])
+    ]);
+    if (statsSeq !== dashboardStatsSeq) return;
+    const vendorRows = (Array.isArray(vendors) ? vendors : []).filter(row => businessEntityMatches(row));
+    const requisitionRows = (Array.isArray(requisitions) ? requisitions : []).filter(row => businessEntityMatches(row));
+    const purchaseOrderRows = (Array.isArray(purchaseOrders) ? purchaseOrders : []).filter(row => businessEntityMatches(row));
+    const goodsReceiptRows = (Array.isArray(goodsReceipts) ? goodsReceipts : []).filter(row => businessEntityMatches(row));
+    const procurementTotal = vendorRows.length + requisitionRows.length + purchaseOrderRows.length + goodsReceiptRows.length;
+    if (statProcurement) statProcurement.textContent = String(procurementTotal);
+    if (statProcurementMini) {
+      statProcurementMini.textContent = `${getCurrentDashboardCompanyLabel()} • ${vendorRows.length} vendors • ${requisitionRows.length} PR • ${purchaseOrderRows.length} PO • ${goodsReceiptRows.length} GRN`;
+    }
+  } catch (err) {
+    console.error('Error fetching procurement stats:', err);
+    if (statProcurement) statProcurement.textContent = '0';
+    if (statProcurementMini) statProcurementMini.textContent = `${getCurrentDashboardCompanyLabel()} • Vendors, PR, PO, GRN`;
+  }
+
+  try {
     const billsRes = await fetch('/api/bills');
     const bills = await billsRes.json();
-    const billRows = Array.isArray(bills) ? bills : [];
+    if (statsSeq !== dashboardStatsSeq) return;
+    const billRows = (Array.isArray(bills) ? bills : []).filter(row => businessEntityMatches(row));
     const totalPayable = billRows.reduce((sum, b) => {
       const totalAmount = parseFloat(b.total_amount) || 0;
       const paidAmount = parseFloat(b.paid_amount) || 0;
       return sum + Math.max(0, totalAmount - paidAmount);
     }, 0);
     if (statAp) statAp.textContent = 'PHP ' + totalPayable.toLocaleString('en-PH', { minimumFractionDigits: 2 });
+    if (statApMini) statApMini.textContent = `${getCurrentDashboardCompanyLabel()} • ${billRows.length} bill${billRows.length === 1 ? '' : 's'}`;
   } catch (err) {
     console.error('Error fetching payable stats:', err);
     if (statAp) statAp.textContent = 'PHP 0.00';
+    if (statApMini) statApMini.textContent = `${getCurrentDashboardCompanyLabel()} • 0 bills`;
   }
 
   await loadNotifications();
@@ -5015,7 +7394,7 @@ function renderNotifications(items = notificationsDb) {
   if (!list) return;
 
   if (!items.length) {
-    list.innerHTML = '<div class="notifications-empty">No project alerts right now.</div>';
+    list.innerHTML = '<div class="notifications-empty">No notifications right now.</div>';
     return;
   }
 
@@ -5071,13 +7450,13 @@ function updateDownpaymentMode() {
   const balance = Math.max(0, amount - totalPaid);
 
   if (label) {
-    label.textContent = 'Downpayment (PHP)';
+    label.textContent = 'Payment Received (PHP)';
   }
 
   if (helpText) {
     if (additionalPayment > 0) {
       helpText.style.display = 'block';
-      helpText.textContent = `Current downpayment: PHP ${additionalPayment.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`;
+      helpText.textContent = `Current payment received: PHP ${additionalPayment.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`;
     } else {
       helpText.style.display = 'none';
       helpText.textContent = '';
@@ -5107,7 +7486,7 @@ async function openModal(id = null, preselectProjectId = null) {
   stagedPdf = null;   // Reset
   setSaveButtonState(false);
 
-  document.getElementById('modal-title').textContent = id ? 'Edit Transaction' : (preselectProjectId ? 'Add Transaction' : 'Transaction Entry');
+  document.getElementById('modal-title').textContent = id ? 'Edit Transaction' : 'Add Transaction';
   resetRecordForm();
   clearTransactionFieldMessages();
 
@@ -5128,6 +7507,7 @@ async function openModal(id = null, preselectProjectId = null) {
         .find(project => Number(project.id || 0) === Number(r.project_id || 0));
       const selectedProjectId = r.project_id || '';
       populateTransactionProjectSelect(selectedProjectId);
+      populateBusinessEntitySelect('f-business-entity-id', r.business_entity_id || linkedProject?.business_entity_id || '');
       document.getElementById('f-docno').value = r.docno || '';
       document.getElementById('f-date').value = r.date || '';
       document.getElementById('f-client').value = r.client || '';
@@ -5162,7 +7542,7 @@ async function openModal(id = null, preselectProjectId = null) {
         projectTxNoInput.value = projectTxNo ? String(projectTxNo) : '';
       }
 
-      await syncTransactionServiceOrderFromProject(selectedProjectId || null, selectedProjectId ? 0 : (r.service_order_id || 0));
+      await syncTransactionServiceOrderFromProject(selectedProjectId || null, r.service_order_id || 0);
 
       // New PDF handling using filename
       if (r.pdfFilename) {
@@ -5183,6 +7563,7 @@ async function openModal(id = null, preselectProjectId = null) {
     if (selectedProject) {
       fillTransactionFormFromProject(selectedProject);
     }
+    populateBusinessEntitySelect('f-business-entity-id', selectedProject?.business_entity_id || '');
     await syncTransactionServiceOrderFromProject(preselectProjectId || null, 0);
     document.getElementById('f-date').value = today;
     updateDownpaymentMode();
@@ -5219,6 +7600,7 @@ function resetRecordForm() {
     'f-project-start-date',
     'f-project-end-date',
     'f-project-company',
+    'f-business-entity-id',
     'f-service-order-id',
     'f-service-order-ref',
     'f-client',
@@ -5233,6 +7615,7 @@ function resetRecordForm() {
     if (el) el.value = '';
   });
   populateTransactionProjectSelect('');
+  populateBusinessEntitySelect('f-business-entity-id');
   document.getElementById('f-type').value = 'invoice';
   document.getElementById('f-status').value = 'unpaid';
   document.getElementById('f-qty').value = '1';
@@ -5330,7 +7713,7 @@ function normalizeDigits(value, maxLength) {
 }
 
 function normalizePhone(value) {
-  return normalizeDigits(value, 11);
+  return normalizeDigits(value, PHONE_MAX_DIGITS);
 }
 
 function normalizeTin(value) {
@@ -5338,7 +7721,8 @@ function normalizeTin(value) {
 }
 
 function isValidPhone(value) {
-  return /^\d{11}$/.test(String(value || ''));
+  const phone = String(value || '').trim();
+  return /^\d+$/.test(phone) && phone.length === PHONE_PH_DIGITS;
 }
 
 async function ensureGeneratedDocno() {
@@ -5346,7 +7730,7 @@ async function ensureGeneratedDocno() {
   const currentDocno = docnoInput.value.trim();
   if (currentDocno) return currentDocno;
 
-  const res = await fetch('/api/transactions/next-docno');
+  const res = await fetch(`/api/transactions/next-docno?business_entity_id=${encodeURIComponent(getCurrentBusinessEntityId() || getDefaultBusinessEntityId() || '')}`);
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.docno) {
     throw new Error(data.error || 'Hindi ma-generate ang Transaction No.');
@@ -5376,6 +7760,9 @@ async function saveRecord() {
   const isEdit = !!editingId;
   const projectId = Number(document.getElementById('f-project-id')?.value || 0) || 0;
   const selectedProject = projectId ? findProjectForRecord({ project_id: projectId }) || (Array.isArray(projectsDashboardDb) ? projectsDashboardDb.find(entry => Number(entry.id || 0) === projectId) : null) : null;
+  const businessEntityId = selectedProject?.business_entity_id || getCurrentBusinessEntityId() || getDefaultBusinessEntityId() || '';
+  const businessEntitySelect = document.getElementById('f-business-entity-id');
+  if (businessEntitySelect) businessEntitySelect.value = businessEntityId;
   const hasProject = projectId > 0;
 
   if (documentDateInput) documentDateInput.value = documentDate;
@@ -5384,30 +7771,35 @@ async function saveRecord() {
   amount = parseFloat(document.getElementById('f-amount').value) || 0;
 
   let hasValidationError = false;
+  let firstInvalidField = null;
   const markTransactionError = (fieldName, message) => {
     setTransactionFieldMessage(fieldName, message);
+    if (!firstInvalidField) firstInvalidField = fieldName;
     hasValidationError = true;
   };
 
   if (!client) markTransactionError('client', 'Customer / Charged To is required.');
-  if (!desc) markTransactionError('description', 'Description is required.');
-  if (!(Number.isFinite(qty) && qty > 0)) markTransactionError('qty', 'Qty is required.');
-  if (!(Number.isFinite(unitPrice) && unitPrice > 0)) markTransactionError('unitprice', 'Unit Price is required.');
-
-  if (hasProject) {
-    await syncTransactionServiceOrderFromProject(projectId, 0);
-    const serviceOrderId = Number(document.getElementById('f-service-order-id')?.value || 0) || 0;
-    if (!serviceOrderId) {
-      markTransactionError('service_order_id', 'Service order is required when a project is selected.');
-    }
-  } else {
+  if (!hasProject) {
     setTransactionServiceOrderSelection('', '');
     setTransactionFieldMessage('service_order_id', '');
   }
 
+  if (!desc) markTransactionError('description', 'Description is required.');
+  if (!(Number.isFinite(qty) && qty > 0)) markTransactionError('qty', 'Qty is required.');
+  if (!(Number.isFinite(unitPrice) && unitPrice > 0)) markTransactionError('unitprice', 'Unit Price is required.');
+
   const serviceOrderId = Number(document.getElementById('f-service-order-id')?.value || 0) || 0;
 
   if (hasValidationError) {
+    focusFirstModalField(firstInvalidField, {
+      client: ['f-client'],
+      service_order_id: ['f-service-order-ref'],
+      description: ['f-desc'],
+      qty: ['f-qty'],
+      unitprice: ['f-unitprice'],
+      project_id: ['f-project-id'],
+      docno: ['f-docno']
+    });
     return;
   }
 
@@ -5417,8 +7809,15 @@ async function saveRecord() {
     } catch (err) {
       console.error(err);
       setTransactionFieldMessage('docno', err.message || 'Hindi ma-generate ang Transaction No.');
+      focusFirstModalControl(['f-docno']);
       return;
     }
+  }
+
+  if (!docno) {
+    setTransactionFieldMessage('docno', 'Transaction No. is required.');
+    focusFirstModalControl(['f-docno']);
+    return;
   }
 
   const url = isEdit ? `/api/transactions/${editingId}` : '/api/transactions';
@@ -5434,6 +7833,7 @@ async function saveRecord() {
   formData.append('qty', qty);
   formData.append('unitprice', unitPrice || '');
   formData.append('amount', amount);
+  formData.append('business_entity_id', businessEntityId);
   formData.append('project_id', hasProject ? projectId : '');
   formData.append('service_order_id', hasProject ? serviceOrderId : '');
   formData.append('project_tx_no', Number(document.getElementById('f-project-tx-no')?.value || 0) || '');
@@ -5501,31 +7901,41 @@ async function saveRecord() {
     if (errorText.includes('duplicate') || errorText.includes('already exists')) {
       if (errorText.includes('docno') || errorText.includes('transaction no')) {
         setTransactionFieldMessage('docno', err.message || 'Transaction No. already exists.');
+        focusFirstModalControl(['f-docno']);
       } else if (errorText.includes('project')) {
         setTransactionFieldMessage('project_id', err.message || 'Selected project already has a transaction.');
-      } else if (errorText.includes('service order')) {
-        setTransactionFieldMessage('service_order_id', err.message || 'Service order is required when a project is selected.');
+        focusFirstModalControl(['f-project-id']);
+      } else if (errorText.includes('selected service order was not found') || errorText.includes('selected service order must belong')) {
+        setTransactionFieldMessage('service_order_id', err.message || 'Selected service order is invalid for this project.');
+        focusFirstModalControl(['f-service-order-ref']);
       } else {
         setTransactionFieldMessage('docno', err.message || 'Transaction No. already exists.');
+        focusFirstModalControl(['f-docno']);
       }
       handled = true;
     } else if (errorText.includes('project')) {
       setTransactionFieldMessage('project_id', err.message || 'Please select a project.');
+      focusFirstModalControl(['f-project-id']);
       handled = true;
-    } else if (errorText.includes('service order')) {
-      setTransactionFieldMessage('service_order_id', err.message || 'Service order is required when a project is selected.');
+    } else if (errorText.includes('selected service order was not found') || errorText.includes('selected service order must belong')) {
+      setTransactionFieldMessage('service_order_id', err.message || 'Selected service order is invalid for this project.');
+      focusFirstModalControl(['f-service-order-ref']);
       handled = true;
     } else if (errorText.includes('client')) {
       setTransactionFieldMessage('client', err.message || 'Customer / Charged To is required.');
+      focusFirstModalControl(['f-client']);
       handled = true;
     } else if (errorText.includes('description')) {
       setTransactionFieldMessage('description', err.message || 'Description is required.');
+      focusFirstModalControl(['f-desc']);
       handled = true;
     } else if (errorText.includes('qty') || errorText.includes('quantity')) {
       setTransactionFieldMessage('qty', err.message || 'Qty is required.');
+      focusFirstModalControl(['f-qty']);
       handled = true;
     } else if (errorText.includes('unit price') || errorText.includes('unitprice')) {
       setTransactionFieldMessage('unitprice', err.message || 'Unit Price is required.');
+      focusFirstModalControl(['f-unitprice']);
       handled = true;
     }
 
@@ -5581,7 +7991,7 @@ function openArchivedModal(id) {
   if (!r) return showToast('Record not found', 'error');
 
   document.getElementById('a-docno').value = r.docno || '';
-  document.getElementById('a-type').value = r.type === 'receipt' ? 'Collection Receipt' : 'Charge Sales Invoice';
+  document.getElementById('a-type').value = r.type === 'receipt' ? 'Payment Receipt' : 'Sales Invoice';
   document.getElementById('a-date').value = r.date || '';
   document.getElementById('a-status').value = r.status || '';
   document.getElementById('a-client').value = r.client || '';
@@ -5674,15 +8084,14 @@ function setupSidebarLinkNavigation() {
 
     link.dataset.navBound = '1';
     link.dataset.navHref = rawHref;
-    link.setAttribute('href', '#');
 
     link.addEventListener('click', (event) => {
       if (event.defaultPrevented) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+      const target = String(link.dataset.navHref || link.getAttribute('href') || '').trim();
+      if (!target || target === '#') return;
       event.preventDefault();
-
-      const target = String(link.dataset.navHref || '').trim();
-      if (!target) return;
-      window.location.href = target;
+      window.location.assign(target);
     });
   });
 }
@@ -5691,20 +8100,54 @@ function syncSidebarActiveLinks() {
   const currentUrl = new URL(window.location.href);
   const currentPath = currentUrl.pathname.replace(/\/+$/, '') || '/';
   const currentSearch = currentUrl.search || '';
+  let activeLink = null;
+  const routeAliases = {
+    '/admin?view=dashboard': ['/admin'],
+    '/reports': ['/admin?panel=reports'],
+    '/company-registry': ['/company'],
+    '/admin?panel=project-records': ['/admin?view=project-records'],
+    '/admin?panel=project-records': ['/admin?view=total-projects'],
+    '/admin?view=ongoing-projects': ['/admin?view=ongoing'],
+    '/admin?view=logs': ['/admin?panel=logs'],
+    '/admin?panel=archive-center': ['/admin?view=archive-center', '/admin?view=archived', '/admin?panel=archived'],
+    '/accounts-payable?tab=vendors': ['/accounts-payable'],
+    '/accounts-receivable?tab=service-orders': ['/accounts-receivable']
+  };
+
+  function sameRoute(candidateHref) {
+    try {
+      const targetUrl = new URL(candidateHref, window.location.origin);
+      const targetPath = targetUrl.pathname.replace(/\/+$/, '') || '/';
+      const targetSearch = targetUrl.search || '';
+      return targetPath === currentPath && targetSearch === currentSearch;
+    } catch (_) {
+      return false;
+    }
+  }
 
   document.querySelectorAll('.sidebar-link').forEach((link) => {
     const rawHref = link.dataset.navHref || link.getAttribute('href') || '';
     if (!rawHref || rawHref === '#' || rawHref.startsWith('javascript:')) return;
 
-    try {
-      const targetUrl = new URL(rawHref, window.location.origin);
-      const targetPath = targetUrl.pathname.replace(/\/+$/, '') || '/';
-      const targetSearch = targetUrl.search || '';
-      const isActive = targetPath === currentPath && targetSearch === currentSearch;
-      link.classList.toggle('active', isActive);
-    } catch (_) {
-      // Ignore malformed hrefs and keep existing state.
-    }
+    const candidates = [rawHref].concat(routeAliases[rawHref] || []);
+    const isActive = candidates.some(sameRoute);
+    link.classList.toggle('active', isActive);
+    if (isActive) activeLink = link;
+  });
+
+  if (!activeLink) return;
+
+  const activeGroup = activeLink.closest('.sidebar-group');
+  if (activeGroup) {
+    activeGroup.classList.remove('is-collapsed');
+    const toggle = activeGroup.querySelector('.sidebar-group-toggle');
+    if (toggle) toggle.setAttribute('aria-expanded', 'true');
+    const key = String(activeGroup.getAttribute('data-sidebar-group') || '').trim();
+    if (key) localStorage.setItem(`kinaadman_sidebarGroup_${key}`, '0');
+  }
+
+  window.requestAnimationFrame(() => {
+    activeLink.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   });
 }
 
@@ -5773,13 +8216,37 @@ function openProjectPdfViewer(id) {
 function openProjectPurchaseOrder(projectId) {
   const selectedId = Number(projectId || 0) || 0;
   if (!selectedId) return;
-  window.location.href = `/procurement?project_id=${encodeURIComponent(String(selectedId))}&action=po`;
+  const project = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
+    .find((entry) => Number(entry.id || 0) === selectedId) || null;
+  const companyId = Number(project?.company_id || project?.registry_company_id || 0) || 0;
+  const params = new URLSearchParams({
+    tab: 'purchase-orders',
+    project_id: String(selectedId),
+    action: 'po'
+  });
+  if (companyId) params.set('company_id', String(companyId));
+  window.location.href = `/procurement?${params.toString()}`;
+}
+
+function openProjectRequisition(projectId) {
+  const selectedId = Number(projectId || 0) || 0;
+  if (!selectedId) return;
+  const project = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
+    .find((entry) => Number(entry.id || 0) === selectedId) || null;
+  const companyId = Number(project?.company_id || project?.registry_company_id || 0) || 0;
+  const params = new URLSearchParams({
+    tab: 'requisitions',
+    project_id: String(selectedId),
+    action: 'pr'
+  });
+  if (companyId) params.set('company_id', String(companyId));
+  window.location.href = `/procurement?${params.toString()}`;
 }
 
 function openProjectTransaction(projectId) {
   const selectedId = Number(projectId || 0) || 0;
   if (!selectedId) return;
-  window.location.href = `/admin?view=all&project_id=${encodeURIComponent(String(selectedId))}&action=transaction`;
+  openProjectPurchaseOrder(selectedId);
 }
 
 function viewArchivedPdf() {
@@ -5829,7 +8296,11 @@ function highlight(text, query) {
   if (!tokens.length) return escapedText;
 
   const pattern = tokens.sort((a, b) => b.length - a.length).join('|');
-  return escapedText.replace(new RegExp(`(${pattern})`, 'gi'), '<mark>$1</mark>');
+  try {
+    return escapedText.replace(new RegExp(`(${pattern})`, 'gi'), '<mark>$1</mark>');
+  } catch (_) {
+    return escapedText;
+  }
 }
 
 function escHtml(str) {
@@ -5932,7 +8403,7 @@ function getUserFieldNodes(fieldName) {
     name: ['u-name'],
     username: ['u-username'],
     email: ['u-email'],
-    password: ['u-pass']
+    adminPassword: ['u-admin-pass']
   };
 
   return (map[fieldName] || [])
@@ -5960,7 +8431,7 @@ function setUserFieldMessage(fieldName, message = '') {
 }
 
 function clearUserFieldMessages() {
-  ['name', 'username', 'email', 'password'].forEach((fieldName) => {
+  ['name', 'username', 'email', 'adminPassword'].forEach((fieldName) => {
     setUserFieldMessage(fieldName, '');
   });
 }
@@ -5970,7 +8441,7 @@ function setupUserModalValidationListeners() {
     ['u-name', 'name'],
     ['u-username', 'username'],
     ['u-email', 'email'],
-    ['u-pass', 'password']
+    ['u-admin-pass', 'adminPassword']
   ];
 
   bindings.forEach(([id, fieldName]) => {
@@ -6041,56 +8512,109 @@ function handleUserSaveError(err) {
   const errorText = String(err?.message || '').toLowerCase();
   if (errorText.includes('username')) {
     setUserFieldMessage('username', err.message || 'Username already exists.');
-    return true;
+    return 'username';
   }
   if (errorText.includes('email')) {
     setUserFieldMessage('email', err.message || 'Email already exists.');
-    return true;
+    return 'email';
   }
   if (errorText.includes('password')) {
-    setUserFieldMessage('password', err.message || 'Password is required.');
-    return true;
+    setUserFieldMessage('adminPassword', err.message || 'Current admin password is required.');
+    return 'adminPassword';
   }
   if (errorText.includes('name') || errorText.includes('fullname')) {
     setUserFieldMessage('name', err.message || 'Full Name is required.');
-    return true;
+    return 'name';
   }
-  return false;
+  return null;
+}
+
+function normalizeUserDuplicateValue(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function findUserDuplicateField(username, email, excludeId = 0) {
+  const normalizedUsername = normalizeUserDuplicateValue(username);
+  const normalizedEmail = normalizeUserDuplicateValue(email);
+  const currentId = Number(excludeId || 0) || 0;
+
+  if (!normalizedUsername && !normalizedEmail) return '';
+
+  const duplicate = (usersDb || []).find((entry) => {
+    if (!entry) return false;
+    if (currentId && Number(entry.id || 0) === currentId) return false;
+    if (normalizedUsername && normalizeUserDuplicateValue(entry.username) === normalizedUsername) return 'username';
+    if (normalizedEmail && normalizeUserDuplicateValue(entry.email) === normalizedEmail) return 'email';
+    return false;
+  });
+
+  return duplicate || '';
+}
+
+function userModalNeedsAdminPassword() {
+  if (userModalMode !== 'edit' || !userModalSnapshot) return false;
+  const roleInput = document.getElementById('u-role');
+  const statusInput = document.getElementById('u-status');
+  const snapshotRole = normalizeAccessRole(userModalSnapshot.role || 'staff');
+  const nextRole = normalizeAccessRole(roleInput?.value || (snapshotRole === 'user' ? 'staff' : snapshotRole));
+  const nextActive = Number(statusInput?.value || 0) === 1;
+  const previousRole = normalizeAccessRole(userModalSnapshot.role || 'user');
+  const previousApprovalStatus = String(userModalSnapshot.approval_status || 'approved').toLowerCase();
+  const isSelf = Number(editingUserId || 0) === Number(currentUser?.id || 0);
+  return !isSelf && isPrivilegedRoleValue(nextRole) && (nextRole !== previousRole || (previousApprovalStatus === 'pending' && nextActive));
+}
+
+function syncUserAdminPasswordField() {
+  const field = document.getElementById('u-admin-password-field');
+  const input = document.getElementById('u-admin-pass');
+  const shouldShow = userModalNeedsAdminPassword();
+  if (field) field.style.display = shouldShow ? '' : 'none';
+  if (input) {
+    input.required = shouldShow;
+    input.setAttribute('aria-required', String(shouldShow));
+    if (!shouldShow) input.value = '';
+  }
+}
+
+function syncSuperAdminRoleOption() {
+  const allowSuperAdmin = isSuperAdminUser();
+  document.querySelectorAll('#u-role option[value="super_admin"]').forEach((option) => {
+    option.disabled = !allowSuperAdmin;
+    option.hidden = !allowSuperAdmin;
+  });
 }
 
 function syncUserModalMode() {
   const title = document.getElementById('user-modal-title');
   const saveBtn = document.getElementById('user-save-btn');
-  const passLabel = document.getElementById('u-pass-label');
-  const passHelp = document.getElementById('u-pass-help');
-  const passInput = document.getElementById('u-pass');
 
-  if (title) title.textContent = userModalMode === 'edit' ? 'Edit User' : 'Add New User';
-  if (saveBtn) saveBtn.textContent = userModalMode === 'edit' ? 'Save Changes' : 'Create User';
-  if (passLabel) passLabel.textContent = userModalMode === 'edit' ? 'New Password' : 'Initial Password';
-  if (passHelp) {
-    passHelp.textContent = userModalMode === 'edit'
-      ? 'Leave blank to keep the current password.'
-      : 'Use a strong password for the new account.';
-  }
-  if (passInput) passInput.placeholder = userModalMode === 'edit' ? 'Leave blank to keep current password' : 'At least 8 chars';
+  if (title) title.textContent = 'Edit User';
+  if (saveBtn) saveBtn.textContent = 'Save Changes';
+  syncSuperAdminRoleOption();
+  syncUserAdminPasswordField();
+  setupRequiredFieldMarkers(document.getElementById('user-modal-backdrop') || document);
 }
 
 function resetUserModalForm() {
-  ['u-name', 'u-username', 'u-email', 'u-pass'].forEach(id => {
+  ['u-name', 'u-username', 'u-email', 'u-admin-pass'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
   const status = document.getElementById('u-status');
   if (status) status.value = '1';
   const role = document.getElementById('u-role');
-  if (role) role.value = 'user';
-  const passInput = document.getElementById('u-pass');
-  if (passInput) passInput.type = 'password';
+  if (role) role.value = 'staff';
+  const adminPassInput = document.getElementById('u-admin-pass');
+  if (adminPassInput) adminPassInput.type = 'password';
   clearUserFieldMessages();
 }
 
 function openUserModal(user = null) {
+  if (!user) {
+    showToast('Use Register for new accounts. User Management is edit and approval only.', 'error');
+    return;
+  }
+
   userModalMode = user ? 'edit' : 'create';
   editingUserId = user ? Number(user.id || 0) : null;
   userModalSnapshot = user ? { ...user } : null;
@@ -6110,18 +8634,21 @@ function openUserModal(user = null) {
     if (nameInput) nameInput.value = user.fullname || '';
     if (usernameInput) usernameInput.value = user.username || '';
     if (emailInput) emailInput.value = user.email || '';
-    if (roleInput) roleInput.value = user.role || 'user';
+    if (roleInput) {
+      const safeRole = normalizeAccessRole(user.role || 'staff');
+      roleInput.value = safeRole === 'user' ? 'staff' : safeRole;
+    }
     if (statusInput) statusInput.value = Number(user.active || 0) === 1 ? '1' : '0';
   }
 
   syncUserModalMode();
+  ['u-role', 'u-status'].forEach((id) => {
+    const node = document.getElementById(id);
+    if (!node || node.dataset.userPrivilegeBound === '1') return;
+    node.dataset.userPrivilegeBound = '1';
+    node.addEventListener('change', syncUserAdminPasswordField);
+  });
 
-  const passToggle = document.querySelector('.password-toggle[data-target="u-pass"]');
-  if (passToggle) {
-    passToggle.classList.remove('is-visible');
-    passToggle.setAttribute('aria-label', 'Show password');
-    passToggle.setAttribute('title', 'Show password');
-  }
 }
 
 function closeUserModal() {
@@ -6140,20 +8667,22 @@ async function saveUser() {
   const username = document.getElementById('u-username').value.trim();
   const email    = document.getElementById('u-email').value.trim().toLowerCase();
   const role     = document.getElementById('u-role').value;
+  const adminPassword = String(document.getElementById('u-admin-pass')?.value || '');
   const statusInput = document.getElementById('u-status');
   const status   = statusInput
     ? statusInput.value
     : (userModalMode === 'edit' && userModalSnapshot
       ? String(Number(userModalSnapshot.active || 0) === 1 ? 1 : 0)
       : '1');
-  const password = document.getElementById('u-pass').value;
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
   clearUserFieldMessages();
 
   let hasValidationError = false;
+  let firstInvalidField = null;
   const markUserError = (fieldName, message) => {
     setUserFieldMessage(fieldName, message);
+    if (!firstInvalidField) firstInvalidField = fieldName;
     hasValidationError = true;
   };
 
@@ -6165,18 +8694,36 @@ async function saveUser() {
     markUserError('email', 'Invalid email format.');
   }
 
-  const trimmedPassword = password.trim();
-  if (userModalMode === 'create') {
-    if (!trimmedPassword) {
-      markUserError('password', 'Initial password is required.');
-    } else if (trimmedPassword.length < 8) {
-      markUserError('password', 'Password must be at least 8 characters.');
-    }
-  } else if (trimmedPassword && trimmedPassword.length < 8) {
-    markUserError('password', 'Password must be at least 8 characters.');
+  if (userModalNeedsAdminPassword() && !adminPassword) {
+    markUserError('adminPassword', 'Current admin password is required for staff/admin access.');
   }
 
   if (hasValidationError) {
+    focusFirstModalField(firstInvalidField, {
+      name: ['u-name'],
+      username: ['u-username'],
+      email: ['u-email'],
+      adminPassword: ['u-admin-pass']
+    });
+    return;
+  }
+
+  const duplicateField = findUserDuplicateField(
+    username,
+    email,
+    userModalMode === 'edit' ? editingUserId : 0
+  );
+  if (duplicateField) {
+    const duplicateMessage = duplicateField === 'username'
+      ? 'Username already exists.'
+      : 'Email already exists.';
+    setUserFieldMessage(duplicateField, duplicateMessage);
+    focusFirstModalField(duplicateField, {
+      name: ['u-name'],
+      username: ['u-username'],
+      email: ['u-email'],
+      adminPassword: ['u-admin-pass']
+    });
     return;
   }
 
@@ -6187,9 +8734,9 @@ async function saveUser() {
         username,
         email,
         role,
-        active: Number(status || 1)
+        active: Number(status || 1),
+        adminPassword
       };
-      if (trimmedPassword) payload.password = trimmedPassword;
 
       const res = await fetch(`/api/admin/users/${editingUserId}`, {
         method: 'PATCH',
@@ -6207,33 +8754,22 @@ async function saveUser() {
       return;
     } catch (err) {
       console.error('Update User Error:', err);
-      const handled = handleUserSaveError(err);
-      if (!handled) {
+      const handledField = handleUserSaveError(err);
+      if (handledField) {
+        focusFirstModalField(handledField, {
+          name: ['u-name'],
+          username: ['u-username'],
+          email: ['u-email'],
+          adminPassword: ['u-admin-pass']
+        });
+      } else {
         showToast(err.message || 'Network error o hindi maka-connect sa server.', 'error');
       }
       return;
     }
   }
 
-  try {
-    await submitUserCreatePayload({
-      name,
-      username,
-      email,
-      role,
-      password: trimmedPassword,
-      active: Number(status || 1)
-    });
-    closeUserModal();
-    showToast('User created successfully!', 'success');
-    await loadUsers();
-  } catch (err) {
-    console.error('Save User Error:', err);
-    const handled = handleUserSaveError(err);
-    if (!handled) {
-      showToast(err.message || 'Network error o hindi maka-connect sa server.', 'error');
-    }
-  }
+  showToast('Use Register for new accounts. User Management is edit and approval only.', 'error');
 }
 
 function editUser(id) {
@@ -6257,6 +8793,57 @@ function toggleUser(id) {
     .catch(() => {
       showToast('Network error o hindi maka-connect sa server.', 'error');
     });
+}
+
+async function approveUser(id, role = 'staff') {
+  if (!id) return;
+  const targetRole = String(role || 'staff');
+  let adminPassword = '';
+  if (targetRole === 'super_admin' || targetRole === 'admin' || targetRole === 'staff') {
+    adminPassword = window.prompt('Enter your current admin password to approve this privileged role:') || '';
+    if (!adminPassword) return;
+  }
+
+  try {
+    const res = await fetch(`/api/admin/users/${id}/approve`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: targetRole, adminPassword })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+      showToast(data.error || 'Failed to approve user.', 'error');
+      return;
+    }
+    showToast('User approved successfully.', 'success');
+    await loadUsers();
+  } catch (err) {
+    showToast('Network error o hindi maka-connect sa server.', 'error');
+  }
+}
+
+async function rejectUser(id) {
+  if (!id) return;
+  const confirmed = await openConfirmDialog({
+    title: 'Reject Registration?',
+    message: 'Reject this pending account request?',
+    noText: 'No',
+    yesText: 'Yes'
+  });
+  if (!confirmed) return;
+
+  try {
+    const res = await fetch(`/api/admin/users/${id}/reject`, { method: 'PATCH' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+      showToast(data.error || 'Failed to reject user.', 'error');
+      return;
+    }
+    showToast('Registration rejected.', 'success');
+    await loadUsers();
+  } catch (err) {
+    showToast('Network error o hindi maka-connect sa server.', 'error');
+  }
 }
 
 async function deleteUser(id) {
@@ -6286,8 +8873,14 @@ async function deleteUser(id) {
 
 // ==================== SYSTEM LOGS LOGIC ====================
 function openLogsPanel() {
-  if (!currentUser || currentUser.role !== 'admin') return;
+  if (!isAdminUser()) return;
   openDashboardPanel('system-logs');
+  setSidebarOpen(false);
+}
+
+function openArchiveCenter() {
+  if (!isAdminUser()) return;
+  openDashboardPanel('archive-center');
   setSidebarOpen(false);
 }
 
@@ -6403,6 +8996,18 @@ function formatServiceOrderStatusLabel(status) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function normalizeServiceOrderType(type) {
+  const normalized = String(type || 'installation').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  const allowed = new Set(['installation', 'maintenance', 'repair', 'inspection', 'upgrade', 'support', 'other']);
+  return allowed.has(normalized) ? normalized : 'installation';
+}
+
+function formatServiceOrderTypeLabel(type) {
+  return normalizeServiceOrderType(type)
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 function getServiceOrderProjectLabel(project) {
   if (!project) return 'Untitled Project';
 
@@ -6420,7 +9025,8 @@ function populateServiceOrderProjectSelect(selectedProjectId = '') {
   if (!select) return;
 
   const currentValue = String(selectedProjectId || select.value || '').trim();
-  const projects = Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [];
+  const projects = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
+    .filter((project) => businessEntityMatches(project));
 
   select.innerHTML = '<option value="">Select Project</option>' + projects.map((project) => {
     const value = Number(project.id || 0);
@@ -6484,7 +9090,7 @@ function renderServiceOrdersTable() {
       return;
     }
 
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="11">No service orders found.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="12">No service orders found.</td></tr>';
     return;
   }
 
@@ -6499,6 +9105,7 @@ function renderServiceOrdersTable() {
       row.project_docno,
       row.transaction_docnos,
       row.service_title,
+      row.service_type,
       row.description,
       row.notes,
       row.status,
@@ -6510,7 +9117,7 @@ function renderServiceOrdersTable() {
   });
 
   if (!filtered.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="11">No service orders found.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="12">No service orders found.</td></tr>';
     return;
   }
 
@@ -6527,6 +9134,7 @@ function renderServiceOrdersTable() {
       : '-';
     const amount = Number(row.total_amount || 0);
     const amountText = `PHP ${amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const typeLabel = formatServiceOrderTypeLabel(row.service_type || 'installation');
     const statusClass = `status-pill status-${normalizeServiceOrderStatus(row.status || 'draft')}`;
     const statusLabel = formatServiceOrderStatusLabel(row.status || 'draft');
     const notes = String(row.notes || '-').trim() || '-';
@@ -6540,6 +9148,7 @@ function renderServiceOrdersTable() {
         <td>${escHtml(projectLabel)}</td>
         <td title="${escHtml(transactionDocnos || '-')}" style="max-width:220px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escHtml(transactionLabel)}</td>
         <td>${escHtml(row.service_title || row.description || '-')}</td>
+        <td>${escHtml(typeLabel)}</td>
         <td class="text-center">${escHtml(String(row.service_date || '').slice(0, 10) || '-')}</td>
         <td class="text-right" style="font-weight:600;">${escHtml(amountText)}</td>
         <td title="${escHtml(notes)}" style="max-width:240px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escHtml(notes)}</td>
@@ -6548,7 +9157,7 @@ function renderServiceOrdersTable() {
           <div class="actions">
             ${archived
               ? `<button class="btn btn-restore btn-sm" type="button" onclick="event.stopPropagation(); restoreServiceOrder(${Number(row.id)})">Restore</button>`
-              : `<button class="btn btn-archive btn-sm" type="button" onclick="event.stopPropagation(); archiveServiceOrder(${Number(row.id)})">Archive</button>`}
+              : `<button class="btn btn-edit btn-sm" type="button" onclick="event.stopPropagation(); openServiceOrderModal(${Number(row.id)})">Edit</button><button class="btn btn-archive btn-sm" type="button" onclick="event.stopPropagation(); archiveServiceOrder(${Number(row.id)})">Archive</button>`}
           </div>
         </td>
       </tr>
@@ -6649,8 +9258,7 @@ function setupServiceOrderModalValidationListeners() {
       if (hidden) hidden.value = '';
     }],
     ['so-company-search', 'company_id', () => {
-      const hidden = document.getElementById('so-company-id');
-      if (hidden) hidden.value = '';
+      filterServiceOrderCompanies();
     }],
     ['so-project-id', 'project_id'],
     ['so-title', 'service_title']
@@ -6680,9 +9288,10 @@ async function loadServiceOrderPickerData(force = false) {
     return serviceOrderPickerLoadPromise;
   }
 
+  const companyQuery = new URLSearchParams({ include_archived: '1' });
   serviceOrderPickerLoadPromise = Promise.all([
-    fetch('/api/company-registry?include_archived=1', { cache: 'no-store' }),
-    fetch('/api/vendors', { cache: 'no-store' })
+    fetch(`/api/company-registry?${companyQuery.toString()}`, { cache: 'no-store' }),
+    fetch('/api/vendors?include_inactive=1', { cache: 'no-store' })
   ])
     .then(async ([companiesRes, vendorsRes]) => {
       const companiesData = await companiesRes.json().catch(() => ([]));
@@ -6696,7 +9305,11 @@ async function loadServiceOrderPickerData(force = false) {
       }
 
       serviceOrderCompanyPickerDb = Array.isArray(companiesData) ? companiesData : [];
-      serviceOrderVendorPickerDb = Array.isArray(vendorsData) ? vendorsData : [];
+      const companyIds = new Set(serviceOrderCompanyPickerDb.map(company => Number(company.id || 0)).filter(Boolean));
+      serviceOrderVendorPickerDb = (Array.isArray(vendorsData) ? vendorsData : []).filter((vendor) => {
+        const companyId = Number(vendor.company_id || 0);
+        return !companyId || companyIds.has(companyId);
+      });
 
       return {
         companies: serviceOrderCompanyPickerDb,
@@ -6727,8 +9340,15 @@ function getServiceOrderVendorLabel(vendor) {
   const name = String(vendor.vendor_name || '').trim();
   const contact = String(vendor.contact_person || '').trim();
   const email = String(vendor.email || '').trim();
+  const companyName = String(vendor.company_name || '').trim();
+  const isOwnCompanyVendor = Number(vendor.business_entity_id || 0) > 0;
+  const isActive = vendor.is_active === undefined || vendor.is_active === null ? true : Number(vendor.is_active) === 1;
+  const inactiveTag = isActive ? '' : ' [Inactive]';
+  if (isOwnCompanyVendor) {
+    return `${name || companyName || 'Own Company Vendor'} - Own company vendor${inactiveTag}`;
+  }
   const meta = [contact, email].filter(Boolean).join(' • ');
-  return meta ? `${name} (${meta})` : name;
+  return meta ? `${name}${inactiveTag} (${meta})` : `${name}${inactiveTag}`;
 }
 
 function setServiceOrderCompanySelection(companyId, companyLabel) {
@@ -6771,6 +9391,43 @@ function getServiceOrderCompanyRecordById(companyId) {
     || null;
 }
 
+function findServiceOrderCompanyBySearchValue(value) {
+  const target = String(value || '').trim().toLowerCase();
+  if (!target) return null;
+  const sources = [
+    ...(Array.isArray(serviceOrderCompanyPickerDb) ? serviceOrderCompanyPickerDb : []),
+    ...(Array.isArray(companyRegistryDb) ? companyRegistryDb : [])
+  ];
+  const seen = new Set();
+  const companies = sources.filter((company) => {
+    const id = Number(company?.id || 0) || 0;
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+
+  const exact = companies.find((company) => {
+    const label = getServiceOrderCompanyLabel(company).toLowerCase();
+    return String(company.id || '').toLowerCase() === target
+      || String(company.company_no || '').toLowerCase() === target
+      || String(company.company_name || '').toLowerCase() === target
+      || label === target;
+  });
+  if (exact) return exact;
+
+  const partial = companies.filter((company) => {
+    const haystack = [
+      company.company_no,
+      company.company_name,
+      company.contact_person,
+      company.address,
+      getServiceOrderCompanyLabel(company)
+    ].map((part) => String(part || '').toLowerCase()).join(' ');
+    return haystack.includes(target);
+  });
+  return partial.length === 1 ? partial[0] : null;
+}
+
 function getServiceOrderVendorRecordById(vendorId) {
   const normalizedId = Number(vendorId || 0) || 0;
   if (!normalizedId) return null;
@@ -6778,6 +9435,23 @@ function getServiceOrderVendorRecordById(vendorId) {
   return (Array.isArray(serviceOrderVendorPickerDb) ? serviceOrderVendorPickerDb : [])
     .find((entry) => Number(entry.id || 0) === normalizedId)
     || null;
+}
+
+function getDefaultServiceOrderOwnCompanyVendor() {
+  const currentBusinessEntityId = String(getCurrentBusinessEntityId() || getDefaultBusinessEntityId() || '').trim();
+  if (!currentBusinessEntityId) return null;
+  return (Array.isArray(serviceOrderVendorPickerDb) ? serviceOrderVendorPickerDb : [])
+    .find((entry) => String(entry.business_entity_id || '').trim() === currentBusinessEntityId)
+    || null;
+}
+
+function applyDefaultServiceOrderVendor() {
+  const vendorHidden = document.getElementById('so-vendor-id');
+  if (!vendorHidden || String(vendorHidden.value || '').trim()) return;
+  const vendor = getDefaultServiceOrderOwnCompanyVendor();
+  if (vendor) {
+    setServiceOrderVendorSelection(vendor.id, getServiceOrderVendorLabel(vendor));
+  }
 }
 
 function ensureServiceOrderVendorMatchesCompany(companyId) {
@@ -6798,11 +9472,13 @@ function filterServiceOrderCompanies(showAll = false) {
   const input = document.getElementById('so-company-search');
   const results = document.getElementById('so-company-results');
   const hidden = document.getElementById('so-company-id');
-  if (!input || !results || !hidden) return;
+  if (!input || !hidden || !results) return;
 
   const query = String(input.value || '').trim().toLowerCase();
-  hidden.value = '';
+  const match = findServiceOrderCompanyBySearchValue(input.value);
+  hidden.value = match ? String(match.id) : '';
   setServiceOrderFieldMessage('company_id', '');
+  ensureServiceOrderVendorMatchesCompany(hidden.value);
 
   if (!query && !showAll) {
     results.style.display = 'none';
@@ -6812,19 +9488,28 @@ function filterServiceOrderCompanies(showAll = false) {
 
   const companies = Array.isArray(serviceOrderCompanyPickerDb) ? serviceOrderCompanyPickerDb : [];
   const filtered = companies.filter((company) => {
-    const name = String(company.company_name || '').toLowerCase();
-    const no = String(company.company_no || '').toLowerCase();
-    const contact = String(company.contact_person || '').toLowerCase();
-    return showAll || name.includes(query) || no.includes(query) || contact.includes(query);
+    if (!query) return true;
+    const haystack = [
+      company.company_no,
+      company.company_name,
+      company.contact_person,
+      company.phone,
+      company.address,
+      getServiceOrderCompanyLabel(company)
+    ].map((part) => String(part || '').toLowerCase()).join(' ');
+    return haystack.includes(query);
   }).slice(0, 10);
 
-  results.innerHTML = filtered.length ? filtered.map((company) => `
-    <div class="search-result-item" data-id="${escHtml(company.id)}" data-label="${escHtml(getServiceOrderCompanyLabel(company))}">
-      <div class="search-result-name">${escHtml(company.company_name || 'Company')}</div>
-      <div class="search-result-sub">${escHtml(company.company_no || '')}${company.contact_person ? ` • ${escHtml(company.contact_person)}` : ''}</div>
-    </div>
-  `).join('') : '<div class="search-result-item search-result-empty">No companies found</div>';
-
+  results.innerHTML = filtered.length ? filtered.map((company) => {
+    const label = getServiceOrderCompanyLabel(company);
+    const sub = [company.contact_person, company.phone, company.address].filter(Boolean).join(' • ') || 'Company registry record';
+    return `
+      <div class="search-result-item" data-id="${escHtml(company.id)}" data-label="${escHtml(label)}">
+        <div class="search-result-name">${escHtml(label)}</div>
+        <div class="search-result-sub">${escHtml(sub)}</div>
+      </div>
+    `;
+  }).join('') : '<div class="search-result-item search-result-empty">No companies found</div>';
   results.style.display = 'block';
 }
 
@@ -6851,15 +9536,16 @@ function filterServiceOrderVendors(showAll = false) {
     const contact = String(vendor.contact_person || '').toLowerCase();
     const email = String(vendor.email || '').toLowerCase();
     const phone = String(vendor.phone || '').toLowerCase();
+    const companyName = String(vendor.company_name || '').toLowerCase();
     const vendorCompanyId = Number(vendor.company_id || 0) || 0;
     const companyMatch = !selectedCompanyId || !vendorCompanyId || vendorCompanyId === selectedCompanyId;
-    return companyMatch && (showAll || name.includes(query) || contact.includes(query) || email.includes(query) || phone.includes(query));
+    return companyMatch && (showAll || name.includes(query) || contact.includes(query) || email.includes(query) || phone.includes(query) || companyName.includes(query));
   }).slice(0, 10);
 
   results.innerHTML = filtered.length ? filtered.map((vendor) => `
     <div class="search-result-item" data-id="${escHtml(vendor.id)}" data-label="${escHtml(getServiceOrderVendorLabel(vendor))}">
-      <div class="search-result-name">${escHtml(vendor.vendor_name || 'Vendor')}</div>
-      <div class="search-result-sub">${escHtml(vendor.contact_person || 'No contact')}${vendor.email ? ` • ${escHtml(vendor.email)}` : ''}</div>
+      <div class="search-result-name">${escHtml(`${vendor.vendor_name || 'Vendor'}${Number(vendor.business_entity_id || 0) ? ' - Own company vendor' : ''}${vendor.is_active === undefined || vendor.is_active === null || Number(vendor.is_active) === 1 ? '' : ' [Inactive]'}`)}</div>
+      <div class="search-result-sub">${escHtml(vendor.contact_person || vendor.company_name || 'No contact')}${vendor.email ? ` • ${escHtml(vendor.email)}` : ''}${vendor.is_active === undefined || vendor.is_active === null || Number(vendor.is_active) === 1 ? '' : ' • Inactive'}</div>
     </div>
   `).join('') : '<div class="search-result-item search-result-empty">No vendors found</div>';
 
@@ -6887,6 +9573,7 @@ function syncServiceOrderCompanyFromProject() {
     .find((entry) => Number(entry.id || 0) === projectId);
   if (!project) return;
 
+  populateBusinessEntitySelect('so-business-entity-id', project.business_entity_id || '');
   const companyId = Number(project.company_id || project.registry_company_id || 0);
   if (!companyId) return;
 
@@ -6948,28 +9635,80 @@ function setupServiceOrderPickerListeners() {
   }
 }
 
+async function prefillAdminServiceOrderNumber() {
+  const input = document.getElementById('so-docno');
+  if (!input || editingServiceOrderId) return;
+  input.value = '';
+  try {
+    const res = await fetch(`/api/service-orders/next-number?business_entity_id=${encodeURIComponent(getCurrentBusinessEntityId() || getDefaultBusinessEntityId() || '')}`, { cache: 'no-store' });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.so_number && !input.value) {
+      input.value = data.so_number;
+    }
+  } catch (_) {
+    // Server still generates the number on save.
+  }
+}
+
+function updateServiceOrderModalLabels() {
+  const titleNode = document.getElementById('service-order-modal-title');
+  const saveBtn = document.getElementById('service-order-save-btn');
+  const isEdit = Number(editingServiceOrderId || 0) > 0;
+
+  if (titleNode) {
+    titleNode.textContent = isEdit ? 'Edit Service Order' : 'Service Order Entry';
+  }
+
+  if (saveBtn) {
+    saveBtn.textContent = isEdit ? 'Update Service Order' : 'Save Service Order';
+  }
+}
+
+function setServiceOrderSaveButtonState(isBusy) {
+  const saveBtn = document.getElementById('service-order-save-btn');
+  if (!saveBtn) return;
+  saveBtn.disabled = Boolean(isBusy);
+  saveBtn.textContent = isBusy
+    ? 'Saving...'
+    : (Number(editingServiceOrderId || 0) > 0 ? 'Update Service Order' : 'Save Service Order');
+}
+
 // Service Order Functions
-async function openServiceOrderModal() {
+async function openServiceOrderModal(id = null) {
   var modal = document.getElementById('service-order-modal-backdrop');
   if (!modal) return;
+
+  const normalizedId =
+    typeof id === 'number' || (typeof id === 'string' && /^\d+$/.test(id))
+      ? Number(id)
+      : null;
+  editingServiceOrderId = normalizedId;
 
   try {
     await loadServiceOrderPickerData();
   } catch (err) {
     console.error('Load service order picker data error:', err);
     showToast(err.message || 'Unable to load service order pickers.', 'error');
+    editingServiceOrderId = null;
+    updateServiceOrderModalLabels();
+    return;
   }
 
   clearServiceOrderFieldMessages();
   document.getElementById('so-docno').value = '';
   document.getElementById('so-date').value = new Date().toISOString().split('T')[0];
-  setServiceOrderVendorSelection('', '');
-  setServiceOrderCompanySelection('', '');
   document.getElementById('so-project-id').value = '';
   document.getElementById('so-title').value = '';
   document.getElementById('so-amount').value = '';
   document.getElementById('so-notes').value = '';
-  document.getElementById('so-status').value = 'draft';
+  document.getElementById('so-status').value = 'issued';
+  populateBusinessEntitySelect('so-business-entity-id');
+  setServiceOrderVendorSelection('', '');
+  setServiceOrderCompanySelection('', '');
+  applyDefaultServiceOrderVendor();
+  if (!normalizedId) {
+    await prefillAdminServiceOrderNumber();
+  }
 
   populateServiceOrderProjectSelect();
   const projectSelect = document.getElementById('so-project-id');
@@ -6977,7 +9716,56 @@ async function openServiceOrderModal() {
     projectSelect.addEventListener('change', syncServiceOrderCompanyFromProject);
     projectSelect.dataset.serviceOrderBound = '1';
   }
-  syncServiceOrderCompanyFromProject();
+
+  if (normalizedId) {
+    try {
+      await loadServiceOrdersData(true);
+    } catch (err) {
+      editingServiceOrderId = null;
+      updateServiceOrderModalLabels();
+      showToast(err.message || 'Unable to load service order data.', 'error');
+      return;
+    }
+
+    const row = (Array.isArray(serviceOrdersDb) ? serviceOrdersDb : [])
+      .find((entry) => Number(entry.id || 0) === normalizedId);
+
+    if (!row) {
+      editingServiceOrderId = null;
+      updateServiceOrderModalLabels();
+      showToast('Service order not found.', 'error');
+      return;
+    }
+
+    const companyRecord = getServiceOrderCompanyRecordById(row.company_id);
+    const vendorRecord = getServiceOrderVendorRecordById(row.vendor_id);
+    const projectId = Number(row.project_id || 0) || '';
+    const serviceTypeValue = normalizeServiceOrderType(row.service_type || 'installation');
+    const statusValue = normalizeServiceOrderStatus(row.status || 'issued');
+    const serviceDate = String(row.service_date || '').slice(0, 10) || new Date().toISOString().split('T')[0];
+
+    document.getElementById('so-docno').value = row.so_number || '';
+    document.getElementById('so-date').value = serviceDate;
+    document.getElementById('so-title').value = row.service_title || row.description || '';
+    document.getElementById('so-amount').value = Number(row.total_amount || 0) || '';
+    document.getElementById('so-notes').value = row.notes || '';
+    document.getElementById('so-type').value = serviceTypeValue;
+    document.getElementById('so-status').value = statusValue === 'draft' ? 'issued' : statusValue;
+    document.getElementById('so-project-id').value = projectId || '';
+    populateBusinessEntitySelect('so-business-entity-id', row.business_entity_id || '');
+
+    if (projectId) {
+      syncServiceOrderCompanyFromProject();
+    } else if (companyRecord) {
+      setServiceOrderCompanySelection(companyRecord.id, getServiceOrderCompanyLabel(companyRecord));
+    }
+
+    if (vendorRecord) {
+      setServiceOrderVendorSelection(vendorRecord.id, getServiceOrderVendorLabel(vendorRecord));
+    }
+  }
+
+  updateServiceOrderModalLabels();
 
   modal.style.display = 'flex';
   document.body.style.overflow = 'hidden';
@@ -6987,62 +9775,79 @@ function closeServiceOrderModal() {
   var modal = document.getElementById('service-order-modal-backdrop');
   if (modal) modal.style.display = 'none';
   clearServiceOrderFieldMessages();
+  editingServiceOrderId = null;
+  updateServiceOrderModalLabels();
+  setServiceOrderSaveButtonState(false);
   document.body.style.overflow = '';
 }
 
 async function saveServiceOrder() {
+  const isEdit = Number(editingServiceOrderId || 0) > 0;
   clearServiceOrderFieldMessages();
-  const vendorId = Number(document.getElementById('so-vendor-id').value || 0) || 0;
-  const vendorInput = document.getElementById('so-vendor-search').value.trim();
+  if (!isEdit && !String(document.getElementById('so-docno')?.value || '').trim()) {
+    await prefillAdminServiceOrderNumber();
+  }
+  filterServiceOrderCompanies();
+  const vendorId = Number(document.getElementById('so-vendor-id')?.value || 0) || 0;
   const companyId = Number(document.getElementById('so-company-id').value || 0) || 0;
   const companyInput = document.getElementById('so-company-search').value.trim();
   const title = document.getElementById('so-title').value.trim();
-  const status = normalizeServiceOrderStatus(document.getElementById('so-status').value || 'draft');
+  const serviceType = normalizeServiceOrderType(document.getElementById('so-type').value || 'installation');
+  const status = normalizeServiceOrderStatus(document.getElementById('so-status').value || 'issued');
+  const finalStatus = status === 'draft' ? 'issued' : status;
   const projectId = Number(document.getElementById('so-project-id').value || 0) || null;
   const selectedProject = projectId
     ? (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : []).find((entry) => Number(entry.id || 0) === projectId)
     : null;
+  const businessEntityId = selectedProject?.business_entity_id || getCurrentBusinessEntityId() || getDefaultBusinessEntityId() || '';
+  const businessEntitySelect = document.getElementById('so-business-entity-id');
+  if (businessEntitySelect) businessEntitySelect.value = businessEntityId;
   const projectCompanyId = Number(selectedProject?.company_id || selectedProject?.registry_company_id || 0) || 0;
   const companyRecord = getServiceOrderCompanyRecordById(companyId);
-  const vendorRecord = getServiceOrderVendorRecordById(vendorId);
-  const vendorCompanyId = Number(vendorRecord?.company_id || 0) || 0;
+  const soNumber = String(document.getElementById('so-docno')?.value || '').trim();
+  let firstInvalidField = null;
+  const markServiceOrderError = (fieldName, message) => {
+    setServiceOrderFieldMessage(fieldName, message);
+    if (!firstInvalidField) firstInvalidField = fieldName;
+  };
 
-  if (!vendorId || !companyId || !title) {
-    if (!vendorId) setServiceOrderFieldMessage('vendor_id', 'Vendor selection is required.');
-    if (!companyId) setServiceOrderFieldMessage('company_id', 'Company selection is required.');
-    if (!title) setServiceOrderFieldMessage('service_title', 'Service title is required.');
-    return;
-  }
-
-  if (!vendorRecord) {
-    setServiceOrderFieldMessage('vendor_id', 'Please select a vendor from the search results.');
+  if (!soNumber || !title || !companyId || !serviceType) {
+    if (!soNumber) markServiceOrderError('so_number', 'SO Number is required.');
+    if (!title) markServiceOrderError('service_title', 'Service title is required.');
+    if (!serviceType) markServiceOrderError('service_type', 'Service type is required.');
+    if (!companyId) markServiceOrderError('company_id', 'Company selection is required.');
+    focusFirstModalField(firstInvalidField, {
+      service_title: ['so-title'],
+      service_type: ['so-type'],
+      company_id: ['so-company-search'],
+      project_id: ['so-project-id'],
+      so_number: ['so-docno']
+    });
     return;
   }
 
   if (!companyRecord) {
-    setServiceOrderFieldMessage('company_id', 'Please select a company from the search results.');
+    setServiceOrderFieldMessage('company_id', 'Type an exact company no/name, or a search with one match.');
+    focusFirstModalControl(['so-company-search']);
     return;
   }
 
   if (projectId && projectCompanyId && companyId !== projectCompanyId) {
     setServiceOrderFieldMessage('company_id', 'Selected company must match the project company.');
-    return;
-  }
-
-  if (companyId && vendorCompanyId && vendorCompanyId !== companyId) {
-    setServiceOrderFieldMessage('vendor_id', 'Selected vendor must match the company.');
+    focusFirstModalControl(['so-company-search']);
     return;
   }
 
   const amount = parseFloat(document.getElementById('so-amount').value) || 0;
   const notes = String(document.getElementById('so-notes').value || '').trim();
   const payload = {
-    so_number: document.getElementById('so-docno').value || null,
-    doc_no: document.getElementById('so-docno').value || null,
+    so_number: soNumber,
+    doc_no: soNumber,
     service_date: document.getElementById('so-date').value,
     so_date: document.getElementById('so-date').value,
-    vendor_id: vendorId,
-    vendor_name: vendorInput,
+    service_type: serviceType,
+    business_entity_id: businessEntityId,
+    vendor_id: vendorId || null,
     company_id: companyId,
     company_name: companyInput,
     project_id: projectId,
@@ -7052,12 +9857,13 @@ async function saveServiceOrder() {
     total_amount: amount,
     amount,
     notes,
-    status
+    status: finalStatus
   };
 
   try {
-    const res = await fetch('/api/service-orders', {
-      method: 'POST',
+    setServiceOrderSaveButtonState(true);
+    const res = await fetch(isEdit ? `/api/service-orders/${editingServiceOrderId}` : '/api/service-orders', {
+      method: isEdit ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
@@ -7066,37 +9872,47 @@ async function saveServiceOrder() {
       throw new Error(result.error || result.message || 'Error saving service order');
     }
 
-    showToast('Service Order saved successfully!', 'success');
+    const successMessage = result.linked_transaction_docno
+      ? (isEdit
+          ? `Service Order updated and transaction ${result.linked_transaction_docno} synced.`
+          : `Service Order saved and transaction ${result.linked_transaction_docno} created.`)
+      : (isEdit ? 'Service Order updated successfully!' : 'Service Order saved successfully!');
+    showToast(result.warning || successMessage, result.warning ? 'error' : 'success');
     closeServiceOrderModal();
-    await loadServiceOrdersData(true);
+    await Promise.all([
+      loadRecords(),
+      loadServiceOrdersData(true)
+    ]);
     renderServiceOrdersTable();
+    editingServiceOrderId = null;
+    updateServiceOrderModalLabels();
   } catch (err) {
     console.error('Save SO error:', err);
     const errorText = String(err?.message || '').toLowerCase();
     let handled = false;
     if (errorText.includes('already exists') || errorText.includes('duplicate')) {
       setServiceOrderFieldMessage('so_number', 'Service order number already exists.');
+      focusFirstModalControl(['so-docno']);
       handled = true;
     } else if (errorText.includes('selected project was not found')) {
       setServiceOrderFieldMessage('project_id', err.message || 'Selected project was not found.');
-      handled = true;
-    } else if (errorText.includes('vendor is required')) {
-      setServiceOrderFieldMessage('vendor_id', err.message || 'Vendor selection is required.');
-      handled = true;
-    } else if (errorText.includes('selected vendor must match')) {
-      setServiceOrderFieldMessage('vendor_id', err.message || 'Selected vendor must match the company.');
+      focusFirstModalControl(['so-project-id']);
       handled = true;
     } else if (errorText.includes('company is required') || errorText.includes('select a project') || errorText.includes('selected company must match')) {
       setServiceOrderFieldMessage('company_id', err.message || 'Company selection is required.');
+      focusFirstModalControl(['so-company-search']);
       handled = true;
     } else if (errorText.includes('service title is required')) {
       setServiceOrderFieldMessage('service_title', err.message || 'Service title is required.');
+      focusFirstModalControl(['so-title']);
       handled = true;
     }
 
     if (!handled) {
       showToast(err.message || 'Error saving service order', 'error');
     }
+  } finally {
+    setServiceOrderSaveButtonState(false);
   }
 }
 
@@ -7116,7 +9932,8 @@ let projectCompanies = [];
 
 async function loadProjectCompanies() {
   try {
-    const r = await fetch('/api/company-registry?include_archived=1');
+    const query = new URLSearchParams({ include_archived: '1' });
+    const r = await fetch(`/api/company-registry?${query.toString()}`);
     const d = await r.json();
     projectCompanies = Array.isArray(d) ? d : [];
   } catch (e) {
@@ -7127,27 +9944,73 @@ async function loadProjectCompanies() {
 function filterProjectCompanies() {
   const i = document.getElementById('p-company-search');
   const r = document.getElementById('p-company-results');
-  const h = document.getElementById('p-company-id');
-  if (!i || !r) return;
-  const q = String(i.value || '').trim().toLowerCase();
-  if (h) h.value = '';
-  setProjectFieldMessage('company', '');
-  if (!q) {
+  if (!i) return;
+  const query = String(i.value || '').trim();
+  const hidden = document.getElementById('p-company-id');
+  const matches = getRegistryCompanySearchMatches(query);
+  const match = matches.exact || (matches.partial.length === 1 ? matches.partial[0] : null);
+
+  if (hidden) hidden.value = match ? String(match.id) : '';
+
+  if (!query) {
+    setProjectFieldHint('company', '');
+  } else if (match) {
+    setProjectFieldHint('company', `Matched: ${getRegistryCompanyLabel(match)}`);
+  } else {
+    if (matches.partial.length > 1) {
+      setProjectFieldHint('company', `${matches.partial.length} companies match. Type the exact company no or full company name.`);
+    } else {
+      setProjectFieldHint('company', 'No company matched. Check the company no or company name.');
+    }
+  }
+
+  renderProjectCompanySuggestions(matches.partial, query);
+}
+
+function renderProjectCompanySuggestions(matches = [], query = '') {
+  const r = document.getElementById('p-company-results');
+  if (!r) return;
+
+  const searchText = String(query || '').trim();
+  const visibleMatches = Array.isArray(matches)
+    ? matches.filter((company) => Number(company?.id || 0)).slice(0, 10)
+    : [];
+
+  if (!searchText || !visibleMatches.length) {
     r.style.display = 'none';
     r.innerHTML = '';
     return;
   }
-  const f = projectCompanies.filter(c => {
-    const n = String(c.company_name || '').toLowerCase();
-    const no = String(c.company_no || '').toLowerCase();
-    return n.includes(q) || no.includes(q);
-  }).slice(0, 10);
-  if (f.length === 0) {
-    r.innerHTML = '<div class="search-result-item search-result-empty">No companies found</div>';
-  } else {
-    r.innerHTML = f.map(c => '<div class="search-result-item" data-id="' + c.id + '" data-name="' + escHtml(c.company_name) + '"><div class="search-result-name">' + escHtml(c.company_name) + '</div><div class="search-result-sub">' + escHtml(c.company_no || '') + ' &bull; ' + escHtml(c.contact_person || 'No contact') + '</div></div>').join('');
+
+  r.innerHTML = visibleMatches.map((company) => {
+    const id = Number(company.id || 0);
+    const label = getRegistryCompanyLabel(company);
+    const address = String(company.address || '').trim();
+    const archivedTag = Number(company.archived || 0) ? ' [Archived]' : '';
+
+    return `
+      <button type="button" class="search-result-item" data-company-id="${id}">
+        <span class="search-result-name">${escHtml(label)}${archivedTag}</span>
+        ${address ? `<span class="search-result-sub">${escHtml(address)}</span>` : ''}
+      </button>
+    `;
+  }).join('');
+  r.style.display = 'grid';
+}
+
+function resolveProjectCompanySearch() {
+  const input = document.getElementById('p-company-search');
+  const hidden = document.getElementById('p-company-id');
+  const results = document.getElementById('p-company-results');
+  if (!input || !hidden) return null;
+
+  const match = findRegistryCompanyBySearchValue(input.value);
+  hidden.value = match ? String(match.id) : '';
+  if (results) {
+    results.style.display = 'none';
+    results.innerHTML = '';
   }
-  r.style.display = 'block';
+  return match;
 }
 
 function selectProjectCompany(id, name) {
@@ -7165,16 +10028,23 @@ function selectProjectCompany(id, name) {
 
 document.addEventListener('DOMContentLoaded', () => {
   loadProjectCompanies();
-  const i = document.getElementById('p-company-search');
   const r = document.getElementById('p-company-results');
-  if (i && r) {
-    r.addEventListener('click', e => {
-      const it = e.target.closest('.search-result-item');
-      if (it && !it.classList.contains('search-result-empty')) selectProjectCompany(it.dataset.id, it.dataset.name);
-    });
-    document.addEventListener('click', e => {
-      if (!e.target.closest('.project-company-search')) r.style.display = 'none';
+  if (r) {
+    r.style.display = 'none';
+    r.innerHTML = '';
+    r.addEventListener('click', (event) => {
+      const item = event.target.closest('[data-company-id]');
+      if (!item) return;
+      const company = findRegistryCompanyById(item.dataset.companyId);
+      if (!company) return;
+      selectProjectCompany(company.id, getRegistryCompanyLabel(company));
     });
   }
-});
 
+  document.addEventListener('click', (event) => {
+    const wrap = document.querySelector('.project-company-search');
+    const results = document.getElementById('p-company-results');
+    if (!wrap || !results || wrap.contains(event.target)) return;
+    results.style.display = 'none';
+  });
+});
