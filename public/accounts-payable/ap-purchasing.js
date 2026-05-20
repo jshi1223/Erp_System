@@ -19,6 +19,7 @@ let editingGoodsReceiptId = null;
 let editingQuotationId = null;
 let editingVendorId = null;
 let currentRequisitionProjectId = null;
+let viewingProjectLinkedRequisition = false;
 let currentPurchaseOrderProjectId = null;
 let currentPurchaseOrderQuotationId = null;
 let pendingPurchaseOrderRequisitionId = null;
@@ -339,6 +340,23 @@ function loadGoodsReceiptNumberPreview() {
 
 function loadQuotationNumberPreview() {
   return loadProcurementNumberPreview('quote-number', '/api/procurement/quotations/next-number', 'quote_number');
+}
+
+function setRequisitionReadOnlyMode(readOnly) {
+  viewingProjectLinkedRequisition = Boolean(readOnly);
+  const modal = $('pr-modal-backdrop');
+  if (!modal) return;
+  modal.querySelectorAll('input, select, textarea').forEach((node) => {
+    node.disabled = viewingProjectLinkedRequisition;
+  });
+  modal.querySelectorAll('#pr-line-items button, .po-line-toolbar button').forEach((node) => {
+    node.disabled = viewingProjectLinkedRequisition;
+  });
+  const saveBtn = $('pr-save-btn');
+  if (saveBtn) {
+    saveBtn.hidden = viewingProjectLinkedRequisition;
+    saveBtn.disabled = viewingProjectLinkedRequisition;
+  }
 }
 
 function bindVendorTinMask() {
@@ -2418,6 +2436,7 @@ function renderRequisitions() {
       ? `<button class="btn btn-cancel btn-sm" type="button" onclick="cancelRequisition(${Number(row.id)})">Cancel</button>`
       : '';
     const pdfFilename = row.pdfFilename || `purchase-requisition-${Number(row.id)}.pdf`;
+    const editLabel = Number(row.project_id || 0) > 0 ? 'View' : 'Edit';
     const pdfButton = `<div class="erp-actions" style="justify-content:center;">
         <button class="btn btn-pdf btn-sm" type="button" onclick="openRequisitionPdfViewer(${Number(row.id)})">View PDF</button>
         <a class="btn btn-save btn-sm" href="/api/procurement/requisitions/${Number(row.id)}/pdf?download=1" download="${escHtml(pdfFilename)}">Download</a>
@@ -2446,7 +2465,7 @@ function renderRequisitions() {
             ${submitButton}
             ${approveButton}
             ${createRfqButton}
-            <button class="btn btn-edit btn-sm" type="button" onclick="openRequisitionModal(${Number(row.id)})">Edit</button>
+            <button class="btn btn-edit btn-sm" type="button" onclick="openRequisitionModal(${Number(row.id)})">${editLabel}</button>
             ${cancelButton}
             ${deleteButton}
           </div>
@@ -3310,6 +3329,7 @@ function forceCloseBackdrop(id) {
 }
 
 function resetRequisitionForm() {
+  setRequisitionReadOnlyMode(false);
   ['pr-number', 'pr-requested-by', 'pr-notes'].forEach((id) => {
     const el = $(id);
     if (el) el.value = '';
@@ -3336,7 +3356,7 @@ function resetRequisitionForm() {
 function syncRequisitionModalMode() {
   const title = $('pr-modal-title');
   const saveBtn = $('pr-save-btn');
-  if (title) title.textContent = editingRequisitionId ? 'Edit Requisition' : 'Add Requisition';
+  if (title) title.textContent = viewingProjectLinkedRequisition ? 'View Requisition' : (editingRequisitionId ? 'Edit Requisition' : 'Add Requisition');
   if (saveBtn) saveBtn.textContent = editingRequisitionId ? 'Save Changes' : 'Create Requisition';
 }
 
@@ -3364,6 +3384,7 @@ function openRequisitionModal(id = null, options = {}) {
     syncProcurementStatusSelect('pr-status', ['draft'], { lockStaff: true });
     setRequisitionLineItems(getRequisitionLineItems(row));
     $('pr-notes').value = row.notes || '';
+    setRequisitionReadOnlyMode(Number(row.project_id || 0) > 0);
   } else {
     const companyId = Number(options.companyId || pendingRequisitionCompanyId || 0) || 0;
     const projectId = Number(options.projectId || pendingRequisitionProjectId || 0) || 0;
@@ -3386,6 +3407,10 @@ function closeRequisitionModal() {
 }
 
 async function saveRequisition() {
+  if (viewingProjectLinkedRequisition) {
+    showToast('Project-linked requisitions are view-only from this modal.', 'error');
+    return;
+  }
   clearProcurementFieldMessages();
   clearRequisitionLineItemMessages();
   const { items, incompleteRows } = collectRequisitionLineItems();

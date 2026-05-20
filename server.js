@@ -3471,6 +3471,7 @@ async function generateNextEntityDocumentNo({
     'service_orders',
     'purchase_requisitions',
     'purchase_orders',
+    'procurement_quotations',
     'goods_receipts',
     'accounts_payable'
   ]);
@@ -3480,6 +3481,7 @@ async function generateNextEntityDocumentNo({
     'so_number',
     'pr_number',
     'po_number',
+    'quote_number',
     'grn_number',
     'bill_number'
   ]);
@@ -3494,7 +3496,17 @@ async function generateNextEntityDocumentNo({
   const codePrefix = `${docPrefix}-${entity.code}-${period}`;
   const sequenceKey = `${String(documentType || docPrefix).toLowerCase()}:${resolvedEntityId || 'default'}`;
 
-  const existingRows = tableName === 'goods_receipts'
+  const existingRows = tableName === 'procurement_quotations'
+    ? await queryDbAsync(
+        dbClient,
+        `SELECT COALESCE(MAX(CAST(split_part(q.${columnName}, '-', array_length(string_to_array(q.${columnName}, '-'), 1)) AS integer)), 0) AS max_no
+         FROM procurement_quotations q
+         JOIN purchase_requisitions pr ON pr.id = q.requisition_id
+         WHERE pr.business_entity_id ${resolvedEntityId ? '= ?' : 'IS NULL'}
+           AND q.${columnName} LIKE ?`,
+        resolvedEntityId ? [resolvedEntityId, `${codePrefix}-%`] : [`${codePrefix}-%`]
+      )
+    : tableName === 'goods_receipts'
     ? await queryDbAsync(
         dbClient,
         `SELECT COALESCE(MAX(CAST(split_part(gr.${columnName}, '-', array_length(string_to_array(gr.${columnName}, '-'), 1)) AS integer)), 0) AS max_no
@@ -3547,6 +3559,7 @@ async function peekNextEntityDocumentNo({
     'service_orders',
     'purchase_requisitions',
     'purchase_orders',
+    'procurement_quotations',
     'goods_receipts',
     'accounts_payable'
   ]);
@@ -3556,6 +3569,7 @@ async function peekNextEntityDocumentNo({
     'so_number',
     'pr_number',
     'po_number',
+    'quote_number',
     'grn_number',
     'bill_number'
   ]);
@@ -3570,7 +3584,17 @@ async function peekNextEntityDocumentNo({
   const codePrefix = `${docPrefix}-${entity.code}-${period}`;
   const sequenceKey = `${String(documentType || docPrefix).toLowerCase()}:${resolvedEntityId || 'default'}`;
 
-  const existingRows = tableName === 'goods_receipts'
+  const existingRows = tableName === 'procurement_quotations'
+    ? await queryDbAsync(
+        dbClient,
+        `SELECT COALESCE(MAX(CAST(split_part(q.${columnName}, '-', array_length(string_to_array(q.${columnName}, '-'), 1)) AS integer)), 0) AS max_no
+         FROM procurement_quotations q
+         JOIN purchase_requisitions pr ON pr.id = q.requisition_id
+         WHERE pr.business_entity_id ${resolvedEntityId ? '= ?' : 'IS NULL'}
+           AND q.${columnName} LIKE ?`,
+        resolvedEntityId ? [resolvedEntityId, `${codePrefix}-%`] : [`${codePrefix}-%`]
+      )
+    : tableName === 'goods_receipts'
     ? await queryDbAsync(
         dbClient,
         `SELECT COALESCE(MAX(CAST(split_part(gr.${columnName}, '-', array_length(string_to_array(gr.${columnName}, '-'), 1)) AS integer)), 0) AS max_no
@@ -3632,6 +3656,7 @@ async function syncDocumentSequencesToExistingRecords() {
     { documentType: 'service-order', prefix: 'SO', tableName: 'service_orders', columnName: 'so_number' },
     { documentType: 'purchase-requisition', prefix: 'PR', tableName: 'purchase_requisitions', columnName: 'pr_number' },
     { documentType: 'purchase-order', prefix: 'PO', tableName: 'purchase_orders', columnName: 'po_number' },
+    { documentType: 'procurement-quotation', prefix: 'RFQ', tableName: 'procurement_quotations', columnName: 'quote_number' },
     { documentType: 'goods-receipt', prefix: 'GRN', tableName: 'goods_receipts', columnName: 'grn_number' },
     { documentType: 'ap-bill', prefix: 'BILL', tableName: 'accounts_payable', columnName: 'bill_number' }
   ];
@@ -3645,7 +3670,16 @@ async function syncDocumentSequencesToExistingRecords() {
     for (const target of targets) {
       const docPrefix = String(target.prefix || '').toUpperCase();
       const codePrefix = `${docPrefix}-${entity.code}-`;
-      const rows = target.tableName === 'goods_receipts'
+      const rows = target.tableName === 'procurement_quotations'
+        ? await queryAsync(
+            `SELECT q.${target.columnName} AS document_no
+             FROM procurement_quotations q
+             JOIN purchase_requisitions pr ON pr.id = q.requisition_id
+             WHERE pr.business_entity_id = ?
+               AND q.${target.columnName} LIKE ?`,
+            [businessEntityId, `${codePrefix}%`]
+          )
+        : target.tableName === 'goods_receipts'
         ? await queryAsync(
             `SELECT gr.${target.columnName} AS document_no
              FROM goods_receipts gr
@@ -4354,7 +4388,28 @@ function wrapPdfValue(value, maxLength = 34) {
   return lines;
 }
 
+function getPurchaseRequisitionPdfBrand(row = {}) {
+  const source = [
+    row.business_entity_code,
+    row.business_entity_name,
+    row.company_name
+  ].filter(Boolean).join(' ');
+  if (/KITSI|KINAADMAN/i.test(source)) {
+    return {
+      name: 'KITSI',
+      subtitle: 'Kinaadman Integrator | ERP Workspace',
+      accent: '0.02 0.45 0.62'
+    };
+  }
+  return {
+    name: 'KVSK CCTV & IT Solutions',
+    subtitle: 'Tanauan City, Batangas, 4232 | info@kvsk.com.ph',
+    accent: '0.70 0.12 0.08'
+  };
+}
+
 function buildProfessionalPurchaseRequisitionPdf(row, itemRows = [], total = 0) {
+  const brand = getPurchaseRequisitionPdfBrand(row);
   const objects = [
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>'
@@ -4377,13 +4432,13 @@ function buildProfessionalPurchaseRequisitionPdf(row, itemRows = [], total = 0) 
     content.push(`${color} RG 0.6 w ${x1} ${y1} m ${x2} ${y2} l S`);
   }
 
-  text(50, 755, 'KVSK CCTV & IT Solutions', { bold: true, size: 14, color: '0.70 0.12 0.08' });
-  text(50, 739, 'Tanauan City, Batangas, 4232 | info@kvsk.com.ph', { size: 8, color: '0.25 0.25 0.25' });
-  line(50, 728, 562, 728, '0.70 0.12 0.08');
+  text(50, 755, brand.name, { bold: true, size: 14, color: brand.accent });
+  text(50, 739, brand.subtitle, { size: 8, color: '0.25 0.25 0.25' });
+  line(50, 728, 562, 728, brand.accent);
 
   rect(50, 670, 512, 36, { fill: '0.96 0.97 0.98', stroke: '0.80 0.83 0.86' });
   text(64, 690, 'PURCHASE REQUISITION', { bold: true, size: 16, color: '0.08 0.08 0.08' });
-  text(420, 691, row.pr_number || `PR-${row.id || ''}`, { bold: true, size: 12, color: '0.70 0.12 0.08' });
+  text(420, 691, row.pr_number || `PR-${row.id || ''}`, { bold: true, size: 12, color: brand.accent });
   text(420, 677, `Status: ${String(row.status || 'draft').toUpperCase()}`, { size: 8, color: '0.28 0.30 0.34' });
 
   rect(50, 543, 248, 108, { stroke: '0.82 0.84 0.87' });
@@ -4411,7 +4466,7 @@ function buildProfessionalPurchaseRequisitionPdf(row, itemRows = [], total = 0) 
   text(400, 561, truncatePdfValue(row.submitted_by || '-', 30), { size: 9 });
 
   text(50, 517, 'REQUESTED ITEMS', { bold: true, size: 10 });
-  rect(50, 492, 512, 20, { fill: '0.70 0.12 0.08' });
+  rect(50, 492, 512, 20, { fill: brand.accent });
   text(58, 499, '#', { bold: true, size: 8, color: '1 1 1' });
   text(78, 499, 'Item', { bold: true, size: 8, color: '1 1 1' });
   text(210, 499, 'Description', { bold: true, size: 8, color: '1 1 1' });
@@ -4445,7 +4500,7 @@ function buildProfessionalPurchaseRequisitionPdf(row, itemRows = [], total = 0) 
 
   rect(360, 150, 202, 46, { fill: '0.96 0.97 0.98', stroke: '0.80 0.83 0.86' });
   text(374, 178, 'Grand Total', { bold: true, size: 10 });
-  text(450, 178, formatPdfMoney(total), { bold: true, size: 12, color: '0.70 0.12 0.08' });
+  text(450, 178, formatPdfMoney(total), { bold: true, size: 12, color: brand.accent });
   text(374, 162, `Generated: ${formatPdfDate(new Date())}`, { size: 8, color: '0.36 0.38 0.42' });
 
   text(50, 178, 'Notes', { bold: true, size: 9 });
@@ -7292,9 +7347,17 @@ app.get('/api/procurement/goods-receipts/next-number', protectAdmin, async (req,
   }
 });
 
-app.get('/api/procurement/quotations/next-number', protectAdmin, (req, res) => {
+app.get('/api/procurement/quotations/next-number', protectAdmin, async (req, res) => {
   try {
-    res.json({ quote_number: generateCode('RFQ') });
+    const businessEntityId = await resolveBusinessEntityId(req.query.business_entity_id);
+    const quote_number = await peekNextEntityDocumentNo({
+      businessEntityId,
+      documentType: 'procurement-quotation',
+      prefix: 'RFQ',
+      tableName: 'procurement_quotations',
+      columnName: 'quote_number'
+    });
+    res.json({ quote_number });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Unable to generate quotation number.' });
   }
@@ -10319,7 +10382,7 @@ app.post('/api/procurement/goods-receipts', protectAdmin, async (req, res) => {
 
 app.put('/api/procurement/requisitions/:id', protectAdmin, async (req, res) => {
   const requisitionId = Number(req.params.id || 0);
-  const prNumber = String(req.body.pr_number || '').trim() || generateCode('PR');
+  let prNumber = String(req.body.pr_number || '').trim();
   let companyId = Number(req.body.company_id || 0) || 0;
   const projectId = Number(req.body.project_id || 0) || null;
   const requestDate = req.body.request_date || new Date().toISOString().slice(0, 10);
@@ -10350,6 +10413,15 @@ app.put('/api/procurement/requisitions/:id', protectAdmin, async (req, res) => {
     const projectRecord = await resolvePurchaseOrderProjectContext(projectId, companyId);
     companyId = Number(projectRecord?.company_id || 0) || 0;
     const businessEntityId = await resolveBusinessEntityId(projectRecord?.business_entity_id || req.body.business_entity_id);
+    if (!prNumber) {
+      prNumber = await generateNextEntityDocumentNo({
+        businessEntityId,
+        documentType: 'purchase-requisition',
+        prefix: 'PR',
+        tableName: 'purchase_requisitions',
+        columnName: 'pr_number'
+      });
+    }
     const { companyRecord } = await resolvePurchaseRequisitionContext(companyId);
     await resolvePurchaseOrderProjectContext(projectRecord.id, companyRecord.id);
 
@@ -10376,6 +10448,12 @@ app.put('/api/procurement/requisitions/:id', protectAdmin, async (req, res) => {
     );
 
     await queryAsync('DELETE FROM purchase_requisition_items WHERE pr_id = ?', [requisitionId]);
+    await claimEntityDocumentNo({
+      businessEntityId,
+      documentType: 'purchase-requisition',
+      prefix: 'PR',
+      documentNo: prNumber
+    });
 
     for (const item of lineItems) {
       const lineTotal = Number(item.quantity || 0) * Number(item.estimated_unit_price || 0);
@@ -10457,7 +10535,7 @@ app.post('/api/procurement/quotations', protectAdmin, async (req, res) => {
   }
 
   try {
-    const requisitionRows = await queryAsync('SELECT id, status FROM purchase_requisitions WHERE id = ? LIMIT 1', [requisitionId]);
+    const requisitionRows = await queryAsync('SELECT id, status, business_entity_id FROM purchase_requisitions WHERE id = ? LIMIT 1', [requisitionId]);
     if (!requisitionRows.length) return res.status(404).json({ error: 'Selected requisition was not found.' });
     if (!['approved', 'ordered'].includes(normalizeProcurementWorkflowStatus(requisitionRows[0].status))) {
       return res.status(400).json({ error: 'Only approved requisitions can receive vendor quotations.' });
@@ -10469,7 +10547,16 @@ app.post('/api/procurement/quotations', protectAdmin, async (req, res) => {
     const vendorRows = await queryAsync('SELECT id, COALESCE(is_active, TRUE) AS is_active FROM vendors WHERE id = ? LIMIT 1', [vendorId]);
     if (!vendorRows.length) return res.status(404).json({ error: 'Selected vendor was not found.' });
     if (Number(vendorRows[0].is_active || 0) !== 1) return res.status(400).json({ error: 'Vendor is inactive.' });
-    if (!quoteNumber) quoteNumber = generateCode('RFQ');
+    const businessEntityId = await resolveBusinessEntityId(requisitionRows[0].business_entity_id || req.body.business_entity_id);
+    if (!quoteNumber) {
+      quoteNumber = await generateNextEntityDocumentNo({
+        businessEntityId,
+        documentType: 'procurement-quotation',
+        prefix: 'RFQ',
+        tableName: 'procurement_quotations',
+        columnName: 'quote_number'
+      });
+    }
 
     const result = await queryAsync(
       'INSERT INTO procurement_quotations (quote_number, requisition_id, vendor_id, quote_date, quoted_total, delivery_days, payment_terms, warranty_terms, score, status, remarks, selected_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -10478,6 +10565,12 @@ app.post('/api/procurement/quotations', protectAdmin, async (req, res) => {
     if (status === 'selected') {
       await queryAsync("UPDATE procurement_quotations SET status = 'rejected', selected_at = NULL WHERE requisition_id = ? AND id <> ?", [requisitionId, result.insertId]);
     }
+    await claimEntityDocumentNo({
+      businessEntityId,
+      documentType: 'procurement-quotation',
+      prefix: 'RFQ',
+      documentNo: quoteNumber
+    });
     logAction(req, 'CREATE_QUOTATION', `Created quotation ${quoteNumber}`);
     res.json({ id: result.insertId, quote_number: quoteNumber });
   } catch (err) {
@@ -10718,7 +10811,7 @@ app.delete('/api/procurement/requisitions/:id', protectAdminOnly, async (req, re
 
 app.put('/api/procurement/purchase-orders/:id', protectAdmin, async (req, res) => {
   const poId = Number(req.params.id || 0);
-  const poNumber = String(req.body.po_number || '').trim() || generateCode('PO');
+  let poNumber = String(req.body.po_number || '').trim();
   const vendorId = Number(req.body.vendor_id || 0);
   const requisitionId = Number(req.body.requisition_id || 0) || null;
   const quotationId = Number(req.body.quotation_id || 0) || null;
@@ -10777,6 +10870,15 @@ app.put('/api/procurement/purchase-orders/:id', protectAdmin, async (req, res) =
     const projectRecord = await resolvePurchaseOrderProjectContext(projectId || requisitionRow?.project_id || null, companyRecord?.id || explicitCompanyId || 0);
     const quotationRow = await resolvePurchaseOrderQuotationContext(quotationId, requisitionRow?.id || requisitionId || 0, vendorId);
     const resolvedCompanyId = Number(companyRecord?.id || projectRecord?.company_id || 0) || null;
+    if (!poNumber) {
+      poNumber = await generateNextEntityDocumentNo({
+        businessEntityId,
+        documentType: 'purchase-order',
+        prefix: 'PO',
+        tableName: 'purchase_orders',
+        columnName: 'po_number'
+      });
+    }
     await queryAsync(
       'UPDATE purchase_orders SET po_number = ?, requisition_id = ?, quotation_id = ?, business_entity_id = ?, vendor_id = ?, company_id = ?, project_id = ?, po_date = ?, delivery_date = ?, payment_terms = ?, prepared_by = ?, approved_by = ?, total_amount = ?, status = ?, notes = ? WHERE id = ?',
       [poNumber, requisitionRow?.id || null, quotationRow?.id || null, businessEntityId, vendorId, resolvedCompanyId, projectRecord?.id || null, poDate, deliveryDate, paymentTerms, preparedBy, approvedBy, totalAmount, status, notes, poId]
@@ -10793,6 +10895,12 @@ app.put('/api/procurement/purchase-orders/:id', protectAdmin, async (req, res) =
     if (requisitionRow?.id) {
       await markRequisitionOrdered(requisitionRow.id);
     }
+    await claimEntityDocumentNo({
+      businessEntityId,
+      documentType: 'purchase-order',
+      prefix: 'PO',
+      documentNo: poNumber
+    });
 
     logAction(req, 'UPDATE_PURCHASE_ORDER', `Updated purchase order ${poNumber}`);
     res.json({ success: true, po_number: poNumber });
@@ -11043,7 +11151,7 @@ app.put('/api/service-orders/:id/restore', protectAdminOnly, (req, res) => {
 
 app.put('/api/procurement/goods-receipts/:id', protectAdmin, async (req, res) => {
   const receiptId = Number(req.params.id || 0);
-  const grnNumber = String(req.body.grn_number || '').trim() || generateCode('GRN');
+  let grnNumber = String(req.body.grn_number || '').trim();
   const poId = Number(req.body.po_id || 0);
   const receivedDate = req.body.received_date || new Date().toISOString().slice(0, 10);
   const receivedBy = String(req.body.received_by || '').trim() || null;
@@ -11063,9 +11171,19 @@ app.put('/api/procurement/goods-receipts/:id', protectAdmin, async (req, res) =>
       return res.status(404).json({ error: 'Goods receipt not found.' });
     }
     status = normalizeProcurementWorkflowStatus(receiptRows[0].status) || 'received';
-    const poRows = await queryAsync('SELECT id FROM purchase_orders WHERE id = ? LIMIT 1', [poId]);
+    const poRows = await queryAsync('SELECT id, business_entity_id FROM purchase_orders WHERE id = ? LIMIT 1', [poId]);
     if (!Array.isArray(poRows) || !poRows.length) {
       return res.status(404).json({ error: 'Purchase order not found.' });
+    }
+    const businessEntityId = await resolveBusinessEntityId(poRows[0].business_entity_id || req.body.business_entity_id);
+    if (!grnNumber) {
+      grnNumber = await generateNextEntityDocumentNo({
+        businessEntityId,
+        documentType: 'goods-receipt',
+        prefix: 'GRN',
+        tableName: 'goods_receipts',
+        columnName: 'grn_number'
+      });
     }
 
     await queryAsync(
@@ -11075,6 +11193,12 @@ app.put('/api/procurement/goods-receipts/:id', protectAdmin, async (req, res) =>
     if (status === 'received') {
       await markPurchaseOrderReceived(poId);
     }
+    await claimEntityDocumentNo({
+      businessEntityId,
+      documentType: 'goods-receipt',
+      prefix: 'GRN',
+      documentNo: grnNumber
+    });
 
     logAction(req, 'UPDATE_GOODS_RECEIPT', `Updated goods receipt ${grnNumber}`);
     res.json({ success: true, grn_number: grnNumber });
