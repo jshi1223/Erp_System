@@ -1687,8 +1687,14 @@ function syncRequisitionProjectContext(projectId = currentRequisitionProjectId) 
       companySearch.disabled = true;
     }
   } else {
-    if (companySelect) companySelect.disabled = false;
-    if (companySearch) companySearch.disabled = false;
+    if (companySelect) {
+      companySelect.value = '';
+      companySelect.disabled = true;
+    }
+    if (companySearch) {
+      companySearch.value = '';
+      companySearch.disabled = true;
+    }
   }
 }
 
@@ -3337,6 +3343,8 @@ function resetRequisitionForm() {
   currentRequisitionProjectId = null;
   if ($('pr-company')) $('pr-company').value = '';
   if ($('pr-company-search')) $('pr-company-search').value = '';
+  if ($('pr-company')) $('pr-company').disabled = true;
+  if ($('pr-company-search')) $('pr-company-search').disabled = true;
   const dateDefaults = {
     'pr-request-date': new Date().toISOString().slice(0, 10),
     'pr-needed-by': new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
@@ -3388,9 +3396,9 @@ function openRequisitionModal(id = null, options = {}) {
   } else {
     const companyId = Number(options.companyId || pendingRequisitionCompanyId || 0) || 0;
     const projectId = Number(options.projectId || pendingRequisitionProjectId || 0) || 0;
-    if (companyId && $('pr-company')) $('pr-company').value = String(companyId);
     renderRequisitionProjectOptions(projectId || '');
     syncRequisitionProjectContext(projectId || null);
+    if (!projectId && companyId && $('pr-company')) $('pr-company').value = String(companyId);
     void loadRequisitionNumberPreview();
     syncProcurementStatusSelect('pr-status', ['draft'], { lockStaff: true });
   }

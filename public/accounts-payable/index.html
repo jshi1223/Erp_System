@@ -744,17 +744,17 @@
         <div class="modal-inline-message is-hidden" data-procurement-field-message="pr_number" aria-live="polite"></div>
       </div>
       <div class="field full">
-        <label>Company <span class="req-star">*</span></label>
-        <input id="pr-company-search" type="text" placeholder="Search company..." autocomplete="off" oninput="renderCompanyOptions('pr-company')" />
-        <select id="pr-company"></select>
-        <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">Auto-filled from the selected project.</div>
-        <div class="modal-inline-message is-hidden" data-procurement-field-message="company_id" aria-live="polite"></div>
-      </div>
-      <div class="field full">
         <label>Project <span class="req-star">*</span></label>
         <select id="pr-project" onchange="syncRequisitionProjectContext(this.value)"></select>
         <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">A requisition must be tied to a project for traceability.</div>
         <div class="modal-inline-message is-hidden" data-procurement-field-message="project_id" aria-live="polite"></div>
+      </div>
+      <div class="field full">
+        <label>Company <span class="req-star">*</span></label>
+        <input id="pr-company-search" type="text" placeholder="Auto-filled from selected project" autocomplete="off" oninput="renderCompanyOptions('pr-company')" />
+        <select id="pr-company"></select>
+        <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">Select a project first. The company is filled automatically from the linked project.</div>
+        <div class="modal-inline-message is-hidden" data-procurement-field-message="company_id" aria-live="polite"></div>
       </div>
       <div class="field full" id="pr-project-context-field" hidden>
         <label>Linked Project</label>
