@@ -97,6 +97,8 @@ const SMTP_SECURE = String(process.env.SMTP_SECURE || 'false').toLowerCase() ===
 const SMTP_USER = process.env.SMTP_USER || '';
 const SMTP_PASS = process.env.SMTP_PASS || '';
 const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER || 'no-reply@kinaadman.local';
+const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+const RESEND_FROM = process.env.RESEND_FROM || SMTP_FROM;
 const allowPublicRegistration = String(process.env.ALLOW_PUBLIC_REGISTRATION || 'true').toLowerCase() !== 'false';
 
 const hasEmailConfig = Boolean(SMTP_HOST && SMTP_USER && SMTP_PASS);
@@ -131,6 +133,47 @@ async function createSmtpTransporter() {
     },
     tls: host !== SMTP_HOST ? { servername: SMTP_HOST } : undefined
   });
+}
+
+function normalizeEmailRecipients(value) {
+  if (Array.isArray(value)) {
+    return value
+      .flatMap((entry) => normalizeEmailRecipients(entry))
+      .filter(Boolean);
+  }
+  return String(value || '')
+    .split(/[,;]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+async function sendResendEmail(mailOptions) {
+  if (!RESEND_API_KEY) return { sent: false, reason: 'resend-not-configured' };
+
+  const recipients = normalizeEmailRecipients(mailOptions?.to);
+  if (!recipients.length) return { sent: false, reason: 'no-recipient' };
+
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${RESEND_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      from: RESEND_FROM,
+      to: recipients,
+      subject: mailOptions?.subject || 'ERP Notification',
+      html: mailOptions?.html || String(mailOptions?.text || ''),
+      text: mailOptions?.text
+    })
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = payload?.message || payload?.error?.message || `Resend API failed with ${response.status}`;
+    throw new Error(message);
+  }
+  return { sent: true, provider: 'resend', id: payload?.id || '' };
 }
 
 function parseEmailList(value) {
@@ -190,6 +233,17 @@ async function getApprovalNotificationRecipients() {
 }
 
 async function sendSystemEmail(mailOptions) {
+  if (RESEND_API_KEY) {
+    try {
+      const info = await sendResendEmail(mailOptions);
+      console.log(`Email sent via Resend: ${mailOptions?.subject || 'No subject'} -> ${mailOptions?.to || 'No recipient'} (${info.id || 'no-message-id'})`);
+      return { sent: true };
+    } catch (err) {
+      console.error('Resend email error:', err);
+      return { sent: false, reason: err.message || 'resend-send-failed' };
+    }
+  }
+
   if (!hasEmailConfig) {
     console.warn(`SMTP is not configured. Email not sent: ${mailOptions?.subject || 'No subject'}`);
     return { sent: false, reason: 'smtp-not-configured' };
