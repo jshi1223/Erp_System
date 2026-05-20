@@ -7169,6 +7169,8 @@ async function updateStats() {
   const statOngoing = document.getElementById('stat-ongoing');
   const statProcurement = document.getElementById('stat-procurement');
   const statProcurementMini = document.getElementById('stat-procurement-mini');
+  const statInventory = document.getElementById('stat-inventory');
+  const statInventoryMini = document.getElementById('stat-inventory-mini');
   const statAp = document.getElementById('stat-ap');
   const statApMini = document.getElementById('stat-ap-mini');
   const statAr = document.getElementById('stat-ar');
@@ -7315,6 +7317,27 @@ async function updateStats() {
     console.error('Error fetching procurement stats:', err);
     if (statProcurement) statProcurement.textContent = '0';
     if (statProcurementMini) statProcurementMini.textContent = `${getCurrentDashboardCompanyLabel()} • Vendors, PR, PO, GRN`;
+  }
+
+  try {
+    const inventoryParams = new URLSearchParams({
+      business_entity_id: getCurrentBusinessEntityId() || getDefaultBusinessEntityId() || ''
+    });
+    const inventoryRes = await fetch(`/api/inventory/summary?${inventoryParams.toString()}`);
+    const inventory = await inventoryRes.json().catch(() => ({}));
+    if (statsSeq !== dashboardStatsSeq) return;
+    if (!inventoryRes.ok) throw new Error(inventory.error || 'Unable to load inventory stats.');
+    const products = Number(inventory.products || 0);
+    const warehouses = Number(inventory.warehouses || 0);
+    const lowStock = Number(inventory.low_stock || 0);
+    if (statInventory) statInventory.textContent = String(products);
+    if (statInventoryMini) {
+      statInventoryMini.textContent = `${getCurrentDashboardCompanyLabel()} • ${warehouses} warehouse${warehouses === 1 ? '' : 's'} • ${lowStock} low stock`;
+    }
+  } catch (err) {
+    console.error('Error fetching inventory stats:', err);
+    if (statInventory) statInventory.textContent = '0';
+    if (statInventoryMini) statInventoryMini.textContent = `${getCurrentDashboardCompanyLabel()} • Products, warehouses, stock`;
   }
 
   try {
