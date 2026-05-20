@@ -1,0 +1,159 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #111;
+  color: #080808;
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.document-page {
+  width: min(100%, 1156px);
+  min-height: 746px;
+  margin: 0 auto;
+  padding: 24px 148px 22px;
+  background: #fff;
+}
+
+.document-section {
+  max-width: 860px;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  margin-bottom: 26px;
+  font-size: 34px;
+  line-height: 1.08;
+  font-weight: 700;
+}
+
+p {
+  max-width: 850px;
+  margin-bottom: 24px;
+  font-size: 23px;
+  line-height: 1.18;
+}
+
+hr {
+  width: 845px;
+  max-width: 100%;
+  margin: 45px 0 34px 14px;
+  border: 0;
+  border-top: 2px solid #c6c6c6;
+}
+
+h2 {
+  margin-bottom: 28px;
+  font-size: 34px;
+  line-height: 1.08;
+}
+
+h3 {
+  margin-bottom: 26px;
+  font-size: 27px;
+  line-height: 1.1;
+}
+
+.core-modules {
+  margin: 0;
+  padding-left: 70px;
+  font-size: 23px;
+  line-height: 1.05;
+}
+
+.core-modules li {
+  padding-left: 9px;
+  margin-bottom: 4px;
+}
+
+.core-modules strong {
+  font-weight: 700;
+}
+
+.implemented-system {
+  margin-top: 34px;
+}
+
+.implemented-system h3 {
+  margin: 26px 0 14px;
+}
+
+.implemented-system p {
+  margin-bottom: 0;
+}
+
+.module-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 26px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+.module-table th,
+.module-table td {
+  padding: 9px 10px;
+  border: 1px solid #bdbdbd;
+  text-align: left;
+  vertical-align: top;
+}
+
+.module-table th {
+  background: #f1f1f1;
+  font-weight: 700;
+}
+
+.module-table td:first-child,
+.module-table td:nth-child(2) {
+  font-weight: 700;
+}
+
+.relationship-list {
+  margin: 0;
+  padding-left: 36px;
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.relationship-list li {
+  margin-bottom: 7px;
+}
+
+@media (max-width: 760px) {
+  .document-page {
+    min-height: 100vh;
+    padding: 28px 26px;
+  }
+
+  h1,
+  h2 {
+    font-size: 30px;
+  }
+
+  h3 {
+    font-size: 24px;
+  }
+
+  p,
+  .core-modules {
+    font-size: 20px;
+  }
+
+  .core-modules {
+    padding-left: 34px;
+  }
+
+  .module-table,
+  .relationship-list {
+    font-size: 15px;
+  }
+}

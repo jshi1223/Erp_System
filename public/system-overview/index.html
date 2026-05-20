@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kinaadman ERP System Overview</title>
+  <link rel="stylesheet" href="/system-overview/system-overview.css?v=20260520a">
+</head>
+<body>
+  <main class="document-page" aria-label="ERP system overview document">
+    <section class="document-section">
+      <h1>Executive Summary</h1>
+      <p>
+        This document defines the core business processes supported by the Enterprise Resource
+        Planning (ERP) system for Kinaadman IT Solutions, Inc. The named organization provides
+        both hardware goods and professional services including installation and maintenance,
+        requiring a complex workflow management system.
+      </p>
+      <p>
+        The ERP system is designed to streamline operations across sales, procurement, inventory,
+        service delivery, and financial management, ensuring seamless coordination between
+        departments and accurate tracking of all transactions.
+      </p>
+    </section>
+
+    <hr>
+
+    <section class="document-section">
+      <h2>System Overview</h2>
+      <h3>Core Modules</h3>
+      <ul class="core-modules">
+        <li><strong>ERP Security Module</strong> (User Account Creation, Role-Based Access Control, Authentications, Audit &amp; Reviews)</li>
+        <li><strong>Sales Management</strong> (Goods &amp; Services)</li>
+        <li><strong>Service Operations</strong> (Installation, Maintenance, Support)</li>
+        <li><strong>Procurement Management</strong></li>
+        <li><strong>Inventory Management</strong></li>
+        <li><strong>Financial Management</strong> (AP, AR, GL)</li>
+        <li><strong>Customer Relationship Management</strong></li>
+      </ul>
+
+      <div class="implemented-system">
+        <h3>Implemented ERP System</h3>
+        <table class="module-table" aria-label="Implemented ERP modules">
+          <thead>
+            <tr>
+              <th>Core Module</th>
+              <th>System Status</th>
+              <th>Implemented Scope</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>ERP Security Module</td>
+              <td>Implemented</td>
+              <td>User registration, email verification, account approval, login sessions, role-based access, audit logs, and admin/user management.</td>
+            </tr>
+            <tr>
+              <td>Sales Management</td>
+              <td>Partially Implemented</td>
+              <td>Customer transactions, project sales records, service billing, invoices, and receivable tracking through Projects, Service Orders, and AR.</td>
+            </tr>
+            <tr>
+              <td>Service Operations</td>
+              <td>Implemented</td>
+              <td>Service orders for installation, maintenance, support, project linkage, status monitoring, and service billing source records.</td>
+            </tr>
+            <tr>
+              <td>Procurement Management</td>
+              <td>Implemented</td>
+              <td>Vendor directory, purchase requisitions, RFQ, quotations, purchase orders, goods receipts, approval workflow, and supporting PDFs.</td>
+            </tr>
+            <tr>
+              <td>Inventory Management</td>
+              <td>Not Dedicated in Current Build</td>
+              <td>Inventory was part of the original module plan, but the current active system focuses on procurement receiving and financial/project records.</td>
+            </tr>
+            <tr>
+              <td>Financial Management</td>
+              <td>Implemented</td>
+              <td>Accounts Payable, Accounts Receivable, payments, billing, collections, project ledger summaries, dashboards, and financial reports.</td>
+            </tr>
+            <tr>
+              <td>Customer Relationship Management</td>
+              <td>Partially Implemented</td>
+              <td>Company registry, customer/project profiles, service history, billing records, receivable balances, and project communication trail.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>Module Relationships</h3>
+        <ul class="relationship-list">
+          <li><strong>Security to All Modules:</strong> user role and approval status control access to admin, finance, procurement, reports, and user pages.</li>
+          <li><strong>Company Registry to Projects:</strong> customer/company records become the master reference for project, service, sales, and billing documents.</li>
+          <li><strong>Projects to Service Operations:</strong> approved projects can create service orders for installation, maintenance, and support work.</li>
+          <li><strong>Projects to AR:</strong> project transactions and service orders create customer billing, receivables, collections, and balances.</li>
+          <li><strong>Projects to Procurement/AP:</strong> project requirements create PR, RFQ, quotation, PO, receiving, supplier bills, and supplier payments.</li>
+          <li><strong>Procurement to Financial Management:</strong> received goods/services and supplier documents flow into Accounts Payable.</li>
+          <li><strong>Sales/Service to Financial Management:</strong> customer invoices and collections flow into Accounts Receivable.</li>
+          <li><strong>Reports to All Modules:</strong> reports summarize project, procurement, AP, AR, payment, and audit information for management review.</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -122,10 +122,24 @@ function dedupeEmailList(emails = []) {
   return [...new Set((Array.isArray(emails) ? emails : []).filter(Boolean))];
 }
 
-function buildAppUrl(pathname = '/') {
+function getRequestBaseUrl(req) {
+  const host = String(req?.get?.('host') || req?.headers?.host || '').trim();
+  if (!host) return '';
+  const forwardedProto = String(req?.get?.('x-forwarded-proto') || '').split(',')[0].trim();
+  const protocol = forwardedProto || req?.protocol || 'http';
+  return `${protocol}://${host}`.replace(/\/+$/, '');
+}
+
+function buildAppUrl(pathname = '/', baseOverride = '') {
   const rawPath = String(pathname || '/').trim() || '/';
   if (/^https?:\/\//i.test(rawPath)) return rawPath;
-  const base = String(APP_BASE_URL || `http://localhost:${PORT}`).replace(/\/+$/, '');
+  const configuredBase = String(APP_BASE_URL || '').trim();
+  const safeOverride = String(baseOverride || '').trim();
+  const shouldPreferOverride = safeOverride && (
+    !configuredBase
+    || (isProduction && /\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:\/|$)/i.test(configuredBase))
+  );
+  const base = (shouldPreferOverride ? safeOverride : configuredBase || `http://localhost:${PORT}`).replace(/\/+$/, '');
   const pathPart = rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
   return `${base}${pathPart}`;
 }
@@ -229,14 +243,14 @@ async function notifyApprovalRequest(req, options = {}) {
   });
 }
 
-async function notifyUserAccountDecision(userRow = {}, decision = 'approved', role = 'user') {
+async function notifyUserAccountDecision(userRow = {}, decision = 'approved', role = 'user', options = {}) {
   const email = String(userRow.email || '').trim().toLowerCase();
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return { sent: false, reason: 'no-user-email' };
   }
 
   const approved = String(decision || '').toLowerCase() === 'approved';
-  const loginUrl = buildAppUrl('/');
+  const loginUrl = buildAppUrl('/', options.baseUrl || '');
   const name = String(userRow.fullname || userRow.username || 'User').trim();
 
   return sendSystemEmail({
@@ -6198,6 +6212,11 @@ app.get('/user-management', protectAdminOnly, (req, res) => {
 app.get('/business-entities', protectAdminOnly, (req, res) => {
   noCache(res);
   res.sendFile(path.join(__dirname, 'public', 'business-entities', 'index.html'));
+});
+
+app.get(['/system-overview', '/system-overview/'], (req, res) => {
+  noCache(res);
+  res.sendFile(path.join(__dirname, 'public', 'system-overview', 'index.html'));
 });
 
 app.get('/procurement', protectAdmin, (req, res) => {
@@ -12847,7 +12866,9 @@ app.patch('/api/admin/users/:id/approve', protectAdminOnly, async (req, res) => 
       [role, req.session.user.id, userId]
     );
     logAction(req, 'APPROVE_USER', `Approved account: ${rows[0].username} as ${role}`);
-    sendBackgroundNotification(() => notifyUserAccountDecision(rows[0], 'approved', role), 'user approval result email');
+    sendBackgroundNotification(() => notifyUserAccountDecision(rows[0], 'approved', role, {
+      baseUrl: getRequestBaseUrl(req)
+    }), 'user approval result email');
     res.json({ success: true });
   } catch (err) {
     console.error('Approve User Error:', err);
@@ -12878,7 +12899,9 @@ app.patch('/api/admin/users/:id/reject', protectAdminOnly, async (req, res) => {
       [req.session.user.id, userId]
     );
     logAction(req, 'REJECT_USER', `Rejected account request: ${rows[0].username} (${rows[0].role})`);
-    sendBackgroundNotification(() => notifyUserAccountDecision(rows[0], 'rejected', rows[0].role), 'user rejection result email');
+    sendBackgroundNotification(() => notifyUserAccountDecision(rows[0], 'rejected', rows[0].role, {
+      baseUrl: getRequestBaseUrl(req)
+    }), 'user rejection result email');
     res.json({ success: true });
   } catch (err) {
     console.error('Reject User Error:', err);
