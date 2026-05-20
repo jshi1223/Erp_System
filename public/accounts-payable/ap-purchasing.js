@@ -875,7 +875,7 @@ function renderSummary() {
     const today = new Date();
     return date.getFullYear() === today.getFullYear() && date.getMonth() === today.getMonth();
   };
-  const entityFilter = typeof businessEntityMatches === 'function' ? businessEntityMatches : () => true;
+  const entityFilter = typeof businessEntityMatches === 'function' ? businessEntityMatches : procurementBusinessEntityMatches;
   const requisitionRows = procurementState.requisitions.filter(entityFilter);
   const quotationRows = procurementState.quotations.filter(entityFilter);
   const purchaseOrderRows = procurementState.purchaseOrders.filter(entityFilter);
@@ -1595,6 +1595,21 @@ function getDefaultProcurementBusinessEntityId() {
   return defaultRow ? String(defaultRow.id || '') : '';
 }
 
+function getActiveProcurementBusinessEntityId() {
+  if (typeof getCurrentBusinessEntityId === 'function') {
+    const current = String(getCurrentBusinessEntityId() || '').trim();
+    if (current) return current;
+  }
+  return getDefaultProcurementBusinessEntityId();
+}
+
+function procurementBusinessEntityMatches(row = {}) {
+  const activeId = Number(getActiveProcurementBusinessEntityId() || 0) || 0;
+  if (!activeId) return true;
+  const rowEntityId = Number(row.business_entity_id || 0) || 0;
+  return !rowEntityId || rowEntityId === activeId;
+}
+
 function renderBusinessEntityOptions(selectId = 'po-business-entity', selectedValue = '') {
   const select = $(selectId);
   if (!select) return;
@@ -1623,6 +1638,11 @@ function getProcurementProjectById(projectId) {
     .find((project) => Number(project.id || 0) === id) || null;
 }
 
+function getVisibleProcurementProjects() {
+  return (Array.isArray(procurementState.projects) ? procurementState.projects : [])
+    .filter(procurementBusinessEntityMatches);
+}
+
 function getProcurementProjectCompanyId(projectId) {
   const project = getProcurementProjectById(projectId);
   return Number(project?.company_id || project?.registry_company_id || 0) || 0;
@@ -1642,7 +1662,7 @@ function renderRequisitionProjectOptions(selectedValue = currentRequisitionProje
   if (!select) return;
 
   const selected = String(selectedValue || '').trim();
-  const rows = (Array.isArray(procurementState.projects) ? procurementState.projects : [])
+  const rows = getVisibleProcurementProjects()
     .filter((project) => !isArchivedProjectRow(project));
   select.innerHTML = [
     '<option value="">Select project</option>',
@@ -1703,7 +1723,7 @@ function renderPurchaseOrderProjectOptions(selectedValue = currentPurchaseOrderP
   if (!select) return;
 
   const selected = String(selectedValue || '').trim();
-  const rows = Array.isArray(procurementState.projects) ? procurementState.projects : [];
+  const rows = getVisibleProcurementProjects();
   select.innerHTML = [
     '<option value="">No linked project</option>',
     ...rows.map((project) => {
@@ -2398,7 +2418,7 @@ function renderRequisitions() {
   const tbody = $('pr-body');
   if (!tbody) return;
 
-  const entityFilter = typeof businessEntityMatches === 'function' ? businessEntityMatches : () => true;
+  const entityFilter = typeof businessEntityMatches === 'function' ? businessEntityMatches : procurementBusinessEntityMatches;
   const rows = filteredRows(procurementState.requisitions.filter(entityFilter), $('procurement-search-input')?.value, [
     'pr_number',
     'project_docno',
@@ -2503,7 +2523,7 @@ function openRequisitionPdfViewer(id) {
 }
 
 function getApprovedRequisitionsForQuotes() {
-  const entityFilter = typeof businessEntityMatches === 'function' ? businessEntityMatches : () => true;
+  const entityFilter = typeof businessEntityMatches === 'function' ? businessEntityMatches : procurementBusinessEntityMatches;
   return procurementState.requisitions
     .filter(entityFilter)
     .filter((row) => ['approved', 'ordered'].includes(normalizeWorkflowStatus(row.status)));
@@ -2701,7 +2721,7 @@ function renderQuotations() {
   const tbody = $('quote-body');
   if (!tbody) return;
 
-  const entityFilter = typeof businessEntityMatches === 'function' ? businessEntityMatches : () => true;
+  const entityFilter = typeof businessEntityMatches === 'function' ? businessEntityMatches : procurementBusinessEntityMatches;
   const rows = filteredRows(procurementState.quotations.filter(entityFilter), $('procurement-search-input')?.value, [
     'quote_number',
     'pr_number',
@@ -3059,7 +3079,7 @@ function renderPurchaseOrders() {
   const tbody = $('po-body');
   if (!tbody) return;
 
-  const entityFilter = typeof businessEntityMatches === 'function' ? businessEntityMatches : () => true;
+  const entityFilter = typeof businessEntityMatches === 'function' ? businessEntityMatches : procurementBusinessEntityMatches;
   const rows = filteredRows(procurementState.purchaseOrders.filter(entityFilter), $('procurement-search-input')?.value, [
     'po_number',
     'requisition_number',
@@ -3142,7 +3162,7 @@ function renderGoodsReceipts() {
   const tbody = $('grn-body');
   if (!tbody) return;
 
-  const entityFilter = typeof businessEntityMatches === 'function' ? businessEntityMatches : () => true;
+  const entityFilter = typeof businessEntityMatches === 'function' ? businessEntityMatches : procurementBusinessEntityMatches;
   const rows = filteredRows(procurementState.goodsReceipts.filter(entityFilter), $('procurement-search-input')?.value, [
     'grn_number',
     'po_number',
