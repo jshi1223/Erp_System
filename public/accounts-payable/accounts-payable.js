@@ -16,26 +16,33 @@ const apToolbarState = {
   bills: { search: '' },
   payments: { search: '' }
 };
-const AP_PROCUREMENT_TABS = new Set(['vendors', 'requisitions', 'rfq', 'quotations', 'purchase-orders', 'goods-receipts']);
+const AP_MASTER_DATA_TABS = new Set(['vendors']);
+const AP_PROCUREMENT_TABS = new Set(['requisitions', 'rfq', 'quotations', 'purchase-orders', 'goods-receipts']);
 const AP_NATIVE_TABS = new Set(['bills', 'vendor-balances', 'ap-aging', 'payments', 'disbursements']);
 let activeApTab = 'vendors';
+
+function isMasterDataWorkspacePage() {
+  return (window.location.pathname || '').replace(/\/+$/, '') === '/master-data';
+}
 
 function isProcurementWorkspacePage() {
   return (window.location.pathname || '').replace(/\/+$/, '') === '/procurement';
 }
 
 function getWorkspaceAllowedTabs() {
+  if (isMasterDataWorkspacePage()) return AP_MASTER_DATA_TABS;
   return isProcurementWorkspacePage() ? AP_PROCUREMENT_TABS : AP_NATIVE_TABS;
 }
 
 function getWorkspaceDefaultTab() {
-  return isProcurementWorkspacePage() ? 'vendors' : 'bills';
+  if (isMasterDataWorkspacePage()) return 'vendors';
+  return isProcurementWorkspacePage() ? 'requisitions' : 'bills';
 }
 
 function normalizeApWorkspaceTab(value) {
   let tab = String(value || '').trim().toLowerCase();
   if (tab === 'bid-evaluation') tab = 'quotations';
-  const knownTab = (AP_PROCUREMENT_TABS.has(tab) || AP_NATIVE_TABS.has(tab)) ? tab : getWorkspaceDefaultTab();
+  const knownTab = (AP_MASTER_DATA_TABS.has(tab) || AP_PROCUREMENT_TABS.has(tab) || AP_NATIVE_TABS.has(tab)) ? tab : getWorkspaceDefaultTab();
   return getWorkspaceAllowedTabs().has(knownTab) ? knownTab : getWorkspaceDefaultTab();
 }
 
@@ -104,31 +111,36 @@ function syncApSummaryCards(tab = activeApTab) {
       .split(',')
       .map((value) => String(value || '').trim().toLowerCase())
       .filter(Boolean)
-      .filter((value) => AP_PROCUREMENT_TABS.has(value) || AP_NATIVE_TABS.has(value));
+      .filter((value) => AP_MASTER_DATA_TABS.has(value) || AP_PROCUREMENT_TABS.has(value) || AP_NATIVE_TABS.has(value));
     card.hidden = !tabs.includes(activeTab);
   });
 }
 
 function applyWorkspaceModeUi() {
+  const masterDataMode = isMasterDataWorkspacePage();
   const procurementMode = isProcurementWorkspacePage();
   const title = document.getElementById('module-page-title');
   const subtitle = document.getElementById('module-page-subtitle');
   const headerSub = document.getElementById('module-header-sub');
   const badge = document.getElementById('module-admin-badge');
   const allowedTabs = getWorkspaceAllowedTabs();
-  document.body.dataset.workspaceMode = procurementMode ? 'procurement' : 'ap';
+  document.body.dataset.workspaceMode = masterDataMode ? 'master-data' : (procurementMode ? 'procurement' : 'ap');
 
-  document.title = procurementMode
+  document.title = masterDataMode
+    ? 'KVSK CCTV & IT Solution - Master Data'
+    : procurementMode
     ? 'KVSK CCTV & IT Solution - Procurement'
     : 'KVSK CCTV & IT Solution - Accounts Payable';
-  if (title) title.textContent = procurementMode ? 'Procurement Management' : 'Accounts Payable Management';
+  if (title) title.textContent = masterDataMode ? 'Master Data Management' : (procurementMode ? 'Procurement Management' : 'Accounts Payable Management');
   if (subtitle) {
-    subtitle.textContent = procurementMode
-      ? 'Manage vendors, requisitions, RFQs, quotation evaluation, purchase orders, and receipts.'
+    subtitle.textContent = masterDataMode
+      ? 'Maintain company and vendor master records used across procurement, projects, and finance.'
+      : procurementMode
+      ? 'Manage requisitions, RFQs, quotation evaluation, purchase orders, and receipts.'
       : 'Manage bills, vendor balances, aging, payments, and disbursements.';
   }
-  if (headerSub) headerSub.textContent = procurementMode ? 'Procurement' : 'Accounts Payable';
-  if (badge) badge.textContent = procurementMode ? 'Procurement Module' : 'Payables Module';
+  if (headerSub) headerSub.textContent = masterDataMode ? 'Master Data' : (procurementMode ? 'Procurement' : 'Accounts Payable');
+  if (badge) badge.textContent = masterDataMode ? 'Master Data Module' : (procurementMode ? 'Procurement Module' : 'Payables Module');
 
   document.querySelectorAll('.ap-workspace-tab').forEach((tab) => {
     const tabName = normalizeWorkspaceTabName(tab.dataset.workspaceTab || tab.dataset.procTab || tab.dataset.tab || '');
@@ -138,7 +150,7 @@ function applyWorkspaceModeUi() {
 
 function normalizeWorkspaceTabName(value) {
   const tab = String(value || '').trim().toLowerCase();
-  if (AP_PROCUREMENT_TABS.has(tab) || AP_NATIVE_TABS.has(tab)) return tab;
+  if (AP_MASTER_DATA_TABS.has(tab) || AP_PROCUREMENT_TABS.has(tab) || AP_NATIVE_TABS.has(tab)) return tab;
   return '';
 }
 
@@ -510,7 +522,7 @@ function switchTab(tab, btn, options = {}) {
 
 function switchApWorkspaceTab(tab, btn, options = {}) {
   const nextTab = normalizeApWorkspaceTab(tab);
-  if (AP_PROCUREMENT_TABS.has(nextTab)) {
+  if (AP_MASTER_DATA_TABS.has(nextTab) || AP_PROCUREMENT_TABS.has(nextTab)) {
     const captureState = options.captureState !== false;
     const persistState = options.persistState !== false;
     if (captureState) {
@@ -542,7 +554,7 @@ function syncApTabUrl(tab) {
   if (!window.history?.replaceState) return;
   const nextTab = normalizeApWorkspaceTab(tab);
   const url = new URL(window.location.href);
-  url.pathname = isProcurementWorkspacePage() ? '/procurement' : '/accounts-payable';
+  url.pathname = isMasterDataWorkspacePage() ? '/master-data' : (isProcurementWorkspacePage() ? '/procurement' : '/accounts-payable');
   url.searchParams.set('tab', nextTab);
   window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
   if (typeof syncSidebarActiveLinks === 'function') {

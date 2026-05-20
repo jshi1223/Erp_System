@@ -7,7 +7,7 @@
   <script src="/assets/js/auth-guard.js?v=20260520a"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260516f">
-  <link rel="stylesheet" href="/inventory/inventory.css?v=20260520a">
+  <link rel="stylesheet" href="/inventory/inventory.css?v=20260520b">
 </head>
 <body class="erp-clean-page inventory-page">
   <header>
@@ -47,39 +47,49 @@
   </div>
 
   <main>
+    <div class="page-hero">
+      <div class="page-hero-copy">
+        <div class="page-title">Inventory Management</div>
+        <div class="page-sub">Track products, warehouses, stock levels, and stock movements by workspace.</div>
+      </div>
+    </div>
+
     <section class="module-page-toolbar">
-      <div>
-        <h1 class="page-title">Inventory Management</h1>
-        <p class="page-sub">Track products, warehouses, stock levels, and stock movements by workspace.</p>
-      </div>
-      <div class="inventory-actions">
-        <button class="btn btn-add btn-sm" type="button" onclick="openInventoryModal('product')">New Product</button>
-        <button class="btn btn-edit btn-sm" type="button" onclick="openInventoryModal('warehouse')">New Warehouse</button>
-        <button class="btn btn-save btn-sm" type="button" onclick="openInventoryModal('movement')">Stock Movement</button>
+      <button class="btn btn-cancel btn-sm section-back-btn" type="button" onclick="location.href='/admin?view=dashboard'">Back to Dashboard</button>
+      <div class="module-page-toolbar-actions inventory-actions">
+        <button class="btn btn-add btn-sm" type="button" data-inventory-action="products" onclick="openInventoryModal('product')">New Product</button>
+        <button class="btn btn-edit btn-sm" type="button" data-inventory-action="warehouses" onclick="openInventoryModal('warehouse')">New Warehouse</button>
+        <button class="btn btn-save btn-sm" type="button" data-inventory-action="stock movements" onclick="openInventoryModal('movement')">Stock Movement</button>
       </div>
     </section>
 
-    <section class="inventory-summary-grid" aria-label="Inventory summary">
-      <article class="summary-card">
-        <span class="summary-label">Products</span>
-        <strong id="metric-products">0</strong>
+    <section class="module-summary-grid inventory-summary-grid" aria-label="Inventory summary">
+      <article class="module-summary-card">
+        <span class="module-summary-label">Products</span>
+        <div class="module-summary-value" id="metric-products">0</div>
       </article>
-      <article class="summary-card">
-        <span class="summary-label">Warehouses</span>
-        <strong id="metric-warehouses">0</strong>
+      <article class="module-summary-card">
+        <span class="module-summary-label">Warehouses</span>
+        <div class="module-summary-value" id="metric-warehouses">0</div>
       </article>
-      <article class="summary-card">
-        <span class="summary-label">Qty On Hand</span>
-        <strong id="metric-on-hand">0</strong>
+      <article class="module-summary-card">
+        <span class="module-summary-label">Qty On Hand</span>
+        <div class="module-summary-value" id="metric-on-hand">0</div>
       </article>
-      <article class="summary-card">
-        <span class="summary-label">Low Stock</span>
-        <strong id="metric-low-stock">0</strong>
+      <article class="module-summary-card">
+        <span class="module-summary-label">Low Stock</span>
+        <div class="module-summary-value" id="metric-low-stock">0</div>
       </article>
     </section>
 
-    <section class="inventory-grid">
-      <div class="inventory-panel">
+    <section class="module-tabs inventory-tabs" aria-label="Inventory views">
+      <button class="module-tab inventory-tab active" type="button" data-tab="stock" onclick="switchInventoryTab('stock')">Stock Levels</button>
+      <button class="module-tab inventory-tab" type="button" data-tab="products" onclick="switchInventoryTab('products')">Products</button>
+      <button class="module-tab inventory-tab" type="button" data-tab="warehouses" onclick="switchInventoryTab('warehouses')">Warehouses</button>
+      <button class="module-tab inventory-tab" type="button" data-tab="movements" onclick="switchInventoryTab('movements')">Movements</button>
+    </section>
+
+    <section class="content-section inventory-panel inventory-section active" id="inventory-tab-stock">
         <div class="panel-head">
           <h2>Stock Levels</h2>
           <input id="inventory-search" type="search" placeholder="Search stock..." oninput="renderInventory()">
@@ -98,9 +108,50 @@
             <tbody id="stock-tbody"></tbody>
           </table>
         </div>
-      </div>
+    </section>
 
-      <div class="inventory-panel">
+    <section class="content-section inventory-panel inventory-section" id="inventory-tab-products">
+      <div class="panel-head">
+        <h2>Products</h2>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>SKU</th>
+              <th>Product</th>
+              <th>Category</th>
+              <th>Unit</th>
+              <th class="text-right">Unit Cost</th>
+              <th class="text-right">Reorder</th>
+              <th class="text-right">On Hand</th>
+            </tr>
+          </thead>
+          <tbody id="products-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="content-section inventory-panel inventory-section" id="inventory-tab-warehouses">
+      <div class="panel-head">
+        <h2>Warehouses</h2>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Code</th>
+              <th>Name</th>
+              <th>Location</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="warehouses-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="content-section inventory-panel inventory-section" id="inventory-tab-movements">
         <div class="panel-head">
           <h2>Recent Movements</h2>
         </div>
@@ -118,7 +169,6 @@
             <tbody id="movement-tbody"></tbody>
           </table>
         </div>
-      </div>
     </section>
   </main>
 

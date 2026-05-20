@@ -9,6 +9,7 @@ let movementsDb = [];
 
 document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('movement-date').value = new Date().toISOString().slice(0, 10);
+  syncInventoryToolbarActions('stock');
   await loadBusinessEntities();
   await loadInventory();
 });
@@ -112,6 +113,33 @@ function renderInventory() {
     `;
   }).join('') : '<tr><td colspan="5">No stock records yet.</td></tr>';
 
+  const productsBody = document.getElementById('products-tbody');
+  if (productsBody) {
+    productsBody.innerHTML = productsDb.length ? productsDb.map(row => `
+      <tr>
+        <td>${escHtml(row.sku || '-')}</td>
+        <td>${escHtml(row.product_name || '-')}</td>
+        <td>${escHtml(row.category || '-')}</td>
+        <td>${escHtml(row.unit || 'pcs')}</td>
+        <td class="text-right">${Number(row.unit_cost || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</td>
+        <td class="text-right">${Number(row.reorder_level || 0).toLocaleString('en-PH')}</td>
+        <td class="text-right">${Number(row.quantity_on_hand || 0).toLocaleString('en-PH')}</td>
+      </tr>
+    `).join('') : '<tr><td colspan="7">No products yet.</td></tr>';
+  }
+
+  const warehousesBody = document.getElementById('warehouses-tbody');
+  if (warehousesBody) {
+    warehousesBody.innerHTML = warehousesDb.length ? warehousesDb.map(row => `
+      <tr>
+        <td>${escHtml(row.warehouse_code || '-')}</td>
+        <td>${escHtml(row.warehouse_name || '-')}</td>
+        <td>${escHtml(row.location || '-')}</td>
+        <td>${Number(row.is_active ?? 1) ? 'Active' : 'Inactive'}</td>
+      </tr>
+    `).join('') : '<tr><td colspan="4">No warehouses yet.</td></tr>';
+  }
+
   const movementBody = document.getElementById('movement-tbody');
   movementBody.innerHTML = movementsDb.length ? movementsDb.map(row => `
     <tr>
@@ -122,6 +150,28 @@ function renderInventory() {
       <td>${escHtml([row.reference_type, row.reference_no].filter(Boolean).join(' - ') || '-')}</td>
     </tr>
   `).join('') : '<tr><td colspan="5">No stock movements yet.</td></tr>';
+}
+
+function switchInventoryTab(tab) {
+  const safeTab = ['stock', 'products', 'warehouses', 'movements'].includes(tab) ? tab : 'stock';
+  document.querySelectorAll('.inventory-tab').forEach(button => {
+    button.classList.toggle('active', button.dataset.tab === safeTab);
+  });
+  document.querySelectorAll('.inventory-section').forEach(section => {
+    section.classList.toggle('active', section.id === `inventory-tab-${safeTab}`);
+  });
+  syncInventoryToolbarActions(safeTab);
+}
+
+function syncInventoryToolbarActions(tab = 'stock') {
+  const safeTab = ['stock', 'products', 'warehouses', 'movements'].includes(tab) ? tab : 'stock';
+  document.querySelectorAll('[data-inventory-action]').forEach(button => {
+    const tabs = String(button.dataset.inventoryAction || '')
+      .split(/\s+/)
+      .map(value => value.trim())
+      .filter(Boolean);
+    button.hidden = !tabs.includes(safeTab);
+  });
 }
 
 function populateMovementSelects() {

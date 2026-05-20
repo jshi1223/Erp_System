@@ -20,6 +20,7 @@ let editingQuotationId = null;
 let editingVendorId = null;
 let currentRequisitionProjectId = null;
 let viewingProjectLinkedRequisition = false;
+let currentRequisitionReadOnlyReason = '';
 let currentPurchaseOrderProjectId = null;
 let currentPurchaseOrderQuotationId = null;
 let pendingPurchaseOrderRequisitionId = null;
@@ -72,6 +73,22 @@ function requisitionIsApprovedForPurchaseOrder(requisition) {
 
 function requisitionCanCreateRfq(requisition) {
   return String(requisition?.status || '').trim().toLowerCase() === 'approved';
+}
+
+function requisitionIsLockedForEditing(requisition) {
+  const status = normalizeWorkflowStatus(requisition?.status || 'draft');
+  return ['approved', 'ordered', 'received', 'cancelled', 'rejected'].includes(status);
+}
+
+function getRequisitionLockedReason(requisition) {
+  const status = normalizeWorkflowStatus(requisition?.status || 'draft');
+  if (status === 'approved') return 'Approved requisitions are locked. Create RFQ/PO from this request or cancel/revise through a controlled flow.';
+  if (status === 'ordered') return 'This requisition is already converted to a purchase order.';
+  if (status === 'received') return 'This requisition is already received and closed.';
+  if (status === 'cancelled') return 'Cancelled requisitions are view-only.';
+  if (status === 'rejected') return 'Rejected requisitions are view-only.';
+  if (Number(requisition?.project_id || 0) > 0) return 'Project-linked requisitions are view-only from this modal.';
+  return '';
 }
 
 function normalizeWorkflowStatus(status) {
@@ -342,8 +359,9 @@ function loadQuotationNumberPreview() {
   return loadProcurementNumberPreview('quote-number', '/api/procurement/quotations/next-number', 'quote_number');
 }
 
-function setRequisitionReadOnlyMode(readOnly) {
+function setRequisitionReadOnlyMode(readOnly, reason = '') {
   viewingProjectLinkedRequisition = Boolean(readOnly);
+  currentRequisitionReadOnlyReason = viewingProjectLinkedRequisition ? String(reason || '').trim() : '';
   const modal = $('pr-modal-backdrop');
   if (!modal) return;
   modal.querySelectorAll('input, select, textarea').forEach((node) => {
@@ -356,6 +374,11 @@ function setRequisitionReadOnlyMode(readOnly) {
   if (saveBtn) {
     saveBtn.hidden = viewingProjectLinkedRequisition;
     saveBtn.disabled = viewingProjectLinkedRequisition;
+  }
+  const helper = modal.querySelector('[data-procurement-field-message="pr_readonly"]');
+  if (helper) {
+    helper.textContent = currentRequisitionReadOnlyReason;
+    helper.classList.toggle('is-hidden', !currentRequisitionReadOnlyReason);
   }
 }
 
@@ -3412,7 +3435,8 @@ function openRequisitionModal(id = null, options = {}) {
     syncProcurementStatusSelect('pr-status', ['draft'], { lockStaff: true });
     setRequisitionLineItems(getRequisitionLineItems(row));
     $('pr-notes').value = row.notes || '';
-    setRequisitionReadOnlyMode(Number(row.project_id || 0) > 0);
+    const readOnly = requisitionIsLockedForEditing(row) || Number(row.project_id || 0) > 0;
+    setRequisitionReadOnlyMode(readOnly, getRequisitionLockedReason(row));
   } else {
     const companyId = Number(options.companyId || pendingRequisitionCompanyId || 0) || 0;
     const projectId = Number(options.projectId || pendingRequisitionProjectId || 0) || 0;
@@ -3436,7 +3460,7 @@ function closeRequisitionModal() {
 
 async function saveRequisition() {
   if (viewingProjectLinkedRequisition) {
-    showToast('Project-linked requisitions are view-only from this modal.', 'error');
+    showToast(currentRequisitionReadOnlyReason || 'This requisition is view-only.', 'error');
     return;
   }
   clearProcurementFieldMessages();

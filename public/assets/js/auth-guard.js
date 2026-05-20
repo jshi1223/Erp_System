@@ -145,6 +145,8 @@
 
     var oldAp = nav.querySelector('.sidebar-group[data-sidebar-group="accounts-payable"]');
     var oldAr = nav.querySelector('.sidebar-group[data-sidebar-group="accounts-receivable"]');
+    var oldProjects = nav.querySelector('.sidebar-group[data-sidebar-group="projects"]');
+    var oldCompanyRegistry = nav.querySelector('#menu-company-registry');
     var procurement = nav.querySelector('.sidebar-group[data-sidebar-group="procurement"]');
     if (!oldAp && !oldAr && procurement && nav.querySelector('.sidebar-group[data-sidebar-group="finance"]')) {
       nav.dataset.financeNormalized = '1';
@@ -169,8 +171,12 @@
       ].join('');
     }
 
+    var masterDataHtml = buildGroup('master-data', 'Master Data', [
+      buildLink('/company-registry', 'Company Registry', 'menu-company-registry'),
+      buildLink('/master-data?tab=vendors', 'Vendors')
+    ]);
+
     var procurementHtml = buildGroup('procurement', 'Procurement Management', [
-      buildLink('/procurement?tab=vendors', 'Vendors'),
       buildLink('/procurement?tab=requisitions', 'Purchase Requisitions'),
       buildLink('/procurement?tab=rfq', 'RFQ'),
       buildLink('/procurement?tab=quotations', 'Quotations & Evaluation'),
@@ -195,22 +201,25 @@
       buildLink('/reports', 'General Ledger / Reports')
     ]);
 
-    var insertAfter = procurement || nav.querySelector('.sidebar-group[data-sidebar-group="projects"]') || nav.querySelector('#menu-company-registry') || nav.firstElementChild;
+    var insertAfter = procurement || oldProjects || oldCompanyRegistry || nav.firstElementChild;
     if (!procurement) {
       if (insertAfter && insertAfter.insertAdjacentHTML) {
-        insertAfter.insertAdjacentHTML('afterend', procurementHtml);
+        insertAfter.insertAdjacentHTML('afterend', masterDataHtml + procurementHtml);
         procurement = nav.querySelector('.sidebar-group[data-sidebar-group="procurement"]');
       } else {
-        nav.insertAdjacentHTML('beforeend', procurementHtml);
+        nav.insertAdjacentHTML('beforeend', masterDataHtml + procurementHtml);
         procurement = nav.querySelector('.sidebar-group[data-sidebar-group="procurement"]');
       }
     } else {
-      var procurementToggle = procurement.querySelector('.sidebar-group-toggle span:first-child');
-      if (procurementToggle) procurementToggle.textContent = 'Procurement Management';
+      procurement.outerHTML = procurementHtml;
+      procurement = nav.querySelector('.sidebar-group[data-sidebar-group="procurement"]');
     }
 
     if (oldAp) oldAp.remove();
     if (oldAr) oldAr.remove();
+    if (oldCompanyRegistry) oldCompanyRegistry.remove();
+    var existingMasterData = nav.querySelector('.sidebar-group[data-sidebar-group="master-data"]');
+    if (existingMasterData) existingMasterData.remove();
     var existingInventory = nav.querySelector('.sidebar-group[data-sidebar-group="inventory"]');
     if (existingInventory) existingInventory.remove();
     var existingFinance = nav.querySelector('.sidebar-group[data-sidebar-group="finance"]');
@@ -221,6 +230,12 @@
       anchor.insertAdjacentHTML('afterend', inventoryHtml + financeHtml);
     } else {
       nav.insertAdjacentHTML('beforeend', inventoryHtml + financeHtml);
+    }
+    var masterAnchor = oldProjects || nav.querySelector('.sidebar-group[data-sidebar-group="projects"]') || nav.querySelector('#menu-dashboard') || nav.firstElementChild;
+    if (masterAnchor && masterAnchor.insertAdjacentHTML) {
+      masterAnchor.insertAdjacentHTML('afterend', masterDataHtml);
+    } else {
+      nav.insertAdjacentHTML('afterbegin', masterDataHtml);
     }
     nav.dataset.financeNormalized = '1';
   }
@@ -652,6 +667,7 @@
         var accessMatrix = [
           { prefixes: ['/user-management'], roles: ['super_admin', 'admin'] },
           { prefixes: ['/company-registry'], roles: ['super_admin', 'admin', 'staff'] },
+          { prefixes: ['/master-data'], roles: ['super_admin', 'admin', 'staff'] },
           { prefixes: ['/admin'], roles: ['super_admin', 'admin', 'staff'] },
           { prefixes: ['/erp'], roles: ['super_admin', 'admin', 'staff'] },
           { prefixes: ['/accounts-payable'], roles: ['super_admin', 'admin', 'staff'] },
@@ -800,10 +816,6 @@
           id: 'menu-reports',
           aliases: ['/admin?panel=reports']
         }),
-        link('/company-registry', 'Company Registry', {
-          id: 'menu-company-registry',
-          aliases: ['/company']
-        }),
         group('projects', 'Projects', false, [
           link('/admin?panel=project-records', 'Project Records', {
             id: 'menu-projects',
@@ -815,14 +827,21 @@
             subitem: true
           })
         ]),
-        group('procurement', 'Procurement Management', false, [
-          link('/procurement?tab=vendors', 'Vendors', {
+        group('master-data', 'Master Data', false, [
+          link('/company-registry', 'Company Registry', {
+            id: 'menu-company-registry',
             subitem: true,
-            aliases: ['/procurement', '/accounts-payable?tab=vendors']
+            aliases: ['/company']
           }),
+          link('/master-data?tab=vendors', 'Vendors', {
+            subitem: true,
+            aliases: ['/procurement?tab=vendors', '/accounts-payable?tab=vendors']
+          })
+        ]),
+        group('procurement', 'Procurement Management', false, [
           link('/procurement?tab=requisitions', 'Purchase Requisitions', {
             subitem: true,
-            aliases: ['/accounts-payable?tab=requisitions']
+            aliases: ['/procurement', '/accounts-payable?tab=requisitions']
           }),
           link('/procurement?tab=rfq', 'RFQ', { subitem: true }),
           link('/procurement?tab=quotations', 'Quotations & Evaluation', {

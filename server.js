@@ -100,6 +100,7 @@ const transporter = hasEmailConfig
       host: SMTP_HOST,
       port: SMTP_PORT,
       secure: SMTP_SECURE,
+      family: 4,
       connectionTimeout: 12000,
       greetingTimeout: 12000,
       socketTimeout: 15000,
@@ -6363,6 +6364,11 @@ app.get('/procurement', protectAdmin, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'accounts-payable', 'index.html'));
 });
 
+app.get('/master-data', protectAdmin, (req, res) => {
+  noCache(res);
+  res.sendFile(path.join(__dirname, 'public', 'accounts-payable', 'index.html'));
+});
+
 app.get('/erp', protectAdmin, (req, res) => {
   noCache(res);
   res.sendFile(path.join(__dirname, 'public', 'company', 'index.html'));
@@ -10129,6 +10135,10 @@ function normalizeProcurementWorkflowStatus(status) {
   return String(status || '').trim().toLowerCase();
 }
 
+function procurementRequisitionIsLocked(status) {
+  return ['approved', 'ordered', 'received', 'cancelled', 'rejected'].includes(normalizeProcurementWorkflowStatus(status));
+}
+
 function resolveProcurementStatusForActor(req, requestedStatus, {
   defaultStatus = 'draft',
   staffAllowed = ['draft'],
@@ -10721,6 +10731,9 @@ app.put('/api/procurement/requisitions/:id', protectAdmin, async (req, res) => {
       return res.status(404).json({ error: 'Requisition not found.' });
     }
     status = normalizeProcurementWorkflowStatus(requisitionRows[0].status) || 'draft';
+    if (procurementRequisitionIsLocked(status)) {
+      return res.status(409).json({ error: `Purchase requisition is already ${status} and can no longer be edited.` });
+    }
 
     const projectRecord = await resolvePurchaseOrderProjectContext(projectId, companyId);
     companyId = Number(projectRecord?.company_id || 0) || 0;
