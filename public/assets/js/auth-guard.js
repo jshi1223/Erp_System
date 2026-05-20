@@ -178,6 +178,10 @@
       buildLink('/procurement?tab=goods-receipts', 'Goods Receipts')
     ]);
 
+    var inventoryHtml = buildGroup('inventory', 'Inventory Management', [
+      buildLink('/inventory', 'Products, Warehouses & Stock', 'menu-inventory')
+    ]);
+
     var financeHtml = buildGroup('finance', 'Financial Management', [
       buildLink('/accounts-payable?tab=bills', 'AP - Bills', 'menu-accounts-payable'),
       buildLink('/accounts-payable?tab=vendor-balances', 'AP - Vendor Balances'),
@@ -207,14 +211,16 @@
 
     if (oldAp) oldAp.remove();
     if (oldAr) oldAr.remove();
+    var existingInventory = nav.querySelector('.sidebar-group[data-sidebar-group="inventory"]');
+    if (existingInventory) existingInventory.remove();
     var existingFinance = nav.querySelector('.sidebar-group[data-sidebar-group="finance"]');
     if (existingFinance) existingFinance.remove();
 
     var anchor = procurement || insertAfter;
     if (anchor && anchor.insertAdjacentHTML) {
-      anchor.insertAdjacentHTML('afterend', financeHtml);
+      anchor.insertAdjacentHTML('afterend', inventoryHtml + financeHtml);
     } else {
-      nav.insertAdjacentHTML('beforeend', financeHtml);
+      nav.insertAdjacentHTML('beforeend', inventoryHtml + financeHtml);
     }
     nav.dataset.financeNormalized = '1';
   }
@@ -650,6 +656,7 @@
           { prefixes: ['/erp'], roles: ['super_admin', 'admin', 'staff'] },
           { prefixes: ['/accounts-payable'], roles: ['super_admin', 'admin', 'staff'] },
           { prefixes: ['/accounts-receivable'], roles: ['super_admin', 'admin', 'staff'] },
+          { prefixes: ['/inventory'], roles: ['super_admin', 'admin', 'staff'] },
           { prefixes: ['/reports'], roles: ['super_admin', 'admin'] },
           { prefixes: ['/gantt-chart'], roles: ['super_admin', 'admin'] },
           { prefixes: ['/status'], roles: ['super_admin', 'admin', 'staff', 'user'] }
@@ -829,6 +836,12 @@
           link('/procurement?tab=goods-receipts', 'Goods Receipts', {
             subitem: true,
             aliases: ['/accounts-payable?tab=goods-receipts']
+          })
+        ]),
+        group('inventory', 'Inventory Management', false, [
+          link('/inventory', 'Products, Warehouses & Stock', {
+            id: 'menu-inventory',
+            subitem: true
           })
         ]),
         group('finance', 'Financial Management', false, [
