@@ -453,11 +453,14 @@
     }
 
     setLoading('register-code-btn', true, 'Sending...');
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
     try {
       const res = await fetch('/api/register/send-verification', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email })
+        body: JSON.stringify({ name, email }),
+        signal: controller.signal
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.status !== 'success') {
@@ -472,9 +475,12 @@
         codeInput.focus();
       }
       setRegisterMessage(data.message || 'Verification code sent. Please check your email.', 'success');
-    } catch (_) {
-      setRegisterMessage('Cannot connect to server. Please try again.');
+    } catch (err) {
+      setRegisterMessage(err && err.name === 'AbortError'
+        ? 'Email sending timed out. Please check SMTP settings and try again.'
+        : 'Cannot connect to server. Please try again.');
     } finally {
+      clearTimeout(timeoutId);
       setLoading('register-code-btn', false);
     }
   }

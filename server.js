@@ -100,6 +100,9 @@ const transporter = hasEmailConfig
       host: SMTP_HOST,
       port: SMTP_PORT,
       secure: SMTP_SECURE,
+      connectionTimeout: 12000,
+      greetingTimeout: 12000,
+      socketTimeout: 15000,
       auth: {
         user: SMTP_USER,
         pass: SMTP_PASS
