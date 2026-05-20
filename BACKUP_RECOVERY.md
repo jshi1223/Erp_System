@@ -7,7 +7,7 @@ This project should keep two backup layers:
 
 ## Backup Schedule
 
-- Daily: full MySQL dump of the `kinaadman` database
+- Daily: full PostgreSQL dump of the `kinaadman` database
 - Daily: archive the `uploads_pdf` folder
 - Weekly: keep one offsite copy
 - Monthly: verify a restore into a staging copy

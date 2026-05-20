@@ -1,18 +1,184 @@
 ﻿let vendorsDb = [];
 let billsDb = [];
 let paymentsDb = [];
+let projectsDb = [];
+let purchaseOrdersDb = [];
+let businessEntitiesDb = [];
+const BUSINESS_ENTITY_CONTEXT_KEY = 'kinaadman_businessEntityContext';
+const BUSINESS_ENTITY_THEME_KEY = 'kinaadman_businessEntityTheme';
+let currentBusinessEntityContextId = '';
 let stagedBillPdf = null;
+let editingBillId = null;
+let removeExistingBillPdf = false;
+let billVendorSearchBound = false;
+const AP_UI_STATE_KEY = 'accounts-payable.uiState';
 const apToolbarState = {
-  vendors: { search: '' },
-  bills: { search: '', filter: '' },
-  payments: { method: '' },
-  aging: {}
+  bills: { search: '' },
+  payments: { search: '' }
 };
+const AP_PROCUREMENT_TABS = new Set(['vendors', 'requisitions', 'rfq', 'quotations', 'purchase-orders', 'goods-receipts']);
+const AP_NATIVE_TABS = new Set(['bills', 'vendor-balances', 'ap-aging', 'payments', 'disbursements']);
 let activeApTab = 'vendors';
 
+function isProcurementWorkspacePage() {
+  return (window.location.pathname || '').replace(/\/+$/, '') === '/procurement';
+}
+
+function getWorkspaceAllowedTabs() {
+  return isProcurementWorkspacePage() ? AP_PROCUREMENT_TABS : AP_NATIVE_TABS;
+}
+
+function getWorkspaceDefaultTab() {
+  return isProcurementWorkspacePage() ? 'vendors' : 'bills';
+}
+
+function normalizeApWorkspaceTab(value) {
+  let tab = String(value || '').trim().toLowerCase();
+  if (tab === 'bid-evaluation') tab = 'quotations';
+  const knownTab = (AP_PROCUREMENT_TABS.has(tab) || AP_NATIVE_TABS.has(tab)) ? tab : getWorkspaceDefaultTab();
+  return getWorkspaceAllowedTabs().has(knownTab) ? knownTab : getWorkspaceDefaultTab();
+}
+
+function getDefaultApUiState() {
+  return {
+    activeTab: getWorkspaceDefaultTab(),
+    toolbarState: {
+      bills: { search: '' },
+      payments: { search: '' }
+    }
+  };
+}
+
+function loadApUiState() {
+  try {
+    const raw = localStorage.getItem(AP_UI_STATE_KEY);
+    if (!raw) return getDefaultApUiState();
+    const parsed = JSON.parse(raw);
+    const defaults = getDefaultApUiState();
+    return {
+      activeTab: normalizeApWorkspaceTab(parsed.activeTab || defaults.activeTab),
+      toolbarState: {
+        bills: { search: String(parsed.toolbarState?.bills?.search || '') },
+        payments: { search: String(parsed.toolbarState?.payments?.search || '') }
+      }
+    };
+  } catch (_) {
+    return getDefaultApUiState();
+  }
+}
+
+function saveApUiState() {
+  try {
+    localStorage.setItem(AP_UI_STATE_KEY, JSON.stringify({
+      activeTab: activeApTab,
+      toolbarState: apToolbarState
+    }));
+  } catch (_) {
+    // Ignore storage errors in restricted browser modes.
+  }
+}
+
+function restoreApUiState() {
+  const state = loadApUiState();
+  activeApTab = state.activeTab;
+  apToolbarState.bills.search = state.toolbarState.bills.search;
+  apToolbarState.payments.search = state.toolbarState.payments.search;
+}
+
+function setAccountsPayableActiveTab(tab, options = {}) {
+  activeApTab = normalizeApWorkspaceTab(tab);
+  syncApSummaryCards(activeApTab);
+  if (options.persistState !== false) {
+    saveApUiState();
+  }
+}
+
+function syncApSummaryCards(tab = activeApTab) {
+  const activeTab = normalizeApWorkspaceTab(tab);
+  const grid = document.getElementById('ap-summary-grid');
+  if (!grid) return;
+
+  grid.dataset.activeTab = activeTab;
+  grid.querySelectorAll('.ap-summary-card').forEach((card) => {
+    const tabs = String(card.dataset.summaryTabs || '')
+      .split(',')
+      .map((value) => String(value || '').trim().toLowerCase())
+      .filter(Boolean)
+      .filter((value) => AP_PROCUREMENT_TABS.has(value) || AP_NATIVE_TABS.has(value));
+    card.hidden = !tabs.includes(activeTab);
+  });
+}
+
+function applyWorkspaceModeUi() {
+  const procurementMode = isProcurementWorkspacePage();
+  const title = document.getElementById('module-page-title');
+  const subtitle = document.getElementById('module-page-subtitle');
+  const headerSub = document.getElementById('module-header-sub');
+  const badge = document.getElementById('module-admin-badge');
+  const allowedTabs = getWorkspaceAllowedTabs();
+  document.body.dataset.workspaceMode = procurementMode ? 'procurement' : 'ap';
+
+  document.title = procurementMode
+    ? 'KVSK CCTV & IT Solution - Procurement'
+    : 'KVSK CCTV & IT Solution - Accounts Payable';
+  if (title) title.textContent = procurementMode ? 'Procurement Management' : 'Accounts Payable Management';
+  if (subtitle) {
+    subtitle.textContent = procurementMode
+      ? 'Manage vendors, requisitions, RFQs, quotation evaluation, purchase orders, and receipts.'
+      : 'Manage bills, vendor balances, aging, payments, and disbursements.';
+  }
+  if (headerSub) headerSub.textContent = procurementMode ? 'Procurement' : 'Accounts Payable';
+  if (badge) badge.textContent = procurementMode ? 'Procurement Module' : 'Payables Module';
+
+  document.querySelectorAll('.ap-workspace-tab').forEach((tab) => {
+    const tabName = normalizeWorkspaceTabName(tab.dataset.workspaceTab || tab.dataset.procTab || tab.dataset.tab || '');
+    tab.hidden = !allowedTabs.has(tabName);
+  });
+}
+
+function normalizeWorkspaceTabName(value) {
+  const tab = String(value || '').trim().toLowerCase();
+  if (AP_PROCUREMENT_TABS.has(tab) || AP_NATIVE_TABS.has(tab)) return tab;
+  return '';
+}
+
+function setMetricText(id, value) {
+  const node = document.getElementById(id);
+  if (node) node.textContent = String(value);
+}
+
+function formatApMoney(value) {
+  if (typeof formatPhpCurrency === 'function') {
+    return formatPhpCurrency(value);
+  }
+  return 'PHP ' + Number(value || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 });
+}
+
+function isInCurrentMonth(value) {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  const today = new Date();
+  return date.getFullYear() === today.getFullYear() && date.getMonth() === today.getMonth();
+}
+
 document.addEventListener('DOMContentLoaded', () => {
-  renderApToolbarControls(activeApTab);
+  restoreApUiState();
+  applyWorkspaceModeUi();
+  const params = new URLSearchParams(window.location.search);
+  const requestedTab = params.has('tab') ? normalizeApWorkspaceTab(params.get('tab')) : activeApTab;
+  const initialButton = document.querySelector(`.ap-workspace-tab[data-workspace-tab="${requestedTab}"]`)
+    || document.querySelector('.ap-workspace-tab.active')
+    || document.querySelector('.module-tab.active');
+  switchApWorkspaceTab(requestedTab, initialButton, { captureState: false, persistState: false });
+  if (!params.has('tab')) {
+    syncApTabUrl(requestedTab);
+  }
+  initBillVendorSearch();
   loadVendors();
+  loadBusinessEntitiesForBills();
+  loadProjectsForBills();
+  loadPurchaseOrdersForBills();
   loadBills();
   loadPayments();
   document.getElementById('f-bill-date').valueAsDate = new Date();
@@ -31,18 +197,251 @@ async function doLogout() {
   fetch('/logout', { method: 'POST' }).then(() => { window.location.href = '/'; });
 }
 
+function getDefaultBillBusinessEntityId() {
+  const rows = Array.isArray(businessEntitiesDb) ? businessEntitiesDb : [];
+  const defaultRow = rows.find(row => Number(row.is_default || 0) === 1) || rows[0] || null;
+  return defaultRow ? String(defaultRow.id || '') : '';
+}
+
+function getCurrentBusinessEntityId() {
+  const rows = Array.isArray(businessEntitiesDb) ? businessEntitiesDb : [];
+  const stored = String(currentBusinessEntityContextId || localStorage.getItem(BUSINESS_ENTITY_CONTEXT_KEY) || '').trim();
+  if (!rows.length) return stored;
+  if (stored && rows.some(row => String(row.id || '') === stored)) {
+    currentBusinessEntityContextId = stored;
+    return stored;
+  }
+  const fallback = getDefaultBillBusinessEntityId();
+  currentBusinessEntityContextId = fallback;
+  if (fallback) localStorage.setItem(BUSINESS_ENTITY_CONTEXT_KEY, fallback);
+  return fallback;
+}
+
+function findBusinessEntityById(id) {
+  const target = String(id || '').trim();
+  return (Array.isArray(businessEntitiesDb) ? businessEntitiesDb : []).find(row => String(row.id || '') === target) || null;
+}
+
+function businessEntityShortLabel(row) {
+  const name = String(row?.company_name || row?.entity_code || '').trim();
+  if (/kvsk/i.test(name)) return 'KVSK';
+  if (/kitsi|ktiis/i.test(name)) return 'KITSI';
+  return name.replace(/[^a-z0-9]/gi, '').slice(0, 6) || 'Company';
+}
+
+function businessEntityProfileValue(value, fallback = 'Not set') {
+  const text = String(value || '').trim();
+  return text || fallback;
+}
+
+function renderBusinessEntityProfilePanel(current = getCurrentBusinessEntityId()) {
+  const panel = document.getElementById('business-profile-panel');
+  if (!panel) return;
+  const rows = Array.isArray(businessEntitiesDb) ? businessEntitiesDb : [];
+  panel.innerHTML = rows.length
+    ? rows.map((row) => {
+        const id = String(row.id || '');
+        const isActive = id === String(current || '');
+        const profile = getBusinessEntityBrandProfile(row);
+        return `
+          <button class="business-profile-card${isActive ? ' is-active' : ''}" type="button" onclick="setBusinessEntityContext('${escHtml(id)}')">
+            <span class="business-profile-logo-wrap"><img src="${escHtml(profile.logo)}" alt="${escHtml(profile.alt)}" /></span>
+            <span class="business-profile-copy">
+              <span class="business-profile-name">${escHtml(row.company_name || businessEntityShortLabel(row))}</span>
+              <span class="business-profile-meta">${escHtml(row.entity_code || 'Operating company')} · ${escHtml(businessEntityProfileValue(row.status, 'active'))}${Number(row.is_default || 0) ? ' · Default' : ''}</span>
+              <span class="business-profile-line">${escHtml(businessEntityProfileValue(row.contact_person, 'Contact person not set'))}</span>
+              <span class="business-profile-line">${escHtml(businessEntityProfileValue(row.email || row.phone, 'Email/phone not set'))}</span>
+            </span>
+          </button>
+        `;
+      }).join('')
+    : '<div class="business-profile-empty">Business profiles unavailable</div>';
+}
+
+function syncModalBusinessContext(row = findBusinessEntityById(getCurrentBusinessEntityId())) {
+  const label = businessEntityShortLabel(row || findBusinessEntityById(getCurrentBusinessEntityId()) || {});
+  const title = String(row?.company_name || label || 'Operating Company').trim();
+  document.querySelectorAll('.modal-header, .modal-header-tight, .user-modal-brand').forEach((header) => {
+    let badge = header.querySelector(':scope > .modal-business-context');
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'modal-business-context';
+      const closeBtn = header.querySelector(':scope > .modal-close, :scope > .close-btn');
+      if (closeBtn) {
+        header.insertBefore(badge, closeBtn);
+      } else {
+        header.appendChild(badge);
+      }
+    }
+    badge.textContent = label || 'Company';
+    badge.title = title;
+    badge.setAttribute('aria-label', `Current business profile: ${title}`);
+  });
+}
+
+function businessEntityMatches(row) {
+  const selected = getCurrentBusinessEntityId();
+  if (!selected) return true;
+  const rowId = String(row?.business_entity_id || '').trim();
+  return rowId === selected;
+}
+
+function renderArchivedProjectBadge(row = {}) {
+  return row.project_is_archived === true || Number(row.project_is_archived || 0) === 1
+    ? '<div style="margin-top:4px;"><span class="status-pill status-cancelled">Archived Project</span></div>'
+    : '';
+}
+
+function getBusinessEntityBrandProfile(row) {
+  const name = String(row?.company_name || '').trim();
+  const isKitsi = /kitsi|ktiis|kinaadman/i.test(name) || String(row?.theme || '').toLowerCase() === 'kitsi';
+  if (isKitsi) {
+    return {
+      theme: 'kitsi',
+      logo: '/assets/img/kitsi-logo.png',
+      alt: 'KITSI logo',
+      primary: '#0898c7',
+      primaryLight: '#22c7e8',
+      primaryDark: '#005b96',
+      accent: '#07a6d6',
+      accent2: '#005b96'
+    };
+  }
+  return {
+    theme: 'kvsk',
+    logo: '/assets/img/kvsk-logo-switch.png',
+    alt: 'KVSK logo',
+    primary: '#b42318',
+    primaryLight: '#ef5b4f',
+    primaryDark: '#4b1210',
+    accent: '#d92d20',
+    accent2: '#201313'
+  };
+}
+
+function applyBusinessEntityBrand(row) {
+  const profile = getBusinessEntityBrandProfile(row);
+  document.body.dataset.businessEntityTheme = profile.theme;
+  document.documentElement.style.setProperty('--primary', profile.primary);
+  document.documentElement.style.setProperty('--primary-light', profile.primaryLight);
+  document.documentElement.style.setProperty('--primary-dark', profile.primaryDark);
+  document.documentElement.style.setProperty('--accent', profile.accent);
+  document.documentElement.style.setProperty('--accent2', profile.accent2);
+
+  document.querySelectorAll('.brand-mark, .sidebar-brand-mark, .user-modal-brand-mark').forEach((img) => {
+    img.src = profile.logo;
+    img.alt = profile.alt;
+  });
+  try {
+    localStorage.setItem(BUSINESS_ENTITY_THEME_KEY, JSON.stringify({
+      company_name: row?.company_name || '',
+      theme: profile.theme,
+      logo: profile.logo,
+      alt: profile.alt,
+      primary: profile.primary,
+      primaryLight: profile.primaryLight,
+      primaryDark: profile.primaryDark,
+      accent: profile.accent,
+      accent2: profile.accent2
+    }));
+  } catch (_) {}
+}
+
+function renderBusinessEntitySwitcher() {
+  const host = document.getElementById('business-entity-switcher');
+  const rows = Array.isArray(businessEntitiesDb) ? businessEntitiesDb : [];
+  const current = getCurrentBusinessEntityId();
+  if (host) {
+    host.innerHTML = rows.map(row => {
+      const id = String(row.id || '');
+      return `<button class="business-entity-switch${id === current ? ' is-active' : ''}" type="button" onclick="setBusinessEntityContext('${escHtml(id)}')" aria-pressed="${id === current ? 'true' : 'false'}">${escHtml(businessEntityShortLabel(row))}</button>`;
+    }).join('');
+  }
+  const activeEntity = findBusinessEntityById(current);
+  applyBusinessEntityBrand(activeEntity);
+  renderBusinessEntityProfilePanel(current);
+  renderCurrentWorkspaceBadge(activeEntity);
+  syncModalBusinessContext(activeEntity);
+  document.querySelectorAll('header .brand-copy .header-logo').forEach((node) => {
+    node.textContent = activeEntity?.company_name || 'Kinaadman ERP';
+  });
+}
+
+function renderCurrentWorkspaceBadge(row = findBusinessEntityById(getCurrentBusinessEntityId())) {
+  const badge = document.getElementById('current-workspace-badge');
+  if (!badge) return;
+  const label = businessEntityShortLabel(row || {});
+  const title = String(row?.company_name || label || 'Workspace').trim();
+  badge.textContent = `${label || 'ERP'} Workspace`;
+  badge.title = title;
+  badge.setAttribute('aria-label', `Current workspace: ${title}`);
+}
+
+function setBusinessEntityContext(id) {
+  const nextId = String(id || '').trim();
+  if (!nextId) return;
+  currentBusinessEntityContextId = nextId;
+  localStorage.setItem(BUSINESS_ENTITY_CONTEXT_KEY, nextId);
+  renderBusinessEntitySwitcher();
+  renderBillBusinessEntityOptions();
+  filterBills();
+  filterPayments();
+  if (typeof renderSummary === 'function') renderSummary();
+  if (typeof loadProcurementData === 'function') {
+    loadProcurementData().catch((err) => console.error('Procurement business entity refresh error:', err));
+  } else {
+    if (typeof renderRequisitions === 'function') renderRequisitions();
+    if (typeof renderPurchaseOrders === 'function') renderPurchaseOrders();
+    if (typeof renderGoodsReceipts === 'function') renderGoodsReceipts();
+  }
+}
+
+function renderBillBusinessEntityOptions(selectedValue = '') {
+  const select = document.getElementById('f-bill-business-entity');
+  if (!select) return;
+  const rows = Array.isArray(businessEntitiesDb) ? businessEntitiesDb : [];
+  const selected = String(selectedValue || getCurrentBusinessEntityId() || getDefaultBillBusinessEntityId() || '').trim();
+  select.innerHTML = rows.length
+    ? rows.map(row => `<option value="${escHtml(row.id)}">${escHtml(row.company_name || row.entity_code || 'Operating Company')}</option>`).join('')
+    : '<option value="">Default company</option>';
+  if (selected && [...select.options].some(option => String(option.value) === selected)) {
+    select.value = selected;
+  } else if (rows.length) {
+    select.value = getDefaultBillBusinessEntityId();
+  }
+}
+
+function loadBusinessEntitiesForBills() {
+  fetch('/api/business-entities', { cache: 'no-store' })
+    .then(async (r) => {
+      const data = await r.json().catch(() => []);
+      if (!r.ok) throw new Error(data.error || 'Unable to load operating companies.');
+      return data;
+    })
+    .then((rows) => {
+      businessEntitiesDb = Array.isArray(rows) ? rows : [];
+      renderBusinessEntitySwitcher();
+      renderBillBusinessEntityOptions();
+    })
+    .catch((err) => {
+      console.error('Load bill operating companies error:', err);
+      businessEntitiesDb = [];
+      renderBusinessEntitySwitcher();
+      renderBillBusinessEntityOptions();
+    });
+}
+
 function goBackToDashboard() {
   window.location.href = '/admin?view=dashboard';
 }
 
 function captureApToolbarState(tab) {
-  if (tab === 'vendors') {
-    apToolbarState.vendors.search = document.getElementById('vendor-search')?.value || '';
-  } else if (tab === 'bills') {
+  if (tab === 'bills') {
     apToolbarState.bills.search = document.getElementById('bills-search')?.value || '';
-    apToolbarState.bills.filter = document.getElementById('bills-filter')?.value || '';
   } else if (tab === 'payments') {
-    apToolbarState.payments.method = document.getElementById('payment-method-filter')?.value || '';
+    apToolbarState.payments.search = document.getElementById('payments-search')?.value || '';
+  } else if (tab === 'disbursements') {
+    apToolbarState.payments.search = document.getElementById('disbursements-search')?.value || '';
   }
 }
 
@@ -52,42 +451,32 @@ function renderApToolbarControls(tab) {
 
   const state = apToolbarState[tab] || {};
 
-  if (tab === 'vendors') {
-    actions.innerHTML = `
-      <div class="search-wrap top-search-bar module-toolbar-search">
-        <input id="vendor-search" type="text" placeholder="Search vendors..." value="${escHtml(state.search || '')}" oninput="filterVendors()" />
-      </div>
-      <button class="btn btn-add btn-sm" type="button" onclick="openVendorModal()">Add Vendor</button>
-    `;
-    return;
-  }
-
   if (tab === 'bills') {
     actions.innerHTML = `
       <div class="search-wrap top-search-bar module-toolbar-search">
-        <input id="bills-search" type="text" placeholder="Search bill number or vendor..." value="${escHtml(state.search || '')}" oninput="filterBills()" />
+        <input id="bills-search" type="text" placeholder="Search bill number, vendor, or status..." value="${escHtml(state.search || '')}" oninput="filterBills()" />
       </div>
       <button class="btn btn-add btn-sm" type="button" onclick="openBillModal()">New Bill</button>
-      <select id="bills-filter" class="filter-select" onchange="filterBills()">
-        <option value="">All Status</option>
-        <option value="pending" ${state.filter === 'pending' ? 'selected' : ''}>Unpaid</option>
-        <option value="partially_paid" ${state.filter === 'partially_paid' ? 'selected' : ''}>Partial</option>
-        <option value="paid" ${state.filter === 'paid' ? 'selected' : ''}>Paid</option>
-      </select>
     `;
     return;
   }
 
   if (tab === 'payments') {
     actions.innerHTML = `
-      <select id="payment-method-filter" class="filter-select" onchange="filterPayments()">
-        <option value="">All Methods</option>
-        <option value="cash" ${state.method === 'cash' ? 'selected' : ''}>Cash</option>
-        <option value="check" ${state.method === 'check' ? 'selected' : ''}>Check</option>
-        <option value="bank_transfer" ${state.method === 'bank_transfer' ? 'selected' : ''}>Bank Transfer</option>
-        <option value="credit_card" ${state.method === 'credit_card' ? 'selected' : ''}>Credit Card</option>
-      </select>
+      <div class="search-wrap top-search-bar module-toolbar-search">
+        <input id="payments-search" type="text" placeholder="Search payment date, bill, vendor, or reference..." value="${escHtml(state.search || '')}" oninput="filterPayments()" />
+      </div>
       <button class="btn btn-add btn-sm" type="button" onclick="openPaymentModal()">Record Payment</button>
+    `;
+    return;
+  }
+
+  if (tab === 'disbursements') {
+    actions.innerHTML = `
+      <div class="search-wrap top-search-bar module-toolbar-search">
+        <input id="disbursements-search" type="text" placeholder="Search disbursement date, bill, vendor, or reference..." value="${escHtml(apToolbarState.payments.search || '')}" oninput="renderDisbursements()" />
+      </div>
+      <button class="btn btn-add btn-sm" type="button" onclick="openPaymentModal()">Record Disbursement</button>
     `;
     return;
   }
@@ -95,99 +484,226 @@ function renderApToolbarControls(tab) {
   actions.innerHTML = '';
 }
 
-function switchTab(tab, btn) {
-  captureApToolbarState(activeApTab);
-  document.querySelectorAll('.module-tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
-  btn.classList.add('active');
-  document.getElementById(tab).classList.add('active');
-  activeApTab = tab;
-  renderApToolbarControls(tab);
+function switchTab(tab, btn, options = {}) {
+  const nextTab = AP_NATIVE_TABS.has(tab) ? tab : 'bills';
+  const captureState = options.captureState !== false;
+  const persistState = options.persistState !== false;
+  if (captureState) {
+    captureApToolbarState(activeApTab);
+  }
+  document.querySelectorAll('.ap-workspace-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.ap-workspace-section').forEach(s => s.classList.remove('active'));
+  const tabButton = btn || document.querySelector(`.ap-workspace-tab[data-tab="${nextTab}"]`);
+  if (tabButton) tabButton.classList.add('active');
+  document.getElementById(nextTab).classList.add('active');
+  activeApTab = nextTab;
+  renderApToolbarControls(nextTab);
+  syncApSummaryCards(nextTab);
+  if (nextTab === 'vendor-balances') renderVendorBalances();
+  if (nextTab === 'ap-aging') renderApAging();
+  if (nextTab === 'disbursements') renderDisbursements();
+  if (persistState) {
+    saveApUiState();
+    syncApTabUrl(nextTab);
+  }
+}
+
+function switchApWorkspaceTab(tab, btn, options = {}) {
+  const nextTab = normalizeApWorkspaceTab(tab);
+  if (AP_PROCUREMENT_TABS.has(nextTab)) {
+    const captureState = options.captureState !== false;
+    const persistState = options.persistState !== false;
+    if (captureState) {
+      captureApToolbarState(activeApTab);
+    }
+    activeApTab = nextTab;
+    syncApSummaryCards(nextTab);
+    if (persistState) {
+      saveApUiState();
+      syncApTabUrl(nextTab);
+    }
+    if (typeof switchProcTab === 'function') {
+      switchProcTab(nextTab, btn || document.querySelector(`.ap-workspace-tab[data-proc-tab="${nextTab}"]`));
+    } else {
+      document.querySelectorAll('.ap-workspace-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.ap-workspace-section').forEach(s => s.classList.remove('active'));
+      const tabButton = btn || document.querySelector(`.ap-workspace-tab[data-proc-tab="${nextTab}"]`);
+      if (tabButton) tabButton.classList.add('active');
+      document.getElementById(nextTab)?.classList.add('active');
+      renderApToolbarControls('');
+    }
+    return;
+  }
+
+  switchTab(nextTab, btn, options);
+}
+
+function syncApTabUrl(tab) {
+  if (!window.history?.replaceState) return;
+  const nextTab = normalizeApWorkspaceTab(tab);
+  const url = new URL(window.location.href);
+  url.pathname = isProcurementWorkspacePage() ? '/procurement' : '/accounts-payable';
+  url.searchParams.set('tab', nextTab);
+  window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+  if (typeof syncSidebarActiveLinks === 'function') {
+    syncSidebarActiveLinks();
+  }
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // VENDORS
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 function loadVendors() {
-  fetch('/api/vendors').then(r => r.json()).then(data => {
-    vendorsDb = data;
-    renderVendors();
-    updateVendorSelects();
-  }).catch(e => console.error('Error:', e));
-}
-
-function renderVendors() {
-  filterVendors();
-}
-
-function filterVendors() {
-  const q = String(document.getElementById('vendor-search')?.value || '').toLowerCase().trim();
-  const tbody = document.getElementById('vendors-tbody');
-  const filtered = vendorsDb.filter(v =>
-    (v.vendor_name + ' ' + (v.contact_person || '-')).toLowerCase().includes(q)
-  );
-  tbody.innerHTML = filtered.length ? filtered.map(v => `
-    <tr>
-      <td style="font-weight:600">${highlightText(v.vendor_name, q)}</td>
-      <td>${highlightText(v.contact_person || '-', q)}</td>
-      <td>${highlightText(v.email || '-', q)}</td>
-      <td>${highlightText(v.phone || '-', q)}</td>
-      <td>PHP 0.00</td>
-      <td><button class="btn btn-edit btn-sm" onclick="editVendor(${v.id})">Edit</button></td>
-    </tr>
-  `).join('') : '<tr class="empty-row"><td colspan="6">No vendors match search</td></tr>';
-}
-
-function openVendorModal() {
-  ['vendor-name', 'contact-person', 'vendor-email', 'vendor-phone', 'vendor-address', 'vendor-tin'].forEach(id => {
-    document.getElementById('f-' + id).value = '';
-  });
-  document.getElementById('vendor-modal-backdrop').classList.add('open');
-}
-
-function closeVendorModal() {
-  document.getElementById('vendor-modal-backdrop').classList.remove('open');
-}
-
-function saveVendor() {
-  const vendorName = document.getElementById('f-vendor-name').value.trim();
-  if (!vendorName) {
-    alert('Vendor name is required');
-    return;
-  }
-  const payload = {
-    vendor_name: vendorName,
-    contact_person: document.getElementById('f-contact-person').value.trim(),
-    email: document.getElementById('f-vendor-email').value.trim(),
-    phone: document.getElementById('f-vendor-phone').value.trim(),
-    address: document.getElementById('f-vendor-address').value.trim(),
-    tin: document.getElementById('f-vendor-tin').value.trim()
-  };
-  fetch('/api/vendors', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(payload)
-  }).then(r => r.json()).then(() => {
-    closeVendorModal();
-    loadVendors();
-    alert('Vendor saved successfully');
-  }).catch(e => alert('Error: ' + e.message));
-}
-
-function editVendor(id) {
-  alert('Edit vendor coming soon');
+  return fetch('/api/vendors')
+    .then(async (r) => {
+      const data = await r.json().catch(() => []);
+      if (!r.ok) {
+        throw new Error(data.error || 'Unable to load vendors.');
+      }
+      return data;
+    })
+    .then((data) => {
+      vendorsDb = Array.isArray(data) ? data : [];
+      updateVendorSelects();
+      syncBillVendorSearchResults();
+      renderBills();
+      renderPayments();
+      updateMetrics();
+    })
+    .catch((e) => {
+      console.error('Error:', e);
+      vendorsDb = [];
+      updateVendorSelects();
+      syncBillVendorSearchResults();
+      renderBills();
+      renderPayments();
+      updateMetrics();
+    });
 }
 
 function updateVendorSelects() {
-  document.getElementById('f-bill-vendor').innerHTML = '<option value="">Select vendor</option>' +
-    vendorsDb.map(v => `<option value="${v.id}">${escHtml(v.vendor_name)}</option>`).join('');
+  const hiddenInput = document.getElementById('f-bill-vendor');
+  const searchInput = document.getElementById('f-bill-vendor-search');
+  if (!hiddenInput || !searchInput) return;
+
+  const selectedVendor = vendorsDb.find((vendor) => String(vendor.id) === String(hiddenInput.value || ''));
+  if (selectedVendor) {
+    searchInput.value = selectedVendor.vendor_name || '';
+    hiddenInput.value = String(selectedVendor.id);
+  } else if (!searchInput.value.trim()) {
+    hiddenInput.value = '';
+  }
+}
+
+function initBillVendorSearch() {
+  const input = document.getElementById('f-bill-vendor-search');
+  const results = document.getElementById('f-bill-vendor-results');
+  if (!input || !results || billVendorSearchBound) return;
+
+  billVendorSearchBound = true;
+
+  input.addEventListener('input', handleBillVendorSearch);
+  input.addEventListener('focus', (event) => handleBillVendorSearch(event, true));
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      hideBillVendorResults();
+    }
+  });
+
+  results.addEventListener('click', (event) => {
+    const item = event.target.closest('.search-result-item');
+    if (!item || item.classList.contains('search-result-empty')) return;
+    selectBillVendor(item.dataset.id, item.dataset.label || '');
+  });
+
+  document.addEventListener('click', (event) => {
+    if (!event.target.closest('.bill-vendor-search')) {
+      hideBillVendorResults();
+    }
+  });
+}
+
+function handleBillVendorSearch(event, showAll = false) {
+  const input = event?.target || document.getElementById('f-bill-vendor-search');
+  const hiddenInput = document.getElementById('f-bill-vendor');
+  if (!input || !hiddenInput) return;
+
+  if (event?.type === 'input') {
+    hiddenInput.value = '';
+  }
+  const hasQuery = String(input.value || '').trim().length > 0;
+  renderBillVendorSearchResults(String(input.value || ''), showAll || !hasQuery);
+}
+
+function renderBillVendorSearchResults(query = '', showAll = false) {
+  const input = document.getElementById('f-bill-vendor-search');
+  const results = document.getElementById('f-bill-vendor-results');
+  if (!input || !results) return;
+
+  const q = String(query || input.value || '').trim().toLowerCase();
+  const filtered = vendorsDb.filter((vendor) => {
+    if (!q) return showAll;
+    return [
+      vendor.vendor_name,
+      vendor.contact_person,
+      vendor.email,
+      vendor.phone,
+      vendor.address,
+      vendor.tin
+    ].join(' ').toLowerCase().includes(q);
+  });
+
+  if (!filtered.length) {
+    results.innerHTML = '<div class="search-result-item search-result-empty">No vendors found</div>';
+    results.style.display = 'block';
+    return;
+  }
+
+  results.innerHTML = filtered.slice(0, 8).map((vendor) => {
+    const label = vendor.vendor_name || 'Vendor';
+    const contact = vendor.contact_person || 'No contact';
+    const email = vendor.email ? ` • ${highlightText(vendor.email, q)}` : '';
+    return `
+      <div class="search-result-item" data-id="${escHtml(vendor.id)}" data-label="${escHtml(label)}">
+        <div class="search-result-name">${highlightText(label, q)}</div>
+        <div class="search-result-sub">${highlightText(contact, q)}${email}</div>
+      </div>
+    `;
+  }).join('');
+  results.style.display = 'block';
+}
+
+function syncBillVendorSearchResults() {
+  const input = document.getElementById('f-bill-vendor-search');
+  if (!input) return;
+  if (input.value.trim()) {
+    renderBillVendorSearchResults(input.value, true);
+  } else {
+    hideBillVendorResults();
+  }
+}
+
+function selectBillVendor(id, label) {
+  const hiddenInput = document.getElementById('f-bill-vendor');
+  const input = document.getElementById('f-bill-vendor-search');
+  if (!hiddenInput || !input) return;
+
+  hiddenInput.value = String(id || '');
+  input.value = label || '';
+  hideBillVendorResults();
+}
+
+function hideBillVendorResults() {
+  const results = document.getElementById('f-bill-vendor-results');
+  if (!results) return;
+  results.style.display = 'none';
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // BILLS
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 function loadBills() {
-  fetch('/api/bills')
+  return fetch('/api/bills')
     .then(async (r) => {
       const data = await r.json().catch(() => ({}));
       if (!r.ok) {
@@ -208,6 +724,154 @@ function loadBills() {
       updateBillSelects();
       updateMetrics();
     });
+}
+
+function loadProjectsForBills() {
+  return fetch('/api/projects')
+    .then(async (r) => {
+      const data = await r.json().catch(() => []);
+      if (!r.ok) {
+        throw new Error(data.error || 'Unable to load projects.');
+      }
+      return data;
+    })
+    .then((data) => {
+      projectsDb = Array.isArray(data) ? data : [];
+      updateBillProjectSelect();
+      renderBills();
+    })
+    .catch((e) => {
+      console.error('Error:', e);
+      projectsDb = [];
+      updateBillProjectSelect();
+      renderBills();
+    });
+}
+
+function loadPurchaseOrdersForBills() {
+  return fetch('/api/procurement/purchase-orders')
+    .then(async (r) => {
+      const data = await r.json().catch(() => []);
+      if (!r.ok) {
+        throw new Error(data.error || 'Unable to load purchase orders.');
+      }
+      return data;
+    })
+    .then((data) => {
+      purchaseOrdersDb = Array.isArray(data) ? data : [];
+      updateBillPurchaseOrderSelect();
+    })
+    .catch((e) => {
+      console.error('Error:', e);
+      purchaseOrdersDb = [];
+      updateBillPurchaseOrderSelect();
+    });
+}
+
+function updateBillPurchaseOrderSelect() {
+  const select = document.getElementById('f-bill-po');
+  if (!select) return;
+
+  const current = String(select.value || '').trim();
+  const options = purchaseOrdersDb.map((po) => {
+    const label = [
+      po.po_number || `PO #${po.id}`,
+      po.vendor_name,
+      po.project_docno || po.project_name
+    ].map((value) => String(value || '').trim()).filter(Boolean).join(' - ');
+    return `<option value="${escHtml(po.id)}">${escHtml(label)}</option>`;
+  }).join('');
+
+  select.innerHTML = `<option value="">No linked PO</option>${options}`;
+  if (current) select.value = current;
+}
+
+function getBillPurchaseOrderById(poId) {
+  const id = Number(poId || 0) || 0;
+  if (!id) return null;
+  return purchaseOrdersDb.find((po) => Number(po.id || 0) === id) || null;
+}
+
+function selectBillVendorById(vendorId) {
+  const vendor = vendorsDb.find((entry) => Number(entry.id || 0) === Number(vendorId || 0));
+  if (!vendor) return;
+  const hiddenInput = document.getElementById('f-bill-vendor');
+  const input = document.getElementById('f-bill-vendor-search');
+  if (hiddenInput) hiddenInput.value = String(vendor.id);
+  if (input) input.value = vendor.vendor_name || '';
+}
+
+function syncBillFromPurchaseOrder() {
+  const po = getBillPurchaseOrderById(document.getElementById('f-bill-po')?.value || 0);
+  if (!po) return;
+
+  renderBillBusinessEntityOptions(po.business_entity_id || '');
+  selectBillVendorById(po.vendor_id);
+
+  const projectSelect = document.getElementById('f-bill-project');
+  if (projectSelect && Number(po.project_id || 0) > 0) {
+    projectSelect.value = String(po.project_id);
+  }
+
+  const amountInput = document.getElementById('f-bill-amount');
+  if (amountInput && !String(amountInput.value || '').trim()) {
+    amountInput.value = Number(po.computed_total || po.total_amount || 0) || '';
+  }
+
+  const billNumberInput = document.getElementById('f-bill-number');
+  if (billNumberInput && !String(billNumberInput.value || '').trim()) {
+    void loadBillNumberPreview();
+  }
+}
+
+function getBillProjectLabel(bill) {
+  const project = projectsDb.find((row) => Number(row.id || 0) === Number(bill?.project_id || 0));
+  const projectDocno = String(bill?.project_docno || project?.project_docno || project?.source_docno || '').trim();
+  const projectName = String(bill?.project_name || project?.project_name || '').trim();
+  return [projectDocno, projectName].filter(Boolean).join(' - ') || '-';
+}
+
+function normalizeApprovalStatus(value) {
+  const status = String(value || 'approved').trim().toLowerCase();
+  return status === 'pending' ? 'pending' : 'approved';
+}
+
+function canApproveApRecords() {
+  if (typeof isAdminUser === 'function') return Boolean(isAdminUser());
+  const user = typeof currentUser !== 'undefined' ? currentUser : window.currentUser;
+  const role = String(user?.role || '').trim().toLowerCase();
+  return role === 'super_admin' || role === 'admin';
+}
+
+function getApprovalUiStatus(row) {
+  const status = normalizeApprovalStatus(row?.approval_status);
+  if (status === 'pending') {
+    return { key: 'pending', label: 'Pending Approval', className: 'status-pending' };
+  }
+  return { key: 'approved', label: 'Approved', className: 'status-paid' };
+}
+
+function renderApprovalPill(row) {
+  const status = getApprovalUiStatus(row);
+  return `<span class="status-pill ${status.className}">${status.label}</span>`;
+}
+
+function updateBillProjectSelect() {
+  const select = document.getElementById('f-bill-project');
+  if (!select) return;
+
+  const options = projectsDb
+    .filter((project) => businessEntityMatches(project))
+    .map((project) => {
+      const label = [
+        project.project_docno || project.source_docno || `Project #${project.id}`,
+        project.project_name
+      ].map((value) => String(value || '').trim()).filter(Boolean).join(' - ');
+      return `<option value="${escHtml(project.id)}">${escHtml(label)}</option>`;
+    })
+    .join('');
+
+  select.innerHTML = `<option value="">No linked project</option>${options}`;
 }
 
 function getPayableUiStatus(bill) {
@@ -232,32 +896,36 @@ function renderBills() {
 }
 
 function filterBills() {
-  const q = String(document.getElementById('bills-search')?.value || '').toLowerCase().trim();
-  const filter = document.getElementById('bills-filter')?.value || '';
+  const searchInput = document.getElementById('bills-search');
+  const rawSearch = String(searchInput?.value || '');
+  const q = rawSearch.toLowerCase().trim();
+  if (searchInput) {
+    apToolbarState.bills.search = rawSearch;
+    saveApUiState();
+  }
   const tbody = document.getElementById('bills-tbody');
-  let filtered = billsDb.filter(b => {
+  let filtered = billsDb.filter(b => businessEntityMatches(b)).filter(b => {
     const vendorName = vendorsDb.find(v => v.id === b.vendor_id)?.vendor_name || '-';
-    const haystack = [b.bill_number, vendorName, getPayableUiStatus(b).label, b.status, b.invoice_number].join(' ').toLowerCase();
+    const projectLabel = getBillProjectLabel(b);
+    const haystack = [b.bill_number, vendorName, projectLabel, getPayableUiStatus(b).label, getApprovalUiStatus(b).label, b.status, b.invoice_number, b.due_date].join(' ').toLowerCase();
     return !q || haystack.includes(q);
-  });
-  if (filter) filtered = filtered.filter(b => {
-    const uiStatus = getPayableUiStatus(b).key;
-    if (filter === 'pending') return uiStatus === 'unpaid';
-    if (filter === 'partially_paid') return uiStatus === 'partial';
-    if (filter === 'paid') return uiStatus === 'paid';
-    return true;
   });
   tbody.innerHTML = filtered.length ? filtered.map(b => {
     const balance = b.total_amount - (b.paid_amount || 0);
     const isOverdue = new Date(b.due_date) < new Date() && balance > 0;
     const status = getPayableUiStatus(b);
+    const approval = getApprovalUiStatus(b);
     const pdfButton = b.pdfFilename
       ? `<button class="btn btn-pdf btn-sm" type="button" onclick="openBillPdfViewer(${b.id})">View PDF</button>`
       : '<span class="pdf-empty">N/A</span>';
+    const approveButton = canApproveApRecords() && approval.key === 'pending'
+      ? `<button class="btn btn-save btn-sm" type="button" onclick="approveBill(${b.id})">Approve</button>`
+      : '';
     return `
       <tr>
         <td style="font-weight:600;color:var(--primary)">${escHtml(b.bill_number)}</td>
         <td>${escHtml(vendorsDb.find(v => v.id === b.vendor_id)?.vendor_name || '-')}</td>
+        <td>${escHtml(getBillProjectLabel(b))}${renderArchivedProjectBadge(b)}</td>
         <td>${formatDate(b.bill_date)}</td>
         <td>${formatDate(b.due_date)}</td>
         <td>PHP ${(b.total_amount).toLocaleString('en-PH', {minimumFractionDigits: 2})}</td>
@@ -267,80 +935,230 @@ function filterBills() {
           <span class="status-pill ${status.className}">${status.label}</span>
           ${isOverdue && status.key !== 'paid' ? '<div style="margin-top:4px;font-size:0.68rem;color:var(--danger);font-weight:600;">Overdue</div>' : ''}
         </td>
+        <td>${renderApprovalPill(b)}</td>
         <td style="display:flex; gap:6px; flex-wrap:wrap;">
           ${pdfButton}
           <button class="btn btn-edit btn-sm" type="button" onclick="editBill(${b.id})">Edit</button>
+          ${approveButton}
         </td>
       </tr>
     `;
-  }).join('') : '<tr class="empty-row"><td colspan="9">No bills found</td></tr>';
+  }).join('') : '<tr class="empty-row"><td colspan="11">No bills found</td></tr>';
 }
 
-function openBillModal() {
+function toDateInputValue(value) {
+  if (!value) return '';
+  const raw = String(value || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toISOString().slice(0, 10);
+}
+
+function setBillModalMode(isEdit) {
+  const title = document.querySelector('#bill-modal-backdrop .modal-header h3');
+  const saveBtn = document.querySelector('#bill-modal-backdrop .modal-footer .btn-primary');
+  if (title) title.textContent = isEdit ? 'Edit Bill' : 'New Bill';
+  if (saveBtn) saveBtn.textContent = isEdit ? 'Update Bill' : 'Save Bill';
+}
+
+async function loadBillNumberPreview() {
+  const input = document.getElementById('f-bill-number');
+  if (!input) return '';
+  input.value = '';
+  try {
+    const params = new URLSearchParams();
+    const businessEntityId = getCurrentBusinessEntityId() || getDefaultBillBusinessEntityId() || '';
+    if (businessEntityId) params.set('business_entity_id', businessEntityId);
+    const response = await fetch(`/api/bills/next-number?${params.toString()}`, {
+      credentials: 'same-origin',
+      cache: 'no-store'
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Unable to generate bill number.');
+    const billNumber = String(data.bill_number || '').trim();
+    if (billNumber && !input.value) input.value = billNumber;
+    return billNumber;
+  } catch (_) {
+    input.value = '';
+    return '';
+  }
+}
+
+function openBillModal(id = null) {
+  editingBillId = Number(id || 0) || null;
+  removeExistingBillPdf = false;
+  const bill = editingBillId
+    ? billsDb.find((entry) => Number(entry.id || 0) === editingBillId)
+    : null;
+  if (editingBillId && !bill) {
+    editingBillId = null;
+    showToast('Bill record not found.', 'error');
+    return;
+  }
+  setBillModalMode(Boolean(bill));
   document.getElementById('f-bill-number').value = '';
   document.getElementById('f-bill-date').valueAsDate = new Date();
   document.getElementById('f-bill-due-date').valueAsDate = new Date(Date.now() + 30*24*60*60*1000);
+  document.getElementById('f-bill-vendor').value = '';
+  document.getElementById('f-bill-vendor-search').value = '';
+  if (document.getElementById('f-bill-po')) document.getElementById('f-bill-po').value = '';
+  renderBillBusinessEntityOptions();
+  document.getElementById('f-bill-project').value = '';
   document.getElementById('f-bill-amount').value = '';
   document.getElementById('f-bill-notes').value = '';
-  removeBillPdf(false);
+  removeBillPdf(true, false);
+  if (bill) {
+    const vendor = vendorsDb.find((entry) => Number(entry.id || 0) === Number(bill.vendor_id || 0));
+    document.getElementById('f-bill-number').value = bill.bill_number || '';
+    document.getElementById('f-bill-date').value = toDateInputValue(bill.bill_date);
+    document.getElementById('f-bill-due-date').value = toDateInputValue(bill.due_date);
+    document.getElementById('f-bill-vendor').value = bill.vendor_id || '';
+    renderBillBusinessEntityOptions(bill.business_entity_id || '');
+    document.getElementById('f-bill-vendor-search').value = vendor?.vendor_name || bill.vendor_name || '';
+    if (document.getElementById('f-bill-po')) document.getElementById('f-bill-po').value = bill.po_id || '';
+    document.getElementById('f-bill-project').value = bill.project_id || '';
+    document.getElementById('f-bill-amount').value = bill.total_amount || '';
+    document.getElementById('f-bill-notes').value = bill.notes || '';
+    if (bill.pdfFilename) {
+      document.getElementById('bill-pdf-name').textContent = bill.pdfFilename;
+      document.getElementById('bill-pdf-preview').style.display = 'flex';
+      document.getElementById('bill-upload-zone').style.display = 'none';
+    }
+  } else {
+    void loadBillNumberPreview();
+  }
   document.getElementById('bill-modal-backdrop').classList.add('open');
+  hideBillVendorResults();
+  setTimeout(() => document.getElementById('f-bill-vendor-search')?.focus(), 0);
 }
 
 function closeBillModal() {
+  hideBillVendorResults();
   document.getElementById('bill-modal-backdrop').classList.remove('open');
+  editingBillId = null;
+  removeExistingBillPdf = false;
+  setBillModalMode(false);
 }
 
-function saveBill() {
-  const vendorId = document.getElementById('f-bill-vendor').value;
+async function saveBill() {
+  const vendorId = resolveBillVendorSelection();
   const billNumber = document.getElementById('f-bill-number').value.trim();
   const totalAmount = parseFloat(document.getElementById('f-bill-amount').value);
+
+  if (!billNumber) {
+    showToast('Bill Number is required.', 'error');
+    document.getElementById('f-bill-number')?.focus();
+    return;
+  }
   
-  if (!vendorId || !billNumber || !totalAmount) {
-    alert('Vendor, Bill Number, and Total Amount are required');
+  if (!vendorId) {
+    showToast('Vendor is required.', 'error');
+    document.getElementById('f-bill-vendor-search')?.focus();
+    return;
+  }
+
+  if (!totalAmount) {
+    showToast('Total Amount is required.', 'error');
     return;
   }
   
   const formData = new FormData();
   formData.append('vendor_id', vendorId);
+  const businessEntityId = getCurrentBusinessEntityId() || getDefaultBillBusinessEntityId() || '';
+  const businessEntitySelect = document.getElementById('f-bill-business-entity');
+  if (businessEntitySelect) businessEntitySelect.value = businessEntityId;
+  formData.append('business_entity_id', businessEntityId);
   formData.append('bill_number', billNumber);
   formData.append('bill_date', document.getElementById('f-bill-date').value);
   formData.append('due_date', document.getElementById('f-bill-due-date').value);
+  formData.append('po_id', document.getElementById('f-bill-po')?.value || '');
+  formData.append('project_id', document.getElementById('f-bill-project').value || '');
   formData.append('total_amount', totalAmount);
   formData.append('notes', document.getElementById('f-bill-notes').value.trim());
   if (stagedBillPdf instanceof File) {
     formData.append('pdf_file', stagedBillPdf);
   }
+  if (removeExistingBillPdf) {
+    formData.append('remove_pdf', '1');
+  }
 
-  fetch('/api/bills', {
-    method: 'POST',
-    body: formData
-  }).then(async r => {
+  const isEdit = Boolean(editingBillId);
+  try {
+    const r = await fetch(isEdit ? `/api/bills/${editingBillId}` : '/api/bills', {
+      method: isEdit ? 'PUT' : 'POST',
+      body: formData
+    });
     const data = await r.json().catch(() => ({}));
     if (!r.ok) {
       throw new Error(data.error || 'Unable to save bill.');
     }
-    return data;
-  }).then(() => {
     closeBillModal();
-    loadBills();
-    alert('Bill saved successfully');
-  }).catch(e => alert('Error: ' + e.message));
+    await loadBills();
+    showToast(isEdit ? 'Bill updated and sent for approval.' : 'Bill submitted for approval.', 'success');
+  } catch (e) {
+    showToast(e.message || 'Unable to save bill.', 'error');
+  }
+}
+
+async function approveBill(id) {
+  const bill = billsDb.find((entry) => Number(entry.id || 0) === Number(id || 0));
+  const confirmed = await openConfirmDialog({
+    title: 'Approve AP Bill?',
+    message: `Approve ${bill?.bill_number || 'this bill'} so it can be paid?`,
+    noText: 'Cancel',
+    yesText: 'Approve'
+  });
+  if (!confirmed) return;
+
+  try {
+    const response = await fetch(`/api/bills/${id}/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Unable to approve bill.');
+    await loadBills();
+    showToast('AP bill approved.', 'success');
+  } catch (err) {
+    showToast(err.message || 'Unable to approve bill.', 'error');
+  }
+}
+
+function resolveBillVendorSelection() {
+  const hiddenInput = document.getElementById('f-bill-vendor');
+  const input = document.getElementById('f-bill-vendor-search');
+  const selectedId = String(hiddenInput?.value || '').trim();
+  if (selectedId) return selectedId;
+
+  const typedValue = String(input?.value || '').trim().toLowerCase();
+  if (!typedValue) return '';
+
+  const exactMatch = vendorsDb.find((vendor) => String(vendor.vendor_name || '').trim().toLowerCase() === typedValue);
+  if (exactMatch) {
+    if (hiddenInput) hiddenInput.value = String(exactMatch.id);
+    if (input) input.value = exactMatch.vendor_name || '';
+    return String(exactMatch.id);
+  }
+
+  return '';
 }
 
 function editBill(id) {
-  alert('Edit bill coming soon');
+  openBillModal(id);
 }
 
 function handleBillPdfChosen(event) {
   const file = event.target.files && event.target.files[0];
   if (!file) return;
   if (file.type !== 'application/pdf' && !String(file.name || '').toLowerCase().endsWith('.pdf')) {
-    alert('Please select a PDF file only.');
+    showToast('Please select a PDF file only.', 'error');
     event.target.value = '';
     return;
   }
 
   stagedBillPdf = file;
+  removeExistingBillPdf = false;
   document.getElementById('bill-pdf-name').textContent = file.name;
   document.getElementById('bill-pdf-preview').style.display = 'flex';
   document.getElementById('bill-upload-zone').style.display = 'none';
@@ -354,7 +1172,7 @@ function handleBillPdfDrop(event) {
   const file = event.dataTransfer.files && event.dataTransfer.files[0];
   if (!file) return;
   if (file.type !== 'application/pdf' && !String(file.name || '').toLowerCase().endsWith('.pdf')) {
-    alert('Please drop a PDF file only.');
+    showToast('Please drop a PDF file only.', 'error');
     return;
   }
 
@@ -368,7 +1186,10 @@ function handleBillPdfDrop(event) {
   handleBillPdfChosen({ target: { files: [file] } });
 }
 
-function removeBillPdf(resetInput = true) {
+function removeBillPdf(resetInput = true, markExistingRemoval = true) {
+  if (editingBillId && markExistingRemoval) {
+    removeExistingBillPdf = true;
+  }
   stagedBillPdf = null;
   document.getElementById('bill-pdf-preview').style.display = 'none';
   document.getElementById('bill-upload-zone').style.display = 'block';
@@ -381,7 +1202,7 @@ function removeBillPdf(resetInput = true) {
 function openBillPdfViewer(id) {
   const bill = billsDb.find(b => b.id === id);
   if (!bill || !bill.pdfFilename) {
-    alert('No PDF attached');
+    showToast('No PDF attached.', 'error');
     return;
   }
 
@@ -408,35 +1229,182 @@ function closeBillPdfViewer() {
 
 function updateBillSelects() {
   document.getElementById('f-payment-bill').innerHTML = '<option value="">Select bill to pay</option>' +
-    billsDb.filter(b => (b.total_amount - (b.paid_amount || 0)) > 0).map(b => 
+    billsDb.filter(b => normalizeApprovalStatus(b.approval_status) === 'approved' && (b.total_amount - (b.paid_amount || 0)) > 0).map(b => 
       `<option value="${b.id}">${escHtml(b.bill_number)} - PHP ${(b.total_amount - (b.paid_amount || 0)).toLocaleString('en-PH', {minimumFractionDigits: 2})}</option>`
     ).join('');
 }
 
+function syncPaymentFromBill() {
+  const billId = Number(document.getElementById('f-payment-bill')?.value || 0) || 0;
+  const bill = billsDb.find((entry) => Number(entry.id || 0) === billId);
+  if (!bill) return;
+
+  const amountInput = document.getElementById('f-payment-amount');
+  if (amountInput) {
+    const balance = Math.max(0, Number(bill.total_amount || 0) - Number(bill.paid_amount || 0));
+    amountInput.value = balance ? String(balance.toFixed(2)) : '';
+  }
+}
+
 function updateMetrics() {
-  const totalPayable = billsDb.reduce((sum, b) => sum + Math.max(0, b.total_amount - (b.paid_amount || 0)), 0);
-  document.getElementById('metric-total-payable').textContent = 'PHP ' + totalPayable.toLocaleString('en-PH', {minimumFractionDigits: 2});
-  document.getElementById('metric-vendors-count').textContent = vendorsDb.length;
-  document.getElementById('metric-open-bills').textContent = billsDb.filter(b => Math.max(0, b.total_amount - (b.paid_amount || 0)) > 0).length;
+  const visibleBills = billsDb.filter(b => businessEntityMatches(b));
+  const totalPayable = visibleBills.reduce((sum, b) => sum + getBillBalance(b), 0);
+  const paidBills = visibleBills.filter((b) => getBillBalance(b) <= 0).length;
+  setMetricText('metric-total-payable', formatApMoney(totalPayable));
+  setMetricText('metric-vendors-count', vendorsDb.length);
+  setMetricText('metric-open-bills', visibleBills.filter(b => getBillBalance(b) > 0).length);
+  setMetricText('metric-paid-bills', paidBills);
   
-  const overdueBills = billsDb.filter(b => {
-    const balance = b.total_amount - (b.paid_amount || 0);
+  const overdueBills = visibleBills.filter(b => {
+    const balance = getBillBalance(b);
     return balance > 0 && new Date(b.due_date) < new Date();
   });
-  document.getElementById('metric-overdue-count').textContent = overdueBills.length;
+  const overdueCountEl = document.getElementById('metric-overdue-count');
+  if (overdueCountEl) overdueCountEl.textContent = overdueBills.length;
   
-  const overdueAmount = overdueBills.reduce((sum, b) => sum + (b.total_amount - (b.paid_amount || 0)), 0);
-  document.getElementById('metric-overdue-amount').textContent = 'PHP ' + overdueAmount.toLocaleString('en-PH', {minimumFractionDigits: 2});
+  const overdueAmount = overdueBills.reduce((sum, b) => sum + getBillBalance(b), 0);
+  setMetricText('metric-overdue-amount', formatApMoney(overdueAmount));
+  setMetricText('metric-bills-total-count', visibleBills.length);
+  updateVendorBalanceMetrics(visibleBills);
+  updateApAgingMetrics(visibleBills);
+  updatePaymentMetrics();
+  renderVendorBalances();
+  renderApAging();
+  renderDisbursements();
+}
+
+function getBillBalance(bill) {
+  return Math.max(0, Number(bill?.total_amount || 0) - Number(bill?.paid_amount || 0));
+}
+
+function getBillVendorName(bill) {
+  return vendorsDb.find(v => Number(v.id || 0) === Number(bill?.vendor_id || 0))?.vendor_name || 'Unassigned Vendor';
+}
+
+function getVisiblePayments() {
+  return (Array.isArray(paymentsDb) ? paymentsDb : []).filter((payment) => {
+    const bill = billsDb.find((b) => Number(b.id || 0) === Number(payment.ap_id || 0));
+    return businessEntityMatches(bill || payment);
+  });
+}
+
+function getVendorBalanceRows(visibleBills = billsDb.filter(b => businessEntityMatches(b))) {
+  const grouped = new Map();
+  visibleBills.forEach((bill) => {
+    const vendorId = String(bill.vendor_id || 'unassigned');
+    const row = grouped.get(vendorId) || {
+      vendor_id: vendorId,
+      vendor_name: getBillVendorName(bill),
+      bill_count: 0,
+      open_bills: 0,
+      total_amount: 0,
+      paid_amount: 0,
+      balance: 0,
+      overdue: 0
+    };
+    const balance = getBillBalance(bill);
+    row.bill_count += 1;
+    row.open_bills += balance > 0 ? 1 : 0;
+    row.total_amount += Number(bill.total_amount || 0);
+    row.paid_amount += Number(bill.paid_amount || 0);
+    row.balance += balance;
+    row.overdue += balance > 0 && new Date(bill.due_date) < new Date() ? balance : 0;
+    grouped.set(vendorId, row);
+  });
+  return Array.from(grouped.values()).sort((a, b) => b.balance - a.balance);
+}
+
+function updateVendorBalanceMetrics(visibleBills) {
+  const rows = getVendorBalanceRows(visibleBills);
+  setMetricText('metric-vb-vendors', rows.length);
+  setMetricText('metric-vb-open-vendors', rows.filter(row => row.balance > 0).length);
+  setMetricText('metric-vb-total-balance', formatApMoney(rows.reduce((sum, row) => sum + row.balance, 0)));
+  setMetricText('metric-vb-overdue-vendors', rows.filter(row => row.overdue > 0).length);
+  setMetricText('metric-vb-top-balance', formatApMoney(rows[0]?.balance || 0));
+}
+
+function getAgingBuckets(visibleBills = billsDb.filter(b => businessEntityMatches(b))) {
+  const buckets = { current: 0, d30: 0, d60: 0, d90: 0, over90: 0 };
+  const today = new Date();
+  visibleBills.forEach((bill) => {
+    const balance = getBillBalance(bill);
+    if (balance <= 0) return;
+    const dueDate = new Date(bill.due_date);
+    if (Number.isNaN(dueDate.getTime()) || dueDate >= today) {
+      buckets.current += balance;
+      return;
+    }
+    const days = Math.floor((today - dueDate) / (24 * 60 * 60 * 1000));
+    if (days <= 30) buckets.d30 += balance;
+    else if (days <= 60) buckets.d60 += balance;
+    else if (days <= 90) buckets.d90 += balance;
+    else buckets.over90 += balance;
+  });
+  return buckets;
+}
+
+function getBillAgingBucket(bill) {
+  const balance = getBillBalance(bill);
+  const empty = { current: 0, d30: 0, d60: 0, d90: 0, over90: 0 };
+  if (balance <= 0) return empty;
+  const dueDate = new Date(bill?.due_date);
+  const today = new Date();
+  if (Number.isNaN(dueDate.getTime()) || dueDate >= today) {
+    empty.current = balance;
+    return empty;
+  }
+  const days = Math.floor((today - dueDate) / (24 * 60 * 60 * 1000));
+  if (days <= 30) empty.d30 = balance;
+  else if (days <= 60) empty.d60 = balance;
+  else if (days <= 90) empty.d90 = balance;
+  else empty.over90 = balance;
+  return empty;
+}
+
+function updateApAgingMetrics(visibleBills) {
+  const buckets = getAgingBuckets(visibleBills);
+  setMetricText('metric-aging-current', formatApMoney(buckets.current));
+  setMetricText('metric-aging-30', formatApMoney(buckets.d30));
+  setMetricText('metric-aging-60', formatApMoney(buckets.d60));
+  setMetricText('metric-aging-90', formatApMoney(buckets.d90));
+  setMetricText('metric-aging-over-90', formatApMoney(buckets.over90));
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 // PAYMENTS
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 function loadPayments() {
-  fetch('/api/payments?type=ap').then(r => r.json()).then(data => {
-    paymentsDb = data;
+  return fetch('/api/payments?type=ap').then(r => r.json()).then(data => {
+    paymentsDb = Array.isArray(data) ? data : [];
     renderPayments();
-  }).catch(e => console.error('Error:', e));
+    updateMetrics();
+  }).catch((e) => {
+    console.error('Error:', e);
+    paymentsDb = [];
+    renderPayments();
+    updateMetrics();
+  });
+}
+
+function updatePaymentMetrics() {
+  const payments = getVisiblePayments();
+  const approvedPayments = payments.filter((payment) => normalizeApprovalStatus(payment.approval_status) === 'approved');
+  const totalPaid = approvedPayments.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+  const paidThisMonth = approvedPayments
+    .filter((payment) => isInCurrentMonth(payment.payment_date))
+    .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+  const methods = new Set(approvedPayments.map((payment) => String(payment.payment_method || '').trim()).filter(Boolean));
+
+  setMetricText('metric-payment-count', payments.length);
+  setMetricText('metric-payment-total', formatApMoney(totalPaid));
+  setMetricText('metric-payment-this-month', formatApMoney(paidThisMonth));
+  setMetricText('metric-payment-methods', methods.size);
+  setMetricText('metric-payment-linked-bills', new Set(approvedPayments.map(payment => Number(payment.ap_id || 0)).filter(Boolean)).size);
+  setMetricText('metric-disbursement-count', approvedPayments.length);
+  setMetricText('metric-disbursement-total', formatApMoney(totalPaid));
+  setMetricText('metric-disbursement-this-month', formatApMoney(paidThisMonth));
+  setMetricText('metric-disbursement-methods', methods.size);
+  setMetricText('metric-disbursement-linked-bills', new Set(approvedPayments.map(payment => Number(payment.ap_id || 0)).filter(Boolean)).size);
 }
 
 function renderPayments() {
@@ -444,24 +1412,138 @@ function renderPayments() {
 }
 
 function filterPayments() {
-  const methodFilter = document.getElementById('payment-method-filter')?.value || '';
+  const searchInput = document.getElementById('payments-search');
+  const rawSearch = String(searchInput?.value || '');
+  const q = rawSearch.toLowerCase().trim();
+  if (searchInput) {
+    apToolbarState.payments.search = rawSearch;
+    saveApUiState();
+  }
   const tbody = document.getElementById('payments-tbody');
-  const filtered = paymentsDb.filter(p => !methodFilter || String(p.payment_method || '').toLowerCase() === methodFilter);
-  tbody.innerHTML = filtered.length ? filtered.map(p => `
+  const filtered = paymentsDb.filter((p) => {
+    const bill = billsDb.find((b) => Number(b.id || 0) === Number(p.ap_id || 0));
+    if (!businessEntityMatches(bill || p)) return false;
+    if (!q) return true;
+    const vendorName = vendorsDb.find((v) => v.id === bill?.vendor_id)?.vendor_name || '-';
+    const haystack = [
+      p.payment_date,
+      formatDate(p.payment_date),
+      bill?.bill_number,
+      vendorName,
+      p.amount,
+      p.payment_method,
+      p.reference_number,
+      getApprovalUiStatus(p).label,
+      p.notes
+    ].join(' ').toLowerCase();
+    return haystack.includes(q);
+  });
+  tbody.innerHTML = filtered.length ? filtered.map(p => {
+    const bill = billsDb.find(b => Number(b.id || 0) === Number(p.ap_id || 0));
+    const vendor = vendorsDb.find(v => Number(v.id || 0) === Number(bill?.vendor_id || 0));
+    const approval = getApprovalUiStatus(p);
+    const approveButton = canApproveApRecords() && approval.key === 'pending'
+      ? `<button class="btn btn-save btn-sm" type="button" onclick="approvePayment(${p.id})">Approve</button>`
+      : '';
+    return `
+      <tr>
+        <td>${formatDate(p.payment_date)}</td>
+        <td>${escHtml(bill?.bill_number || '-')}</td>
+        <td>${escHtml(vendor?.vendor_name || '-')}</td>
+        <td>PHP ${(p.amount).toLocaleString('en-PH', {minimumFractionDigits: 2})}</td>
+        <td>${escHtml(p.payment_method || '-')}</td>
+        <td>${escHtml(p.reference_number || '-')}</td>
+        <td>${renderApprovalPill(p)}</td>
+        <td>${escHtml(p.notes || '-')}</td>
+        <td style="display:flex; gap:6px; flex-wrap:wrap;">${approveButton || '<span class="pdf-empty">-</span>'}</td>
+      </tr>
+    `;
+  }).join('') : '<tr class="empty-row"><td colspan="9">No payments found</td></tr>';
+}
+
+function renderVendorBalances() {
+  const tbody = document.getElementById('vendor-balances-tbody');
+  if (!tbody) return;
+  const rows = getVendorBalanceRows();
+  tbody.innerHTML = rows.length ? rows.map(row => `
     <tr>
-      <td>${formatDate(p.payment_date)}</td>
-      <td>${escHtml(billsDb.find(b => b.id === p.ap_id)?.bill_number || '-')}</td>
-      <td>${escHtml(vendorsDb.find(v => v.id === billsDb.find(b => b.id === p.ap_id)?.vendor_id)?.vendor_name || '-')}</td>
-      <td>PHP ${(p.amount).toLocaleString('en-PH', {minimumFractionDigits: 2})}</td>
-      <td>${p.payment_method}</td>
-      <td>${escHtml(p.reference_number || '-')}</td>
-      <td>${escHtml(p.notes || '-')}</td>
+      <td>${escHtml(row.vendor_name)}</td>
+      <td class="text-right">${row.bill_count}</td>
+      <td class="text-right">${row.open_bills}</td>
+      <td class="text-right">${formatApMoney(row.total_amount)}</td>
+      <td class="text-right">${formatApMoney(row.paid_amount)}</td>
+      <td class="text-right">${formatApMoney(row.balance)}</td>
+      <td class="text-right">${formatApMoney(row.overdue)}</td>
     </tr>
-  `).join('') : '<tr class="empty-row"><td colspan="7">No payments found</td></tr>';
+  `).join('') : '<tr class="empty-row"><td colspan="7">No vendor balances found</td></tr>';
+}
+
+function renderApAging() {
+  const tbody = document.getElementById('ap-aging-tbody');
+  if (!tbody) return;
+  const rows = billsDb
+    .filter(bill => businessEntityMatches(bill))
+    .filter(bill => getBillBalance(bill) > 0)
+    .map((bill) => ({
+      bill,
+      aging: getBillAgingBucket(bill),
+      balance: getBillBalance(bill)
+    }))
+    .sort((a, b) => new Date(a.bill.due_date || '9999-12-31') - new Date(b.bill.due_date || '9999-12-31'));
+
+  tbody.innerHTML = rows.length ? rows.map(({ bill, aging, balance }) => `
+    <tr>
+      <td>${escHtml(getBillVendorName(bill))}</td>
+      <td>${escHtml(bill.bill_number || '-')}</td>
+      <td>${escHtml(formatDate(bill.due_date))}</td>
+      <td class="text-right">${aging.current ? formatApMoney(aging.current) : '-'}</td>
+      <td class="text-right">${aging.d30 ? formatApMoney(aging.d30) : '-'}</td>
+      <td class="text-right">${aging.d60 ? formatApMoney(aging.d60) : '-'}</td>
+      <td class="text-right">${aging.d90 ? formatApMoney(aging.d90) : '-'}</td>
+      <td class="text-right">${aging.over90 ? formatApMoney(aging.over90) : '-'}</td>
+      <td class="text-right">${formatApMoney(balance)}</td>
+    </tr>
+  `).join('') : '<tr class="empty-row"><td colspan="9">No open AP aging balances found</td></tr>';
+}
+
+function renderDisbursements() {
+  const tbody = document.getElementById('disbursements-tbody');
+  if (!tbody) return;
+  const searchInput = document.getElementById('disbursements-search');
+  const rawSearch = String(searchInput?.value || apToolbarState.payments.search || '');
+  const q = rawSearch.toLowerCase().trim();
+  if (searchInput) {
+    apToolbarState.payments.search = rawSearch;
+    saveApUiState();
+  }
+  const rows = getVisiblePayments().filter((p) => normalizeApprovalStatus(p.approval_status) === 'approved').filter((p) => {
+    const bill = billsDb.find((b) => Number(b.id || 0) === Number(p.ap_id || 0));
+    const vendor = vendorsDb.find(v => Number(v.id || 0) === Number(bill?.vendor_id || 0));
+    const haystack = [
+      p.payment_date, p.amount, p.payment_method, p.reference_number, p.notes,
+      bill?.bill_number, vendor?.vendor_name
+    ].join(' ').toLowerCase();
+    return !q || haystack.includes(q);
+  });
+  tbody.innerHTML = rows.length ? rows.map((p) => {
+    const bill = billsDb.find(b => Number(b.id || 0) === Number(p.ap_id || 0));
+    return `
+      <tr>
+        <td>${escHtml(formatDate(p.payment_date))}</td>
+        <td>${escHtml(bill?.bill_number || '-')}</td>
+        <td>${escHtml(getBillVendorName(bill))}</td>
+        <td class="text-right">${formatApMoney(p.amount)}</td>
+        <td>${escHtml(p.payment_method || '-')}</td>
+        <td>${escHtml(p.reference_number || '-')}</td>
+        <td>${escHtml(p.notes || '-')}</td>
+      </tr>
+    `;
+  }).join('') : '<tr class="empty-row"><td colspan="7">No disbursements found</td></tr>';
 }
 
 function openPaymentModal() {
   document.getElementById('f-payment-date').valueAsDate = new Date();
+  document.getElementById('f-payment-bill').value = '';
   document.getElementById('f-payment-amount').value = '';
   document.getElementById('f-payment-method').value = 'cash';
   document.getElementById('f-payment-reference').value = '';
@@ -473,12 +1555,12 @@ function closePaymentModal() {
   document.getElementById('payment-modal-backdrop').classList.remove('open');
 }
 
-function savePayment() {
+async function savePayment() {
   const billId = document.getElementById('f-payment-bill').value;
   const amount = parseFloat(document.getElementById('f-payment-amount').value);
   
   if (!billId || !amount) {
-    alert('Bill and payment amount are required');
+    showToast('Bill and payment amount are required.', 'error');
     return;
   }
   
@@ -492,16 +1574,45 @@ function savePayment() {
     notes: document.getElementById('f-payment-notes').value.trim()
   };
   
-  fetch('/api/payments', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(payload)
-  }).then(r => r.json()).then(() => {
+  try {
+    const r = await fetch('/api/payments', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      throw new Error(data.error || 'Unable to record payment.');
+    }
     closePaymentModal();
-    loadPayments();
-    loadBills();
-    alert('Payment recorded successfully');
-  }).catch(e => alert('Error: ' + e.message));
+    await Promise.all([loadPayments(), loadBills()]);
+    showToast('Payment submitted for approval.', 'success');
+  } catch (e) {
+    showToast(e.message || 'Unable to record payment.', 'error');
+  }
+}
+
+async function approvePayment(id) {
+  const confirmed = await openConfirmDialog({
+    title: 'Approve Payment?',
+    message: 'Approve this payment and apply it to the bill balance?',
+    noText: 'Cancel',
+    yesText: 'Approve'
+  });
+  if (!confirmed) return;
+
+  try {
+    const response = await fetch(`/api/payments/${id}/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'Unable to approve payment.');
+    await Promise.all([loadPayments(), loadBills()]);
+    showToast('Payment approved and applied.', 'success');
+  } catch (err) {
+    showToast(err.message || 'Unable to approve payment.', 'error');
+  }
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -516,7 +1627,11 @@ function highlightText(value, query) {
   const tokens = String(query || '').trim().split(/\s+/).filter(Boolean);
   if (!tokens.length) return escaped;
   const pattern = tokens.sort((a, b) => b.length - a.length).map(token => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
-  return pattern ? escaped.replace(new RegExp(`(${pattern})`, 'gi'), '<mark>$1</mark>') : escaped;
+  try {
+    return pattern ? escaped.replace(new RegExp(`(${pattern})`, 'gi'), '<mark>$1</mark>') : escaped;
+  } catch (_) {
+    return escaped;
+  }
 }
 
 function formatDate(dateStr) {

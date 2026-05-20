@@ -1,0 +1,151 @@
+<mxfile host="Electron" modified="2026-05-18T00:00:00.000Z" agent="Codex" version="24.7.17">
+  <diagram id="ACCOUNTSRECEIVABLEMODULECURRENTFLOW" name="ACCOUNTS RECEIVABLE MODULE CURRENT FLOW">
+    <mxGraphModel dx="1200" dy="2500" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="2500" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="ar-title" value="ACCOUNTS RECEIVABLE CURRENT FLOW CHART" style="text;html=1;strokeColor=none;fillColor=none;fontSize=22;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="285" y="15" width="520" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-legend" value="Legend:&lt;br&gt;Green = Start/End&lt;br&gt;Blue = Process&lt;br&gt;Yellow = Decision&lt;br&gt;Orange = Database Record&lt;br&gt;Purple = Report/Summary" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="930" y="60" width="230" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-start" value="START" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="485" y="80" width="120" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-login" value="LOGIN" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="480" y="195" width="130" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-role" value="ROLE&lt;br&gt;CHECK?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="492" y="315" width="105" height="105" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-denied" value="ACCESS DENIED" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="250" y="330" width="150" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-dash" value="DASHBOARD" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="470" y="480" width="150" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-module" value="SELECT MODULE&lt;br&gt;ACCOUNTS RECEIVABLE" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="430" y="625" width="230" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-tabs" value="SELECT AR TAB&lt;br&gt;Service Orders / Transactions / Receivables / Payments" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="365" y="770" width="360" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-soq" value="SERVICE ORDER&lt;br&gt;NEEDED?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="455" y="925" width="180" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-so" value="CREATE SERVICE ORDER&lt;br&gt;service_orders" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="140" y="950" width="230" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-project" value="PROJECT / CUSTOMER&lt;br&gt;VALID?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="455" y="1110" width="180" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-fix" value="FIX CUSTOMER / PROJECT&lt;br&gt;company_registry / projects" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="140" y="1125" width="240" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-tx" value="CREATE / SYNC INVOICE&lt;br&gt;transactions" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="455" y="1290" width="210" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-recv" value="CREATE RECEIVABLE&lt;br&gt;accounts_receivable" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="455" y="1455" width="210" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-due" value="INVOICE&lt;br&gt;DUE / OVERDUE?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="455" y="1615" width="180" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-follow" value="SEND FOLLOW-UP&lt;br&gt;status = overdue" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="140" y="1635" width="220" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-pay" value="RECORD COLLECTION&lt;br&gt;payments.ar_id" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="455" y="1795" width="210" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-full" value="FULLY PAID?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="455" y="1960" width="180" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-partial" value="PARTIAL / SENT&lt;br&gt;remaining balance" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="140" y="1980" width="220" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-paid" value="MARK PAID&lt;br&gt;AR + transaction status" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="735" y="1980" width="230" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-report" value="AR REPORTS&lt;br&gt;collections + aging" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="435" y="2150" width="230" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-end" value="END" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="490" y="2315" width="120" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-e1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ar-start" target="ar-login">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-e2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ar-login" target="ar-role">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-e3" value="Admin" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ar-role" target="ar-dash">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-e4" value="No access" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ar-role" target="ar-denied">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-e5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ar-dash" target="ar-module">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-e6" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ar-module" target="ar-tabs">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-e7" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ar-tabs" target="ar-soq">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-e8" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ar-soq" target="ar-so">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-e9" value="No / Existing" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ar-soq" target="ar-project">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-e10" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ar-so" target="ar-project">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-e11" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ar-project" target="ar-tx">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-e12" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ar-project" target="ar-fix">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-e13" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ar-fix" target="ar-project">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-e14" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ar-tx" target="ar-recv">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-e15" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ar-recv" target="ar-due">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-e16" value="Overdue" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ar-due" target="ar-follow">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-e17" value="Due / Collect" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ar-due" target="ar-pay">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-e18" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ar-follow" target="ar-pay">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-e19" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ar-pay" target="ar-full">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-e20" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ar-full" target="ar-paid">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-e21" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ar-full" target="ar-partial">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-e22" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ar-partial" target="ar-due">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-e23" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ar-paid" target="ar-report">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ar-e24" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ar-report" target="ar-end">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

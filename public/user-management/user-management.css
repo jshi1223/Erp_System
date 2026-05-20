@@ -1,2 +1,123 @@
-  
 /* User Management page-specific styles live here. */
+
+body.erp-clean-page.user-management-page .module-page-toolbar {
+  align-items: center;
+  flex-wrap: nowrap;
+  justify-content: space-between;
+}
+
+body.erp-clean-page.user-management-page .module-page-toolbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
+  margin-left: auto;
+  min-width: 0;
+}
+
+body.erp-clean-page.user-management-page .module-page-toolbar-actions > * {
+  flex: 0 0 auto;
+}
+
+body.erp-clean-page.user-management-page .module-page-toolbar .module-toolbar-search,
+body.erp-clean-page.user-management-page .module-page-toolbar .top-search-bar {
+  flex: 0 1 260px;
+  min-width: 190px;
+  max-width: 260px;
+  margin: 0;
+}
+
+body.erp-clean-page.user-management-page .module-page-toolbar .module-toolbar-search input,
+body.erp-clean-page.user-management-page .module-page-toolbar .top-search-bar input {
+  min-width: 0;
+  height: 44px;
+  padding: 0 14px;
+}
+
+body.erp-clean-page.user-management-page .module-page-toolbar .filter-select {
+  flex: 0 0 144px;
+  height: 44px;
+  min-height: 44px;
+  min-width: 144px;
+  max-width: 160px;
+  width: auto;
+}
+
+body.erp-clean-page.user-management-page .module-page-toolbar .btn,
+body.erp-clean-page.user-management-page .module-page-toolbar .section-back-btn {
+  height: 44px;
+  min-height: 44px;
+  padding: 0 16px;
+  white-space: nowrap;
+}
+
+.user-management-tabs {
+  align-items: center;
+  margin: 14px 0 12px;
+}
+
+.user-management-tabs .module-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: center;
+}
+
+.user-management-tabs .tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: currentColor;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 720px) {
+  body.erp-clean-page.user-management-page .module-page-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+    flex-wrap: wrap;
+  }
+
+  body.erp-clean-page.user-management-page .module-page-toolbar-actions {
+    width: 100%;
+    margin-left: 0;
+    justify-content: stretch;
+    flex-wrap: wrap;
+  }
+
+  body.erp-clean-page.user-management-page .module-page-toolbar-actions > * {
+    flex: 1 1 100%;
+  }
+
+  body.erp-clean-page.user-management-page .module-page-toolbar .module-toolbar-search,
+  body.erp-clean-page.user-management-page .module-page-toolbar .top-search-bar {
+    flex-basis: 100%;
+    max-width: none;
+    min-width: 0;
+  }
+
+  body.erp-clean-page.user-management-page .module-page-toolbar .filter-select {
+    flex: 1 1 100%;
+    max-width: none;
+    width: 100%;
+  }
+
+  .user-management-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .user-management-tabs .module-tab {
+    width: 100%;
+  }
+}

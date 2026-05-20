@@ -1,14 +1,14 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KVSK CCTV & IT Solution - User Management</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <script src="/assets/js/auth-guard.js?v=20260423"></script>
+  <script src="/assets/js/auth-guard.js?v=20260518d"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/css/shared.css?v=20260501w" />
-  <link rel="stylesheet" href="/user-management/user-management.css?v=20260501b" />
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260516f" />
+  <link rel="stylesheet" href="/user-management/user-management.css?v=20260516c" />
 
 </head>
 <body class="user-management-page erp-clean-page">
@@ -46,12 +46,10 @@
             </div>
             <div class="notifications-panel-actions">
               <button class="notifications-mark" type="button" onclick="markNotificationsAsRead(); loadNotifications();">Mark as read</button>
-              <button class="notifications-close" type="button" onclick="toggleNotificationsPanel(false)">Ã—</button>
+              <button class="notifications-close" type="button" onclick="toggleNotificationsPanel(false)">x</button>
             </div>
           </div>
-          <div class="notifications-list" id="notifications-list">
-            
-          </div>
+          <div class="notifications-list" id="notifications-list"></div>
         </div>
       </div>
       <button class="btn btn-logout btn-sm" onclick="doLogout()">Logout</button>
@@ -62,7 +60,7 @@
     <div class="page-hero">
       <div class="page-hero-copy">
         <div class="page-title">User Management</div>
-        <div class="page-sub">Create and manage admin, staff, and user accounts.</div>
+        <div class="page-sub">Approve registered accounts and manage existing users.</div>
       </div>
     </div>
 
@@ -70,21 +68,30 @@
       <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-back-fallback="/admin?view=dashboard" onclick="window.location.href='/admin?view=dashboard'">Back to Dashboard</button>
       <div class="module-page-toolbar-actions">
         <div class="search-wrap top-search-bar module-toolbar-search">
-          <input id="search-input" type="text" placeholder="Search users by name, username, email, or role..." oninput="renderUsers()" />
+          <input id="search-input" type="text" placeholder="Search approval requests by name, email, or role..." oninput="renderUsers()" />
         </div>
-        <button id="btn-main-add" class="btn btn-add btn-sm" type="button" onclick="openUserModal()">Add User</button>
         <select id="user-role-filter" class="filter-select" onchange="renderUsers()">
           <option value="all">All Roles</option>
+          <option value="super_admin">Super Admin</option>
           <option value="admin">Admin</option>
           <option value="staff">Staff</option>
-          <option value="user">User</option>
         </select>
         <select id="user-status-filter" class="filter-select" onchange="renderUsers()">
-          <option value="all">All Status</option>
+          <option value="all">All Users</option>
           <option value="active">Active</option>
           <option value="inactive">Inactive</option>
+          <option value="rejected">Rejected</option>
         </select>
       </div>
+    </div>
+
+    <div class="module-tabs user-management-tabs" role="tablist" aria-label="User management views">
+      <button id="user-management-tab-approvals" class="module-tab active" type="button" role="tab" aria-selected="true" onclick="setUserManagementView('approvals')">
+        Approving <span class="tab-count" id="user-approval-count">0</span>
+      </button>
+      <button id="user-management-tab-users" class="module-tab" type="button" role="tab" aria-selected="false" onclick="setUserManagementView('users')">
+        Users <span class="tab-count" id="user-list-count">0</span>
+      </button>
     </div>
 
     <div class="table-wrap" style="margin-top: 12px;">
@@ -92,11 +99,10 @@
         <thead>
           <tr>
             <th>Full Name</th>
-            <th>Username</th>
             <th>Email</th>
-            <th class="text-center">Role</th>
+            <th class="text-center">Requested Role</th>
+            <th class="text-center">Registered</th>
             <th class="text-center">Status</th>
-            <th class="text-center">Last Login</th>
             <th class="text-center">Actions</th>
           </tr>
         </thead>
@@ -124,44 +130,49 @@
       <div class="sidebar-group" data-sidebar-group="projects">
         <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
           <span>Projects</span>
-          <span class="sidebar-group-caret">â–¾</span>
+          <span class="sidebar-group-caret">v</span>
         </button>
         <div class="sidebar-group-items">
-          <a href="/admin?view=all" class="sidebar-link is-subitem" id="menu-all">Total Projects</a>
-          <a href="/admin?view=ongoing-projects" class="sidebar-link is-subitem" id="menu-ongoing-projects">Ongoing Projects</a>
           <a href="/company-registry" class="sidebar-link is-subitem" id="menu-company-registry">Company Registry</a>
         </div>
       </div>
 
-      <div class="sidebar-group" data-sidebar-group="finance">
+      <div class="sidebar-group" data-sidebar-group="accounts-payable">
         <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
-          <span>Finance</span>
-          <span class="sidebar-group-caret">â–¾</span>
+          <span>AP</span>
+          <span class="sidebar-group-caret">v</span>
         </button>
         <div class="sidebar-group-items">
-          <a href="/accounts-payable" class="sidebar-link is-subitem">Accounts Payable</a>
-          <a href="/accounts-receivable" class="sidebar-link is-subitem">Accounts Receivable</a>
-          <a href="/procurement" class="sidebar-link is-subitem">Procurement</a>
+          <a href="/accounts-payable?tab=vendors" class="sidebar-link is-subitem">Vendors</a>
+          <a href="/accounts-payable?tab=requisitions" class="sidebar-link is-subitem">Purchase Requisitions</a>
+          <a href="/accounts-payable?tab=purchase-orders" class="sidebar-link is-subitem">Purchase Orders</a>
+          <a href="/accounts-payable?tab=goods-receipts" class="sidebar-link is-subitem">Goods Receipts</a>
+          <a href="/accounts-payable?tab=bills" class="sidebar-link is-subitem">Bills</a>
+          <a href="/accounts-payable?tab=payments" class="sidebar-link is-subitem">Payments</a>
         </div>
       </div>
 
-      <div class="sidebar-group" data-sidebar-group="inventory" data-sidebar-default-collapsed="1">
-        <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
-          <span>Inventory</span>
-          <span class="sidebar-group-caret">â–¾</span>
+      <div class="sidebar-group" data-sidebar-group="accounts-receivable">
+        <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+          <span>AR</span>
+          <span class="sidebar-group-caret">v</span>
         </button>
         <div class="sidebar-group-items">
-          <a href="/inventory" class="sidebar-link">Inventory</a>
+          <a href="/accounts-receivable?tab=service-orders" class="sidebar-link is-subitem">Service Orders</a>
+          <a href="/accounts-receivable?tab=transactions" class="sidebar-link is-subitem">Transactions</a>
+          <a href="/accounts-receivable?tab=receivables" class="sidebar-link is-subitem">Receivables</a>
+          <a href="/accounts-receivable?tab=collections" class="sidebar-link is-subitem">Payments</a>
         </div>
       </div>
 
       <div class="sidebar-group" data-sidebar-group="admin" data-sidebar-default-collapsed="1">
         <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
           <span>Admin</span>
-          <span class="sidebar-group-caret">â–¾</span>
+          <span class="sidebar-group-caret">v</span>
         </button>
         <div class="sidebar-group-items">
           <a href="/user-management" class="sidebar-link is-subitem active" id="menu-users">User Management</a>
+          <a href="/business-entities" class="sidebar-link is-subitem" id="menu-business-entities">Business Entities</a>
           <a href="#" class="sidebar-link is-subitem" id="menu-logs" style="display:none" onclick="openLogsPanel()">System Logs</a>
         </div>
       </div>
@@ -169,10 +180,10 @@
       <div class="sidebar-group" data-sidebar-group="archived" data-sidebar-default-collapsed="1">
         <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
           <span>Archived</span>
-          <span class="sidebar-group-caret">â–¾</span>
+          <span class="sidebar-group-caret">v</span>
         </button>
         <div class="sidebar-group-items">
-          <a href="/admin?view=archived" class="sidebar-link" id="menu-archived">Archived</a>
+          <a href="/admin?panel=archive-center" class="sidebar-link" id="menu-archive-center">Archive Center</a>
         </div>
       </div>
     </nav>
@@ -185,7 +196,7 @@
         <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
         <div>
           <div class="user-modal-kicker">KVSK Access Control</div>
-          <div class="modal-title" id="user-modal-title" style="margin-bottom: 0;">Add New User</div>
+          <div class="modal-title" id="user-modal-title" style="margin-bottom: 0;">Edit User</div>
         </div>
       </div>
 
@@ -193,15 +204,12 @@
       <div class="form-grid">
         <div class="field">
           <label>Full Name</label>
-          <input id="u-name" type="text" placeholder="Juan Dela Cruz" />
+          <input id="u-name" type="text" placeholder="Juan Dela Cruz" required aria-required="true" />
         </div>
-        <div class="field">
-          <label>Username</label>
-          <input id="u-username" type="text" placeholder="username123" />
-        </div>
+        <input id="u-username" type="hidden" />
         <div class="field full">
           <label>Email</label>
-          <input id="u-email" type="email" placeholder="name@example.com" />
+          <input id="u-email" type="email" placeholder="name@example.com" required aria-required="true" />
         </div>
       </div>
 
@@ -210,9 +218,9 @@
         <div class="field">
           <label>Role</label>
           <select id="u-role">
-            <option value="user">User (View Only)</option>
             <option value="staff">Staff (Limited Edit)</option>
             <option value="admin">Admin (Full Access)</option>
+            <option value="super_admin">Super Admin (Owner Access)</option>
           </select>
         </div>
         <div class="field">
@@ -222,11 +230,11 @@
             <option value="0">Inactive</option>
           </select>
         </div>
-        <div class="field full">
-          <label id="u-pass-label">Initial Password</label>
+        <div class="field full" id="u-admin-password-field" style="display:none;">
+          <label>Current Admin Password</label>
           <div class="password-input-wrap">
-            <input id="u-pass" type="password" placeholder="At least 8 chars" />
-            <button class="password-toggle" type="button" data-target="u-pass" aria-label="Show password" title="Show password">
+            <input id="u-admin-pass" type="password" placeholder="Required for admin/staff access changes" autocomplete="current-password" />
+            <button class="password-toggle" type="button" data-target="u-admin-pass" aria-label="Show password" title="Show password">
               <svg class="icon-eye-open" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M12 5C6.6 5 2.2 8.2 1 12c1.2 3.8 5.6 7 11 7s9.8-3.2 11-7c-1.2-3.8-5.6-7-11-7zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z"></path>
                 <circle cx="12" cy="12" r="2.2"></circle>
@@ -236,63 +244,13 @@
               </svg>
             </button>
           </div>
-          <div id="u-pass-help" style="margin-top:6px; font-size:0.65rem; color:var(--muted);">Leave blank when editing to keep the current password.</div>
+          <div id="u-admin-pass-help" style="margin-top:6px; font-size:0.65rem; color:var(--muted);">Required before making another account Staff or Admin.</div>
         </div>
       </div>
 
       <div class="modal-actions">
         <button class="btn btn-cancel btn-sm" onclick="closeUserModal()">Cancel</button>
-        <button class="btn btn-save btn-sm" id="user-save-btn" onclick="saveUser()">Create User</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="modal-backdrop" id="reset-pass-backdrop">
-    <div class="modal" style="max-width: 420px;">
-      <button class="modal-close" onclick="closeResetPasswordModal()">X</button>
-      <div class="user-modal-brand" style="margin-bottom: 18px;">
-        <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
-        <div>
-          <div class="user-modal-kicker">KVSK Access Control</div>
-          <div class="modal-title" id="reset-pass-title" style="margin-bottom: 0;">Reset Password</div>
-        </div>
-      </div>
-
-      <div class="field">
-        <label>New Password</label>
-        <div class="password-input-wrap">
-          <input id="reset-pass-input" type="password" placeholder="At least 8 chars" />
-          <button class="password-toggle" type="button" data-target="reset-pass-input" aria-label="Show password" title="Show password">
-            <svg class="icon-eye-open" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 5C6.6 5 2.2 8.2 1 12c1.2 3.8 5.6 7 11 7s9.8-3.2 11-7c-1.2-3.8-5.6-7-11-7zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z"></path>
-              <circle cx="12" cy="12" r="2.2"></circle>
-            </svg>
-            <svg class="icon-eye-closed" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M2 5.3 3.4 4 20 20.6 18.6 22l-3-3c-1.1.4-2.3.7-3.6.7-5.4 0-9.8-3.2-11-7 .5-1.6 1.6-3.1 3.1-4.3L2 5.3zm9.2 9.2 3 3a4 4 0 0 1-5.9-5.9l3 3zm10.8-2.2c-.4 1.3-1.2 2.6-2.3 3.6l-1.5-1.5c.7-.7 1.2-1.5 1.6-2.4-1.2-3-4.8-5.3-8.8-5.3-1 0-2 .1-2.9.5L6.5 5.7A13.2 13.2 0 0 1 12 4.9c5.4 0 9.8 3.2 11 7.4z"></path>
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      <div class="field">
-        <label>Confirm Password</label>
-        <div class="password-input-wrap">
-          <input id="reset-pass-confirm" type="password" placeholder="Re-enter the new password" />
-          <button class="password-toggle" type="button" data-target="reset-pass-confirm" aria-label="Show password" title="Show password">
-            <svg class="icon-eye-open" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 5C6.6 5 2.2 8.2 1 12c1.2 3.8 5.6 7 11 7s9.8-3.2 11-7c-1.2-3.8-5.6-7-11-7zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z"></path>
-              <circle cx="12" cy="12" r="2.2"></circle>
-            </svg>
-            <svg class="icon-eye-closed" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M2 5.3 3.4 4 20 20.6 18.6 22l-3-3c-1.1.4-2.3.7-3.6.7-5.4 0-9.8-3.2-11-7 .5-1.6 1.6-3.1 3.1-4.3L2 5.3zm9.2 9.2 3 3a4 4 0 0 1-5.9-5.9l3 3zm10.8-2.2c-.4 1.3-1.2 2.6-2.3 3.6l-1.5-1.5c.7-.7 1.2-1.5 1.6-2.4-1.2-3-4.8-5.3-8.8-5.3-1 0-2 .1-2.9.5L6.5 5.7A13.2 13.2 0 0 1 12 4.9c5.4 0 9.8 3.2 11 7.4z"></path>
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      <div class="modal-actions">
-        <button class="btn btn-cancel btn-sm" onclick="closeResetPasswordModal()">Cancel</button>
-        <button class="btn btn-save btn-sm" onclick="submitResetPasswordModal()">Reset Password</button>
+        <button class="btn btn-save btn-sm" id="user-save-btn" onclick="saveUser()">Save Changes</button>
       </div>
     </div>
   </div>
@@ -308,8 +266,8 @@
     </div>
   </div>
 
-  <script src="/assets/js/erp-core.js?v=20260501d"></script>
-  <script src="/user-management/user-management.js?v=20260501"></script>
+  <script src="/assets/js/erp-core.js?v=20260519a"></script>
+  <script src="/user-management/user-management.js?v=20260516a"></script>
 </body>
 </html>
 

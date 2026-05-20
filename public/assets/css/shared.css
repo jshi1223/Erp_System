@@ -1,6 +1,759 @@
 /* Shared stylesheet bundle for ERP pages.
    Keep system-wide styles imported here so each page can own its local CSS file.
 */
-@import url("/assets/css/admin-style.css?v=20260501v");
-@import url("/assets/css/erp-clean.css?v=20260501f");
-@import url("/assets/css/white-green.css?v=20260501u");
+@import url("/assets/css/admin-style.css?v=20260503c");
+@import url("/assets/css/erp-clean.css?v=20260503c");
+@import url("/assets/css/white-green.css?v=20260503c");
+
+:root {
+  --primary: #b42318;
+  --primary-light: #ef5b4f;
+  --primary-dark: #4b1210;
+  --accent: #d92d20;
+  --accent2: #201313;
+  --erp-accent: #b42318;
+  --erp-accent-2: #4b1210;
+}
+
+html:not([data-business-entity-theme-ready="1"]) body.admin-page,
+html:not([data-business-entity-theme-ready="1"]) body.erp-clean-page {
+  visibility: hidden;
+}
+
+html:not([data-business-entity-brand-text-ready="1"]) body.admin-page header .brand-copy .header-logo,
+html:not([data-business-entity-brand-text-ready="1"]) body.erp-clean-page header .brand-copy .header-logo,
+html:not([data-business-entity-brand-text-ready="1"]) body.admin-page .sidebar-header .header-logo,
+html:not([data-business-entity-brand-text-ready="1"]) body.erp-clean-page .sidebar-header .header-logo,
+html:not([data-business-entity-brand-text-ready="1"]) body.admin-page .workspace-badge,
+html:not([data-business-entity-brand-text-ready="1"]) body.erp-clean-page .workspace-badge {
+  visibility: hidden;
+}
+
+body.admin-page header,
+body.erp-clean-page header {
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--primary-light) 30%, transparent), transparent 30%),
+    linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%) !important;
+}
+
+html[data-business-entity-theme="kitsi"] body.admin-page header,
+html[data-business-entity-theme="kitsi"] body.erp-clean-page header,
+body[data-business-entity-theme="kitsi"].admin-page header,
+body[data-business-entity-theme="kitsi"].erp-clean-page header {
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--primary-light) 30%, transparent), transparent 30%),
+    linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%) !important;
+}
+
+/* Shared table-search highlight while typing */
+.module-page-toolbar .search-wrap:focus-within,
+.module-page-toolbar .search-wrap-compact:focus-within,
+.module-page-toolbar .top-search-bar:focus-within,
+.module-page-toolbar-actions .search-wrap:focus-within,
+.module-page-toolbar-actions .search-wrap-compact:focus-within,
+.module-page-toolbar-actions .top-search-bar:focus-within,
+.section-topbar .top-search-bar:focus-within,
+.section-head .search-wrap:focus-within,
+.dashboard-filter-bar .search-wrap:focus-within,
+.company-toolbar-actions .search-wrap:focus-within,
+.reports-company-search-shell .search-wrap:focus-within {
+  border-color: rgba(245, 158, 11, 0.42) !important;
+  box-shadow:
+    0 0 0 4px rgba(245, 158, 11, 0.12),
+    0 12px 28px rgba(245, 158, 11, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
+}
+
+body .is-table-search-active {
+  border-color: rgba(245, 158, 11, 0.8) !important;
+  background: linear-gradient(180deg, rgba(255, 251, 213, 0.98), rgba(255, 241, 166, 0.96)) !important;
+  color: #4d3c05 !important;
+  box-shadow:
+    0 0 0 4px rgba(245, 158, 11, 0.16),
+    0 10px 24px rgba(245, 158, 11, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88) !important;
+}
+
+body .is-table-search-active::placeholder {
+  color: rgba(111, 84, 10, 0.7) !important;
+}
+
+body .table-sort-trigger,
+body #vendor-sort-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  margin-left: 8px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(140, 168, 219, 0.82);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(231, 239, 251, 0.94));
+  color: #1b4f97;
+  box-shadow: 0 1px 2px rgba(17, 38, 71, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  vertical-align: middle;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+body .table-sort-trigger:hover,
+body .table-sort-trigger:focus-visible,
+body #vendor-sort-btn:hover,
+body #vendor-sort-btn:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(100, 138, 205, 0.95);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(219, 230, 250, 0.98));
+  box-shadow: 0 4px 10px rgba(17, 38, 71, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+body .table-sort-trigger:focus-visible,
+body #vendor-sort-btn:focus-visible {
+  outline: 2px solid rgba(59, 130, 246, 0.28);
+  outline-offset: 2px;
+}
+
+body th.table-sort-header {
+  white-space: nowrap;
+}
+
+.modal-business-context {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  min-height: 28px !important;
+  margin-left: auto !important;
+  padding: 6px 10px !important;
+  border: 1px solid color-mix(in srgb, var(--primary) 18%, transparent) !important;
+  border-radius: 999px !important;
+  background: color-mix(in srgb, var(--primary) 9%, #ffffff) !important;
+  color: var(--primary-dark) !important;
+  font-size: 0.68rem !important;
+  font-weight: 900 !important;
+  letter-spacing: 0.06em !important;
+  line-height: 1 !important;
+  text-transform: uppercase !important;
+  white-space: nowrap !important;
+}
+
+[data-business-context-field] {
+  display: none !important;
+}
+
+.modal-business-context::before {
+  content: "" !important;
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 999px !important;
+  background: var(--primary) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent) !important;
+}
+
+.modal-header .modal-business-context,
+.modal-header-tight .modal-business-context,
+.user-modal-brand .modal-business-context {
+  flex: 0 0 auto !important;
+}
+
+@media (max-width: 640px) {
+  .modal-business-context {
+    order: 20 !important;
+    width: 100% !important;
+    justify-content: center !important;
+    margin-left: 0 !important;
+  }
+}
+
+body[data-business-entity-theme="kvsk"] {
+  --primary: #b42318;
+  --primary-light: #ef5b4f;
+  --primary-dark: #4b1210;
+  --accent: #d92d20;
+  --accent2: #201313;
+}
+
+body[data-business-entity-theme="kitsi"] {
+  --primary: #0898c7;
+  --primary-light: #22c7e8;
+  --primary-dark: #005b96;
+  --accent: #07a6d6;
+  --accent2: #005b96;
+}
+
+body .workspace-badge {
+  align-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  display: inline-flex;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  min-height: 34px;
+  padding: 8px 12px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+body .workspace-badge::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  margin-right: 8px;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.18);
+}
+
+/* Legacy blue cleanup: old shared bundles still load for layout, but colors now follow the active workspace. */
+body.admin-page,
+body.erp-clean-page {
+  --erp-accent: var(--primary);
+  --erp-accent-2: var(--primary-dark);
+}
+
+body.admin-page .business-profile-menu,
+body.erp-clean-page .business-profile-menu,
+body.admin-page .business-entity-switcher,
+body.erp-clean-page .business-entity-switcher {
+  display: none !important;
+}
+
+body.admin-page .btn-primary,
+body.admin-page .btn-save,
+body.admin-page .btn-add,
+body.erp-clean-page .btn-primary,
+body.erp-clean-page .btn-save,
+body.erp-clean-page .btn-add {
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark)) !important;
+  border-color: color-mix(in srgb, var(--primary) 32%, transparent) !important;
+  color: #ffffff !important;
+  box-shadow: 0 14px 28px color-mix(in srgb, var(--primary-dark) 24%, transparent) !important;
+}
+
+body.admin-page .btn-cancel,
+body.erp-clean-page .btn-cancel,
+body.admin-page .section-back-btn,
+body.erp-clean-page .section-back-btn {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 9%, #ffffff), #ffffff) !important;
+  border-color: color-mix(in srgb, var(--primary) 22%, transparent) !important;
+  color: var(--primary-dark) !important;
+}
+
+body.admin-page .module-tab.active,
+body.admin-page .ap-workspace-tab.active,
+body.admin-page .project-workspace-tab.active,
+body.admin-page .project-submodule-tab.active,
+body.admin-page .dashboard-range-btn.is-active,
+body.admin-page .company-switch-chip.is-active,
+body.admin-page .status-mini-card.is-active,
+body.erp-clean-page .module-tab.active,
+body.erp-clean-page .ap-workspace-tab.active,
+body.erp-clean-page .project-workspace-tab.active,
+body.erp-clean-page .project-submodule-tab.active,
+body.erp-clean-page .dashboard-range-btn.is-active,
+body.erp-clean-page .company-switch-chip.is-active,
+body.erp-clean-page .status-mini-card.is-active {
+  background: linear-gradient(135deg, var(--primary), var(--primary-dark)) !important;
+  border-color: color-mix(in srgb, var(--primary) 36%, transparent) !important;
+  color: #ffffff !important;
+  box-shadow: 0 12px 24px color-mix(in srgb, var(--primary-dark) 18%, transparent) !important;
+}
+
+body.admin-page .module-tabs,
+body.erp-clean-page .module-tabs {
+  display: flex !important;
+  align-items: flex-end !important;
+  gap: 0 !important;
+  margin: 14px 0 18px !important;
+  min-height: 52px !important;
+  overflow-x: auto !important;
+  padding: 0 10px !important;
+  border: 1px solid color-mix(in srgb, var(--primary) 14%, transparent) !important;
+  border-bottom-color: color-mix(in srgb, var(--primary) 20%, transparent) !important;
+  border-radius: 18px 18px 0 0 !important;
+  background: rgba(255, 255, 255, 0.92) !important;
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--primary-dark) 6%, transparent) !important;
+}
+
+body.admin-page .module-tab,
+body.erp-clean-page .module-tab {
+  align-items: center !important;
+  align-self: stretch !important;
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  border-bottom-color: transparent !important;
+  border-radius: 18px 18px 0 0 !important;
+  box-shadow: none !important;
+  color: var(--muted) !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
+  font-size: 0.72rem !important;
+  font-weight: 800 !important;
+  justify-content: center !important;
+  letter-spacing: 0.08em !important;
+  line-height: 1 !important;
+  margin: 0 0 -1px !important;
+  min-height: 52px !important;
+  padding: 0 22px !important;
+  text-transform: uppercase !important;
+  white-space: nowrap !important;
+}
+
+body.admin-page .module-tab:hover,
+body.erp-clean-page .module-tab:hover {
+  background: color-mix(in srgb, var(--primary) 7%, #ffffff) !important;
+  color: var(--primary-dark) !important;
+}
+
+body.admin-page .module-tab.active,
+body.erp-clean-page .module-tab.active {
+  background: var(--primary) !important;
+  border-color: var(--primary) !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+}
+
+body.admin-page .module-tab .tab-count,
+body.erp-clean-page .module-tab .tab-count {
+  background: color-mix(in srgb, var(--primary) 10%, #ffffff) !important;
+  color: currentColor !important;
+}
+
+body.admin-page .module-tab.active .tab-count,
+body.erp-clean-page .module-tab.active .tab-count {
+  background: rgba(255, 255, 255, 0.22) !important;
+  color: #ffffff !important;
+}
+
+@media (max-width: 720px) {
+  body.admin-page .module-tabs,
+  body.erp-clean-page .module-tabs {
+    align-items: stretch !important;
+    gap: 6px !important;
+    padding: 8px !important;
+    border-radius: 16px !important;
+  }
+
+  body.admin-page .module-tab,
+  body.erp-clean-page .module-tab {
+    flex: 1 1 100% !important;
+    margin-bottom: 0 !important;
+    min-height: 42px !important;
+    border-radius: 12px !important;
+    padding: 0 14px !important;
+  }
+}
+
+body.admin-page .page-hero,
+body.admin-page .module-page-toolbar,
+body.admin-page .dashboard-filter-bar,
+body.erp-clean-page .page-hero,
+body.erp-clean-page .module-page-toolbar,
+body.erp-clean-page .dashboard-filter-bar {
+  border-color: color-mix(in srgb, var(--primary) 16%, transparent) !important;
+  box-shadow: 0 14px 32px color-mix(in srgb, var(--primary) 9%, transparent) !important;
+}
+
+body.admin-page .summary-card,
+body.admin-page .metric-card,
+body.admin-page .module-summary-card,
+body.admin-page .erp-summary-card,
+body.erp-clean-page .summary-card,
+body.erp-clean-page .metric-card,
+body.erp-clean-page .module-summary-card,
+body.erp-clean-page .erp-summary-card {
+  border-color: color-mix(in srgb, var(--primary) 14%, transparent) !important;
+  border-left-color: color-mix(in srgb, var(--primary) 68%, transparent) !important;
+}
+
+body.admin-page .summary-value,
+body.admin-page .metric-value,
+body.admin-page .module-summary-value,
+body.erp-clean-page .summary-value,
+body.erp-clean-page .metric-value,
+body.erp-clean-page .module-summary-value {
+  color: var(--primary-dark) !important;
+}
+
+body.admin-page table thead th,
+body.admin-page .registry-table thead th,
+body.erp-clean-page table thead th,
+body.erp-clean-page .registry-table thead th {
+  background: color-mix(in srgb, var(--primary) 9%, #ffffff) !important;
+  color: var(--primary-dark) !important;
+}
+
+body.admin-page .table-sort-trigger,
+body.admin-page #vendor-sort-btn,
+body.erp-clean-page .table-sort-trigger,
+body.erp-clean-page #vendor-sort-btn {
+  background: linear-gradient(180deg, #ffffff, color-mix(in srgb, var(--primary) 8%, #ffffff)) !important;
+  border-color: color-mix(in srgb, var(--primary) 24%, transparent) !important;
+  color: var(--primary-dark) !important;
+}
+
+body.admin-page .table-sort-trigger:focus-visible,
+body.admin-page #vendor-sort-btn:focus-visible,
+body.erp-clean-page .table-sort-trigger:focus-visible,
+body.erp-clean-page #vendor-sort-btn:focus-visible {
+  outline-color: color-mix(in srgb, var(--primary) 28%, transparent) !important;
+}
+
+/* Unified ERP sidebar: keep all module sidebars visually identical. */
+body.admin-page .sidebar,
+body.erp-clean-page .sidebar {
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--primary-light) 24%, transparent), transparent 28%),
+    linear-gradient(180deg, var(--primary) 0%, var(--primary-dark) 100%) !important;
+  border-right: 1px solid color-mix(in srgb, var(--primary-light) 26%, transparent) !important;
+  box-shadow: 24px 0 54px color-mix(in srgb, var(--primary-dark) 26%, transparent) !important;
+  color: #ffffff !important;
+}
+
+html[data-business-entity-theme="kitsi"] body.admin-page .sidebar,
+html[data-business-entity-theme="kitsi"] body.erp-clean-page .sidebar,
+body[data-business-entity-theme="kitsi"].admin-page .sidebar,
+body[data-business-entity-theme="kitsi"].erp-clean-page .sidebar {
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--primary-light) 24%, transparent), transparent 28%),
+    linear-gradient(180deg, var(--primary) 0%, var(--primary-dark) 100%) !important;
+  border-right-color: color-mix(in srgb, var(--primary-light) 26%, transparent) !important;
+  box-shadow: 24px 0 54px color-mix(in srgb, var(--primary-dark) 24%, transparent) !important;
+}
+
+html[data-business-entity-theme="kvsk"] body.admin-page .sidebar,
+html[data-business-entity-theme="kvsk"] body.erp-clean-page .sidebar,
+body[data-business-entity-theme="kvsk"].admin-page .sidebar,
+body[data-business-entity-theme="kvsk"].erp-clean-page .sidebar {
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--primary-light) 24%, transparent), transparent 28%),
+    linear-gradient(180deg, var(--primary) 0%, var(--primary-dark) 100%) !important;
+  border-right-color: color-mix(in srgb, var(--primary-light) 26%, transparent) !important;
+  box-shadow: 24px 0 54px color-mix(in srgb, var(--primary-dark) 26%, transparent) !important;
+}
+
+body.admin-page .sidebar-header,
+body.erp-clean-page .sidebar-header {
+  background: rgba(244, 248, 253, 0.12) !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--primary) 16%, transparent) !important;
+  padding: 18px 18px 14px !important;
+}
+
+body.admin-page .sidebar-brand,
+body.erp-clean-page .sidebar-brand {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+}
+
+body.admin-page .sidebar-brand-mark,
+body.erp-clean-page .sidebar-brand-mark {
+  width: 48px !important;
+  height: 48px !important;
+  border-radius: 14px !important;
+  object-fit: cover !important;
+  border: 1px solid rgba(255, 255, 255, 0.10) !important;
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.22) !important;
+}
+
+body.admin-page .sidebar-header .header-logo,
+body.admin-page .sidebar-header .header-sub,
+body.admin-page .sidebar-group-toggle,
+body.admin-page .sidebar-group-caret,
+body.erp-clean-page .sidebar-header .header-logo,
+body.erp-clean-page .sidebar-header .header-sub,
+body.erp-clean-page .sidebar-group-toggle,
+body.erp-clean-page .sidebar-group-caret {
+  color: #ffffff !important;
+}
+
+body.admin-page .sidebar-group-toggle,
+body.erp-clean-page .sidebar-group-toggle {
+  width: 100% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  margin: 4px 0 2px !important;
+  padding: 9px 12px !important;
+  border-radius: 14px !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  font-size: 0.62rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.14em !important;
+  text-transform: uppercase !important;
+  text-align: left !important;
+}
+
+body.admin-page .sidebar-nav,
+body.erp-clean-page .sidebar-nav {
+  padding: 14px 12px 18px !important;
+  display: grid !important;
+  gap: 6px !important;
+}
+
+body.admin-page .sidebar-group,
+body.erp-clean-page .sidebar-group {
+  margin-top: 6px !important;
+  display: grid !important;
+  gap: 4px !important;
+}
+
+body.admin-page .sidebar-group-items,
+body.erp-clean-page .sidebar-group-items {
+  display: grid !important;
+  gap: 4px !important;
+  padding-top: 2px !important;
+}
+
+body.admin-page .sidebar-group.is-collapsed .sidebar-group-items,
+body.erp-clean-page .sidebar-group.is-collapsed .sidebar-group-items {
+  display: none !important;
+}
+
+body.admin-page .sidebar-group-toggle:hover,
+body.erp-clean-page .sidebar-group-toggle:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+}
+
+body.admin-page .sidebar-link,
+body.erp-clean-page .sidebar-link {
+  position: relative !important;
+  display: block !important;
+  margin: 0 !important;
+  padding: 12px 14px 12px 38px !important;
+  border-radius: 16px !important;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  color: rgba(255, 255, 255, 0.84) !important;
+  font-family: 'Inter', system-ui, sans-serif !important;
+  font-size: 0.78rem !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.03em !important;
+  text-decoration: none !important;
+  overflow: visible !important;
+}
+
+body.admin-page .sidebar-link::before,
+body.erp-clean-page .sidebar-link::before {
+  content: "" !important;
+  position: absolute !important;
+  left: 16px !important;
+  top: 50% !important;
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 999px !important;
+  background: rgba(255, 255, 255, 0.24) !important;
+  transform: translateY(-50%) !important;
+}
+
+body.admin-page .sidebar-link.is-subitem,
+body.erp-clean-page .sidebar-link.is-subitem {
+  margin-left: 10px !important;
+  width: calc(100% - 10px) !important;
+  padding-left: 36px !important;
+}
+
+body.admin-page .sidebar-link:hover,
+body.admin-page .sidebar-link.active,
+body.admin-page .sidebar-link.is-subitem.active,
+body.erp-clean-page .sidebar-link:hover,
+body.erp-clean-page .sidebar-link.active,
+body.erp-clean-page .sidebar-link.is-subitem.active {
+  color: #ffffff !important;
+}
+
+body.admin-page .sidebar-link:hover,
+body.erp-clean-page .sidebar-link:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+body.admin-page .sidebar-link.active,
+body.admin-page .sidebar-link.is-subitem.active,
+body.erp-clean-page .sidebar-link.active,
+body.erp-clean-page .sidebar-link.is-subitem.active {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary-light) 54%, transparent), color-mix(in srgb, var(--primary-dark) 92%, transparent)) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 14px 28px color-mix(in srgb, var(--primary-dark) 24%, transparent) !important;
+}
+
+body[data-business-entity-theme].admin-page .sidebar-link.active,
+body[data-business-entity-theme].admin-page .sidebar-link.is-subitem.active,
+body[data-business-entity-theme].erp-clean-page .sidebar-link.active,
+body[data-business-entity-theme].erp-clean-page .sidebar-link.is-subitem.active {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary-light) 54%, transparent), color-mix(in srgb, var(--primary-dark) 92%, transparent)) !important;
+  box-shadow: 0 14px 28px color-mix(in srgb, var(--primary-dark) 24%, transparent) !important;
+}
+
+body.admin-page .sidebar-link.active::before,
+body.admin-page .sidebar-link.is-subitem.active::before,
+body.erp-clean-page .sidebar-link.active::before,
+body.erp-clean-page .sidebar-link.is-subitem.active::before {
+  background: rgba(255, 255, 255, 0.92) !important;
+  box-shadow: none !important;
+}
+
+body.admin-page .sidebar .modal-close,
+body.erp-clean-page .sidebar .modal-close {
+  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.10) !important;
+}
+
+/* Lightweight ERP motion: transform/opacity only, so tables stay responsive. */
+body.admin-page .sidebar,
+body.erp-clean-page .sidebar {
+  will-change: transform;
+}
+
+body.admin-page .sidebar-link,
+body.erp-clean-page .sidebar-link,
+body.admin-page .sidebar-group-toggle,
+body.erp-clean-page .sidebar-group-toggle,
+body.admin-page .btn,
+body.erp-clean-page .btn,
+body.admin-page .project-workspace-tab,
+body.admin-page .project-submodule-tab,
+body.erp-clean-page .project-workspace-tab,
+body.erp-clean-page .project-submodule-tab {
+  transition:
+    transform 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    color 160ms ease !important;
+}
+
+body.admin-page .sidebar-link:hover,
+body.erp-clean-page .sidebar-link:hover,
+body.admin-page .sidebar-group-toggle:hover,
+body.erp-clean-page .sidebar-group-toggle:hover,
+body.admin-page .btn:hover,
+body.erp-clean-page .btn:hover,
+body.admin-page .project-workspace-tab:hover,
+body.admin-page .project-submodule-tab:hover,
+body.erp-clean-page .project-workspace-tab:hover,
+body.erp-clean-page .project-submodule-tab:hover {
+  transform: translateY(-1px) !important;
+}
+
+body.admin-page .sidebar-group-caret,
+body.erp-clean-page .sidebar-group-caret {
+  display: inline-flex !important;
+  transform-origin: center !important;
+  transition: transform 160ms ease !important;
+}
+
+body.admin-page .sidebar-group.is-collapsed .sidebar-group-caret,
+body.erp-clean-page .sidebar-group.is-collapsed .sidebar-group-caret {
+  transform: rotate(-90deg) !important;
+}
+
+body.admin-page .modal-backdrop.open,
+body.erp-clean-page .modal-backdrop.open {
+  animation: erpOverlayFade 140ms ease both;
+}
+
+body.admin-page .modal-backdrop.open .modal,
+body.erp-clean-page .modal-backdrop.open .modal {
+  animation: erpModalLift 180ms ease both;
+  will-change: transform, opacity;
+}
+
+body.admin-page .notifications-panel:not(.is-hidden),
+body.erp-clean-page .notifications-panel:not(.is-hidden) {
+  animation: erpPanelDrop 160ms ease both;
+}
+
+@keyframes erpOverlayFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes erpModalLift {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes erpPanelDrop {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.admin-page *,
+  body.erp-clean-page * {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+@media (min-width: 1025px) {
+  body.admin-page,
+  body.erp-clean-page {
+    --erp-sidebar-width: 300px;
+  }
+
+  body.admin-page #dashboard {
+    padding-left: var(--erp-sidebar-width) !important;
+    box-sizing: border-box;
+  }
+
+  body.erp-clean-page {
+    padding-left: var(--erp-sidebar-width) !important;
+    box-sizing: border-box;
+  }
+
+  body.admin-page .sidebar,
+  body.erp-clean-page .sidebar {
+    left: 0 !important;
+    width: var(--erp-sidebar-width) !important;
+    border-radius: 0 !important;
+    transition: none !important;
+    z-index: 1200 !important;
+  }
+
+  body.admin-page .sidebar-overlay,
+  body.erp-clean-page .sidebar-overlay {
+    display: none !important;
+    pointer-events: none !important;
+  }
+
+  body.admin-page .sidebar-toggle-btn,
+  body.admin-page .sidebar .modal-close,
+  body.erp-clean-page .sidebar-toggle-btn,
+  body.erp-clean-page .sidebar .modal-close {
+    display: none !important;
+  }
+}
+
+@media (max-width: 1024px) {
+  body.admin-page #dashboard,
+  body.erp-clean-page {
+    padding-left: 0 !important;
+  }
+}

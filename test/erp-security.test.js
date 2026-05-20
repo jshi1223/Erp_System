@@ -41,12 +41,24 @@ test('session options stay non-secure in development', () => {
   assert.equal(options.cookie.secure, false);
 });
 
+test('session options accept a persistent store', () => {
+  const store = { get() {}, set() {}, destroy() {} };
+  const options = buildSessionOptions({
+    isProduction: false,
+    sessionSecret: 'secret-value',
+    store
+  });
+
+  assert.equal(options.store, store);
+});
+
 test('role permissions are limited by role', () => {
   const admin = getRolePermissions('admin');
   const staff = getRolePermissions('staff');
   const user = getRolePermissions('user');
 
   assert.equal(admin.admin_tools, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(admin, 'procurement'), false);
   assert.equal(staff.admin_tools, false);
   assert.equal(staff.exports, true);
   assert.equal(user.dashboard, true);

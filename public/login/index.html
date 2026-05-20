@@ -1,88 +1,172 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="tl">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>KVSK CCTV & IT Solution - Portal</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <script>
+    (function () {
+      try {
+        var raw = localStorage.getItem('kinaadman_businessEntityTheme');
+        var stored = raw ? JSON.parse(raw) : null;
+        var theme = stored && String(stored.theme || '').toLowerCase() === 'kitsi' ? 'kitsi' : 'kvsk';
+        document.documentElement.dataset.loginWorkspace = theme;
+      } catch (_) {
+        document.documentElement.dataset.loginWorkspace = 'kvsk';
+      }
+    })();
+  </script>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/css/login.css?v=20260501d" />
-  <link rel="stylesheet" href="/assets/css/erp-clean.css?v=20260501f" />
-  <link rel="stylesheet" href="/assets/css/white-green.css?v=20260501u" />
-  <link rel="stylesheet" href="/login/login.css?v=20260501d" />
+  <link rel="stylesheet" href="/assets/css/login.css?v=20260513a" />
+  <link rel="stylesheet" href="/assets/css/erp-clean.css?v=20260502k" />
+  <link rel="stylesheet" href="/assets/css/white-green.css?v=20260502k" />
+  <link rel="stylesheet" href="/login/login.css?v=20260518a" />
 
 </head>
 <body class="erp-clean-page login-page">
 
 <div id="login-screen">
-  <div class="login-box">
-    <a class="login-brand login-brand-link" href="/" aria-label="Go to landing page">
-      <img class="login-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
-      <div class="login-brand-copy">
-        <div class="login-logo">KVSK CCTV & IT Solution</div>
-        <div class="login-company">Security, surveillance, and IT operations portal</div>
+  <div class="login-shell">
+    <aside class="login-panel login-panel-brand" aria-label="Portal brand">
+      <div class="login-brand-columns" aria-label="KVSK and KITSI portal">
+        <button class="login-brand-column login-brand-column-kvsk is-selected" type="button" data-entity-code="KVSK" data-entity-fallback-id="1" data-entity-name="KVSK CCTV & IT Solution" data-entity-theme="kvsk" aria-pressed="true">
+          <img class="login-brand-mark" src="/assets/img/kvsk-logo-switch.png" alt="KVSK CCTV & IT Solution logo" />
+          <div class="login-brand-column-copy">
+            <div class="login-logo">KVSK</div>
+            <div class="login-company">CCTV & IT Solution</div>
+            <p>Security and IT operations</p>
+          </div>
+          <div class="login-brand-tags">
+            <span>Projects</span>
+            <span>AP / AR</span>
+          </div>
+        </button>
+
+        <button class="login-brand-column login-brand-column-kitsi" type="button" data-entity-code="KITSI" data-entity-fallback-id="2" data-entity-name="KITSI" data-entity-theme="kitsi" aria-pressed="false">
+          <img class="login-brand-mark" src="/assets/img/kitsi-logo.png" alt="KITSI logo" />
+          <div class="login-brand-column-copy">
+            <div class="login-logo">KITSI</div>
+            <div class="login-company">Kinaadman Integrator</div>
+            <p>ERP workspace</p>
+          </div>
+          <div class="login-brand-tags">
+            <span>Reports</span>
+          </div>
+        </button>
       </div>
-    </a>
-    <div class="login-spotlight" aria-label="Portal highlights">
-      <span class="login-spotlight-pill">Role-based access</span>
-      <span class="login-spotlight-pill">Audit-ready logging</span>
-      <span class="login-spotlight-pill">Secure recovery flow</span>
-    </div>
 
-    <div id="login-form" class="form-container">
-      <div class="login-badge">SECURE ACCESS</div>
-      <h2 class="login-heading">Welcome Back</h2>
+      <div class="login-brand-bottom">
+        <span>Unified access</span>
+        <strong>KVSK / KITSI Portal</strong>
+        <small>Choose a workspace • Sign in once • Keep records separated</small>
+      </div>
+    </aside>
 
-      <div class="field">
-        <label for="uname">Username</label>
-        <input type="text" id="uname" placeholder="Enter your username" autocomplete="off" />
+    <section class="login-panel login-panel-form" aria-label="Login form">
+      <div class="login-form-head">
+        <div class="login-badge">SECURE ACCESS</div>
+        <h1 class="login-heading">Welcome Back</h1>
+        <p class="login-subheading" id="login-workspace-copy">Sign in to the KVSK workspace for projects, AP, AR, and reports.</p>
       </div>
 
-      <div class="field">
-        <label for="upass">Password</label>
-        <div class="password-input-wrap">
-          <input type="password" id="upass" placeholder="Enter your password" autocomplete="off" />
-          <button class="password-toggle" type="button" data-target="upass" aria-label="Show password" title="Show password">
-            <svg class="icon-eye-open" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 5C6.6 5 2.2 8.2 1 12c1.2 3.8 5.6 7 11 7s9.8-3.2 11-7c-1.2-3.8-5.6-7-11-7zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z"></path>
-              <circle cx="12" cy="12" r="2.2"></circle>
-            </svg>
-            <svg class="icon-eye-closed" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M2 5.3 3.4 4 20 20.6 18.6 22l-3-3c-1.1.4-2.3.7-3.6.7-5.4 0-9.8-3.2-11-7 .5-1.6 1.6-3.1 3.1-4.3L2 5.3zm9.2 9.2 3 3a4 4 0 0 1-5.9-5.9l3 3zm10.8-2.2c-.4 1.3-1.2 2.6-2.3 3.6l-1.5-1.5c.7-.7 1.2-1.5 1.6-2.4-1.2-3-4.8-5.3-8.8-5.3-1 0-2 .1-2.9.5L6.5 5.7A13.2 13.2 0 0 1 12 4.9c5.4 0 9.8 3.2 11 7.4z"></path>
-            </svg>
-          </button>
+      <div id="login-form" class="form-container">
+        <div class="field">
+          <label for="uname">Email Address</label>
+          <input type="email" id="uname" placeholder="you@example.com" autocomplete="email" />
         </div>
+
+        <div class="field">
+          <label for="upass">Password</label>
+          <div class="password-input-wrap">
+            <input type="password" id="upass" placeholder="Enter your password" autocomplete="off" />
+            <button class="password-toggle" type="button" data-target="upass" aria-label="Show password" title="Show password">
+              <svg class="icon-eye-open" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 5C6.6 5 2.2 8.2 1 12c1.2 3.8 5.6 7 11 7s9.8-3.2 11-7c-1.2-3.8-5.6-7-11-7zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z"></path>
+                <circle cx="12" cy="12" r="2.2"></circle>
+              </svg>
+              <svg class="icon-eye-closed" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M2 5.3 3.4 4 20 20.6 18.6 22l-3-3c-1.1.4-2.3.7-3.6.7-5.4 0-9.8-3.2-11-7 .5-1.6 1.6-3.1 3.1-4.3L2 5.3zm9.2 9.2 3 3a4 4 0 0 1-5.9-5.9l3 3zm10.8-2.2c-.4 1.3-1.2 2.6-2.3 3.6l-1.5-1.5c.7-.7 1.2-1.5 1.6-2.4-1.2-3-4.8-5.3-8.8-5.3-1 0-2 .1-2.9.5L6.5 5.7A13.2 13.2 0 0 1 12 4.9c5.4 0 9.8 3.2 11 7.4z"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <a href="#" class="forgot-link" onclick="openForgotForm(event)">Forgot Password?</a>
+
+        <button class="btn-primary" onclick="doLogin()" id="login-btn">Sign In</button>
+        <button class="btn-secondary login-secondary-action" type="button" onclick="openRegisterForm(event)">Create Account</button>
+
+        <div id="login-err" class="err-msg"></div>
       </div>
-      <a href="#" class="forgot-link" onclick="openForgotForm(event)">Forgot Password?</a>
 
-      <button class="btn-primary" onclick="doLogin()" id="login-btn">Sign In</button>
+      <div id="register-form" class="form-container" style="display:none;">
+        <div class="login-badge">REQUEST ACCESS</div>
+        <h2 class="login-heading">Create Account</h2>
+        <p class="form-note">Your account will stay pending until an admin approves it in User Management.</p>
 
-      <div id="login-err" class="err-msg"></div>
-    </div>
+        <div class="field">
+          <label for="reg-name">Full Name</label>
+          <input type="text" id="reg-name" placeholder="Juan Dela Cruz" autocomplete="name" />
+        </div>
+        <div class="field">
+          <label for="reg-email">Email Address</label>
+          <input type="email" id="reg-email" placeholder="you@example.com" autocomplete="email" />
+        </div>
+        <div class="field">
+          <label for="reg-code">Email Verification Code</label>
+          <div class="register-code-row">
+            <input type="text" id="reg-code" placeholder="6-digit code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" />
+            <button class="btn-secondary register-code-btn" type="button" onclick="sendRegisterVerificationCode()" id="register-code-btn">Send Code</button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="reg-pass">Password</label>
+          <div class="password-input-wrap">
+            <input type="password" id="reg-pass" placeholder="At least 8 characters" autocomplete="new-password" />
+            <button class="password-toggle" type="button" data-target="reg-pass" aria-label="Show password" title="Show password">
+              <svg class="icon-eye-open" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 5C6.6 5 2.2 8.2 1 12c1.2 3.8 5.6 7 11 7s9.8-3.2 11-7c-1.2-3.8-5.6-7-11-7zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z"></path>
+                <circle cx="12" cy="12" r="2.2"></circle>
+              </svg>
+              <svg class="icon-eye-closed" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M2 5.3 3.4 4 20 20.6 18.6 22l-3-3c-1.1.4-2.3.7-3.6.7-5.4 0-9.8-3.2-11-7 .5-1.6 1.6-3.1 3.1-4.3L2 5.3zm9.2 9.2 3 3a4 4 0 0 1-5.9-5.9l3 3zm10.8-2.2c-.4 1.3-1.2 2.6-2.3 3.6l-1.5-1.5c.7-.7 1.2-1.5 1.6-2.4-1.2-3-4.8-5.3-8.8-5.3-1 0-2 .1-2.9.5L6.5 5.7A13.2 13.2 0 0 1 12 4.9c5.4 0 9.8 3.2 11 7.4z"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
 
-    <div id="forgot-form" class="form-container" style="display:none;">
-      <div class="login-badge">ACCOUNT RECOVERY</div>
-      <h2 class="login-heading">Forgot Password</h2>
-      <p class="form-note">Enter your email address to receive a secure reset link.</p>
-      <p class="form-note">If email delivery is not enabled in the local setup, the reset link will be shown here for testing.</p>
+        <div class="form-actions-inline">
+          <button class="btn-secondary" type="button" onclick="showLoginForm()">Back to Login</button>
+          <button class="btn-primary" type="button" onclick="submitRegister()" id="register-btn">Submit Request</button>
+        </div>
 
-      <div class="field">
-        <label for="forgot-email">Email Address</label>
-        <input type="email" id="forgot-email" placeholder="you@example.com" autocomplete="email" />
+        <div id="register-err" class="err-msg"></div>
       </div>
 
-      <div class="form-actions-inline">
-        <button class="btn-secondary" type="button" onclick="showLoginForm()">Back to Login</button>
-        <button class="btn-primary" type="button" onclick="submitForgotPassword()" id="forgot-btn">Send Reset Link</button>
-      </div>
+      <div id="forgot-form" class="form-container" style="display:none;">
+        <div class="login-badge">ACCOUNT RECOVERY</div>
+        <h2 class="login-heading">Forgot Password</h2>
+        <p class="form-note">Enter your email address to receive a secure reset link.</p>
+        <p class="form-note">If email delivery is not enabled in the local setup, the reset link will be shown here for testing.</p>
 
-      <div id="forgot-err" class="err-msg"></div>
-      <div id="reset-link-wrap"></div>
-    </div>
+        <div class="field">
+          <label for="forgot-email">Email Address</label>
+          <input type="email" id="forgot-email" placeholder="you@example.com" autocomplete="email" />
+        </div>
+
+        <div class="form-actions-inline">
+          <button class="btn-secondary" type="button" onclick="showLoginForm()">Back to Login</button>
+          <button class="btn-primary" type="button" onclick="submitForgotPassword()" id="forgot-btn">Send Reset Link</button>
+        </div>
+
+        <div id="forgot-err" class="err-msg"></div>
+        <div id="reset-link-wrap"></div>
+      </div>
+    </section>
   </div>
 </div>
 
-<script src="/login/login.js?v=20260501"></script>
+<script src="/login/login.js?v=20260518e"></script>
 </body>
 </html>
 

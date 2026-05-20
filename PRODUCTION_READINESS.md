@@ -30,5 +30,4 @@
   - Accounts Receivable
   - Accounts Payable
   - Service Orders
-  - Procurement
   - Company Registry

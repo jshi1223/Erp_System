@@ -113,7 +113,7 @@ function switchTab(tab, btn) {
 // PROJECTS
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 function loadProjects() {
-  fetch('/api/projects')
+  return fetch('/api/projects')
     .then(r => r.json())
     .then(data => {
       projectsDb = data;
@@ -295,7 +295,7 @@ function closeProjectModal() {
   document.getElementById('project-modal-backdrop').classList.remove('open');
 }
 
-function saveProject() {
+async function saveProject() {
   const name = document.getElementById('f-project-name').value.trim();
   const budget = parseFloat(document.getElementById('f-project-budget').value);
   
@@ -315,18 +315,22 @@ function saveProject() {
     members: document.getElementById('f-project-members').value.trim()
   };
   
-  fetch('/api/projects', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(payload)
-  })
-  .then(r => r.json())
-  .then(() => {
+  try {
+    const r = await fetch('/api/projects', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      throw new Error(data.error || 'Unable to create project.');
+    }
     closeProjectModal();
-    loadProjects();
+    await loadProjects();
     alert('Project created successfully');
-  })
-  .catch(e => alert('Error: ' + e.message));
+  } catch (e) {
+    alert('Error: ' + e.message);
+  }
 }
 
 function updateProjectSelectors() {
@@ -361,7 +365,7 @@ function loadGanttForProject() {
   
   const project = projectsDb.find(p => p.id == projectId);
   
-  fetch(`/api/projects/${projectId}/tasks`)
+  return fetch(`/api/projects/${projectId}/tasks`)
     .then(r => r.json())
     .then(data => {
       tasksDb = data;
@@ -431,7 +435,7 @@ function closeTaskModal() {
   document.getElementById('task-modal-backdrop').classList.remove('open');
 }
 
-function saveTask() {
+async function saveTask() {
   const name = document.getElementById('f-task-name').value.trim();
   const startDate = document.getElementById('f-task-start').value;
   const endDate = document.getElementById('f-task-end').value;
@@ -451,18 +455,22 @@ function saveTask() {
     plan_cost: parseFloat(document.getElementById('f-task-plan-cost').value) || 0
   };
   
-  fetch('/api/tasks', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(payload)
-  })
-  .then(r => r.json())
-  .then(() => {
+  try {
+    const r = await fetch('/api/tasks', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      throw new Error(data.error || 'Unable to create task.');
+    }
     closeTaskModal();
-    loadGanttForProject();
+    await Promise.all([loadGanttForProject(), loadProjects()]);
     alert('Task created successfully');
-  })
-  .catch(e => alert('Error: ' + e.message));
+  } catch (e) {
+    alert('Error: ' + e.message);
+  }
 }
 
 let activeTaskId = null;
@@ -479,28 +487,31 @@ function closeQuickTaskModal() {
   document.getElementById('quick-task-modal-backdrop').classList.remove('open');
 }
 
-function saveQuickTask() {
+async function saveQuickTask() {
   const progress = document.getElementById('q-task-progress').value;
   const status = document.getElementById('q-task-status').value;
 
-  fetch(`/api/tasks/${activeTaskId}`, {
-    method: 'PUT',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ 
-      progress: parseInt(progress), 
-      status: status,
-      actual_cost: tasksDb.find(t => t.id === activeTaskId).actual_cost // keep current cost
-    })
-  })
-  .then(r => r.json())
-  .then(data => {
+  try {
+    const r = await fetch(`/api/tasks/${activeTaskId}`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        progress: parseInt(progress),
+        status: status,
+        actual_cost: tasksDb.find(t => Number(t.id) === Number(activeTaskId))?.actual_cost || 0
+      })
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      throw new Error(data.error || 'Unable to update task.');
+    }
     if (data.success) {
       closeQuickTaskModal();
-      loadGanttForProject();
-      loadProjects(); // Refresh project list to update total progress
+      await Promise.all([loadGanttForProject(), loadProjects()]);
     }
-  })
-  .catch(e => console.error('Error:', e));
+  } catch (e) {
+    console.error('Error:', e);
+  }
 }
 
 // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -520,7 +531,7 @@ function loadCostsForProject() {
   
   const project = projectsDb.find(p => p.id == projectId);
   
-  fetch(`/api/projects/${projectId}/costs`)
+  return fetch(`/api/projects/${projectId}/costs`)
     .then(r => r.json())
     .then(data => {
       costsDb = data;
@@ -574,7 +585,7 @@ function closeCostModal() {
   document.getElementById('cost-modal-backdrop').classList.remove('open');
 }
 
-function saveCost() {
+async function saveCost() {
   const category = document.getElementById('f-cost-category').value.trim();
   const planAmount = parseFloat(document.getElementById('f-plan-amount').value);
   const actualAmount = parseFloat(document.getElementById('f-actual-amount').value);
@@ -593,18 +604,22 @@ function saveCost() {
     notes: document.getElementById('f-cost-notes').value.trim()
   };
   
-  fetch('/api/project-costs', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(payload)
-  })
-  .then(r => r.json())
-  .then(() => {
+  try {
+    const r = await fetch('/api/project-costs', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      throw new Error(data.error || 'Unable to record cost.');
+    }
     closeCostModal();
-    loadCostsForProject();
+    await Promise.all([loadCostsForProject(), loadProjects()]);
     alert('Cost recorded successfully');
-  })
-  .catch(e => alert('Error: ' + e.message));
+  } catch (e) {
+    alert('Error: ' + e.message);
+  }
 }
 
 function escHtml(str) {
@@ -616,6 +631,10 @@ function highlightText(value, query) {
   const tokens = String(query || '').trim().split(/\s+/).filter(Boolean);
   if (!tokens.length) return escaped;
   const pattern = tokens.sort((a, b) => b.length - a.length).map(token => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
-  return pattern ? escaped.replace(new RegExp(`(${pattern})`, 'gi'), '<mark>$1</mark>') : escaped;
+  try {
+    return pattern ? escaped.replace(new RegExp(`(${pattern})`, 'gi'), '<mark>$1</mark>') : escaped;
+  } catch (_) {
+    return escaped;
+  }
 }
 

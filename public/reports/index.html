@@ -1,15 +1,15 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KVSK CCTV & IT Solution - Reports</title>
-  <script src="/assets/js/auth-guard.js?v=20260422"></script>
+  <script src="/assets/js/auth-guard.js?v=20260518d"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/css/shared.css?v=20260501w" />
-  <link rel="stylesheet" href="/reports/reports.css?v=20260501b" />
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260516f" />
+  <link rel="stylesheet" href="/reports/reports.css?v=20260515a" />
 </head>
-<body class="erp-clean-page">
+<body class="erp-clean-page reports-page">
 
 <!-- Header (copied from dashboard) -->
 <header>
@@ -46,7 +46,7 @@
           </div>
           <div class="notifications-panel-actions">
             <button class="notifications-mark" type="button" onclick="markNotificationsAsRead(); loadNotifications();">Mark as read</button>
-            <button class="notifications-close" type="button" onclick="toggleNotificationsPanel(false)">Ã—</button>
+            <button class="notifications-close" type="button" onclick="toggleNotificationsPanel(false)">×</button>
           </div>
         </div>
         <div class="notifications-list" id="notifications-list">
@@ -62,21 +62,19 @@
   <!-- Page Hero -->
   <div class="page-hero">
     <div class="page-hero-copy">
-      <div class="page-title">Reports Dashboard</div>
-      <div class="page-sub">Collections overview, invoice status, financial summaries, and project analytics.</div>
+      <div class="page-title">Reports</div>
+      <div class="page-sub">Collections overview, invoice status, financial summaries, and project analytics across all companies.</div>
     </div>
   </div>
 
-  <!-- Company Filter (same as dashboard) -->
-  <div class="dashboard-filter-bar">
-    <div>
-      <div class="section-title" style="font-size: 0.95rem;">Company View</div>
-      <div class="section-subtitle">Filter reports by company.</div>
-    </div>
-    <div class="company-filter-stack">
-      <select id="reports-company-filter" class="filter-select company-filter-select" aria-label="Company filter" onchange="setReportsCompanyFilter(this.value)">
-        <option value="all">All Companies</option>
-      </select>
+  <div class="module-page-toolbar reports-toolbar">
+    <button class="btn btn-cancel btn-sm section-back-btn" type="button" onclick="goBackToDashboard()">Back to Dashboard</button>
+    <div class="module-page-toolbar-actions reports-toolbar-actions">
+      <div class="reports-company-search-shell">
+        <div class="search-wrap top-search-bar module-toolbar-search reports-company-search">
+          <input id="reports-company-search-input" type="text" placeholder="Search company name..." oninput="setReportsCompanyQuery(this.value)" />
+        </div>
+      </div>
     </div>
   </div>
 
@@ -100,7 +98,7 @@
             <span><i class="legend-dot legend-dot-primary"></i>Collected</span>
           </div>
           <div class="dashboard-bar-scroll">
-            <div class="dashboard-bar-chart" id="reports-bar-chart"></div>
+            <div class="dashboard-bar-chart" id="dashboard-bar-chart"></div>
           </div>
         </div>
       </section>
@@ -113,32 +111,32 @@
           </div>
         </div>
         <div class="dashboard-pie-wrap">
-          <div class="dashboard-donut" id="reports-donut-chart">
+          <div class="dashboard-donut" id="dashboard-donut-chart">
             <div class="dashboard-donut-center">
-              <strong id="reports-donut-total">0</strong>
+              <strong id="dashboard-donut-total">0</strong>
               <span>Invoices</span>
             </div>
           </div>
-          <div class="dashboard-pie-legend" id="reports-pie-legend"></div>
+          <div class="dashboard-pie-legend" id="dashboard-pie-legend"></div>
         </div>
-        <div class="dashboard-status-grid dashboard-status-grid-compact" id="reports-invoice-status-cards">
+        <div class="dashboard-status-grid dashboard-status-grid-compact" id="invoice-status-cards">
           <button class="status-mini-card is-active" type="button" data-status="paid" onclick="setReportsInvoiceStatusView('paid')">
             <span class="status-mini-label">Paid</span>
-            <strong id="reports-status-count-paid">0</strong>
+            <strong id="status-count-paid">0</strong>
             <small>Invoices</small>
           </button>
           <button class="status-mini-card" type="button" data-status="partial" onclick="setReportsInvoiceStatusView('partial')">
             <span class="status-mini-label">Partial</span>
-            <strong id="reports-status-count-partial">0</strong>
+            <strong id="status-count-partial">0</strong>
             <small>Invoices</small>
           </button>
           <button class="status-mini-card" type="button" data-status="unpaid" onclick="setReportsInvoiceStatusView('unpaid')">
             <span class="status-mini-label">Unpaid</span>
-            <strong id="reports-status-count-unpaid">0</strong>
+            <strong id="status-count-unpaid">0</strong>
             <small>Invoices</small>
           </button>
         </div>
-        <div class="dashboard-status-summary" id="reports-invoice-status-summary">
+        <div class="dashboard-status-summary" id="invoice-status-summary">
           
         </div>
       </section>
@@ -148,23 +146,108 @@
     <div class="dashboard-insights-row" id="reports-insights-row">
       <div class="dashboard-insight-card">
         <span class="dashboard-insight-label">Best Month</span>
-        <strong id="reports-insight-best-month">-</strong>
+        <strong id="insight-best-month">-</strong>
       </div>
       <div class="dashboard-insight-card">
         <span class="dashboard-insight-label">Collection Rate</span>
-        <strong id="reports-insight-collection-rate">0%</strong>
+        <strong id="insight-collection-rate">0%</strong>
       </div>
       <div class="dashboard-insight-card">
         <span class="dashboard-insight-label">Unpaid Invoices</span>
-        <strong id="reports-insight-unpaid-count">0</strong>
+        <strong id="insight-unpaid-count">0</strong>
       </div>
+    </div>
+
+    <div class="dashboard-analytics-grid" style="margin-top:18px;">
+      <section class="dashboard-chart-card dashboard-chart-card-wide">
+        <div class="dashboard-chart-head">
+          <div>
+            <div class="section-title">Project Profitability</div>
+          </div>
+        </div>
+        <div class="table-wrap" style="margin-top:12px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Project</th>
+                <th class="text-right">Contract</th>
+                <th class="text-right">AR</th>
+                <th class="text-right">AP Cost</th>
+                <th class="text-right">Gross Profit</th>
+                <th class="text-right">Margin</th>
+              </tr>
+            </thead>
+            <tbody id="reports-project-profitability-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="dashboard-chart-card">
+        <div class="dashboard-chart-head">
+          <div>
+            <div class="section-title">Cash Flow Snapshot</div>
+          </div>
+        </div>
+        <div class="dashboard-insights-row" style="display:grid;grid-template-columns:1fr;gap:10px;margin-top:12px;">
+          <div class="dashboard-insight-card">
+            <span class="dashboard-insight-label">Open AR</span>
+            <strong id="reports-open-ar">PHP 0.00</strong>
+          </div>
+          <div class="dashboard-insight-card">
+            <span class="dashboard-insight-label">Open AP</span>
+            <strong id="reports-open-ap">PHP 0.00</strong>
+          </div>
+          <div class="dashboard-insight-card">
+            <span class="dashboard-insight-label">Net Cash Exposure</span>
+            <strong id="reports-net-cash">PHP 0.00</strong>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="dashboard-analytics-grid" style="margin-top:18px;">
+      <section class="dashboard-chart-card">
+        <div class="dashboard-chart-head">
+          <div>
+            <div class="section-title">Vendor Spend</div>
+          </div>
+        </div>
+        <div class="table-wrap" style="margin-top:12px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Vendor</th>
+                <th class="text-right">Bills</th>
+                <th class="text-right">Spend</th>
+              </tr>
+            </thead>
+            <tbody id="reports-vendor-spend-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="dashboard-chart-card">
+        <div class="dashboard-chart-head">
+          <div>
+            <div class="section-title">Client Revenue</div>
+          </div>
+        </div>
+        <div class="table-wrap" style="margin-top:12px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Client</th>
+                <th class="text-right">Invoices</th>
+                <th class="text-right">Revenue</th>
+              </tr>
+            </thead>
+            <tbody id="reports-client-revenue-body"></tbody>
+          </table>
+        </div>
+      </section>
     </div>
   </div>
 
-  <!-- Future Reports Placeholder -->
-  <div class="module-panel-note">
-    <p><strong>Coming Soon:</strong> Project reports, financial summaries, inventory analytics, and custom report builder.</p>
-  </div>
 </main>
 
 <!-- Sidebar (same as other admin pages) -->
@@ -178,48 +261,54 @@
         <div class="header-sub">Operations Control Panel</div>
       </div>
     </div>
-    <button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()">X</button>
+    <button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()" aria-label="Close menu">×</button>
   </div>
   <nav class="sidebar-nav">
     <a href="/admin?view=dashboard" class="sidebar-link">Dashboard</a>
+    <a href="/reports" class="sidebar-link active" id="menu-reports">Reports</a>
     <div class="sidebar-group" data-sidebar-group="projects">
       <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
         <span>Projects</span>
-        <span class="sidebar-group-caret">â–¾</span>
+        <span class="sidebar-group-caret">▾</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/admin?view=all" class="sidebar-link is-subitem">Total Projects</a>
-        <a href="/admin?view=ongoing-projects" class="sidebar-link is-subitem" id="menu-ongoing-projects">Ongoing Projects</a>
         <a href="/company-registry" class="sidebar-link is-subitem">Company Registry</a>
       </div>
     </div>
-    <div class="sidebar-group" data-sidebar-group="finance">
+    <div class="sidebar-group" data-sidebar-group="accounts-payable">
       <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
-        <span>Finance</span>
-        <span class="sidebar-group-caret">â–¾</span>
+        <span>AP</span>
+        <span class="sidebar-group-caret">▾</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/accounts-payable" class="sidebar-link is-subitem">Accounts Payable</a>
-        <a href="/accounts-receivable" class="sidebar-link is-subitem">Accounts Receivable</a>
-        <a href="/procurement" class="sidebar-link is-subitem">Procurement</a>
+        <a href="/accounts-payable?tab=vendors" class="sidebar-link is-subitem">Vendors</a>
+        <a href="/accounts-payable?tab=requisitions" class="sidebar-link is-subitem">Purchase Requisitions</a>
+        <a href="/accounts-payable?tab=purchase-orders" class="sidebar-link is-subitem">Purchase Orders</a>
+        <a href="/accounts-payable?tab=goods-receipts" class="sidebar-link is-subitem">Goods Receipts</a>
+        <a href="/accounts-payable?tab=bills" class="sidebar-link is-subitem">Bills</a>
+        <a href="/accounts-payable?tab=payments" class="sidebar-link is-subitem">Payments</a>
       </div>
     </div>
-    <div class="sidebar-group" data-sidebar-group="inventory" data-sidebar-default-collapsed="1">
-      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
-        <span>Inventory</span>
-        <span class="sidebar-group-caret">â–¾</span>
+    <div class="sidebar-group" data-sidebar-group="accounts-receivable">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>AR</span>
+        <span class="sidebar-group-caret">▾</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/inventory" class="sidebar-link">Inventory</a>
+        <a href="/accounts-receivable?tab=service-orders" class="sidebar-link is-subitem">Service Orders</a>
+        <a href="/accounts-receivable?tab=transactions" class="sidebar-link is-subitem">Transactions</a>
+        <a href="/accounts-receivable?tab=receivables" class="sidebar-link is-subitem">Receivables</a>
+        <a href="/accounts-receivable?tab=collections" class="sidebar-link is-subitem">Payments</a>
       </div>
     </div>
     <div class="sidebar-group" data-sidebar-group="admin" data-sidebar-default-collapsed="1">
       <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
         <span>Admin</span>
-        <span class="sidebar-group-caret">â–¾</span>
+        <span class="sidebar-group-caret">▾</span>
       </button>
       <div class="sidebar-group-items">
         <a href="/user-management" class="sidebar-link is-subitem" id="menu-users" style="display:none">User Management</a>
+        <a href="/business-entities" class="sidebar-link is-subitem" id="menu-business-entities" style="display:none">Business Entities</a>
         <a href="#" class="sidebar-link is-subitem" id="menu-logs" style="display:none" onclick="openLogsPanel()">System Logs</a>
       </div>
     </div>
@@ -227,8 +316,8 @@
 </div>
 
 <!-- Scripts -->
-<script src="/assets/js/erp-core.js?v=20260501d"></script>
-<script src="/reports/reports.js?v=20260501"></script>
+<script src="/assets/js/erp-core.js?v=20260519a"></script>
+<script src="/reports/reports.js?v=20260517a"></script>
 </body>
 </html>
 

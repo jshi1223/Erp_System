@@ -1,6 +1,6 @@
 # KVSK CCTV & IT Solution ERP System
 
-Kinaadman ERP is a project-based ERP web application for managing company records, projects, service orders, invoices, receivables, procurement, payables, inventory, reports, users, and audit logs in one connected workflow.
+Kinaadman ERP is a project-based ERP web application for managing company records, projects, service orders, invoices, receivables, procurement, payables, reports, users, and audit logs in one connected workflow.
 
 ## Feature Overview
 
@@ -8,7 +8,7 @@ Kinaadman ERP is a project-based ERP web application for managing company record
 
 - ERP command center with KPI cards, charts, counters, and project alerts
 - Business entity/workspace context for operating-company-specific records
-- Sidebar navigation for Projects, AP, AR, Inventory, Reports, Admin, and Archives
+- Sidebar navigation for Projects, AP, AR, Reports, Admin, and Archives
 - Notifications for project status, due dates, upcoming work, and completed records
 - Dashboard company filtering and project status summaries
 
@@ -77,15 +77,6 @@ Kinaadman ERP is a project-based ERP web application for managing company record
 - Automatic payable status updates from payment balance
 - Payment schedule generation from PO payment terms
 
-### Inventory
-
-- Product management with SKU, name, category, description, unit price, reorder level, and active status
-- Warehouse management with location and active status
-- Stock level tracking per product and warehouse
-- Stock movement tracking for inbound, outbound, and adjustment activity
-- Source reference support for manual entries, requisitions, purchase orders, goods receipts, and transactions
-- Inventory lists and stock history views
-
 ### Accounting And HR Foundations
 
 - Chart of accounts records
@@ -121,7 +112,7 @@ Kinaadman ERP is a project-based ERP web application for managing company record
 ### Files, Backups, And Documentation
 
 - PDF upload support for projects, transactions, service orders, and AP bills
-- Local `uploads_pdf` runtime storage for the current MySQL/Node deployment
+- Local `uploads_pdf` runtime storage for the current Node deployment
 - Backup script for database and uploaded PDFs
 - Backup and recovery documentation
 - Production readiness checklist
@@ -133,7 +124,6 @@ Kinaadman ERP is a project-based ERP web application for managing company record
 ```text
 Business Entity -> Company Registry -> Projects -> Service Orders -> Transactions -> Accounts Receivable -> Payments
 Company/Project -> Purchase Requisition -> Approval -> Purchase Order -> Approval -> Goods Receipt -> Accounts Payable -> Payments
-Purchase Orders / Goods Receipts -> Stock Movements -> Inventory
 Projects -> Tasks -> Project Costs -> Reports
 Users -> Role Permissions -> System Logs -> Audit Review
 ```
@@ -145,7 +135,6 @@ Users -> Role Permissions -> System Logs -> Audit Review
 - `public/accounts-payable/index.html` - vendors, requisitions, purchase orders, goods receipts, bills, and payments
 - `public/company/index.html` - company registry and company overview
 - `public/business-entities/index.html` - operating company and workspace management
-- `public/inventory/index.html` - products, warehouses, stock, and stock movements
 - `public/gantt-chart/index.html` - project timeline and planning workspace
 - `public/reports/index.html` - reporting dashboard
 - `public/user-management/index.html` - account and role management
@@ -157,7 +146,7 @@ Users -> Role Permissions -> System Logs -> Audit Review
 
 - Node.js
 - Express
-- MySQL via `mysql2`
+- PostgreSQL via `pg`
 - Express sessions
 - Multer for PDF/file uploads
 - Nodemailer for password reset email support
@@ -175,7 +164,7 @@ npm run backup
 
 ## Current Database
 
-The current runtime database is MySQL. PostgreSQL/Supabase migration notes are documented in `POSTGRES_MIGRATION.md`.
+The current runtime database is PostgreSQL. Setup and migration notes are documented in `POSTGRES_MIGRATION.md`.
 
 ## Notes
 

@@ -6,7 +6,7 @@ Duration: 5 Weeks
 
 ## Project Overview
 
-This ERP system was developed to manage company registry, project operations, procurement, service orders, accounts payable, accounts receivable, inventory, user accounts, reports, and system logs in one centralized web application.
+This ERP system was developed to manage company registry, project operations, procurement, service orders, accounts payable, accounts receivable, user accounts, reports, and system logs in one centralized web application.
 
 The goal of the sprint was to build a clean, organized, and user-friendly system with:
 
@@ -47,7 +47,6 @@ This week focused on the foundation of the whole project. The main purpose was t
   - Procurement
   - Accounts Payable
   - Accounts Receivable
-  - Inventory
   - User Management
   - Reports
 - Connected forms and tables to backend API routes.
@@ -70,7 +69,7 @@ This week focused on the actual working features of the system. The UI was conne
 
 ### What was done
 
-- Split the old shared `app.js` into separate module scripts.
+- Split the old shared core logic into separate module scripts.
 - Organized shared logic into reusable files such as core helpers and shared styles.
 - Fixed loading issues, save issues, and table refresh problems.
 - Corrected button labels, back navigation behavior, and toolbar alignment.
@@ -155,7 +154,6 @@ The system now supports:
 - company registry
 - procurement and vendors
 - accounts payable and receivable
-- inventory management
 - user and role control
 - report viewing
 - service order relationship management

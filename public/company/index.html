@@ -1,14 +1,14 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KVSK CCTV & IT Solution - Company Registry</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <script src="/assets/js/auth-guard.js?v=20260422"></script>
+  <script src="/assets/js/auth-guard.js?v=20260518d"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/css/shared.css?v=20260501w" />
-  <link rel="stylesheet" href="/company/company.css?v=20260501e" />
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260516f" />
+  <link rel="stylesheet" href="/company/company.css?v=20260514b" />
 
 </head>
 <body class="company-registry-page erp-clean-page">
@@ -29,6 +29,7 @@
       </button>
     </div>
     <div class="header-right">
+      <span class="workspace-badge" id="current-workspace-badge">Workspace</span>
       <span class="admin-badge">Company Registry</span>
       <button class="btn btn-logout btn-sm" onclick="doLogout()">Logout</button>
     </div>
@@ -48,50 +49,55 @@
     </div>
     <nav class="sidebar-nav">
       <a href="/admin" class="sidebar-link" id="menu-dashboard">Dashboard</a>
-      <a href="/admin?panel=reports" class="sidebar-link" id="menu-reports">Reports</a>
+      <a href="/reports" class="sidebar-link" id="menu-reports">Reports</a>
       <a href="/company-registry" class="sidebar-link active" id="menu-company-registry">Company Registry</a>
 
       <div class="sidebar-group" data-sidebar-group="projects">
         <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
           <span>Projects</span>
-          <span class="sidebar-group-caret">â–¾</span>
+          <span class="sidebar-group-caret">▾</span>
         </button>
         <div class="sidebar-group-items">
           <a href="/admin?panel=project-records" class="sidebar-link" id="menu-projects">Projects</a>
-          <a href="/admin?panel=service-orders" class="sidebar-link is-subitem" id="menu-service-orders">Service Orders</a>
-          <a href="/admin?view=ongoing-projects" class="sidebar-link is-subitem" id="menu-ongoing-projects">Ongoing Projects</a>
         </div>
       </div>
 
-      <div class="sidebar-group" data-sidebar-group="finance">
+      <div class="sidebar-group" data-sidebar-group="accounts-payable">
         <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
-          <span>Finance</span>
-          <span class="sidebar-group-caret">â–¾</span>
+          <span>AP</span>
+          <span class="sidebar-group-caret">▾</span>
         </button>
         <div class="sidebar-group-items">
-          <a href="/accounts-payable" class="sidebar-link is-subitem">Accounts Payable</a>
-          <a href="/accounts-receivable" class="sidebar-link is-subitem">Accounts Receivable</a>
-          <a href="/procurement" class="sidebar-link is-subitem">Procurement</a>
+          <a href="/accounts-payable?tab=vendors" class="sidebar-link is-subitem">Vendors</a>
+          <a href="/accounts-payable?tab=requisitions" class="sidebar-link is-subitem">Purchase Requisitions</a>
+          <a href="/accounts-payable?tab=purchase-orders" class="sidebar-link is-subitem">Purchase Orders</a>
+          <a href="/accounts-payable?tab=goods-receipts" class="sidebar-link is-subitem">Goods Receipts</a>
+          <a href="/accounts-payable?tab=bills" class="sidebar-link is-subitem">Bills</a>
+          <a href="/accounts-payable?tab=payments" class="sidebar-link is-subitem">Payments</a>
         </div>
       </div>
 
-      <div class="sidebar-group" data-sidebar-group="inventory">
+      <div class="sidebar-group" data-sidebar-group="accounts-receivable">
         <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
-          <span>Inventory</span>
-          <span class="sidebar-group-caret">â–¾</span>
+          <span>AR</span>
+          <span class="sidebar-group-caret">▾</span>
         </button>
         <div class="sidebar-group-items">
-          <a href="/inventory" class="sidebar-link">Inventory</a>
+          <a href="/accounts-receivable?tab=service-orders" class="sidebar-link is-subitem">Service Orders</a>
+          <a href="/accounts-receivable?tab=transactions" class="sidebar-link is-subitem">Transactions</a>
+          <a href="/accounts-receivable?tab=receivables" class="sidebar-link is-subitem">Receivables</a>
+          <a href="/accounts-receivable?tab=collections" class="sidebar-link is-subitem">Payments</a>
         </div>
       </div>
 
       <div class="sidebar-group" data-sidebar-group="admin">
         <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
           <span>Admin</span>
-          <span class="sidebar-group-caret">â–¾</span>
+          <span class="sidebar-group-caret">▾</span>
         </button>
         <div class="sidebar-group-items">
           <a href="/user-management" class="sidebar-link is-subitem" id="menu-users">User Management</a>
+          <a href="/business-entities" class="sidebar-link is-subitem" id="menu-business-entities">Business Entities</a>
           <a href="#" class="sidebar-link is-subitem" id="menu-logs" onclick="openLogsPanel()">System Logs</a>
         </div>
       </div>
@@ -99,45 +105,29 @@
   </div>
 
   <main class="registry-shell">
-    <div class="company-toolbar">
-      <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-back-fallback="/admin?view=dashboard" onclick="window.location.href='/admin'">Back to Dashboard</button>
-      <div class="company-toolbar-row">
-        <div class="company-toolbar-left">
-          <div class="search-wrap">
-            <input id="company-search-input" type="text" placeholder="Search company no, name, or address..." oninput="renderCompanies()" />
-          </div>
-        </div>
-        <div class="company-toolbar-right">
-          <button class="btn btn-add btn-sm" type="button" onclick="openCompanyModal()">+ Add Company</button>
-          <div id="company-status-filter" class="company-switcher" role="tablist">
-            <button class="company-switch-chip is-active" type="button" data-value="active" onclick="setCompanyRegistryFilter('active')">Active</button>
-            <button class="company-switch-chip" type="button" data-value="archived" onclick="setCompanyRegistryFilter('archived')">Archived</button>
-            <button class="company-switch-chip" type="button" data-value="all" onclick="setCompanyRegistryFilter('all')">All</button>
-          </div>
-        </div>
+    <div class="page-hero company-page-hero">
+      <div class="page-hero-copy">
+        <div class="page-title">Company Registry</div>
+        <p class="page-sub">Register, edit, archive, and restore company records.</p>
       </div>
     </div>
 
-    <section class="company-summary" aria-label="Company registry summary">
-      <div class="summary-card">
-        <span class="summary-label">Total Companies</span>
-        <strong id="registry-total-companies">0</strong>
+    <div class="company-toolbar-stack">
+      <div class="module-page-toolbar company-toolbar">
+        <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-smart-back="1" data-back-force-fallback="1" data-back-fallback="/admin?view=dashboard" onclick="goBackSmart('/admin?view=dashboard', true)">Back to Dashboard</button>
+        <div class="module-page-toolbar-actions company-toolbar-actions">
+          <div class="search-wrap top-search-bar module-toolbar-search company-toolbar-search">
+            <input id="company-search-input" type="text" placeholder="Search company no, name, or address..." oninput="renderCompanies()" />
+          </div>
+          <button class="btn btn-add btn-sm" type="button" onclick="openCompanyModal()">+ Add Company</button>
+        </div>
       </div>
-      <div class="summary-card">
-        <span class="summary-label">Active</span>
-        <strong id="registry-active-companies">0</strong>
-      </div>
-      <div class="summary-card">
-        <span class="summary-label">Archived</span>
-        <strong id="registry-archived-companies">0</strong>
-      </div>
-    </section>
+    </div>
 
     <div class="registry-status" id="erp-status"></div>
 
     <section class="registry-panel">
       <div class="registry-panel-head">
-        <h2>Company Registry</h2>
         <p>Register, edit, archive, and restore company records.</p>
       </div>
 
@@ -146,7 +136,9 @@
           <thead>
             <tr>
               <th>Company No.</th>
+              <th>Branch Code</th>
               <th>Company Name</th>
+              <th>TIN</th>
               <th>Contact Person</th>
               <th>Phone</th>
               <th>Email</th>
@@ -171,44 +163,56 @@
         <form id="company-form">
           <div class="form-grid">
             <div class="field">
-              <label>Company No.</label>
-              <input id="erp-company-no" type="text" placeholder="Auto-generated" readonly />
+              <label>Company No. *</label>
+              <input id="erp-company-no" type="text" placeholder="Auto-generated" readonly required aria-required="true" />
+              <div class="modal-inline-message is-hidden" data-company-field-message="company_no" aria-live="polite"></div>
+              <input id="erp-company-business-entity-id" type="hidden" />
+            </div>
+            <div class="field">
+              <label>Branch Code</label>
+              <input id="erp-company-branch-code" type="text" maxlength="10" placeholder="Optional, e.g. BR-01" />
             </div>
             <div class="field">
               <label>Company Name *</label>
-              <input id="erp-company-name" type="text" placeholder="Company or client name" />
+              <input id="erp-company-name" type="text" placeholder="Company or client name" required aria-required="true" />
               <div class="modal-inline-message is-hidden" data-company-field-message="company_name" aria-live="polite"></div>
             </div>
             <div class="field full">
-              <label>Address</label>
-              <input id="erp-company-address" type="text" placeholder="Complete address" />
+              <label>Address *</label>
+              <input id="erp-company-address" type="text" placeholder="Complete address" required aria-required="true" />
+              <div class="modal-inline-message is-hidden" data-company-field-message="address" aria-live="polite"></div>
             </div>
             <div class="field">
-              <label>Contact Person</label>
-              <input id="erp-company-contact" type="text" placeholder="Primary contact" />
+              <label>Contact Person *</label>
+              <input id="erp-company-contact" type="text" placeholder="Primary contact" required aria-required="true" />
+              <div class="modal-inline-message is-hidden" data-company-field-message="contact_person" aria-live="polite"></div>
             </div>
             <div class="field">
-              <label>Phone</label>
-              <input id="erp-company-phone" type="text" placeholder="Contact number" />
+              <label>Phone *</label>
+              <select id="erp-company-phone-country" aria-label="Phone country">
+                <option value="PH">PH +63</option>
+                <option value="OTHER">Other country</option>
+              </select>
+              <input id="erp-company-phone" type="text" placeholder="11 digits, e.g. 09171234567" maxlength="11" inputmode="numeric" autocomplete="tel" required aria-required="true" />
+              <div class="modal-inline-message is-hidden" data-company-field-message="phone" aria-live="polite"></div>
             </div>
             <div class="field">
-              <label>Email</label>
-              <input id="erp-company-email" type="email" placeholder="Contact email" />
+              <label>Email *</label>
+              <input id="erp-company-email" type="email" placeholder="Contact email" required aria-required="true" />
+              <div class="modal-inline-message is-hidden" data-company-field-message="email" aria-live="polite"></div>
             </div>
             <div class="field">
-              <label>TIN</label>
-              <input id="erp-company-tin" type="text" placeholder="Tax identification number" />
+              <label>TIN *</label>
+              <input id="erp-company-tin" type="text" placeholder="000-000-000-000" maxlength="15" inputmode="numeric" autocomplete="off" required aria-required="true" />
+              <div class="modal-inline-message is-hidden" data-company-field-message="tin" aria-live="polite"></div>
             </div>
             <div class="field">
-              <label>Industry</label>
-              <input id="erp-company-industry" type="text" placeholder="Business type or industry" />
-            </div>
-            <div class="field">
-              <label>Status</label>
-              <select id="erp-company-status">
+              <label>Status *</label>
+              <select id="erp-company-status" required aria-required="true">
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
               </select>
+              <div class="modal-inline-message is-hidden" data-company-field-message="status" aria-live="polite"></div>
             </div>
             <div class="field full">
               <label>Notes</label>
@@ -267,8 +271,8 @@
     </div>
   </div>
 
-  <script src="/assets/js/erp-core.js?v=20260501d"></script>
-  <script src="/company/company.js?v=20260501e"></script>
+  <script src="/assets/js/erp-core.js?v=20260519a"></script>
+  <script src="/company/company.js?v=20260518e"></script>
 </body>
 </html>
 

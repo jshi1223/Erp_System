@@ -1,0 +1,145 @@
+<mxfile host="Electron" modified="2026-05-18T00:00:00.000Z" agent="Codex" version="24.7.17">
+  <diagram id="ACCOUNTSPAYABLEMODULECURRENTFLOW" name="ACCOUNTS PAYABLE MODULE CURRENT FLOW">
+    <mxGraphModel dx="1200" dy="2300" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="2300" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="ap-title" value="ACCOUNTS PAYABLE CURRENT FLOW CHART" style="text;html=1;strokeColor=none;fillColor=none;fontSize=22;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="285" y="15" width="520" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-legend" value="Legend:&lt;br&gt;Green = Start/End&lt;br&gt;Blue = Process&lt;br&gt;Yellow = Decision&lt;br&gt;Orange = Database Record&lt;br&gt;Purple = Report/Summary" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="930" y="60" width="230" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-start" value="START" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="485" y="80" width="120" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-login" value="LOGIN" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="480" y="195" width="130" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-role" value="ROLE&lt;br&gt;CHECK?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="492" y="315" width="105" height="105" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-denied" value="ACCESS DENIED" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="250" y="330" width="150" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-dash" value="DASHBOARD" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="470" y="480" width="150" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-module" value="SELECT MODULE&lt;br&gt;ACCOUNTS PAYABLE" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="430" y="625" width="230" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-tabs" value="SELECT AP TAB&lt;br&gt;Bills / Vendor Balances / AP Aging / Payments / Disbursements" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="365" y="770" width="360" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-source" value="BILL FROM&lt;br&gt;APPROVED PO?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="455" y="925" width="180" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-po" value="LOAD PO DETAILS&lt;br&gt;vendor, project, amount" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="140" y="950" width="230" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-manual" value="MANUAL BILL ENTRY&lt;br&gt;vendor invoice + due date" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="735" y="950" width="240" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-valid" value="BILL DATA&lt;br&gt;VALID?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="455" y="1120" width="180" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-save" value="SAVE AP BILL&lt;br&gt;accounts_payable" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="455" y="1300" width="190" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-due" value="DUE FOR&lt;br&gt;PAYMENT?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="455" y="1455" width="180" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-aging" value="AP AGING / VENDOR BALANCES&lt;br&gt;pending / overdue" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="140" y="1470" width="260" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-pay" value="RECORD PAYMENT&lt;br&gt;payments.ap_id" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="455" y="1635" width="190" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-full" value="FULLY PAID?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="455" y="1790" width="180" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-partial" value="PARTIAL PAYMENT&lt;br&gt;status = partially_paid" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="135" y="1810" width="250" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-paid" value="MARK BILL PAID&lt;br&gt;status = paid" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="735" y="1810" width="220" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-disb" value="DISBURSEMENT REPORT&lt;br&gt;payment history" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="435" y="1985" width="230" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-end" value="END" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="490" y="2150" width="120" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-e1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ap-start" target="ap-login">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-e2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ap-login" target="ap-role">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-e3" value="Admin" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ap-role" target="ap-dash">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-e4" value="No access" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ap-role" target="ap-denied">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-e5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ap-dash" target="ap-module">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-e6" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ap-module" target="ap-tabs">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-e7" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ap-tabs" target="ap-source">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-e8" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ap-source" target="ap-po">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-e9" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ap-source" target="ap-manual">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-e10" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ap-po" target="ap-valid">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-e11" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ap-manual" target="ap-valid">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-e12" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ap-valid" target="ap-save">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-e13" value="No / Revise" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ap-valid" target="ap-manual">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-e14" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ap-save" target="ap-due">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-e15" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ap-due" target="ap-pay">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-e16" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ap-due" target="ap-aging">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-e17" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ap-aging" target="ap-end">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-e18" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ap-pay" target="ap-full">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-e19" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ap-full" target="ap-paid">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-e20" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ap-full" target="ap-partial">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-e21" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ap-partial" target="ap-aging">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-e22" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ap-paid" target="ap-disb">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ap-e23" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="ap-disb" target="ap-end">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

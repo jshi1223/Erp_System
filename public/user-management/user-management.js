@@ -10,14 +10,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const pageTitle = document.querySelector('.page-title');
   const pageSub = document.querySelector('.page-sub');
-  const addBtn = document.getElementById('btn-main-add');
 
   if (pageTitle) pageTitle.textContent = 'User Management';
-  if (pageSub) pageSub.textContent = 'Create and manage admin, staff, and user accounts.';
-  if (addBtn) {
-    addBtn.textContent = 'Add User';
-    addBtn.onclick = () => openUserModal();
-  }
+  if (pageSub) pageSub.textContent = 'Approve registered accounts and manage existing users.';
+  if (typeof setUserManagementView === 'function') setUserManagementView('approvals');
 
   loadUsers();
   renderUsers();

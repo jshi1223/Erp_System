@@ -1,0 +1,190 @@
+<mxfile host="Electron" agent="Mozilla/5.0">
+  <diagram id="kinaadman-core-erp-erd" name="Core ERP ERD">
+    <mxGraphModel dx="1030" dy="626" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2800" pageHeight="1750" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=30;fontStyle=1;fontColor=#1f2937;" value="Kinaadman ERP Core ERD" vertex="1">
+          <mxGeometry height="50" width="720" x="1040" y="30" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=14;fontColor=#4b5563;" value="Focused ERD for walkthrough: Business Entities, Company Registry, Projects, Accounts Receivable, and Accounts Payable." vertex="1">
+          <mxGeometry height="35" width="900" x="950" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_master" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#16a34a;fontColor=#166534;fontStyle=1;align=center;" value="Master Data" vertex="1">
+          <mxGeometry height="34" width="150" x="2240" y="45" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_project" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;fontColor=#5b21b6;fontStyle=1;align=center;" value="Projects" vertex="1">
+          <mxGeometry height="34" width="120" x="2400" y="45" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_ar" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#2563eb;fontColor=#1d4ed8;fontStyle=1;align=center;" value="AR Flow" vertex="1">
+          <mxGeometry height="34" width="150" x="2240" y="88" as="geometry" />
+        </mxCell>
+        <mxCell id="legend_ap" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#9a3412;fontStyle=1;align=center;" value="AP Flow" vertex="1">
+          <mxGeometry height="34" width="120" x="2400" y="88" as="geometry" />
+        </mxCell>
+        <mxCell id="business_entities" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ccfbf1;strokeColor=#0f766e;fontStyle=1;align=left;spacing=12;fontSize=13;" value="business_entities&#xa;PK id&#xa;entity_code UNIQUE&#xa;company_name UNIQUE&#xa;status / is_default" vertex="1">
+          <mxGeometry height="105" width="270" x="1265" y="160" as="geometry" />
+        </mxCell>
+        <mxCell id="group_company" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0fdf4;strokeColor=#22c55e;fontStyle=1;fontColor=#166534;verticalAlign=top;spacingTop=8;dashed=1;" value="MASTER RECORD" vertex="1">
+          <mxGeometry height="160" width="390" x="1205" y="430" as="geometry" />
+        </mxCell>
+        <mxCell id="group_project" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f3ff;strokeColor=#8b5cf6;fontStyle=1;fontColor=#5b21b6;verticalAlign=top;spacingTop=8;dashed=1;" value="PROJECT ANCHOR" vertex="1">
+          <mxGeometry height="175" width="390" x="1205" y="730" as="geometry" />
+        </mxCell>
+        <mxCell id="group_ar" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eff6ff;strokeColor=#3b82f6;fontStyle=1;fontColor=#1d4ed8;verticalAlign=top;spacingTop=8;dashed=1;" value="ACCOUNTS RECEIVABLE: customer billing and collection" vertex="1">
+          <mxGeometry height="950" width="540" x="2075" y="335" as="geometry" />
+        </mxCell>
+        <mxCell id="group_ap" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7ed;strokeColor=#f97316;fontStyle=1;fontColor=#9a3412;verticalAlign=top;spacingTop=8;dashed=1;" value="ACCOUNTS PAYABLE: purchasing, receiving, bills, and payment" vertex="1">
+          <mxGeometry height="1080" width="760" x="110" y="335" as="geometry" />
+        </mxCell>
+        <mxCell id="company_registry" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#16a34a;fontStyle=1;align=left;spacing=12;fontSize=13;" value="company_registry&#xa;PK id&#xa;FK business_entity_id&#xa;company_no UNIQUE&#xa;company_name&#xa;contact_person&#xa;phone / email / tin&#xa;status" vertex="1">
+          <mxGeometry height="105" width="270" x="1265" y="475" as="geometry" />
+        </mxCell>
+        <mxCell id="projects" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;fontStyle=1;align=left;spacing=12;fontSize=13;" value="projects&#xa;PK id&#xa;FK business_entity_id&#xa;FK company_id&#xa;project_docno UNIQUE&#xa;project_name&#xa;start_date / end_date&#xa;Unique rule: company + title + dates" vertex="1">
+          <mxGeometry height="135" width="270" x="1265" y="775" as="geometry" />
+        </mxCell>
+        <mxCell id="service_orders" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#2563eb;fontStyle=1;align=left;spacing=12;fontSize=13;" value="service_orders&#xa;PK id&#xa;FK business_entity_id&#xa;FK company_id&#xa;FK project_id&#xa;FK vendor_id&#xa;so_number UNIQUE&#xa;service_title / amount&#xa;status" vertex="1">
+          <mxGeometry height="130" width="270" x="2210" y="395" as="geometry" />
+        </mxCell>
+        <mxCell id="transactions" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#2563eb;fontStyle=1;align=left;spacing=12;fontSize=13;" value="transactions&#xa;PK id&#xa;FK business_entity_id&#xa;FK company_id&#xa;FK project_id&#xa;FK service_order_id&#xa;docno UNIQUE&#xa;type: invoice / receipt&#xa;amount / status" vertex="1">
+          <mxGeometry height="135" width="270" x="2210" y="650" as="geometry" />
+        </mxCell>
+        <mxCell id="accounts_receivable" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#2563eb;fontStyle=1;align=left;spacing=12;fontSize=13;" value="accounts_receivable&#xa;PK id&#xa;FK business_entity_id&#xa;FK transaction_id UNIQUE&#xa;FK project_id&#xa;invoice_number UNIQUE&#xa;total_amount&#xa;paid_amount&#xa;status" vertex="1">
+          <mxGeometry height="135" width="270" x="2210" y="905" as="geometry" />
+        </mxCell>
+        <mxCell id="ar_payments" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#2563eb;fontStyle=1;align=left;spacing=12;fontSize=13;" value="payments&#xa;PK id&#xa;payment_type = ar&#xa;FK ar_id&#xa;payment_date&#xa;amount&#xa;method / reference" vertex="1">
+          <mxGeometry height="120" width="270" x="2210" y="1160" as="geometry" />
+        </mxCell>
+        <mxCell id="vendors" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffedd5;strokeColor=#ea580c;fontStyle=1;align=left;spacing=12;fontSize=13;" value="vendors&#xa;PK id&#xa;FK business_entity_id&#xa;FK company_id&#xa;vendor_name&#xa;contact_person&#xa;email / phone / tin" vertex="1">
+          <mxGeometry height="115" width="260" x="180" y="395" as="geometry" />
+        </mxCell>
+        <mxCell id="purchase_requisitions" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffedd5;strokeColor=#ea580c;fontStyle=1;align=left;spacing=12;fontSize=13;" value="purchase_requisitions&#xa;PK id&#xa;FK business_entity_id&#xa;FK company_id&#xa;pr_number UNIQUE&#xa;request_date&#xa;department&#xa;status" vertex="1">
+          <mxGeometry height="120" width="260" x="180" y="620" as="geometry" />
+        </mxCell>
+        <mxCell id="purchase_requisition_items" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffedd5;strokeColor=#ea580c;fontStyle=1;align=left;spacing=12;fontSize=13;" value="purchase_requisition_items&#xa;PK id&#xa;FK pr_id&#xa;item_name&#xa;quantity&#xa;estimated_unit_price&#xa;line_total" vertex="1">
+          <mxGeometry height="120" width="260" x="180" y="845" as="geometry" />
+        </mxCell>
+        <mxCell id="purchase_orders" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffedd5;strokeColor=#ea580c;fontStyle=1;align=left;spacing=12;fontSize=13;" value="purchase_orders&#xa;PK id&#xa;FK business_entity_id&#xa;FK requisition_id&#xa;FK vendor_id&#xa;FK company_id&#xa;FK project_id&#xa;po_number UNIQUE&#xa;total_amount / status" vertex="1">
+          <mxGeometry height="130" width="260" x="555" y="620" as="geometry" />
+        </mxCell>
+        <mxCell id="po_line_items" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffedd5;strokeColor=#ea580c;fontStyle=1;align=left;spacing=12;fontSize=13;" value="po_line_items&#xa;PK id&#xa;FK po_id&#xa;description&#xa;quantity / unit_price&#xa;line_total" vertex="1">
+          <mxGeometry height="125" width="260" x="555" y="845" as="geometry" />
+        </mxCell>
+        <mxCell id="goods_receipts" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffedd5;strokeColor=#ea580c;fontStyle=1;align=left;spacing=12;fontSize=13;" value="goods_receipts&#xa;PK id&#xa;FK po_id&#xa;grn_number UNIQUE&#xa;received_date&#xa;received_by&#xa;status" vertex="1">
+          <mxGeometry height="120" width="260" x="555" y="1070" as="geometry" />
+        </mxCell>
+        <mxCell id="goods_receipt_items" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffedd5;strokeColor=#ea580c;fontStyle=1;align=left;spacing=12;fontSize=13;" value="goods_receipt_items&#xa;PK id&#xa;FK receipt_id&#xa;FK po_line_item_id&#xa;received_qty" vertex="1">
+          <mxGeometry height="105" width="260" x="180" y="1070" as="geometry" />
+        </mxCell>
+        <mxCell id="accounts_payable" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffedd5;strokeColor=#ea580c;fontStyle=1;align=left;spacing=12;fontSize=13;" value="accounts_payable&#xa;PK id&#xa;FK business_entity_id&#xa;FK vendor_id&#xa;FK po_id&#xa;FK project_id&#xa;bill_number UNIQUE&#xa;total_amount&#xa;paid_amount&#xa;status" vertex="1">
+          <mxGeometry height="120" width="260" x="555" y="1300" as="geometry" />
+        </mxCell>
+        <mxCell id="ap_payments" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffedd5;strokeColor=#ea580c;fontStyle=1;align=left;spacing=12;fontSize=13;" value="payments&#xa;PK id&#xa;payment_type = ap&#xa;FK ap_id&#xa;payment_date&#xa;amount&#xa;method / reference" vertex="1">
+          <mxGeometry height="105" width="260" x="180" y="1315" as="geometry" />
+        </mxCell>
+        <mxCell id="note_ar" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eff6ff;strokeColor=#bfdbfe;fontColor=#1d4ed8;fontStyle=1;fontSize=12;align=center;" value="AR Flow: Company -&gt; Project -&gt; Service Order -&gt; Transaction -&gt; Receivable -&gt; Payment" vertex="1">
+          <mxGeometry height="50" width="500" x="2095" y="1345" as="geometry" />
+        </mxCell>
+        <mxCell id="note_ap" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7ed;strokeColor=#fed7aa;fontColor=#9a3412;fontStyle=1;fontSize=12;align=center;" value="AP Flow: Company/Vendor + Project -&gt; Requisition -&gt; Purchase Order -&gt; Goods Receipt -&gt; Bill -&gt; Payment" vertex="1">
+          <mxGeometry height="35" width="620" x="180" y="1500" as="geometry" />
+        </mxCell>
+        <mxCell id="e_entity_company" edge="1" parent="1" source="business_entities" style="endArrow=block;html=1;rounded=0;dashed=1;strokeColor=#0f766e;fontSize=11;fontStyle=1;labelBackgroundColor=#ffffff;" target="company_registry" value="business_entity_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_entity_projects" edge="1" parent="1" source="business_entities" style="endArrow=block;html=1;rounded=0;dashed=1;strokeColor=#0f766e;fontSize=11;fontStyle=1;labelBackgroundColor=#ffffff;" target="projects" value="business_entity_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_entity_vendors" edge="1" parent="1" source="business_entities" style="endArrow=block;html=1;rounded=0;dashed=1;strokeColor=#0f766e;fontSize=11;fontStyle=1;labelBackgroundColor=#ffffff;" target="vendors" value="business_entity_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_entity_service_orders" edge="1" parent="1" source="business_entities" style="endArrow=block;html=1;rounded=0;dashed=1;strokeColor=#0f766e;fontSize=11;fontStyle=1;labelBackgroundColor=#ffffff;" target="service_orders" value="business_entity_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_entity_transactions" edge="1" parent="1" source="business_entities" style="endArrow=block;html=1;rounded=0;dashed=1;strokeColor=#0f766e;fontSize=11;fontStyle=1;labelBackgroundColor=#ffffff;" target="transactions" value="business_entity_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_entity_receivable" edge="1" parent="1" source="business_entities" style="endArrow=block;html=1;rounded=0;dashed=1;strokeColor=#0f766e;fontSize=11;fontStyle=1;labelBackgroundColor=#ffffff;" target="accounts_receivable" value="business_entity_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_entity_requisitions" edge="1" parent="1" source="business_entities" style="endArrow=block;html=1;rounded=0;dashed=1;strokeColor=#0f766e;fontSize=11;fontStyle=1;labelBackgroundColor=#ffffff;" target="purchase_requisitions" value="business_entity_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_entity_purchase_orders" edge="1" parent="1" source="business_entities" style="endArrow=block;html=1;rounded=0;dashed=1;strokeColor=#0f766e;fontSize=11;fontStyle=1;labelBackgroundColor=#ffffff;" target="purchase_orders" value="business_entity_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_entity_payable" edge="1" parent="1" source="business_entities" style="endArrow=block;html=1;rounded=0;dashed=1;strokeColor=#0f766e;fontSize=11;fontStyle=1;labelBackgroundColor=#ffffff;" target="accounts_payable" value="business_entity_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_company_projects" edge="1" parent="1" source="company_registry" style="endArrow=block;html=1;rounded=0;strokeColor=#7c3aed;fontSize=11;fontStyle=1;" target="projects" value="company_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_company_so" edge="1" parent="1" source="company_registry" style="endArrow=block;html=1;rounded=0;strokeColor=#2563eb;fontSize=11;fontStyle=1;" target="service_orders" value="company_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_project_so" edge="1" parent="1" source="projects" style="endArrow=block;html=1;rounded=0;strokeColor=#2563eb;fontSize=11;fontStyle=1;" target="service_orders" value="project_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_so_tx" edge="1" parent="1" source="service_orders" style="endArrow=block;html=1;rounded=0;strokeColor=#2563eb;fontSize=11;fontStyle=1;" target="transactions" value="service_order_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_project_tx" edge="1" parent="1" source="projects" style="endArrow=block;html=1;rounded=0;strokeColor=#2563eb;fontSize=11;fontStyle=1;" target="transactions" value="project_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_tx_ar" edge="1" parent="1" source="transactions" style="endArrow=block;html=1;rounded=0;strokeColor=#2563eb;fontSize=11;fontStyle=1;" target="accounts_receivable" value="transaction_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_ar_pay" edge="1" parent="1" source="accounts_receivable" style="endArrow=block;html=1;rounded=0;strokeColor=#2563eb;fontSize=11;fontStyle=1;" target="ar_payments" value="ar_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_company_vendors" edge="1" parent="1" source="company_registry" style="endArrow=block;html=1;rounded=0;strokeColor=#ea580c;fontSize=11;fontStyle=1;" target="vendors" value="company_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_vendor_so" edge="1" parent="1" style="endArrow=block;html=1;rounded=0;strokeColor=#ea580c;fontSize=11;fontStyle=1;" value="vendor_id">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="460" y="409.9991154791155" as="sourcePoint" />
+            <mxPoint x="2230" y="416.52245700245703" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_company_pr" edge="1" parent="1" source="company_registry" style="endArrow=block;html=1;rounded=0;strokeColor=#ea580c;fontSize=11;fontStyle=1;" target="purchase_requisitions" value="company_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_pr_items" edge="1" parent="1" source="purchase_requisitions" style="endArrow=block;html=1;rounded=0;strokeColor=#ea580c;fontSize=11;fontStyle=1;" target="purchase_requisition_items" value="pr_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_pr_po" edge="1" parent="1" source="purchase_requisitions" style="endArrow=block;html=1;rounded=0;strokeColor=#ea580c;fontSize=11;fontStyle=1;" target="purchase_orders" value="requisition_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_vendor_po" edge="1" parent="1" source="vendors" style="endArrow=block;html=1;rounded=0;strokeColor=#ea580c;fontSize=11;fontStyle=1;" target="purchase_orders" value="vendor_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_project_po" edge="1" parent="1" source="projects" style="endArrow=block;html=1;rounded=0;strokeColor=#7c3aed;fontSize=11;fontStyle=1;labelBackgroundColor=#ffffff;" target="purchase_orders" value="project_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_po_lines" edge="1" parent="1" source="purchase_orders" style="endArrow=block;html=1;rounded=0;strokeColor=#ea580c;fontSize=11;fontStyle=1;" target="po_line_items" value="po_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_po_gr" edge="1" parent="1" source="purchase_orders" style="endArrow=block;html=1;rounded=0;strokeColor=#ea580c;fontSize=11;fontStyle=1;" target="goods_receipts" value="po_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_gr_items" edge="1" parent="1" source="goods_receipts" style="endArrow=block;html=1;rounded=0;strokeColor=#ea580c;fontSize=11;fontStyle=1;" target="goods_receipt_items" value="receipt_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_gr_line_items" edge="1" parent="1" source="po_line_items" style="endArrow=block;html=1;rounded=0;strokeColor=#ea580c;fontSize=11;fontStyle=1;" target="goods_receipt_items" value="po_line_item_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_po_ap" edge="1" parent="1" source="purchase_orders" style="endArrow=block;html=1;rounded=0;strokeColor=#ea580c;fontSize=11;fontStyle=1;" target="accounts_payable" value="po_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_vendor_ap" edge="1" parent="1" source="vendors" style="endArrow=block;html=1;rounded=0;strokeColor=#ea580c;fontSize=11;fontStyle=1;" target="accounts_payable" value="vendor_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_project_ap" edge="1" parent="1" source="projects" style="endArrow=block;html=1;rounded=0;strokeColor=#7c3aed;fontSize=11;fontStyle=1;labelBackgroundColor=#ffffff;" target="accounts_payable" value="project_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_ap_pay" edge="1" parent="1" source="accounts_payable" style="endArrow=block;html=1;rounded=0;strokeColor=#ea580c;fontSize=11;fontStyle=1;" target="ap_payments" value="ap_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

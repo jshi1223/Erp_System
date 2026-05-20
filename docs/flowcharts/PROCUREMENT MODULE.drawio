@@ -1,0 +1,190 @@
+<mxfile host="Electron" modified="2026-05-18T00:00:00.000Z" agent="Codex" version="24.7.17">
+  <diagram id="PROCUREMENTMODULECURRENTFLOW" name="PROCUREMENT MODULE CURRENT FLOW">
+    <mxGraphModel dx="1200" dy="3300" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="3300" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="proc-title" value="PROCUREMENT CURRENT FLOW CHART" style="text;html=1;strokeColor=none;fillColor=none;fontSize=22;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="285" y="15" width="520" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-legend" value="Legend:&lt;br&gt;Green = Start/End&lt;br&gt;Blue = Process&lt;br&gt;Yellow = Decision&lt;br&gt;Orange = Database Record&lt;br&gt;Purple = Report/Summary" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="930" y="60" width="230" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-start" value="START" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="485" y="80" width="120" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-login" value="LOGIN" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="480" y="195" width="130" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-role" value="ROLE&lt;br&gt;CHECK?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="492" y="315" width="105" height="105" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-denied" value="ACCESS DENIED" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="250" y="330" width="150" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-dash" value="DASHBOARD" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="470" y="480" width="150" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-module" value="SELECT MODULE&lt;br&gt;PROCUREMENT" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="430" y="625" width="230" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-tabs" value="SELECT PROCUREMENT TAB&lt;br&gt;Vendors / PR / RFQ / Quotations / PO / Goods Receipts" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="365" y="770" width="360" height="95" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-vendorq" value="VENDOR&lt;br&gt;EXISTS?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="455" y="925" width="170" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-vendor" value="CREATE / UPDATE VENDOR&lt;br&gt;vendors" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="150" y="935" width="230" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-pr" value="CREATE PURCHASE REQUISITION&lt;br&gt;purchase_requisitions + items" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="420" y="1095" width="260" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-prvalid" value="PR COMPLETE?&lt;br&gt;Project + items + amount" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="455" y="1255" width="180" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-submit" value="SUBMIT PR" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="455" y="1430" width="180" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-approve" value="ADMIN&lt;br&gt;APPROVES PR?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="455" y="1570" width="180" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-revise" value="REVISE / CANCEL PR" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="160" y="1585" width="220" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-rfq" value="CREATE RFQ / QUOTATIONS&lt;br&gt;procurement_quotations" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="405" y="1745" width="280" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-quotes" value="ENOUGH&lt;br&gt;QUOTATIONS?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="455" y="1910" width="180" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-addquote" value="ADD MORE QUOTES" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="160" y="1925" width="210" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-select" value="SELECT WINNING&lt;br&gt;QUOTE?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="455" y="2085" width="180" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-po" value="CREATE PURCHASE ORDER&lt;br&gt;purchase_orders + po_line_items" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="415" y="2260" width="270" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-poapprove" value="ADMIN&lt;br&gt;APPROVES PO?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="455" y="2425" width="180" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-porevise" value="REVISE / CANCEL PO" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="760" y="2440" width="220" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-grnq" value="GOODS&lt;br&gt;RECEIVED?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="455" y="2605" width="180" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-pending" value="PENDING RECEIPT" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="155" y="2620" width="220" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-grn" value="SAVE GOODS RECEIPT&lt;br&gt;goods_receipts + items" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="415" y="2785" width="270" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-billq" value="GENERATE&lt;br&gt;AP BILL?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="455" y="2950" width="180" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-ap" value="CREATE AP BILL&lt;br&gt;accounts_payable" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="735" y="2965" width="230" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-end" value="END" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="490" y="3140" width="120" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-start" target="proc-login">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-login" target="proc-role">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e3" value="Admin" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-role" target="proc-dash">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e4" value="No access" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-role" target="proc-denied">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-dash" target="proc-module">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e6" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-module" target="proc-tabs">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e7" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-tabs" target="proc-vendorq">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e8" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-vendorq" target="proc-pr">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e9" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-vendorq" target="proc-vendor">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e10" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-vendor" target="proc-pr">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e11" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-pr" target="proc-prvalid">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e12" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-prvalid" target="proc-submit">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e13" value="No / Revise" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-prvalid" target="proc-pr">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e14" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-submit" target="proc-approve">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e15" value="Approved" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-approve" target="proc-rfq">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e16" value="Rejected" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-approve" target="proc-revise">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e17" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-rfq" target="proc-quotes">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e18" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-quotes" target="proc-select">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e19" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-quotes" target="proc-addquote">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e20" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-addquote" target="proc-rfq">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e21" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-select" target="proc-po">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e22" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-select" target="proc-addquote">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e23" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-po" target="proc-poapprove">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e24" value="Approved" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-poapprove" target="proc-grnq">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e25" value="Rejected" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-poapprove" target="proc-porevise">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e26" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-grnq" target="proc-grn">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e27" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-grnq" target="proc-pending">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e28" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-grn" target="proc-billq">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e29" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-billq" target="proc-ap">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e30" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-billq" target="proc-end">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="proc-e31" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="proc-ap" target="proc-end">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

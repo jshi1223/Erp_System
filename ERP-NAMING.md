@@ -8,10 +8,8 @@ Use these names consistently in the UI, DBML, and future screens.
 - `Company Master` - company registry
 - `Project Operations` - project entry and tracking
 - `Project Ledger` - project transactions and documents
-- `Procurement Ops` - procurement module
 - `AP Ledger` - accounts payable
 - `AR Ledger` - accounts receivable
-- `Inventory` - inventory module
 - `Archives` - archived records
 
 ## Database Mapping
@@ -19,8 +17,8 @@ Use these names consistently in the UI, DBML, and future screens.
 - `company_registry` -> `Company Master`
 - `projects` -> `Project Operations`
 - `transactions` -> `Project Ledger`
-- `vendors` -> `Procurement Ops`
-- `purchase_orders` -> `Procurement Ops`
+- `vendors` -> `AP Ledger`
+- `purchase_orders` -> `AP Ledger`
 - `accounts_payable` -> `AP Ledger`
 - `accounts_receivable` -> `AR Ledger`
 - `system_logs` -> `System Logs`

@@ -1,13 +1,13 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KVSK CCTV & IT Solution - Accounts Receivable</title>
-  <script src="/assets/js/auth-guard.js?v=20260422"></script>
+  <script src="/assets/js/auth-guard.js?v=20260518d"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/css/shared.css?v=20260501x" />
-  <link rel="stylesheet" href="/accounts-receivable/accounts-receivable.css?v=20260501b" />
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260516f" />
+  <link rel="stylesheet" href="/accounts-receivable/accounts-receivable.css?v=20260517c" />
 
   
 </head>
@@ -30,6 +30,7 @@
     </button>
   </div>
   <div class="header-right">
+    <span class="workspace-badge" id="current-workspace-badge">Workspace</span>
     <span class="admin-badge">Receivables Module</span>
     <div class="notification-wrap">
       <button class="btn-icon notification-btn" type="button" onclick="toggleNotificationsPanel()" aria-label="Notifications" title="Notifications">
@@ -46,7 +47,7 @@
           </div>
           <div class="notifications-panel-actions">
             <button class="notifications-mark" type="button" onclick="markNotificationsAsRead(); loadNotifications();">Mark as read</button>
-            <button class="notifications-close" type="button" onclick="toggleNotificationsPanel(false)">ï¿½</button>
+            <button class="notifications-close" type="button" onclick="toggleNotificationsPanel(false)">�</button>
           </div>
         </div>
         <div class="notifications-list" id="notifications-list">
@@ -70,43 +71,240 @@
     <div class="module-page-toolbar-actions" id="module-toolbar-actions"></div>
   </div>
 
-  <div class="module-summary-grid module-summary-grid-wide">
-    <div class="module-summary-card">
+  <div class="module-summary-grid module-summary-grid-wide ar-tab-summary-grid" id="ar-summary-grid" aria-live="polite">
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="service-orders">
+      <span class="module-summary-label">Service Orders</span>
+      <div class="module-summary-value" id="metric-so-count">0</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="service-orders">
+      <span class="module-summary-label">Issued / Active</span>
+      <div class="module-summary-value" id="metric-so-active">0</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="service-orders">
+      <span class="module-summary-label">Completed</span>
+      <div class="module-summary-value" id="metric-so-completed">0</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="service-orders">
+      <span class="module-summary-label">SO Amount</span>
+      <div class="module-summary-value" id="metric-so-total">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="service-orders">
+      <span class="module-summary-label">Linked Transactions</span>
+      <div class="module-summary-value" id="metric-so-linked-transactions">0</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="service-orders">
+      <span class="module-summary-label">Archived SO</span>
+      <div class="module-summary-value" id="metric-so-archived">0</div>
+    </div>
+
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="legacy-transactions" hidden>
+      <span class="module-summary-label">Transactions</span>
+      <div class="module-summary-value" id="metric-transaction-count">0</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="legacy-transactions" hidden>
+      <span class="module-summary-label">Invoices</span>
+      <div class="module-summary-value" id="metric-transaction-invoices">0</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="legacy-transactions" hidden>
+      <span class="module-summary-label">Receipts</span>
+      <div class="module-summary-value" id="metric-transaction-receipts">0</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="legacy-transactions" hidden>
+      <span class="module-summary-label">Transaction Total</span>
+      <div class="module-summary-value" id="metric-transaction-total">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="legacy-transactions" hidden>
+      <span class="module-summary-label">Transaction Balance</span>
+      <div class="module-summary-value" id="metric-transaction-balance">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="legacy-transactions" hidden>
+      <span class="module-summary-label">With Service Order</span>
+      <div class="module-summary-value" id="metric-transaction-linked-so">0</div>
+    </div>
+
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="invoices">
       <span class="module-summary-label">Outstanding</span>
       <div class="module-summary-value" id="metric-total-receivable">PHP 0.00</div>
     </div>
-    <div class="module-summary-card">
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="invoices">
       <span class="module-summary-label">Open Accounts</span>
       <div class="module-summary-value" id="metric-open-count">0</div>
     </div>
-    <div class="module-summary-card">
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="invoices">
       <span class="module-summary-label">Overdue Amount</span>
       <div class="module-summary-value" id="metric-overdue-amount">PHP 0.00</div>
     </div>
-    <div class="module-summary-card">
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="invoices">
       <span class="module-summary-label">Draft + Sent</span>
       <div class="module-summary-value" id="metric-draft-sent">0</div>
     </div>
-    <div class="module-summary-card">
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="invoices">
       <span class="module-summary-label">Partial</span>
       <div class="module-summary-value" id="metric-partial-count">0</div>
     </div>
-    <div class="module-summary-card">
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="invoices">
       <span class="module-summary-label">Paid</span>
       <div class="module-summary-value" id="metric-paid-count">0</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="collections" hidden>
+      <span class="module-summary-label">Payments</span>
+      <div class="module-summary-value" id="metric-collection-count">0</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="collections" hidden>
+      <span class="module-summary-label">Total Collected</span>
+      <div class="module-summary-value" id="metric-collection-total">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="collections" hidden>
+      <span class="module-summary-label">Collected This Month</span>
+      <div class="module-summary-value" id="metric-collection-this-month">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="collections" hidden>
+      <span class="module-summary-label">Payment Methods</span>
+      <div class="module-summary-value" id="metric-collection-methods">0</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="collections" hidden>
+      <span class="module-summary-label">Average Payment</span>
+      <div class="module-summary-value" id="metric-collection-average">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="collections" hidden>
+      <span class="module-summary-label">Invoices Collected</span>
+      <div class="module-summary-value" id="metric-collection-invoices">0</div>
+    </div>
+
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="customer-balances" hidden>
+      <span class="module-summary-label">Customers</span>
+      <div class="module-summary-value" id="metric-customer-count">0</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="customer-balances" hidden>
+      <span class="module-summary-label">With Balance</span>
+      <div class="module-summary-value" id="metric-customer-open-count">0</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="customer-balances" hidden>
+      <span class="module-summary-label">Total Balance</span>
+      <div class="module-summary-value" id="metric-customer-balance-total">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="customer-balances" hidden>
+      <span class="module-summary-label">Overdue</span>
+      <div class="module-summary-value" id="metric-customer-overdue-total">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="customer-balances" hidden>
+      <span class="module-summary-label">Top Balance</span>
+      <div class="module-summary-value" id="metric-customer-top-balance">PHP 0.00</div>
+    </div>
+
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="ar-aging" hidden>
+      <span class="module-summary-label">Current</span>
+      <div class="module-summary-value" id="metric-ar-aging-current">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="ar-aging" hidden>
+      <span class="module-summary-label">1-30 Days</span>
+      <div class="module-summary-value" id="metric-ar-aging-30">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="ar-aging" hidden>
+      <span class="module-summary-label">31-60 Days</span>
+      <div class="module-summary-value" id="metric-ar-aging-60">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="ar-aging" hidden>
+      <span class="module-summary-label">61-90 Days</span>
+      <div class="module-summary-value" id="metric-ar-aging-90">PHP 0.00</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="ar-aging" hidden>
+      <span class="module-summary-label">Over 90 Days</span>
+      <div class="module-summary-value" id="metric-ar-aging-over-90">PHP 0.00</div>
+    </div>
+
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="documents" hidden>
+      <span class="module-summary-label">Documents</span>
+      <div class="module-summary-value" id="metric-documents-count">0</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="documents" hidden>
+      <span class="module-summary-label">Transactions</span>
+      <div class="module-summary-value" id="metric-documents-transactions">0</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="documents" hidden>
+      <span class="module-summary-label">Service Orders</span>
+      <div class="module-summary-value" id="metric-documents-service-orders">0</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="documents" hidden>
+      <span class="module-summary-label">Invoices</span>
+      <div class="module-summary-value" id="metric-documents-invoices">0</div>
+    </div>
+    <div class="module-summary-card ar-summary-card" data-summary-tabs="documents" hidden>
+      <span class="module-summary-label">Missing Files</span>
+      <div class="module-summary-value" id="metric-documents-missing">0</div>
     </div>
   </div>
 
   <div class="module-tabs">
-    <div class="module-tab active" onclick="switchTab('receivables', this)">Receivables</div>
-    <div class="module-tab" onclick="switchTab('collections', this)">Collections</div>
-    <div class="module-tab" onclick="switchTab('summary', this)">Summary</div>
+    <div class="module-tab active" data-tab="service-orders" onclick="switchTab('service-orders', this)">Service Orders</div>
+    <div class="module-tab" data-tab="invoices" onclick="switchTab('invoices', this)">Invoices</div>
+    <div class="module-tab" data-tab="collections" onclick="switchTab('collections', this)">Collections</div>
+    <div class="module-tab" data-tab="customer-balances" onclick="switchTab('customer-balances', this)">Customer Balances</div>
+    <div class="module-tab" data-tab="ar-aging" onclick="switchTab('ar-aging', this)">AR Aging</div>
+    <div class="module-tab" data-tab="documents" onclick="switchTab('documents', this)">Documents</div>
   </div>
 
-  <div id="receivables" class="content-section active">
+  <div id="service-orders" class="content-section active">
     <div class="module-panel-head">
       <div>
-        <div class="section-title">Receivables Register</div>
+        <div class="section-title">Service Orders</div>
+      </div>
+    </div>
+
+    <div class="table-wrap" id="service-orders-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>SO No.</th>
+            <th>Company</th>
+            <th>Project</th>
+            <th>Service Date</th>
+            <th>Service Type</th>
+            <th>Title</th>
+            <th>Linked Transaction</th>
+            <th class="text-right">Amount</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="service-orders-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="transactions" class="content-section">
+    <div class="module-panel-head">
+      <div>
+        <div class="section-title">Transactions</div>
+      </div>
+    </div>
+
+    <div class="table-wrap" id="transactions-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Transaction No.</th>
+            <th>Type</th>
+            <th>Customer</th>
+            <th>Service Order</th>
+            <th>Description</th>
+            <th class="text-right">Amount</th>
+            <th class="text-right">Paid</th>
+            <th class="text-right">Balance</th>
+            <th>Date</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="transactions-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="invoices" class="content-section">
+    <div class="module-panel-head">
+      <div>
+        <div class="section-title">Invoices</div>
       </div>
     </div>
 
@@ -118,6 +316,7 @@
             <th>Customer</th>
             <th>Source Transaction</th>
             <th>Invoice Date</th>
+            <th>Payment Terms</th>
             <th>Due Date</th>
             <th>Total Amount</th>
             <th>Paid Amount</th>
@@ -136,7 +335,7 @@
   <div id="collections" class="content-section">
     <div class="module-panel-head">
       <div>
-        <div class="section-title">Collections Ledger</div>
+    <div class="section-title">Collections</div>
       </div>
     </div>
 
@@ -161,15 +360,76 @@
     </div>
   </div>
 
-  <div id="summary" class="content-section">
+  <div id="customer-balances" class="content-section">
     <div class="module-panel-head">
       <div>
-        <div class="section-title">Receivables Summary</div>
+        <div class="section-title">Customer Balances</div>
       </div>
     </div>
-    <div class="module-panel-note">
-      Use this workspace to monitor unpaid invoices, partial collections, and overdue balances.
-      Add new receivables from the Receivables tab, then post payments from Collections as money comes in.
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Customer</th>
+            <th class="text-right">Invoices</th>
+            <th class="text-right">Open Invoices</th>
+            <th class="text-right">Total Amount</th>
+            <th class="text-right">Paid Amount</th>
+            <th class="text-right">Balance</th>
+            <th class="text-right">Overdue</th>
+          </tr>
+        </thead>
+        <tbody id="customer-balances-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="ar-aging" class="content-section">
+    <div class="module-panel-head">
+      <div>
+        <div class="section-title">AR Aging</div>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Customer</th>
+            <th>Invoice No.</th>
+            <th>Due Date</th>
+            <th class="text-right">Current</th>
+            <th class="text-right">1-30 Days</th>
+            <th class="text-right">31-60 Days</th>
+            <th class="text-right">61-90 Days</th>
+            <th class="text-right">Over 90 Days</th>
+            <th class="text-right">Total Balance</th>
+          </tr>
+        </thead>
+        <tbody id="ar-aging-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="documents" class="content-section">
+    <div class="module-panel-head">
+      <div>
+        <div class="section-title">Documents</div>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Type</th>
+            <th>Document No.</th>
+            <th>Customer / Company</th>
+            <th>Date</th>
+            <th>Status</th>
+            <th>File</th>
+          </tr>
+        </thead>
+        <tbody id="documents-tbody"></tbody>
+      </table>
     </div>
   </div>
 </main>
@@ -195,31 +455,37 @@
         <span class="sidebar-group-caret">?</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/admin?view=all" class="sidebar-link is-subitem">Total Projects</a>
-        <a href="/admin?view=ongoing-projects" class="sidebar-link is-subitem" id="menu-ongoing-projects">Ongoing Projects</a>
         <a href="/company-registry" class="sidebar-link is-subitem">Company Registry</a>
       </div>
     </div>
 
-    <div class="sidebar-group" data-sidebar-group="finance">
+    <div class="sidebar-group" data-sidebar-group="accounts-payable">
       <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
-        <span>Finance</span>
+        <span>AP</span>
         <span class="sidebar-group-caret">?</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/accounts-payable" class="sidebar-link is-subitem">Accounts Payable</a>
-        <a href="/accounts-receivable" class="sidebar-link is-subitem active">Accounts Receivable</a>
-        <a href="/procurement" class="sidebar-link is-subitem">Procurement</a>
+        <a href="/accounts-payable?tab=vendors" class="sidebar-link is-subitem">Vendors</a>
+        <a href="/accounts-payable?tab=requisitions" class="sidebar-link is-subitem">Purchase Requisitions</a>
+        <a href="/accounts-payable?tab=purchase-orders" class="sidebar-link is-subitem">Purchase Orders</a>
+        <a href="/accounts-payable?tab=goods-receipts" class="sidebar-link is-subitem">Goods Receipts</a>
+        <a href="/accounts-payable?tab=bills" class="sidebar-link is-subitem">Bills</a>
+        <a href="/accounts-payable?tab=payments" class="sidebar-link is-subitem">Payments</a>
       </div>
     </div>
 
-    <div class="sidebar-group" data-sidebar-group="inventory" data-sidebar-default-collapsed="1">
-      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
-        <span>Inventory</span>
+    <div class="sidebar-group" data-sidebar-group="accounts-receivable">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>AR</span>
         <span class="sidebar-group-caret">?</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/inventory" class="sidebar-link">Inventory</a>
+        <a href="/accounts-receivable?tab=service-orders" class="sidebar-link is-subitem active">Service Orders</a>
+        <a href="/accounts-receivable?tab=invoices" class="sidebar-link is-subitem">Invoices</a>
+        <a href="/accounts-receivable?tab=collections" class="sidebar-link is-subitem">Collections</a>
+        <a href="/accounts-receivable?tab=customer-balances" class="sidebar-link is-subitem">Customer Balances</a>
+        <a href="/accounts-receivable?tab=ar-aging" class="sidebar-link is-subitem">AR Aging</a>
+        <a href="/accounts-receivable?tab=documents" class="sidebar-link is-subitem">Documents</a>
       </div>
     </div>
 
@@ -230,6 +496,7 @@
       </button>
       <div class="sidebar-group-items">
         <a href="/user-management" class="sidebar-link is-subitem" id="menu-users">User Management</a>
+        <a href="/business-entities" class="sidebar-link is-subitem" id="menu-business-entities">Business Entities</a>
         <a href="/admin?view=logs" class="sidebar-link is-subitem" id="menu-logs">System Logs</a>
       </div>
     </div>
@@ -240,10 +507,78 @@
         <span class="sidebar-group-caret">?</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/admin?view=archived" class="sidebar-link">Archived Records</a>
+        <a href="/admin?panel=archive-center" class="sidebar-link">Archive Center</a>
       </div>
     </div>
   </nav>
+</div>
+
+<div id="ar-transaction-modal-backdrop" class="modal-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="ar-transaction-modal-title" style="margin-bottom:0">Add Transaction</div>
+      <button class="close-btn" onclick="closeTransactionModal()">X</button>
+    </div>
+    <div class="form-grid-simple">
+      <div class="form-group">
+        <label>Transaction No. *</label>
+        <input id="f-ar-transaction-docno" type="text" placeholder="Auto-generated" readonly required aria-required="true" style="background:var(--surface2);cursor:default;color:var(--muted);" />
+      </div>
+      <div class="form-group">
+        <label>Type</label>
+        <select id="f-ar-transaction-type">
+          <option value="invoice">Invoice</option>
+          <option value="receipt">Receipt</option>
+        </select>
+      </div>
+      <div class="form-group" style="grid-column: 1 / -1;">
+        <label>Service Order</label>
+        <select id="f-ar-transaction-service-order" onchange="applyTransactionServiceOrderSelection()">
+          <option value="">No linked service order</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Customer / Company *</label>
+        <input id="f-ar-transaction-client" type="text" placeholder="Company or client name" required aria-required="true" />
+      </div>
+      <div class="form-group">
+        <label>Date *</label>
+        <input id="f-ar-transaction-date" type="date" required aria-required="true" />
+      </div>
+      <div class="form-group" style="grid-column: 1 / -1;">
+        <label>Description *</label>
+        <textarea id="f-ar-transaction-description" placeholder="Transaction details" required aria-required="true"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Amount *</label>
+        <input id="f-ar-transaction-amount" type="number" min="0" step="0.01" placeholder="0.00" required aria-required="true" />
+      </div>
+      <div class="form-group">
+        <label>Paid / Downpayment</label>
+        <input id="f-ar-transaction-paid" type="number" min="0" step="0.01" placeholder="0.00" />
+      </div>
+      <div class="form-group">
+        <label>Status</label>
+        <select id="f-ar-transaction-status">
+          <option value="unpaid">Unpaid</option>
+          <option value="partial">Partial</option>
+          <option value="paid">Paid</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Check No.</label>
+        <input id="f-ar-transaction-checkno" type="text" />
+      </div>
+      <div class="form-group">
+        <label>Customer PO Ref.</label>
+        <input id="f-ar-transaction-pono" type="text" placeholder="PO number from customer" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-cancel btn-sm" onclick="closeTransactionModal()">Cancel</button>
+      <button class="btn btn-save btn-sm" id="ar-transaction-save-btn" onclick="saveTransaction()">Save Transaction</button>
+    </div>
+  </div>
 </div>
 
 <div id="receivable-modal-backdrop" class="modal-backdrop">
@@ -256,24 +591,36 @@
       <div class="form-group" style="grid-column: 1 / -1; position: relative;">
         <label>Linked Transaction *</label>
         <div class="search-wrap receivable-transaction-search">
-          <input id="f-transaction-search" type="text" placeholder="Search transaction number or customer..." autocomplete="off" oninput="handleReceivableTransactionSearch(event)" onfocus="handleReceivableTransactionSearch(event, true)" />
+          <input id="f-transaction-search" type="text" placeholder="Search transaction number or company..." autocomplete="off" required aria-required="true" oninput="handleReceivableTransactionSearch(event)" onfocus="handleReceivableTransactionSearch(event, true)" />
           <input id="f-transaction-id" type="hidden" />
           <div id="f-transaction-results" class="search-results-list" role="listbox" aria-label="Transaction search results" style="display:none;"></div>
         </div>
-        <div id="f-transaction-help" style="margin-top:6px;font-size:0.68rem;color:var(--muted);">Choose the source transaction so the receivable keeps the ERP relationship to the original project entry.</div>
+        <div id="f-transaction-help" style="margin-top:6px;font-size:0.68rem;color:var(--muted);">Choose the source transaction so the receivable keeps the ERP relationship to the company record.</div>
         <div class="modal-inline-message is-hidden" data-receivable-field-message="transaction" aria-live="polite"></div>
       </div>
       <div class="form-group">
         <label>Customer / Company</label>
-        <input id="f-customer-name" type="text" placeholder="Company or client name" />
+        <input id="f-customer-name" type="text" placeholder="Company or client name" required aria-required="true" />
       </div>
       <div class="form-group">
         <label>Invoice Number</label>
-        <input id="f-invoice-number" type="text" placeholder="e.g. INV-2026-001" />
+        <input id="f-invoice-number" type="text" placeholder="e.g. INV-2026-001" required aria-required="true" />
       </div>
       <div class="form-group">
         <label>Invoice Date</label>
-        <input id="f-invoice-date" type="date" />
+        <input id="f-invoice-date" type="date" required aria-required="true" onchange="applyReceivablePaymentTerms()" />
+      </div>
+      <div class="form-group">
+        <label>Payment Terms</label>
+        <select id="f-payment-terms" onchange="applyReceivablePaymentTerms()">
+          <option value="Due on Receipt">Due on Receipt</option>
+          <option value="Net 7">Net 7</option>
+          <option value="Net 15">Net 15</option>
+          <option value="Net 30">Net 30</option>
+          <option value="Net 45">Net 45</option>
+          <option value="Net 60">Net 60</option>
+          <option value="Custom">Custom</option>
+        </select>
       </div>
       <div class="form-group">
         <label>Due Date</label>
@@ -281,7 +628,7 @@
       </div>
       <div class="form-group">
         <label>Total Amount</label>
-        <input id="f-total-amount" type="number" step="0.01" min="0" placeholder="0.00" />
+        <input id="f-total-amount" type="number" step="0.01" min="0" placeholder="0.00" required aria-required="true" />
       </div>
       <div class="form-group">
         <label>Status</label>
@@ -308,20 +655,20 @@
 <div id="collection-modal-backdrop" class="modal-backdrop">
   <div class="modal modal-narrow">
     <div class="modal-header">
-      <div class="modal-title" style="margin-bottom:0">Record Collection</div>
+      <div class="modal-title" style="margin-bottom:0">Record Payment</div>
       <button class="close-btn" onclick="closeCollectionModal()">X</button>
     </div>
     <div class="form-group">
       <label>Receivable</label>
-      <select id="f-collection-ar"></select>
+      <select id="f-collection-ar" required aria-required="true"></select>
     </div>
     <div class="form-group">
       <label>Payment Date</label>
-      <input id="f-collection-date" type="date" />
+      <input id="f-collection-date" type="date" required aria-required="true" />
     </div>
     <div class="form-group">
       <label>Amount</label>
-      <input id="f-collection-amount" type="number" step="0.01" min="0" placeholder="0.00" />
+      <input id="f-collection-amount" type="number" step="0.01" min="0" placeholder="0.00" required aria-required="true" />
       <div id="f-collection-amount-help" style="margin-top:6px;font-size:0.68rem;color:var(--muted);">
         Prefilled with the remaining balance for faster collection or partial payment entry.
       </div>
@@ -345,16 +692,88 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-cancel btn-sm" onclick="closeCollectionModal()">Cancel</button>
-      <button class="btn btn-save btn-sm" onclick="saveCollection()">Save Collection</button>
+      <button class="btn btn-save btn-sm" onclick="saveCollection()">Save Payment</button>
+    </div>
+  </div>
+</div>
+
+<div id="service-order-edit-modal-backdrop" class="modal-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="service-order-modal-title" style="margin-bottom:0">Edit Service Order</div>
+      <button class="close-btn" onclick="closeServiceOrderEditModal()">X</button>
+    </div>
+    <div class="form-grid-simple">
+      <div class="form-group">
+        <label>SO No. *</label>
+        <input id="f-so-number" type="text" placeholder="Auto-generated" readonly required aria-required="true" style="background:var(--surface2);cursor:default;color:var(--muted);" />
+      </div>
+      <div class="form-group">
+        <label>Service Date</label>
+        <input id="f-so-date" type="date" />
+      </div>
+      <div class="form-group">
+        <label>Project</label>
+        <select id="f-so-project" onchange="syncServiceOrderCompanyFromProject()">
+          <option value="">Select Project</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Company</label>
+        <div class="search-wrap service-order-company-search">
+          <input id="f-so-company-search" type="text" placeholder="Search company name or number" autocomplete="off" oninput="filterServiceOrderCompanies()" onfocus="filterServiceOrderCompanies(true)" />
+          <input id="f-so-company" type="hidden" />
+          <div id="f-so-company-results" class="search-results-list" role="listbox" aria-label="Company search results" style="display:none;"></div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Service Type</label>
+        <select id="f-so-type">
+          <option value="installation">Installation</option>
+          <option value="maintenance">Maintenance</option>
+          <option value="repair">Repair</option>
+          <option value="inspection">Inspection</option>
+          <option value="support">Support</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Status</label>
+        <select id="f-so-status">
+          <option value="issued">Issued</option>
+          <option value="accepted">Accepted</option>
+          <option value="in_progress">In Progress</option>
+          <option value="completed">Completed</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+      </div>
+      <div class="form-group" style="grid-column: 1 / -1;">
+        <label>Service Title</label>
+        <input id="f-so-title" type="text" />
+      </div>
+      <div class="form-group">
+        <label>Total Amount</label>
+        <input id="f-so-amount" type="number" min="0" step="0.01" />
+      </div>
+      <div class="form-group" style="grid-column: 1 / -1;">
+        <label>Description</label>
+        <textarea id="f-so-description"></textarea>
+      </div>
+      <div class="form-group" style="grid-column: 1 / -1;">
+        <label>Notes</label>
+        <textarea id="f-so-notes"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-cancel btn-sm" onclick="closeServiceOrderEditModal()">Cancel</button>
+      <button class="btn btn-save btn-sm" id="service-order-save-btn" onclick="saveServiceOrderEdit()">Save Changes</button>
     </div>
   </div>
 </div>
 
 <div id="toast"></div>
 
-<script src="/assets/js/erp-core.js?v=20260501d"></script>
-
-<script src="/accounts-receivable/accounts-receivable.js?v=20260501d"></script>
+<script src="/assets/js/erp-core.js?v=20260519a"></script>
+<script src="/accounts-receivable/accounts-receivable.js?v=20260518c"></script>
 </body>
 </html>
 

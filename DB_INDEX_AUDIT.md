@@ -15,10 +15,6 @@ Date: May 1, 2026
 - `payments`
 - `company_registry`
 - `vendors`
-- `products`
-- `warehouses`
-- `stock`
-- `stock_movements`
 - `journal_entries`
 - `journal_lines`
 - `purchase_requisitions`
@@ -33,7 +29,6 @@ Date: May 1, 2026
 ## Indexes Added In This Pass
 
 - `vendors.vendor_name`
-- `products.name`
 - `projects.project_name`
 - `purchase_orders.po_date`
 - `accounts_payable.bill_date, created_at`
@@ -41,7 +36,6 @@ Date: May 1, 2026
 - `purchase_requisitions.created_at`
 - `goods_receipts.received_date`
 - `journal_entries.created_at`
-- `stock_movements.created_at`
 - `employees.full_name`
 
 ## Result

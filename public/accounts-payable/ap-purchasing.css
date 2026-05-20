@@ -57,20 +57,20 @@
   line-height: 1.5;
 }
 
-.procurement-toolbar-actions {
+body.erp-clean-page.accounts-payable-page .module-page-toolbar-actions {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
 }
 
-#procurement-page .module-page-toolbar .module-toolbar-search {
+body.erp-clean-page.accounts-payable-page .module-page-toolbar .module-toolbar-search {
   flex: 0 1 200px;
   min-width: 150px;
   max-width: 200px;
 }
 
-#procurement-page .module-page-toolbar .module-toolbar-search input {
+body.erp-clean-page.accounts-payable-page .module-page-toolbar .module-toolbar-search input {
   min-width: 0;
 }
 

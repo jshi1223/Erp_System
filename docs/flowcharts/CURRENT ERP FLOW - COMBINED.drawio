@@ -1,0 +1,187 @@
+<mxfile host="Electron" modified="2026-05-18T00:00:00.000Z" agent="Codex" version="24.7.17">
+  <diagram id="CURRENTERPCOMBINEDFLOW" name="CURRENT ERP COMBINED FLOW">
+    <mxGraphModel dx="1500" dy="2450" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="2450" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="all-title" value="CURRENT ERP COMBINED FLOW CHART" style="text;html=1;strokeColor=none;fillColor=none;fontSize=22;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="500" y="20" width="600" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="all-legend" value="Legend:&lt;br&gt;Blue = Process&lt;br&gt;Yellow = Decision&lt;br&gt;Orange = Database Record&lt;br&gt;Purple = Report" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1225" y="60" width="230" height="105" as="geometry" />
+        </mxCell>
+        <mxCell id="all-start" value="START" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="700" y="90" width="120" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="all-login" value="LOGIN" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="695" y="210" width="130" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="all-role" value="ROLE&lt;br&gt;CHECK?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="710" y="335" width="110" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="all-denied" value="ACCESS DENIED" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="450" y="360" width="150" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="all-dashboard" value="DASHBOARD" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="680" y="505" width="160" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="all-moduleq" value="WHICH MODULE&lt;br&gt;WILL BE USED?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="685" y="650" width="170" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="all-project" value="PROJECTS&lt;br&gt;projects" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="100" y="850" width="210" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="all-need-so" value="SERVICE ORDER&lt;br&gt;NEEDED?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="120" y="1015" width="170" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="all-so" value="SERVICE ORDERS&lt;br&gt;service_orders" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="100" y="1190" width="220" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="all-tx" value="INVOICE TRANSACTION&lt;br&gt;transactions" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="100" y="1360" width="220" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="all-ar" value="ACCOUNTS RECEIVABLE&lt;br&gt;accounts_receivable" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="100" y="1530" width="240" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="all-arpaidq" value="CUSTOMER&lt;br&gt;PAID?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="130" y="1700" width="170" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="all-ar-pay" value="AR COLLECTION&lt;br&gt;payments.ar_id" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="100" y="1880" width="220" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="all-proc" value="PROCUREMENT&lt;br&gt;PR / RFQ / PO / GRN" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="620" y="850" width="280" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="all-prq" value="PURCHASE&lt;br&gt;NEEDED?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="670" y="1015" width="170" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="all-pr" value="PURCHASE REQUISITION&lt;br&gt;purchase_requisitions" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="620" y="1190" width="280" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="all-approveq" value="PR / PO&lt;br&gt;APPROVED?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="670" y="1360" width="170" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="all-po" value="PURCHASE ORDER&lt;br&gt;purchase_orders + items" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="620" y="1530" width="280" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="all-grnq" value="GOODS&lt;br&gt;RECEIVED?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="670" y="1700" width="170" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="all-grn" value="GOODS RECEIPT&lt;br&gt;goods_receipts" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="620" y="1880" width="280" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="all-ap" value="ACCOUNTS PAYABLE&lt;br&gt;accounts_payable" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="1135" y="1530" width="250" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="all-appaidq" value="VENDOR&lt;br&gt;PAID?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="1175" y="1700" width="170" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="all-ap-pay" value="AP PAYMENT&lt;br&gt;payments.ap_id" style="shape=parallelogram;perimeter=parallelogramPerimeter;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+          <mxGeometry x="1135" y="1880" width="220" height="85" as="geometry" />
+        </mxCell>
+        <mxCell id="all-reports" value="REPORTS / DASHBOARD&lt;br&gt;Projects, Procurement, AR, AP" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="620" y="2100" width="300" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="all-end" value="END" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="700" y="2280" width="120" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-start" target="all-login">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-login" target="all-role">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e3" value="Admin" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-role" target="all-dashboard">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e4" value="No access" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-role" target="all-denied">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e5" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-dashboard" target="all-moduleq">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e6" value="Projects / AR" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-moduleq" target="all-project">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e7" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-project" target="all-need-so">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e8" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-need-so" target="all-so">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e9" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-need-so" target="all-tx">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e10" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-so" target="all-tx">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e11" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-tx" target="all-ar">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e12" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-ar" target="all-arpaidq">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e13" value="Yes / Partial" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-arpaidq" target="all-ar-pay">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e14" value="No / Aging" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-arpaidq" target="all-reports">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e15" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-ar-pay" target="all-reports">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e16" value="Procurement" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-moduleq" target="all-proc">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e17" value="Project request" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-project" target="all-prq">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e18" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-proc" target="all-prq">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e19" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-prq" target="all-pr">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e20" value="No" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-prq" target="all-reports">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e21" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-pr" target="all-approveq">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e22" value="Approved" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-approveq" target="all-po">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e23" value="Rejected / Cancelled" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-approveq" target="all-reports">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e24" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-po" target="all-grnq">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e25" value="Yes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-grnq" target="all-grn">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e26" value="Pending" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-grnq" target="all-reports">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e27" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-grn" target="all-ap">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e28" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-ap" target="all-appaidq">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e29" value="Yes / Partial" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-appaidq" target="all-ap-pay">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e30" value="No / Aging" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-appaidq" target="all-reports">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e31" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-ap-pay" target="all-reports">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="all-e32" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;" edge="1" parent="1" source="all-reports" target="all-end">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

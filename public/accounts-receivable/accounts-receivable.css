@@ -7,6 +7,20 @@ body.accounts-receivable-page .receivable-transaction-search input {
   width: 100%;
 }
 
+body.accounts-receivable-page .service-order-company-search {
+  position: relative;
+}
+
+body.accounts-receivable-page .service-order-company-search input[type="text"] {
+  width: 100%;
+}
+
+body.accounts-receivable-page .service-order-company-search input.is-project-filled {
+  background: var(--surface2);
+  color: var(--muted);
+  cursor: default;
+}
+
 body.accounts-receivable-page #f-transaction-help {
   line-height: 1.4;
 }
@@ -33,7 +47,237 @@ body.accounts-receivable-page .module-page-toolbar .btn-add {
   white-space: nowrap;
 }
 
+body.accounts-receivable-page .ar-summary-card[hidden] {
+  display: none !important;
+}
+
+body.accounts-receivable-page .ar-tab-summary-grid {
+  align-items: stretch;
+}
+
+body.accounts-receivable-page[data-business-entity-theme] {
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--primary-light) 16%, transparent), transparent 30%),
+    linear-gradient(180deg, color-mix(in srgb, var(--primary) 7%, #f7f9fc), #f8fafc 42%);
+}
+
+body.accounts-receivable-page[data-business-entity-theme] header {
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--primary-light) 30%, transparent), transparent 30%),
+    linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%) !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--primary-light) 28%, transparent) !important;
+  box-shadow: 0 14px 34px color-mix(in srgb, var(--primary-dark) 30%, transparent) !important;
+}
+
+body.accounts-receivable-page[data-business-entity-theme] header .brand-mark {
+  background: rgba(255, 255, 255, 0.92) !important;
+  border: 1px solid rgba(255, 255, 255, 0.32) !important;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18) !important;
+}
+
+body.accounts-receivable-page[data-business-entity-theme] .page-hero,
+body.accounts-receivable-page[data-business-entity-theme] .module-page-toolbar,
+body.accounts-receivable-page[data-business-entity-theme] .module-summary-card {
+  border-color: color-mix(in srgb, var(--primary) 18%, transparent) !important;
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--primary-light) 18%, transparent), transparent 34%),
+    linear-gradient(145deg, color-mix(in srgb, var(--primary) 7%, #ffffff), #ffffff) !important;
+  box-shadow: 0 16px 34px color-mix(in srgb, var(--primary) 10%, transparent) !important;
+}
+
+body.accounts-receivable-page[data-business-entity-theme] .module-summary-value {
+  color: var(--primary-dark) !important;
+}
+
+body.accounts-receivable-page .business-profile-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+body.accounts-receivable-page .business-profile-trigger {
+  min-height: 34px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 8px 12px;
+  text-transform: uppercase;
+}
+
+body.accounts-receivable-page .business-profile-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 1300;
+  display: none;
+  width: min(420px, 92vw);
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--primary) 18%, transparent);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 24px 54px color-mix(in srgb, var(--primary-dark) 18%, transparent);
+}
+
+body.accounts-receivable-page .business-profile-menu:hover .business-profile-panel,
+body.accounts-receivable-page .business-profile-menu:focus-within .business-profile-panel {
+  display: grid;
+  gap: 8px;
+}
+
+body.accounts-receivable-page .business-profile-card {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 10px;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+body.accounts-receivable-page .business-profile-card.is-active {
+  border-color: color-mix(in srgb, var(--primary) 40%, transparent);
+  background: linear-gradient(145deg, color-mix(in srgb, var(--primary) 8%, #ffffff), #ffffff);
+}
+
+body.accounts-receivable-page .business-profile-logo-wrap {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--primary-light) 10%, #ffffff);
+  border: 1px solid color-mix(in srgb, var(--primary) 16%, transparent);
+}
+
+body.accounts-receivable-page .business-profile-logo-wrap img {
+  max-width: 44px;
+  max-height: 44px;
+  object-fit: contain;
+}
+
+body.accounts-receivable-page .business-profile-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+body.accounts-receivable-page .business-profile-name {
+  color: var(--primary-dark);
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+body.accounts-receivable-page .business-profile-meta,
+body.accounts-receivable-page .business-profile-line,
+body.accounts-receivable-page .business-profile-empty {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+body.accounts-receivable-page .sidebar {
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--primary-light) 24%, transparent), transparent 28%),
+    linear-gradient(180deg, var(--primary) 0%, var(--primary-dark) 100%) !important;
+  border-right: 1px solid color-mix(in srgb, var(--primary-light) 26%, transparent) !important;
+  box-shadow: 24px 0 54px color-mix(in srgb, var(--primary-dark) 24%, transparent) !important;
+}
+
+body.accounts-receivable-page .sidebar-header {
+  background: rgba(244, 248, 253, 0.12) !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--primary-light) 18%, transparent) !important;
+}
+
+body.accounts-receivable-page .sidebar-header .header-logo,
+body.accounts-receivable-page .sidebar-header .header-sub,
+body.accounts-receivable-page .sidebar-group-toggle,
+body.accounts-receivable-page .sidebar-group-caret {
+  color: #ffffff !important;
+}
+
+body.accounts-receivable-page .sidebar-link {
+  color: rgba(255, 255, 255, 0.84) !important;
+}
+
+body.accounts-receivable-page .sidebar-link:hover,
+body.accounts-receivable-page .sidebar-link.active,
+body.accounts-receivable-page .sidebar-link.is-subitem.active {
+  color: #ffffff !important;
+}
+
+body.accounts-receivable-page .sidebar-link.active,
+body.accounts-receivable-page .sidebar-link.is-subitem.active {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary-light) 54%, transparent), color-mix(in srgb, var(--primary-dark) 92%, transparent)) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+body.accounts-receivable-page[data-business-entity-theme="kvsk"] .sidebar {
+  background:
+    radial-gradient(circle at top right, rgba(239, 91, 79, 0.24), transparent 28%),
+    linear-gradient(180deg, #b42318 0%, #4b1210 100%) !important;
+  border-right-color: rgba(239, 91, 79, 0.26) !important;
+  box-shadow: 24px 0 54px rgba(75, 18, 16, 0.26) !important;
+}
+
+body.accounts-receivable-page[data-business-entity-theme="kitsi"] .sidebar {
+  background:
+    radial-gradient(circle at top right, rgba(34, 199, 232, 0.24), transparent 28%),
+    linear-gradient(180deg, #0898c7 0%, #005b96 100%) !important;
+  border-right-color: rgba(34, 199, 232, 0.26) !important;
+  box-shadow: 24px 0 54px rgba(0, 91, 150, 0.24) !important;
+}
+
+body.accounts-receivable-page[data-business-entity-theme] .sidebar-link.active,
+body.accounts-receivable-page[data-business-entity-theme] .sidebar-link.is-subitem.active {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary-light) 54%, transparent), color-mix(in srgb, var(--primary-dark) 92%, transparent)) !important;
+}
+
+@media (min-width: 1025px) {
+  body.accounts-receivable-page {
+    --module-sidebar-width: 300px;
+    padding-left: var(--module-sidebar-width);
+    box-sizing: border-box;
+  }
+
+  body.accounts-receivable-page .sidebar {
+    left: 0 !important;
+    width: var(--module-sidebar-width) !important;
+    border-radius: 0 !important;
+    transition: none !important;
+    z-index: 1200;
+  }
+
+  body.accounts-receivable-page .sidebar-overlay {
+    display: none !important;
+    pointer-events: none !important;
+  }
+
+  body.accounts-receivable-page .sidebar-toggle-btn,
+  body.accounts-receivable-page .sidebar .modal-close {
+    display: none !important;
+  }
+}
+
+@media (max-width: 1024px) {
+  body.accounts-receivable-page {
+    padding-left: 0;
+  }
+}
+
 @media (max-width: 700px) {
   .form-grid-simple { grid-template-columns: 1fr; }
 }
-  
+
+body.accounts-receivable-page .business-profile-menu,
+body.accounts-receivable-page .business-profile-panel,
+body.accounts-receivable-page .business-entity-switcher {
+  display: none !important;
+  pointer-events: none !important;
+}

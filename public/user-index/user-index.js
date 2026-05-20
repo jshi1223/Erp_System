@@ -18,6 +18,7 @@
 
     document.getElementById('welcome-msg').textContent =
       'Signed in as ' + (data.fullname || data.username);
+    setupSearchHighlight();
     loadRecords();
   })
   .catch(() => {
@@ -28,6 +29,25 @@ let publicDb = [];
 let currentPage = 1;
 let activeTab = 'all';
 const PAGE_SIZE = 10;
+
+function setupSearchHighlight() {
+  const input = document.getElementById('search-input');
+  if (!input || input.dataset.searchHighlightBound === '1') return;
+
+  input.dataset.searchHighlightBound = '1';
+
+  const sync = () => {
+    input.classList.toggle(
+      'is-table-search-active',
+      document.activeElement === input || String(input.value || '').trim().length > 0
+    );
+  };
+
+  input.addEventListener('focus', sync);
+  input.addEventListener('input', sync);
+  input.addEventListener('blur', sync);
+  sync();
+}
 
 function loadRecords() {
   fetch('/api/public/transactions')
@@ -99,7 +119,7 @@ function exportVisibleRowsCsv() {
     return;
   }
 
-  downloadCsv('transaction-status.csv', ['docno', 'type', 'client', 'description', 'amount', 'downpayment', 'balance', 'date', 'status'], rows);
+  downloadCsv('transaction-status.csv', ['docno', 'type', 'client', 'description', 'amount', 'paid_amount', 'balance', 'date', 'status'], rows);
 }
 
 function openPdfViewer(id) {
@@ -160,8 +180,13 @@ function escHtml(str) {
 
 function highlight(text, q) {
   if (!q) return escHtml(text);
-  const re = new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
-  return escHtml(text).replace(re, '<mark>$1</mark>');
+  const escaped = escHtml(text);
+  try {
+    const re = new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+    return escaped.replace(re, '<mark>$1</mark>');
+  } catch (_) {
+    return escaped;
+  }
 }
 
 function switchTab(tab, btn) {
@@ -222,11 +247,11 @@ function renderTable() {
       return `
         <tr>
           <td data-label="Doc No."><span class="doc-link">${hDocno}</span></td>
-          <td class="text-center" data-label="Type"><span class="type-pill type-${record.type}">${record.type === 'receipt' ? 'Collection Receipt' : 'Charge Sales Invoice'}</span></td>
+          <td class="text-center" data-label="Type"><span class="type-pill type-${record.type}">${record.type === 'receipt' ? 'Payment Receipt' : 'Sales Invoice'}</span></td>
           <td class="client-cell" data-label="Client">${hClient}</td>
           <td data-label="Description">${hDesc}${record.qty > 1 ? `<span class="qty-note"> x${record.qty}</span>` : ''}</td>
           <td class="amount-cell" data-label="Total Amount">PHP ${amount.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</td>
-          <td class="amount-cell accent-amount" data-label="DP">PHP ${downpayment.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</td>
+          <td class="amount-cell accent-amount" data-label="Paid">PHP ${downpayment.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</td>
           <td class="amount-cell" data-label="Balance" style="color:${balance > 0 ? 'var(--danger)' : 'var(--success)'}">PHP ${balance.toLocaleString('en-PH', { minimumFractionDigits: 2 })}</td>
           <td class="text-center date-cell" data-label="Date">${record.date}</td>
           <td class="text-center" data-label="Status"><span class="status-pill status-${record.status}">${highlight(record.status || '', q)}</span></td>
