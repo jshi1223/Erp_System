@@ -657,7 +657,7 @@ async function loadServiceOrderReferences() {
   ]);
 
   serviceOrderProjectsDb = (Array.isArray(projects) ? projects : []).filter(businessEntityMatches);
-  serviceOrderCompaniesDb = Array.isArray(companies) ? companies : [];
+  serviceOrderCompaniesDb = (Array.isArray(companies) ? companies : []).filter(businessEntityMatches);
   populateServiceOrderReferenceSelects();
 }
 

@@ -662,10 +662,12 @@ function getRegistryCompanyEntries() {
         company_no: String(row?.company_no || '').trim(),
         company_name: String(row?.company_name || '').trim(),
         address: String(row?.address || '').trim(),
+        business_entity_id: String(row?.business_entity_id || '').trim(),
         archived: Number(row?.archived || 0) || 0
       };
 
       if (!entry.id || !entry.company_no || !entry.company_name) return;
+      if (!businessEntityMatches(entry)) return;
 
       const key = `${entry.id}:${entry.company_no.toLowerCase()}`;
       if (seen.has(key)) return;
@@ -749,27 +751,27 @@ function collectDashboardCompanies() {
     }
   };
 
-  (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : []).forEach(project => {
+  (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : []).filter(businessEntityMatches).forEach(project => {
     const companyName = getProjectCompanyName(project);
     addCompany(companyName, companyName);
   });
 
-  (Array.isArray(allTransactionsDb) ? allTransactionsDb : []).forEach(record => {
+  (Array.isArray(allTransactionsDb) ? allTransactionsDb : []).filter(businessEntityMatches).forEach(record => {
     const companyName = getTransactionCompanyName(record);
     addCompany(companyName, companyName);
   });
 
-  (Array.isArray(allReceivablesDb) ? allReceivablesDb : []).forEach(row => {
+  (Array.isArray(allReceivablesDb) ? allReceivablesDb : []).filter(businessEntityMatches).forEach(row => {
     const companyName = getReceivableCompanyName(row);
     addCompany(companyName, companyName);
   });
 
-  (Array.isArray(serviceOrdersDb) ? serviceOrdersDb : []).forEach(row => {
+  (Array.isArray(serviceOrdersDb) ? serviceOrdersDb : []).filter(businessEntityMatches).forEach(row => {
     const companyName = getServiceOrderCompanyName(row);
     addCompany(companyName, companyName);
   });
 
-  (Array.isArray(companyRegistryDb) ? companyRegistryDb : []).forEach(row => {
+  (Array.isArray(companyRegistryDb) ? companyRegistryDb : []).filter(businessEntityMatches).forEach(row => {
     const companyLabel = getRegistryCompanyLabel(row);
     addCompany(row.company_name || '', companyLabel);
   });
@@ -7141,7 +7143,8 @@ function updateCompanyRegistryStatCard() {
   const statCompanyRegistry = document.getElementById('stat-company-registry');
   const statCompanyRegistryMini = document.getElementById('stat-company-registry-mini');
   const companyRows = (Array.isArray(companyRegistryDb) ? companyRegistryDb : [])
-    .filter((company) => Number(company.archived || 0) === 0);
+    .filter((company) => Number(company.archived || 0) === 0)
+    .filter((company) => businessEntityMatches(company));
   const visibleCompanyRows = companyRows.filter((company) => companyMatchesDashboardFilter(company.company_name));
   const selectedCompany = normalizeDashboardCompanyName(currentDashboardCompany || localStorage.getItem('kinaadman_dashboardCompany') || 'all');
   const companyCount = selectedCompany === 'all' ? companyRows.length : visibleCompanyRows.length;

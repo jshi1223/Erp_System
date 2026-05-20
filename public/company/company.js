@@ -564,8 +564,9 @@ function setStatus(message, type = '') {
 }
 
 function updateRegistryMetrics() {
-  const total = Array.isArray(state.companies) ? state.companies.length : 0;
-  const archived = (Array.isArray(state.companies) ? state.companies : []).filter((company) => Number(company.archived || 0) === 1).length;
+  const visibleCompanies = (Array.isArray(state.companies) ? state.companies : []).filter((company) => String(company.business_entity_id || '') === String(getCurrentBusinessEntityId() || ''));
+  const total = visibleCompanies.length;
+  const archived = visibleCompanies.filter((company) => Number(company.archived || 0) === 1).length;
   const active = Math.max(0, total - archived);
 
   const totalNode = $('registry-total-companies');
@@ -801,9 +802,13 @@ function renderCompanies() {
 async function loadCompanies() {
   setStatus('', '');
   try {
-    const query = new URLSearchParams({ include_archived: '1' });
+    const query = new URLSearchParams({
+      include_archived: '1',
+      business_entity_id: getCurrentBusinessEntityId() || getDefaultBusinessEntityId() || ''
+    });
     const companies = await fetchJson(`/api/company-registry?${query.toString()}`);
-    state.companies = Array.isArray(companies) ? companies : [];
+    state.companies = (Array.isArray(companies) ? companies : [])
+      .filter((company) => String(company.business_entity_id || '') === String(getCurrentBusinessEntityId() || getDefaultBusinessEntityId() || ''));
     renderCompanies();
     updateRegistryMetrics();
     setStatus('', '');
@@ -872,7 +877,7 @@ async function bootstrapCompanyRegistry() {
     event.preventDefault();
 
     const payload = {
-      business_entity_id: '',
+      business_entity_id: getCurrentBusinessEntityId() || getDefaultBusinessEntityId() || '',
       company_no: $('erp-company-no')?.value.trim(),
       company_name: $('erp-company-name')?.value.trim(),
       branch_code: $('erp-company-branch-code')?.value.trim(),

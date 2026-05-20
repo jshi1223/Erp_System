@@ -7937,10 +7937,16 @@ app.get('/api/company-registry/next-no', protectAdmin, (req, res) => {
 app.get('/api/company-registry', protectAdmin, async (req, res) => {
   try {
     const includeArchived = String(req.query.include_archived || '0') === '1';
+    const businessEntityId = normalizeBusinessEntityId(req.query.business_entity_id);
     const clauses = [];
+    const params = [];
     if (!includeArchived) clauses.push('COALESCE(archived, FALSE) = FALSE');
+    if (businessEntityId) {
+      clauses.push('business_entity_id = ?');
+      params.push(businessEntityId);
+    }
     const whereClause = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-    const rows = await queryAsync(`SELECT * FROM company_registry ${whereClause} ORDER BY company_name ASC`);
+    const rows = await queryAsync(`SELECT * FROM company_registry ${whereClause} ORDER BY company_name ASC`, params);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });

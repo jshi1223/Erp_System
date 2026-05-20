@@ -664,9 +664,11 @@ function getRegistryCompanyEntries() {
       id: Number(row?.id || 0),
       company_no: String(row?.company_no || '').trim(),
       company_name: String(row?.company_name || '').trim(),
+      business_entity_id: String(row?.business_entity_id || '').trim(),
       address: String(row?.address || '').trim()
     }))
     .filter((row) => row.id && row.company_no && row.company_name)
+    .filter((row) => typeof businessEntityMatches !== 'function' || businessEntityMatches(row))
     .sort((a, b) => a.company_name.localeCompare(b.company_name));
 }
 
@@ -709,22 +711,22 @@ function collectDashboardCompanies() {
     }
   };
 
-  (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : []).forEach(project => {
+  (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : []).filter((row) => typeof businessEntityMatches !== 'function' || businessEntityMatches(row)).forEach(project => {
     const companyName = getProjectCompanyName(project);
     addCompany(companyName, companyName);
   });
 
-  (Array.isArray(allTransactionsDb) ? allTransactionsDb : []).forEach(record => {
+  (Array.isArray(allTransactionsDb) ? allTransactionsDb : []).filter((row) => typeof businessEntityMatches !== 'function' || businessEntityMatches(row)).forEach(record => {
     const companyName = getTransactionCompanyName(record);
     addCompany(companyName, companyName);
   });
 
-  (Array.isArray(allReceivablesDb) ? allReceivablesDb : []).forEach(row => {
+  (Array.isArray(allReceivablesDb) ? allReceivablesDb : []).filter((row) => typeof businessEntityMatches !== 'function' || businessEntityMatches(row)).forEach(row => {
     const companyName = getReceivableCompanyName(row);
     addCompany(companyName, companyName);
   });
 
-  (Array.isArray(companyRegistryDb) ? companyRegistryDb : []).forEach(row => {
+  (Array.isArray(companyRegistryDb) ? companyRegistryDb : []).filter((row) => typeof businessEntityMatches !== 'function' || businessEntityMatches(row)).forEach(row => {
     const companyLabel = getRegistryCompanyLabel(row);
     addCompany(row.company_name || '', companyLabel);
   });

@@ -641,7 +641,7 @@ function renderBillVendorSearchResults(query = '', showAll = false) {
   if (!input || !results) return;
 
   const q = String(query || input.value || '').trim().toLowerCase();
-  const filtered = vendorsDb.filter((vendor) => {
+  const filtered = vendorsDb.filter((vendor) => businessEntityMatches(vendor)).filter((vendor) => {
     if (!q) return showAll;
     return [
       vendor.vendor_name,
@@ -773,14 +773,16 @@ function updateBillPurchaseOrderSelect() {
   if (!select) return;
 
   const current = String(select.value || '').trim();
-  const options = purchaseOrdersDb.map((po) => {
-    const label = [
-      po.po_number || `PO #${po.id}`,
-      po.vendor_name,
-      po.project_docno || po.project_name
-    ].map((value) => String(value || '').trim()).filter(Boolean).join(' - ');
-    return `<option value="${escHtml(po.id)}">${escHtml(label)}</option>`;
-  }).join('');
+  const options = purchaseOrdersDb
+    .filter((po) => businessEntityMatches(po))
+    .map((po) => {
+      const label = [
+        po.po_number || `PO #${po.id}`,
+        po.vendor_name,
+        po.project_docno || po.project_name
+      ].map((value) => String(value || '').trim()).filter(Boolean).join(' - ');
+      return `<option value="${escHtml(po.id)}">${escHtml(label)}</option>`;
+    }).join('');
 
   select.innerHTML = `<option value="">No linked PO</option>${options}`;
   if (current) select.value = current;
@@ -1134,7 +1136,9 @@ function resolveBillVendorSelection() {
   const typedValue = String(input?.value || '').trim().toLowerCase();
   if (!typedValue) return '';
 
-  const exactMatch = vendorsDb.find((vendor) => String(vendor.vendor_name || '').trim().toLowerCase() === typedValue);
+  const exactMatch = vendorsDb
+    .filter((vendor) => businessEntityMatches(vendor))
+    .find((vendor) => String(vendor.vendor_name || '').trim().toLowerCase() === typedValue);
   if (exactMatch) {
     if (hiddenInput) hiddenInput.value = String(exactMatch.id);
     if (input) input.value = exactMatch.vendor_name || '';
@@ -1229,7 +1233,7 @@ function closeBillPdfViewer() {
 
 function updateBillSelects() {
   document.getElementById('f-payment-bill').innerHTML = '<option value="">Select bill to pay</option>' +
-    billsDb.filter(b => normalizeApprovalStatus(b.approval_status) === 'approved' && (b.total_amount - (b.paid_amount || 0)) > 0).map(b => 
+    billsDb.filter(b => businessEntityMatches(b) && normalizeApprovalStatus(b.approval_status) === 'approved' && (b.total_amount - (b.paid_amount || 0)) > 0).map(b =>
       `<option value="${b.id}">${escHtml(b.bill_number)} - PHP ${(b.total_amount - (b.paid_amount || 0)).toLocaleString('en-PH', {minimumFractionDigits: 2})}</option>`
     ).join('');
 }
@@ -1248,10 +1252,11 @@ function syncPaymentFromBill() {
 
 function updateMetrics() {
   const visibleBills = billsDb.filter(b => businessEntityMatches(b));
+  const visibleVendors = vendorsDb.filter(vendor => businessEntityMatches(vendor));
   const totalPayable = visibleBills.reduce((sum, b) => sum + getBillBalance(b), 0);
   const paidBills = visibleBills.filter((b) => getBillBalance(b) <= 0).length;
   setMetricText('metric-total-payable', formatApMoney(totalPayable));
-  setMetricText('metric-vendors-count', vendorsDb.length);
+  setMetricText('metric-vendors-count', visibleVendors.length);
   setMetricText('metric-open-bills', visibleBills.filter(b => getBillBalance(b) > 0).length);
   setMetricText('metric-paid-bills', paidBills);
   
