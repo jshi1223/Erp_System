@@ -10,6 +10,7 @@ const fs      = require('fs');
 const crypto  = require('crypto');
 const os      = require('os');
 const { execFileSync } = require('child_process');
+const dns = require('dns');
 const nodemailer = require('nodemailer');
 const zlib = require('zlib');
 const {
@@ -29,6 +30,10 @@ const {
 } = require('./lib/erp-flow');
 const app     = express();
 const PORT    = Number(process.env.PORT || 3000);
+
+if (typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+}
 
 function loadEnvFile() {
   const envPath = path.join(__dirname, '.env');
