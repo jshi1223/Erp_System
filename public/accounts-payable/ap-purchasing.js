@@ -2417,12 +2417,11 @@ function renderRequisitions() {
     const cancelButton = canCancel
       ? `<button class="btn btn-cancel btn-sm" type="button" onclick="cancelRequisition(${Number(row.id)})">Cancel</button>`
       : '';
-    const pdfButton = row.pdfFilename
-      ? `<div class="erp-actions" style="justify-content:center;">
-          <button class="btn btn-pdf btn-sm" type="button" onclick="openRequisitionPdfViewer(${Number(row.id)})">View PDF</button>
-          <a class="btn btn-save btn-sm" href="/api/procurement/requisitions/${Number(row.id)}/pdf?download=1" download="${escHtml(row.pdfFilename)}">Download</a>
-        </div>`
-      : '<span class="pdf-empty">N/A</span>';
+    const pdfFilename = row.pdfFilename || `purchase-requisition-${Number(row.id)}.pdf`;
+    const pdfButton = `<div class="erp-actions" style="justify-content:center;">
+        <button class="btn btn-pdf btn-sm" type="button" onclick="openRequisitionPdfViewer(${Number(row.id)})">View PDF</button>
+        <a class="btn btn-save btn-sm" href="/api/procurement/requisitions/${Number(row.id)}/pdf?download=1" download="${escHtml(pdfFilename)}">Download</a>
+      </div>`;
     return `
       <tr>
         <td style="font-weight:600;color:var(--primary)">${escHtml(row.pr_number)}</td>
@@ -2459,17 +2458,18 @@ function renderRequisitions() {
 
 function openRequisitionPdfViewer(id) {
   const row = procurementState.requisitions.find((entry) => Number(entry.id) === Number(id));
-  if (!row || !row.pdfFilename) {
-    showToast('No generated PR PDF found yet. Submit the requisition first.', 'error');
+  if (!row) {
+    showToast('Purchase requisition not found.', 'error');
     return;
   }
 
   const pdfUrl = `/api/procurement/requisitions/${Number(id)}/pdf`;
-  document.getElementById('pdf-viewer-title').textContent = row.pdfFilename || 'Purchase Requisition PDF';
+  const pdfFilename = row.pdfFilename || `purchase-requisition-${Number(id)}.pdf`;
+  document.getElementById('pdf-viewer-title').textContent = pdfFilename;
   document.getElementById('pdf-dl-btn').href = pdfUrl;
-  document.getElementById('pdf-dl-btn').download = row.pdfFilename;
+  document.getElementById('pdf-dl-btn').download = pdfFilename;
   document.getElementById('pdf-fallback-dl').href = pdfUrl;
-  document.getElementById('pdf-fallback-dl').download = row.pdfFilename;
+  document.getElementById('pdf-fallback-dl').download = pdfFilename;
   const frame = document.getElementById('pdf-frame');
   const fallback = document.getElementById('pdf-fallback');
   if (frame) frame.src = pdfUrl;

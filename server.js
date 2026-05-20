@@ -12230,32 +12230,36 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
   });
 });
 
-app.get('/api/procurement/requisitions/:id/pdf', protectAdmin, (req, res) => {
+app.get('/api/procurement/requisitions/:id/pdf', protectAdmin, async (req, res) => {
   const requisitionId = Number(req.params.id || 0);
   if (!requisitionId) return res.status(400).json({ error: 'Requisition ID is required.' });
 
-  db.query(
-    'SELECT id, pr_number, pdfFilename AS "pdfFilename" FROM purchase_requisitions WHERE id = ? LIMIT 1',
-    [requisitionId],
-    (err, rows) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (!rows.length || !rows[0].pdfFilename) {
-        return res.status(404).json({ error: 'PDF not found' });
-      }
-
-      const record = rows[0];
-      const safeFilename = path.basename(record.pdfFilename);
-      const filePath = path.join(UPLOAD_DIR, safeFilename);
-      if (!fs.existsSync(filePath)) {
-        return res.status(404).json({ error: 'PDF file missing on disk' });
-      }
-
-      const disposition = String(req.query.download || '') === '1' ? 'attachment' : 'inline';
-      res.type('application/pdf');
-      res.setHeader('Content-Disposition', `${disposition}; filename="${safeFilename}"`);
-      res.sendFile(filePath);
+  try {
+    const rows = await queryAsync(
+      'SELECT id, pr_number, pdfFilename AS "pdfFilename" FROM purchase_requisitions WHERE id = ? LIMIT 1',
+      [requisitionId]
+    );
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Purchase requisition not found.' });
     }
-  );
+
+    const record = rows[0];
+    let safeFilename = record.pdfFilename ? path.basename(record.pdfFilename) : '';
+    let filePath = safeFilename ? path.join(UPLOAD_DIR, safeFilename) : '';
+
+    if (!safeFilename || !fs.existsSync(filePath)) {
+      const generated = await generatePurchaseRequisitionPdfFile(requisitionId);
+      safeFilename = generated.filename;
+      filePath = generated.filePath;
+    }
+
+    const disposition = String(req.query.download || '') === '1' ? 'attachment' : 'inline';
+    res.type('application/pdf');
+    res.setHeader('Content-Disposition', `${disposition}; filename="${safeFilename}"`);
+    return res.sendFile(filePath);
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'Unable to generate purchase requisition PDF.' });
+  }
 });
 
 app.get('/api/projects/:id/pdf', protectAdmin, (req, res) => {
