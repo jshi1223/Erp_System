@@ -934,6 +934,43 @@ function isPrivilegedRole(role) {
   return ['super_admin', 'admin', 'staff'].includes(normalizeAccessRole(role));
 }
 
+function isStaffRole(role) {
+  return normalizeAccessRole(role) === 'staff';
+}
+
+function normalizeProjectStatusForSave(status, actualStartDate = null, actualEndDate = null) {
+  const requestedStatus = String(status || '').trim().toLowerCase();
+  const allowedProjectStatuses = new Set(['draft', 'planning', 'active', 'on_hold', 'completed', 'cancelled']);
+  const safeStatus = allowedProjectStatuses.has(requestedStatus) ? requestedStatus : 'planning';
+  const hasActualStart = Boolean(String(actualStartDate || '').trim());
+  const hasActualEnd = Boolean(String(actualEndDate || '').trim());
+
+  if (safeStatus === 'draft' || safeStatus === 'cancelled' || safeStatus === 'on_hold') return safeStatus;
+  if (hasActualEnd) return 'completed';
+  if (safeStatus === 'completed') return hasActualEnd ? 'completed' : (hasActualStart ? 'active' : 'planning');
+  if (hasActualStart) return 'active';
+  return safeStatus;
+}
+
+function computeProjectPriority(plannedEndDate = null, actualEndDate = null, status = '') {
+  const safeStatus = String(status || '').trim().toLowerCase();
+  if (safeStatus === 'draft' || safeStatus === 'completed' || safeStatus === 'cancelled' || actualEndDate) return 'low';
+
+  const end = new Date(String(plannedEndDate || '').slice(0, 10));
+  if (Number.isNaN(end.getTime())) return 'medium';
+  end.setHours(0, 0, 0, 0);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const daysLeft = Math.ceil((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (daysLeft < 0) return 'urgent';
+  if (daysLeft <= 3) return 'urgent';
+  if (daysLeft <= 7) return 'high';
+  if (daysLeft <= 14) return 'medium';
+  return 'low';
+}
+
 function canManageSuperAdmin(req) {
   return isSuperAdminRole(getAuthenticatedUser(req)?.role);
 }
@@ -2689,6 +2726,9 @@ function initApp() {
       pdfFilename VARCHAR(255),
       status      text DEFAULT 'planning',
       priority    text DEFAULT 'medium',
+      created_by integer NULL,
+      approved_by VARCHAR(255),
+      approved_at TIMESTAMP NULL DEFAULT NULL,
       is_archived boolean NOT NULL DEFAULT false,
       archived_at TIMESTAMP NULL DEFAULT NULL,
       archived_auto boolean NOT NULL DEFAULT false,
@@ -2743,6 +2783,15 @@ function initApp() {
   });
   db.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS archived_auto boolean NOT NULL DEFAULT false`, (err) => {
     if (err) console.error('Projects archived_auto migration error:', err);
+  });
+  db.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS created_by integer NULL`, (err) => {
+    if (err) console.error('Projects created_by migration error:', err);
+  });
+  db.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS approved_by VARCHAR(255) NULL`, (err) => {
+    if (err) console.error('Projects approved_by migration error:', err);
+  });
+  db.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP NULL`, (err) => {
+    if (err) console.error('Projects approved_at migration error:', err);
   });
   db.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS transaction_id integer`, (err) => {
     if (err) console.error('Projects transaction_id migration error:', err);
@@ -5081,7 +5130,7 @@ async function assertProjectAcceptsNewActivity(projectId, dbClient = null) {
 
   const rows = await queryDbAsync(
     dbClient,
-    'SELECT id, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ? LIMIT 1',
+    'SELECT id, status, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ? LIMIT 1',
     [normalizedProjectId]
   );
   if (!rows.length) {
@@ -5089,6 +5138,9 @@ async function assertProjectAcceptsNewActivity(projectId, dbClient = null) {
   }
   if (rows[0].is_archived === true || Number(rows[0].is_archived || 0) === 1) {
     throw new Error('Selected project is archived. Restore the project before creating new activity.');
+  }
+  if (String(rows[0].status || '').trim().toLowerCase() === 'draft') {
+    throw new Error('Selected project is still draft. Admin or Super Admin approval is required before creating new activity.');
   }
 }
 
@@ -5394,7 +5446,7 @@ app.post('/api/service-orders', protectAdmin, async (req, res) => {
     if (projectId) {
       const projectRows = await connectionQueryAsync(
         connection,
-        'SELECT id, business_entity_id, project_name, company_id, company_no, company_name, client_name, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ? LIMIT 1',
+        'SELECT id, business_entity_id, project_name, company_id, company_no, company_name, client_name, status, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ? LIMIT 1',
         [projectId]
       );
       if (!projectRows.length) {
@@ -5403,6 +5455,9 @@ app.post('/api/service-orders', protectAdmin, async (req, res) => {
       projectRow = projectRows[0];
       if (projectRow.is_archived === true || Number(projectRow.is_archived || 0) === 1) {
         throw Object.assign(new Error('Selected project is archived. Restore the project before creating new activity.'), { statusCode: 400 });
+      }
+      if (String(projectRow.status || '').trim().toLowerCase() === 'draft') {
+        throw Object.assign(new Error('Selected project is still draft. Admin or Super Admin approval is required before creating new activity.'), { statusCode: 400 });
       }
     }
 
@@ -5552,7 +5607,7 @@ app.put('/api/service-orders/:id', protectAdmin, async (req, res) => {
     if (projectId) {
       const projectRows = await connectionQueryAsync(
         connection,
-        'SELECT id, business_entity_id, project_name, company_id, company_no, company_name, client_name, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ? LIMIT 1',
+        'SELECT id, business_entity_id, project_name, company_id, company_no, company_name, client_name, status, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ? LIMIT 1',
         [projectId]
       );
       if (!projectRows.length) {
@@ -5561,6 +5616,9 @@ app.put('/api/service-orders/:id', protectAdmin, async (req, res) => {
       projectRow = projectRows[0];
       if (projectRow.is_archived === true || Number(projectRow.is_archived || 0) === 1) {
         throw Object.assign(new Error('Selected project is archived. Restore the project before creating new activity.'), { statusCode: 400 });
+      }
+      if (String(projectRow.status || '').trim().toLowerCase() === 'draft') {
+        throw Object.assign(new Error('Selected project is still draft. Admin or Super Admin approval is required before creating new activity.'), { statusCode: 400 });
       }
     }
 
@@ -6305,7 +6363,7 @@ function syncProjectArchiveStateForTransaction(transactionId, isArchived, callba
 
 function autoArchiveExpiredProjects(callback) {
   const done = typeof callback === 'function' ? callback : () => {};
-  // Expired projects stay visible in Total Projects; we no longer auto-hide them.
+  // Overdue projects stay visible in Total Projects; we no longer auto-hide them.
   done(null);
 }
 
@@ -6323,7 +6381,7 @@ function autoRestoreActiveProjects(callback) {
 
 function autoArchiveExpiredTransactions(callback) {
   const done = typeof callback === 'function' ? callback : () => {};
-  // Keep completed/expired records in the main list; archive only when users do it manually.
+  // Keep completed/overdue records in the main list; archive only when users do it manually.
   done(null);
 }
 
@@ -10470,7 +10528,7 @@ async function resolvePurchaseOrderProjectContext(projectId = 0, companyId = 0) 
   if (!normalizedProjectId) return null;
 
   const rows = await queryAsync(
-    'SELECT id, project_docno, project_name, business_entity_id, company_id, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ? LIMIT 1',
+    'SELECT id, project_docno, project_name, business_entity_id, company_id, status, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ? LIMIT 1',
     [normalizedProjectId]
   );
   if (!Array.isArray(rows) || !rows.length) {
@@ -10480,6 +10538,9 @@ async function resolvePurchaseOrderProjectContext(projectId = 0, companyId = 0) 
   const project = rows[0];
   if (project.is_archived === true || Number(project.is_archived || 0) === 1) {
     throw new Error('Selected project is archived. Restore the project before creating new activity.');
+  }
+  if (String(project.status || '').trim().toLowerCase() === 'draft') {
+    throw new Error('Selected project is still draft. Admin or Super Admin approval is required before creating procurement records.');
   }
   const projectCompanyId = Number(project.company_id || 0) || 0;
   const normalizedCompanyId = Number(companyId || 0) || 0;
@@ -12230,12 +12291,12 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
 
         if (!['cancelled', 'on_hold'].includes(status) && endDate && endDate < today) {
           return {
-            id: `project-${project.id}-expired`,
+            id: `project-${project.id}-overdue`,
             level: 'danger',
-            type: 'expired',
+            type: 'overdue',
             project_id: project.id,
             title: project.project_name || 'Untitled Project',
-            message: 'Deadline expired and the project is still open.',
+            message: 'Project is overdue and still open.',
             meta: `Ended on ${formatNotificationDate(project.end_date)}`,
             date: project.end_date,
             source_docno: project.project_docno || project.source_docno || '',
@@ -12443,6 +12504,17 @@ app.post('/api/projects', protectAdmin, upload.single('pdf_file'), (req, res) =>
   const normalizedMemberPhone = normalizePhone(member_phone);
   const normalizedMemberPhone2 = normalizePhone(member_phone_2);
   const normalizedMemberPhone3 = normalizePhone(member_phone_3);
+  const actor = getAuthenticatedUser(req) || {};
+  const actorRole = normalizeAccessRole(actor.role);
+  const isStaffCreator = isStaffRole(actorRole);
+  const resolvedProjectStatus = isStaffCreator
+    ? 'draft'
+    : normalizeProjectStatusForSave(status || 'planning', actual_start_date, actual_end_date);
+  const resolvedProjectPriority = computeProjectPriority(resolvedPlannedEnd, actual_end_date, resolvedProjectStatus);
+  const approvedBy = resolvedProjectStatus === 'draft' ? null : getApprovalActorName(req);
+  const todayYmd = new Date().toISOString().slice(0, 10);
+  const resolvedPausedAt = resolvedProjectStatus === 'on_hold' ? (paused_at || todayYmd) : (paused_at || null);
+  const resolvedCancelledAt = resolvedProjectStatus === 'cancelled' ? (cancelled_at || todayYmd) : (cancelled_at || null);
 
   if (!project_name || !start_date || !end_date)
     return res.status(400).json({ error: 'Missing required fields' });
@@ -12507,8 +12579,8 @@ app.post('/api/projects', protectAdmin, upload.single('pdf_file'), (req, res) =>
            project_members_3, member_role_3, member_phone_3,
            start_date, end_date, planned_start_date, planned_end_date,
            actual_start_date, actual_end_date, status_reason, paused_at, cancelled_at,
-           project_manager, pdfFilename, budget, unit_cost, members, status, priority)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+           project_manager, pdfFilename, budget, unit_cost, members, status, priority, created_by, approved_by, approved_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
         [
           finalProjectDocno || null,
           project_name,
@@ -12542,15 +12614,18 @@ app.post('/api/projects', protectAdmin, upload.single('pdf_file'), (req, res) =>
           actual_start_date || null,
           actual_end_date || null,
           status_reason || null,
-          paused_at || null,
-          cancelled_at || null,
+          resolvedPausedAt,
+          resolvedCancelledAt,
           project_manager || null,
           pdfFilename,
           resolvedBudget,
           resolvedUnitCost,
           members || projectMembersSummary,
-          status || 'planning',
-          priority || 'medium'
+          resolvedProjectStatus,
+          resolvedProjectPriority,
+          actor.id || null,
+          approvedBy,
+          approvedBy ? new Date() : null
         ],
         (err, result) => {
           if (err) {
@@ -12589,10 +12664,12 @@ app.post('/api/projects', protectAdmin, upload.single('pdf_file'), (req, res) =>
               if (taskErr) {
                 console.error('Default task creation failed:', taskErr);
               }
-              logAction(req, 'CREATE_PROJECT', `Project Doc No: ${finalProjectDocno} | Company ID: ${resolvedCompanyId} | Company No: ${resolvedCompanyNo} | Company Name: ${resolvedCompanyName}`);
+              logAction(req, 'CREATE_PROJECT', `Project Doc No: ${finalProjectDocno} | Status: ${resolvedProjectStatus} | Company ID: ${resolvedCompanyId} | Company No: ${resolvedCompanyNo} | Company Name: ${resolvedCompanyName}`);
               res.json({
                 id: projectId,
                 project_docno: finalProjectDocno || null,
+                status: resolvedProjectStatus,
+                requiresApproval: resolvedProjectStatus === 'draft',
                 receivableSynced: false,
                 defaultTasksCreated: !taskErr && !!created
               });
@@ -12700,7 +12777,7 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
     project_members_3 && member_role_3 && normalizedMemberPhone3 ? `${project_members_3} (${member_role_3}) - ${normalizedMemberPhone3}` : ''
   ].filter(Boolean).join(' | ') || null;
 
-    db.query('SELECT project_docno, pdfFilename, budget, downpayment, qty, unit_cost FROM projects WHERE id = ?', [req.params.id], (findErr, rows) => {
+    db.query('SELECT project_docno, pdfFilename, budget, downpayment, qty, unit_cost, status FROM projects WHERE id = ?', [req.params.id], (findErr, rows) => {
     if (findErr) return res.status(500).json({ error: findErr.message });
     if (!rows || !rows.length) return res.status(404).json({ error: 'Project not found' });
 
@@ -12724,6 +12801,19 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
     const resolvedDownpayment = toNumber(downpayment, rows[0].downpayment || 0);
     const resolvedQty = toNumber(qty, rows[0].qty || 0);
     const resolvedUnitCost = toNumber(unit_cost, rows[0].unit_cost || 0);
+    const actor = getAuthenticatedUser(req) || {};
+    const actorRole = normalizeAccessRole(actor.role);
+    const currentProjectStatus = String(rows[0].status || 'planning').trim().toLowerCase() || 'planning';
+    const resolvedProjectStatus = isStaffRole(actorRole)
+      ? currentProjectStatus
+      : normalizeProjectStatusForSave(status || currentProjectStatus, actual_start_date, actual_end_date);
+    const resolvedProjectPriority = computeProjectPriority(resolvedPlannedEnd, actual_end_date, resolvedProjectStatus);
+    const newlyApprovedBy = currentProjectStatus === 'draft' && resolvedProjectStatus !== 'draft'
+      ? getApprovalActorName(req)
+      : null;
+    const todayYmd = new Date().toISOString().slice(0, 10);
+    const resolvedPausedAt = resolvedProjectStatus === 'on_hold' ? (paused_at || todayYmd) : (paused_at || null);
+    const resolvedCancelledAt = resolvedProjectStatus === 'cancelled' ? (cancelled_at || todayYmd) : (cancelled_at || null);
     resolveCompanyRegistryReference({ company_id, company_no, company_name, client_name }, async (companyErr, companyRecord) => {
       if (companyErr) return res.status(400).json({ error: companyErr.message });
       if (!companyRecord) return res.status(400).json({ error: 'Company is required' });
@@ -12768,9 +12858,10 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
                project_members_3 = ?, member_role_3 = ?, member_phone_3 = ?,
                start_date = ?, end_date = ?, planned_start_date = ?, planned_end_date = ?,
                actual_start_date = COALESCE(?, actual_start_date), actual_end_date = COALESCE(?, actual_end_date),
-               status_reason = COALESCE(?, status_reason), paused_at = COALESCE(?, paused_at), cancelled_at = COALESCE(?, cancelled_at),
+               status_reason = COALESCE(?, status_reason), paused_at = ?, cancelled_at = ?,
                project_manager = ?, pdfFilename = ?, budget = ?, qty = ?, unit_cost = ?, members = ?,
                status = COALESCE(?, status), priority = COALESCE(?, priority),
+               approved_by = COALESCE(?, approved_by), approved_at = COALESCE(?, approved_at),
                is_archived = FALSE, archived_at = NULL, archived_auto = FALSE
            WHERE id = ?`,
           [
@@ -12805,16 +12896,18 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
             actual_start_date || null,
             actual_end_date || null,
             status_reason || null,
-            paused_at || null,
-            cancelled_at || null,
+            resolvedPausedAt,
+            resolvedCancelledAt,
             project_manager || null,
             finalPdfFilename,
             resolvedBudget,
             resolvedQty,
             resolvedUnitCost,
             members || projectMembersSummary,
-            status || null,
-            priority || null,
+            resolvedProjectStatus,
+            resolvedProjectPriority,
+            newlyApprovedBy,
+            newlyApprovedBy ? new Date() : null,
             req.params.id
           ],
           (err, result) => {
@@ -12857,6 +12950,8 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
                   success: true,
                   defaultTasksCreated: !taskErr && !!created,
                   project_docno: resolvedProjectDocno || null,
+                  status: resolvedProjectStatus,
+                  approved_by: newlyApprovedBy || undefined,
                   receivableSynced: false
                 });
               };
@@ -13008,6 +13103,37 @@ app.get('/api/projects/:id/archive-summary', protectAdminOnly, async (req, res) 
   }
 });
 
+app.post('/api/projects/:id/approve', protectAdminOnly, async (req, res) => {
+  const projectId = Number(req.params.id || 0);
+  if (!projectId) return res.status(400).json({ error: 'Invalid project id' });
+
+  try {
+    const rows = await queryAsync(
+      'SELECT id, project_docno, project_name, status, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ? LIMIT 1',
+      [projectId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Project not found' });
+    if (rows[0].is_archived === true || Number(rows[0].is_archived || 0) === 1) {
+      return res.status(400).json({ error: 'Restore the project before approval.' });
+    }
+
+    const currentStatus = String(rows[0].status || '').trim().toLowerCase();
+    if (currentStatus !== 'draft') {
+      return res.json({ success: true, status: currentStatus || 'planning', alreadyApproved: true });
+    }
+
+    const approvedBy = getApprovalActorName(req);
+    await queryAsync(
+      "UPDATE projects SET status = 'planning', approved_by = ?, approved_at = COALESCE(approved_at, NOW()) WHERE id = ?",
+      [approvedBy, projectId]
+    );
+    logAction(req, 'APPROVE_PROJECT', `Project Doc No: ${rows[0].project_docno || projectId} | Project Name: ${rows[0].project_name || ''} | Approved by ${approvedBy}`);
+    res.json({ success: true, status: 'planning', approved_by: approvedBy });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Unable to approve project.' });
+  }
+});
+
 app.put('/api/projects/:id/archive', protectAdminOnly, (req, res) => {
   const projectId = Number(req.params.id || 0);
   if (!projectId) return res.status(400).json({ error: 'Invalid project id' });
@@ -13069,11 +13195,14 @@ app.put('/api/projects/:projectId/tasks', protectAdmin, (req, res) => {
     return res.status(400).json({ error: 'Invalid project id' });
   }
 
-  db.query('SELECT id, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ?', [projectId], (projectErr, rows) => {
+  db.query('SELECT id, status, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ?', [projectId], (projectErr, rows) => {
     if (projectErr) return res.status(500).json({ error: projectErr.message });
     if (!rows || !rows.length) return res.status(404).json({ error: 'Project not found' });
     if (rows[0].is_archived === true || Number(rows[0].is_archived || 0) === 1) {
       return res.status(400).json({ error: 'Selected project is archived. Restore the project before creating new activity.' });
+    }
+    if (String(rows[0].status || '').trim().toLowerCase() === 'draft') {
+      return res.status(400).json({ error: 'Selected project is still draft. Admin or Super Admin approval is required before creating new activity.' });
     }
 
     db.getConnection((connErr, connection) => {
