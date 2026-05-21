@@ -1,3 +1,4 @@
 .env
 .blackboxcli/
 database_exports/
+.codex-edge-profile/ 
