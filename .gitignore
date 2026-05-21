@@ -2,3 +2,4 @@
 .blackboxcli/
 database_exports/
 .codex-edge-profile/ 
+tmp/ 
