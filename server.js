@@ -1639,7 +1639,6 @@ const protectedStaticHtmlPaths = new Map([
   ['/inventory/index.html', protectAdmin],
   ['/reports/index.html', protectAdminOnly],
   ['/gantt-chart/index.html', protectAdminOnly],
-  ['/company/index.html', protectAdmin],
   ['/business-entities/index.html', protectAdminOnly],
   ['/user-management/index.html', protectAdminOnly],
   ['/user-index/index.html', protectAuthenticated]
@@ -1717,8 +1716,8 @@ function handleProcurementPage(req, res) {
 function handleMasterDataPage(req, res) {
   noCache(res);
   const tab = String(req.query?.tab || '').trim().toLowerCase();
-  if (!tab || tab === 'companies') {
-    return res.redirect('/company-registry');
+  if (!tab) {
+    return res.redirect('/master-data?tab=companies');
   }
   res.sendFile(path.join(__dirname, 'public', 'accounts-payable', 'index.html'));
 }
@@ -6564,12 +6563,20 @@ app.get('/master-data', protectAdmin, handleMasterDataPage);
 
 app.get('/erp', protectAdmin, (req, res) => {
   noCache(res);
+  if (String(req.query?.embedded || '') !== '1') {
+    return res.redirect(301, '/master-data?tab=companies');
+  }
   res.sendFile(path.join(__dirname, 'public', 'company', 'index.html'));
 });
 
 app.get('/company-registry', protectAdmin, (req, res) => {
   noCache(res);
-  res.sendFile(path.join(__dirname, 'public', 'company', 'index.html'));
+  res.redirect(301, '/master-data?tab=companies');
+});
+
+app.get(['/company', '/company/index.html'], protectAdmin, (req, res) => {
+  noCache(res);
+  res.redirect(301, '/master-data?tab=companies');
 });
 
 app.get('/status', protectAuthenticated, (req, res) => {
