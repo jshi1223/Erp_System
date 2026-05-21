@@ -105,6 +105,7 @@ function syncApSummaryCards(tab = activeApTab) {
   const grid = document.getElementById('ap-summary-grid');
   if (!grid) return;
 
+  let hasVisibleCard = false;
   grid.dataset.activeTab = activeTab;
   grid.querySelectorAll('.ap-summary-card').forEach((card) => {
     const tabs = String(card.dataset.summaryTabs || '')
@@ -113,7 +114,11 @@ function syncApSummaryCards(tab = activeApTab) {
       .filter(Boolean)
       .filter((value) => AP_MASTER_DATA_TABS.has(value) || AP_PROCUREMENT_TABS.has(value) || AP_NATIVE_TABS.has(value));
     card.hidden = !tabs.includes(activeTab);
+    if (!card.hidden) {
+      hasVisibleCard = true;
+    }
   });
+  grid.hidden = !hasVisibleCard;
 }
 
 function applyWorkspaceModeUi() {
@@ -124,7 +129,11 @@ function applyWorkspaceModeUi() {
   const headerSub = document.getElementById('module-header-sub');
   const badge = document.getElementById('module-admin-badge');
   const allowedTabs = getWorkspaceAllowedTabs();
+  const purchasingRoot = document.getElementById('ap-purchasing-root');
   document.body.dataset.workspaceMode = masterDataMode ? 'master-data' : (procurementMode ? 'procurement' : 'ap');
+  if (purchasingRoot) {
+    purchasingRoot.dataset.workspaceRoot = masterDataMode ? 'master-data' : 'procurement';
+  }
 
   document.title = masterDataMode
     ? 'KVSK CCTV & IT Solution - Master Data'
@@ -145,6 +154,12 @@ function applyWorkspaceModeUi() {
   document.querySelectorAll('.ap-workspace-tab').forEach((tab) => {
     const tabName = normalizeWorkspaceTabName(tab.dataset.workspaceTab || tab.dataset.procTab || tab.dataset.tab || '');
     tab.hidden = !allowedTabs.has(tabName);
+    tab.setAttribute('aria-hidden', String(tab.hidden));
+  });
+  document.querySelectorAll('.master-data-tab').forEach((tab) => {
+    tab.hidden = !masterDataMode;
+    tab.setAttribute('aria-hidden', String(tab.hidden));
+    tab.classList.toggle('active', masterDataMode && tab.dataset.masterDataTab === activeApTab);
   });
 }
 
@@ -177,6 +192,7 @@ function isInCurrentMonth(value) {
 document.addEventListener('DOMContentLoaded', () => {
   restoreApUiState();
   applyWorkspaceModeUi();
+  bindMasterDataTabLinks();
   const params = new URLSearchParams(window.location.search);
   const requestedTab = params.has('tab') ? normalizeApWorkspaceTab(params.get('tab')) : activeApTab;
   const initialButton = document.querySelector(`.ap-workspace-tab[data-workspace-tab="${requestedTab}"]`)
@@ -197,6 +213,20 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('f-payment-date').valueAsDate = new Date();
   if (typeof loadNotifications === 'function') loadNotifications();
 });
+
+function bindMasterDataTabLinks() {
+  if (!isMasterDataWorkspacePage()) return;
+  document.querySelectorAll('a[href^="/master-data?tab="]').forEach((link) => {
+    link.addEventListener('click', (event) => {
+      const url = new URL(link.getAttribute('href'), window.location.origin);
+      const tab = normalizeApWorkspaceTab(url.searchParams.get('tab') || '');
+      if (!AP_MASTER_DATA_TABS.has(tab)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      switchApWorkspaceTab(tab, document.querySelector(`.ap-workspace-tab[data-workspace-tab="${tab}"]`));
+    }, { capture: true });
+  });
+}
 
 async function doLogout() {
   const confirmed = await openConfirmDialog({
@@ -295,7 +325,7 @@ function businessEntityMatches(row) {
   const selected = getCurrentBusinessEntityId();
   if (!selected) return true;
   const rowId = String(row?.business_entity_id || '').trim();
-  return rowId === selected;
+  return !rowId || rowId === selected;
 }
 
 function renderArchivedProjectBadge(row = {}) {
@@ -306,7 +336,8 @@ function renderArchivedProjectBadge(row = {}) {
 
 function getBusinessEntityBrandProfile(row) {
   const name = String(row?.company_name || '').trim();
-  const isKitsi = /kitsi|ktiis|kinaadman/i.test(name) || String(row?.theme || '').toLowerCase() === 'kitsi';
+  const theme = String(row?.theme || '').trim().toLowerCase();
+  const isKitsi = theme === 'kitsi' || /kitsi|ktiis|kinaadman/i.test(name);
   if (isKitsi) {
     return {
       theme: 'kitsi',
@@ -346,7 +377,7 @@ function applyBusinessEntityBrand(row) {
   });
   try {
     localStorage.setItem(BUSINESS_ENTITY_THEME_KEY, JSON.stringify({
-      company_name: row?.company_name || '',
+      company_name: row?.company_name || (profile.theme === 'kitsi' ? 'KITSI' : 'KVSK CCTV & IT Solution'),
       theme: profile.theme,
       logo: profile.logo,
       alt: profile.alt,
@@ -529,6 +560,9 @@ function switchApWorkspaceTab(tab, btn, options = {}) {
       captureApToolbarState(activeApTab);
     }
     activeApTab = nextTab;
+    if (isMasterDataWorkspacePage()) {
+      document.body.dataset.initialTab = nextTab;
+    }
     syncApSummaryCards(nextTab);
     if (persistState) {
       saveApUiState();

@@ -171,7 +171,7 @@ body.erp-clean-page.reports-page .sidebar-overlay {
 body.erp-clean-page.reports-page .sidebar-header {
   padding: 18px 18px 14px;
   border-bottom: 1px solid color-mix(in srgb, var(--primary) 16%, transparent);
-  background: rgba(244, 248, 253, 0.12);
+  background: rgba(255, 248, 247, 0.12);
 }
 
 body.erp-clean-page.reports-page .sidebar-brand {

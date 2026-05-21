@@ -102,6 +102,7 @@ const RESEND_FROM = process.env.RESEND_FROM || SMTP_FROM;
 const allowPublicRegistration = String(process.env.ALLOW_PUBLIC_REGISTRATION || 'true').toLowerCase() !== 'false';
 
 const hasEmailConfig = Boolean(SMTP_HOST && SMTP_USER && SMTP_PASS);
+const hasAnyEmailConfig = Boolean(RESEND_API_KEY || hasEmailConfig);
 const forceSmtpIpv4 = String(process.env.SMTP_FORCE_IPV4 || 'true').toLowerCase() !== 'false';
 let cachedSmtpIpv4Host = '';
 const APPROVAL_NOTIFY_EMAILS = process.env.APPROVAL_NOTIFY_EMAILS || process.env.ADMIN_EMAIL || '';
@@ -111,9 +112,14 @@ async function resolveSmtpHost() {
   if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(SMTP_HOST)) return SMTP_HOST;
   if (cachedSmtpIpv4Host) return cachedSmtpIpv4Host;
 
-  const addresses = await dns.promises.resolve4(SMTP_HOST);
-  cachedSmtpIpv4Host = addresses[0] || SMTP_HOST;
-  return cachedSmtpIpv4Host;
+  try {
+    const addresses = await dns.promises.resolve4(SMTP_HOST);
+    cachedSmtpIpv4Host = addresses[0] || SMTP_HOST;
+    return cachedSmtpIpv4Host;
+  } catch (err) {
+    console.warn(`SMTP IPv4 lookup failed for ${SMTP_HOST}; using hostname fallback.`, err?.code || err?.message || err);
+    return SMTP_HOST;
+  }
 }
 
 async function createSmtpTransporter() {
@@ -1634,6 +1640,56 @@ app.use((req, res, next) => {
   return res.status(404).send('Not found');
 });
 
+function redirectAccountsPayableProcurementTab(req, res, tab) {
+  const procurementTabs = new Set(['requisitions', 'rfq', 'quotations', 'bid-evaluation', 'purchase-orders', 'goods-receipts']);
+  if (!procurementTabs.has(tab)) return false;
+  const targetTab = tab === 'bid-evaluation' ? 'quotations' : tab;
+  const redirectUrl = new URL('/procurement', `${req.protocol}://${req.get('host')}`);
+  Object.entries(req.query || {}).forEach(([key, value]) => {
+    if (key === 'tab') return;
+    if (Array.isArray(value)) {
+      value.forEach((item) => redirectUrl.searchParams.append(key, item));
+    } else if (value !== undefined) {
+      redirectUrl.searchParams.set(key, value);
+    }
+  });
+  redirectUrl.searchParams.set('tab', targetTab);
+  res.redirect(`${redirectUrl.pathname}${redirectUrl.search}`);
+  return true;
+}
+
+function handleAccountsPayablePage(req, res) {
+  noCache(res);
+  const tab = String(req.query?.tab || '').trim().toLowerCase();
+  if (tab === 'vendors') {
+    return res.redirect('/master-data?tab=vendors');
+  }
+  if (redirectAccountsPayableProcurementTab(req, res, tab)) return;
+  res.sendFile(path.join(__dirname, 'public', 'accounts-payable', 'index.html'));
+}
+
+function handleProcurementPage(req, res) {
+  noCache(res);
+  const tab = String(req.query?.tab || '').trim().toLowerCase();
+  if (tab === 'vendors') {
+    return res.redirect('/master-data?tab=vendors');
+  }
+  res.sendFile(path.join(__dirname, 'public', 'accounts-payable', 'index.html'));
+}
+
+function handleMasterDataPage(req, res) {
+  noCache(res);
+  const tab = String(req.query?.tab || '').trim().toLowerCase();
+  if (!tab || tab === 'companies') {
+    return res.redirect('/company-registry');
+  }
+  res.sendFile(path.join(__dirname, 'public', 'accounts-payable', 'index.html'));
+}
+
+app.get(['/accounts-payable', '/accounts-payable/'], protectAdmin, handleAccountsPayablePage);
+app.get(['/procurement', '/procurement/'], protectAdmin, handleProcurementPage);
+app.get(['/master-data', '/master-data/'], protectAdmin, handleMasterDataPage);
+
 app.use(express.static('public', {
   index: false,
   setHeaders: (res, filePath) => {
@@ -1683,6 +1739,10 @@ function initApp() {
       }
       console.error(`${label} index error:`, err);
     });
+  }
+
+  function quotePgIdentifier(value) {
+    return `"${String(value || '').replace(/"/g, '""')}"`;
   }
 
   function addForeignKeyIfMissing(sql, label) {
@@ -2751,12 +2811,17 @@ function initApp() {
     if (err) console.error('Transactions service_order_id backfill error:', err);
   });
   db.query(`
-    SELECT indexname AS "INDEX_NAME"
-    FROM pg_indexes
-    WHERE schemaname = current_schema()
-      AND tablename = 'service_orders'
-      AND indexdef ILIKE 'CREATE UNIQUE INDEX%'
-      AND indexdef ~ '\\(project_id\\)'
+    SELECT ns.nspname AS schema_name, idx.relname AS index_name
+    FROM pg_class tbl
+    JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+    JOIN pg_index ix ON ix.indrelid = tbl.oid
+    JOIN pg_class idx ON idx.oid = ix.indexrelid
+    JOIN pg_attribute att ON att.attrelid = tbl.oid AND att.attnum = ANY(ix.indkey)
+    WHERE ns.nspname = current_schema()
+      AND tbl.relname = 'service_orders'
+      AND ix.indisunique = true
+      AND ix.indnkeyatts = 1
+      AND att.attname = 'project_id'
     LIMIT 1
   `, (err, rows) => {
     if (err) {
@@ -2765,11 +2830,14 @@ function initApp() {
     }
     if (!rows || !rows.length) return;
 
-    const indexName = String(rows[0].INDEX_NAME || '').trim();
+    const schemaName = String(rows[0].schema_name || '').trim();
+    const indexName = String(rows[0].index_name || '').trim();
     if (!indexName) return;
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(indexName)) return;
+    const qualifiedIndexName = schemaName
+      ? `${quotePgIdentifier(schemaName)}.${quotePgIdentifier(indexName)}`
+      : quotePgIdentifier(indexName);
 
-  db.query(`DROP INDEX IF EXISTS ${indexName}`, (dropErr) => {
+  db.query(`DROP INDEX IF EXISTS ${qualifiedIndexName}`, (dropErr) => {
       if (dropErr) {
         console.error('Service orders project_id unique index drop error:', dropErr);
       }
@@ -6395,10 +6463,7 @@ app.get('/admin', protectAdmin, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'admin', 'index.html'));
 });
 
-app.get('/accounts-payable', protectAdmin, (req, res) => {
-  noCache(res);
-  res.sendFile(path.join(__dirname, 'public', 'accounts-payable', 'index.html'));
-});
+app.get('/accounts-payable', protectAdmin, handleAccountsPayablePage);
 
 app.get('/accounts-receivable', protectAdmin, (req, res) => {
   noCache(res);
@@ -6435,15 +6500,9 @@ app.get(['/system-overview', '/system-overview/'], (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'system-overview', 'index.html'));
 });
 
-app.get('/procurement', protectAdmin, (req, res) => {
-  noCache(res);
-  res.sendFile(path.join(__dirname, 'public', 'accounts-payable', 'index.html'));
-});
+app.get('/procurement', protectAdmin, handleProcurementPage);
 
-app.get('/master-data', protectAdmin, (req, res) => {
-  noCache(res);
-  res.sendFile(path.join(__dirname, 'public', 'accounts-payable', 'index.html'));
-});
+app.get('/master-data', protectAdmin, handleMasterDataPage);
 
 app.get('/erp', protectAdmin, (req, res) => {
   noCache(res);
@@ -6813,8 +6872,8 @@ app.post('/api/forgot-password', forgotPasswordRateLimiter, (req, res) => {
 
       logAction(req, 'PASSWORD_RESET_REQUEST', `Reset requested for ${email}`);
 
-      if (!hasEmailConfig) {
-        console.warn('SMTP is not configured.');
+      if (!hasAnyEmailConfig) {
+        console.warn('Email sender is not configured.');
         if (isProduction) {
           return res.status(503).json({
             status: 'error',
@@ -8108,16 +8167,28 @@ app.get('/api/company-registry/next-no', protectAdmin, (req, res) => {
 app.get('/api/company-registry', protectAdmin, async (req, res) => {
   try {
     const includeArchived = String(req.query.include_archived || '0') === '1';
-    const businessEntityId = normalizeBusinessEntityId(req.query.business_entity_id);
     const clauses = [];
     const params = [];
-    if (!includeArchived) clauses.push('COALESCE(archived, FALSE) = FALSE');
-    if (businessEntityId) {
-      clauses.push('business_entity_id = ?');
-      params.push(businessEntityId);
-    }
+    if (!includeArchived) clauses.push('COALESCE(c.archived, FALSE) = FALSE');
     const whereClause = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-    const rows = await queryAsync(`SELECT * FROM company_registry ${whereClause} ORDER BY company_name ASC`, params);
+    const rows = await queryAsync(`
+      SELECT
+        c.*,
+        v.id AS vendor_profile_id,
+        v.vendor_no AS vendor_profile_no,
+        v.vendor_name AS vendor_profile_name,
+        COALESCE(v.is_active, TRUE) AS vendor_profile_active
+      FROM company_registry c
+      LEFT JOIN vendors v ON v.id = (
+        SELECT v2.id
+        FROM vendors v2
+        WHERE v2.company_id = c.id
+        ORDER BY v2.id ASC
+        LIMIT 1
+      )
+      ${whereClause}
+      ORDER BY c.company_name ASC
+    `, params);
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -8609,7 +8680,7 @@ app.get('/api/company-registry/:id/overview', protectAdmin, async (req, res) => 
   if (!companyId) return res.status(400).json({ error: 'Invalid company id' });
 
   try {
-    const [companyRows, countRows, recentProjects, recentServiceOrders] = await Promise.all([
+    const [companyRows, countRows, recentProjects, recentServiceOrders, vendorRows] = await Promise.all([
       queryAsync(
         'SELECT id, company_no, company_name, status, archived, contact_person, phone, email, tin, industry FROM company_registry WHERE id = ? LIMIT 1',
         [companyId]
@@ -8656,7 +8727,11 @@ app.get('/api/company-registry/:id/overview', protectAdmin, async (req, res) => 
         WHERE so.company_id = ?
         ORDER BY so.created_at DESC, so.id DESC
         LIMIT 5
-      `, [companyId])
+      `, [companyId]),
+      queryAsync(
+        'SELECT id, vendor_no, vendor_name, COALESCE(is_active, TRUE) AS is_active FROM vendors WHERE company_id = ? ORDER BY id ASC LIMIT 1',
+        [companyId]
+      )
     ]);
 
     if (!companyRows.length) {
@@ -8676,6 +8751,7 @@ app.get('/api/company-registry/:id/overview', protectAdmin, async (req, res) => 
         vendor_count: Number(counts.vendor_count || 0),
         receivable_count: Number(counts.receivable_count || 0)
       },
+      vendor_profile: vendorRows[0] || null,
       recent_projects: Array.isArray(recentProjects) ? recentProjects : [],
       recent_service_orders: Array.isArray(recentServiceOrders) ? recentServiceOrders : []
     });
@@ -8750,6 +8826,30 @@ app.post('/api/company-registry/:id/vendor-profile', protectAdmin, async (req, r
     });
 
     if (duplicate) {
+      const duplicateRows = await queryAsync(
+        'SELECT id, company_id, vendor_no, vendor_name, COALESCE(is_active, TRUE) AS is_active FROM vendors WHERE id = ? LIMIT 1',
+        [Number(duplicate.row?.id || 0)]
+      );
+      const duplicateVendor = duplicateRows[0] || null;
+      const duplicateCompanyId = Number(duplicateVendor?.company_id || 0) || 0;
+
+      if (duplicateVendor && (!duplicateCompanyId || duplicateCompanyId === companyId)) {
+        if (!duplicateCompanyId) {
+          await queryAsync('UPDATE vendors SET company_id = ? WHERE id = ?', [companyId, duplicateVendor.id]);
+          logAction(req, 'LINK_VENDOR', `Vendor No: ${duplicateVendor.vendor_no || ''} | Company ID: ${companyId} | Company No: ${company.company_no || ''} | Linked existing vendor profile from company registry.`);
+        }
+
+        return res.json({
+          id: duplicateVendor.id,
+          company_id: companyId,
+          vendor_no: duplicateVendor.vendor_no,
+          vendor_name: duplicateVendor.vendor_name || vendorName,
+          already_exists: true,
+          linked_existing: !duplicateCompanyId,
+          is_active: Number(duplicateVendor.is_active || 0) ? 1 : 0
+        });
+      }
+
       return res.status(409).json({
         error: duplicate.field === 'tin'
           ? 'TIN already exists in Vendor Directory.'
@@ -10950,6 +11050,13 @@ app.post('/api/procurement/quotations', protectAdmin, async (req, res) => {
     if (existingPoRows.length) {
       return res.status(409).json({ error: `Selected PR already has PO ${existingPoRows[0].po_number || existingPoRows[0].id}. New RFQs are disabled.` });
     }
+    const selectedQuoteRows = await queryAsync(
+      "SELECT id, quote_number FROM procurement_quotations WHERE requisition_id = ? AND status = 'selected' LIMIT 1",
+      [requisitionId]
+    );
+    if (selectedQuoteRows.length) {
+      return res.status(409).json({ error: `Selected PR already has approved RFQ ${selectedQuoteRows[0].quote_number || selectedQuoteRows[0].id}. New RFQs are disabled.` });
+    }
     const vendorRows = await queryAsync('SELECT id, COALESCE(is_active, TRUE) AS is_active FROM vendors WHERE id = ? LIMIT 1', [vendorId]);
     if (!vendorRows.length) return res.status(404).json({ error: 'Selected vendor was not found.' });
     if (Number(vendorRows[0].is_active || 0) !== 1) return res.status(400).json({ error: 'Vendor is inactive.' });
@@ -11014,6 +11121,13 @@ app.put('/api/procurement/quotations/:id', protectAdmin, async (req, res) => {
     const existingPoRows = await queryAsync('SELECT id, po_number FROM purchase_orders WHERE requisition_id IN (?, ?) LIMIT 1', [currentRows[0].requisition_id, requisitionId]);
     if (existingPoRows.length) {
       return res.status(409).json({ error: `Selected PR already has PO ${existingPoRows[0].po_number || existingPoRows[0].id}. RFQ changes are disabled.` });
+    }
+    const selectedQuoteRows = await queryAsync(
+      "SELECT id, quote_number FROM procurement_quotations WHERE requisition_id = ? AND status = 'selected' LIMIT 1",
+      [requisitionId]
+    );
+    if (selectedQuoteRows.length && Number(selectedQuoteRows[0].id || 0) !== quotationId) {
+      return res.status(409).json({ error: `Selected PR already has approved RFQ ${selectedQuoteRows[0].quote_number || selectedQuoteRows[0].id}. New RFQs are disabled.` });
     }
     status = normalizeQuotationStatus(currentRows[0].status) || 'draft';
 

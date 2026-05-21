@@ -4,10 +4,132 @@
   margin-bottom: 16px;
 }
 
+html.embedded-company-registry,
+html.embedded-company-registry body.company-registry-page {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-height: 100%;
+  margin: 0 !important;
+  padding: 0 !important;
+  background: transparent !important;
+  overflow: hidden;
+}
+
+html.embedded-company-registry body.company-registry-page header,
+html.embedded-company-registry body.company-registry-page .sidebar,
+html.embedded-company-registry body.company-registry-page .sidebar-overlay,
+html.embedded-company-registry body.company-registry-page .page-hero,
+html.embedded-company-registry body.company-registry-page .master-data-tabs,
+html.embedded-company-registry body.company-registry-page .section-back-btn,
+html.embedded-company-registry body.company-registry-page .company-toolbar-stack {
+  display: none !important;
+}
+
+html.embedded-company-registry body.company-registry-page main,
+html.embedded-company-registry body.company-registry-page .registry-shell {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+html.embedded-company-registry body.company-registry-page .registry-shell {
+  gap: 12px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+
+html.embedded-company-registry body.company-registry-page .registry-panel {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+html.embedded-company-registry body.company-registry-page .registry-panel-head {
+  display: none;
+}
+
+html.embedded-company-registry body.company-registry-page .registry-table-wrap {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  border-radius: 14px !important;
+  overflow-x: auto !important;
+}
+
+html.embedded-company-registry body.company-registry-page .registry-table {
+  width: 100%;
+  min-width: 1180px;
+}
+
+html.embedded-company-registry body.company-registry-page .registry-table th,
+html.embedded-company-registry body.company-registry-page .registry-table td {
+  padding: 12px 10px;
+  vertical-align: top;
+}
+
+html.embedded-company-registry body.company-registry-page .registry-table th:nth-child(1),
+html.embedded-company-registry body.company-registry-page .registry-table td:nth-child(1) {
+  width: 110px;
+}
+
+html.embedded-company-registry body.company-registry-page .registry-table th:nth-child(2),
+html.embedded-company-registry body.company-registry-page .registry-table td:nth-child(2) {
+  width: 100px;
+}
+
+html.embedded-company-registry body.company-registry-page .registry-table th:nth-child(3),
+html.embedded-company-registry body.company-registry-page .registry-table td:nth-child(3) {
+  width: 330px;
+}
+
+html.embedded-company-registry body.company-registry-page .registry-table th:nth-child(4),
+html.embedded-company-registry body.company-registry-page .registry-table td:nth-child(4) {
+  width: 140px;
+}
+
+html.embedded-company-registry body.company-registry-page .registry-table th:nth-child(5),
+html.embedded-company-registry body.company-registry-page .registry-table td:nth-child(5),
+html.embedded-company-registry body.company-registry-page .registry-table th:nth-child(6),
+html.embedded-company-registry body.company-registry-page .registry-table td:nth-child(6) {
+  width: 150px;
+}
+
+html.embedded-company-registry body.company-registry-page .registry-table th:nth-child(7),
+html.embedded-company-registry body.company-registry-page .registry-table td:nth-child(7) {
+  width: 210px;
+}
+
+html.embedded-company-registry body.company-registry-page .registry-table th:nth-child(8),
+html.embedded-company-registry body.company-registry-page .registry-table td:nth-child(8) {
+  width: 260px;
+}
+
+html.embedded-company-registry body.company-registry-page .registry-table th:nth-child(9),
+html.embedded-company-registry body.company-registry-page .registry-table td:nth-child(9) {
+  width: 110px;
+}
+
+html.embedded-company-registry body.company-registry-page .registry-table th:nth-child(10),
+html.embedded-company-registry body.company-registry-page .registry-table td:nth-child(10) {
+  width: 170px;
+}
+
 body.company-registry-page[data-business-entity-theme] {
   background:
     radial-gradient(circle at top right, color-mix(in srgb, var(--primary-light) 16%, transparent), transparent 30%),
-    linear-gradient(180deg, color-mix(in srgb, var(--primary) 7%, #f7f9fc), #f8fafc 42%);
+    linear-gradient(180deg, color-mix(in srgb, var(--primary) 7%, #fff8f7), #fffafa 42%);
 }
 
 body.company-registry-page[data-business-entity-theme] header {

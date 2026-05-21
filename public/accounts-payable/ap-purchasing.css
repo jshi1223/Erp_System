@@ -195,10 +195,25 @@ body.erp-clean-page.accounts-payable-page .module-page-toolbar .module-toolbar-s
   line-height: 1.45;
 }
 
+.po-line-lock-note {
+  display: none;
+  margin-top: 6px;
+  color: var(--brand-maroon);
+  font-size: 0.76rem;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
 .po-line-items {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.po-line-add-row {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 2px;
 }
 
 .po-line-item {
@@ -209,6 +224,20 @@ body.erp-clean-page.accounts-payable-page .module-page-toolbar .module-toolbar-s
   padding: 14px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(249, 245, 240, 0.96));
   box-shadow: 0 12px 28px rgba(28, 28, 28, 0.06);
+}
+
+.po-lines-field.is-line-items-locked .po-line-lock-note {
+  display: block;
+}
+
+.po-lines-field.is-line-items-locked .po-line-item {
+  border-color: rgba(107, 19, 32, 0.22);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 242, 235, 0.98));
+}
+
+.po-lines-field.is-line-items-locked input[readonly] {
+  cursor: not-allowed;
+  background: rgba(246, 242, 235, 0.92);
 }
 
 .po-line-item.has-error {

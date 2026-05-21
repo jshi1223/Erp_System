@@ -6,6 +6,20 @@ window.__ERP_BUSINESS_ENTITY_CONTEXT_KEY__ = window.__ERP_BUSINESS_ENTITY_CONTEX
 window.__ERP_BUSINESS_ENTITY_THEME_KEY__ = window.__ERP_BUSINESS_ENTITY_THEME_KEY__ || 'kinaadman_businessEntityTheme';
 var erpCoreBusinessEntitiesDb = [];
 
+function erpGetStoredBusinessEntityThemeProfile() {
+  try {
+    var pendingRaw = sessionStorage.getItem('kinaadman_pendingBusinessEntityTheme');
+    var pending = pendingRaw ? JSON.parse(pendingRaw) : null;
+    if (pending && pending.theme) return pending;
+  } catch (_) {}
+  try {
+    var raw = localStorage.getItem(window.__ERP_BUSINESS_ENTITY_THEME_KEY__);
+    var stored = raw ? JSON.parse(raw) : null;
+    if (stored && stored.theme) return stored;
+  } catch (_) {}
+  return null;
+}
+
 function normalizeAccessRole(role) {
   var safeRole = String(role || 'user').trim().toLowerCase();
   return ['super_admin', 'admin', 'staff', 'user'].includes(safeRole) ? safeRole : 'user';
@@ -73,18 +87,18 @@ function erpApplyBusinessEntityBrand(row) {
     img.alt = profile.alt;
   });
 
-  if (row && row.company_name) {
-    document.querySelectorAll('header .brand-copy .header-logo').forEach(function (node) {
-      node.textContent = row.company_name;
-    });
-  }
+  document.querySelectorAll('header .brand-copy .header-logo').forEach(function (node) {
+    node.textContent = row && row.company_name
+      ? row.company_name
+      : (profile.theme === 'kitsi' ? 'KITSI' : 'KVSK CCTV & IT Solution');
+  });
   if (document.documentElement && document.documentElement.dataset) {
     document.documentElement.dataset.businessEntityBrandTextReady = '1';
   }
 
   try {
     localStorage.setItem(window.__ERP_BUSINESS_ENTITY_THEME_KEY__, JSON.stringify({
-      company_name: row && row.company_name ? row.company_name : '',
+      company_name: row && row.company_name ? row.company_name : (profile.theme === 'kitsi' ? 'KITSI' : 'KVSK CCTV & IT Solution'),
       theme: profile.theme,
       logo: profile.logo,
       alt: profile.alt,
@@ -100,17 +114,14 @@ function erpApplyBusinessEntityBrand(row) {
 function erpApplyStoredBusinessEntityBrand() {
   var explicitTheme = erpGetExplicitBusinessEntityTheme();
   if (explicitTheme) {
-    erpApplyBusinessEntityBrand({ theme: explicitTheme, company_name: explicitTheme === 'kitsi' ? 'KITSI' : 'KVSK' });
+    erpApplyBusinessEntityBrand({ theme: explicitTheme, company_name: explicitTheme === 'kitsi' ? 'KITSI' : 'KVSK CCTV & IT Solution' });
     return;
   }
-  try {
-    var raw = localStorage.getItem(window.__ERP_BUSINESS_ENTITY_THEME_KEY__);
-    var stored = raw ? JSON.parse(raw) : null;
-    if (stored && stored.theme) {
-      erpApplyBusinessEntityBrand(stored);
-      return;
-    }
-  } catch (_) {}
+  var stored = erpGetStoredBusinessEntityThemeProfile();
+  if (stored && stored.theme) {
+    erpApplyBusinessEntityBrand(stored);
+    return;
+  }
   erpApplyBusinessEntityBrand({ company_name: 'KVSK' });
 }
 
@@ -145,7 +156,12 @@ function erpLoadBusinessEntitiesForTheme() {
       erpCoreBusinessEntitiesDb = Array.isArray(rows) ? rows : [];
       var explicitTheme = erpGetExplicitBusinessEntityTheme();
       if (explicitTheme) {
-        erpApplyBusinessEntityBrand({ theme: explicitTheme, company_name: explicitTheme === 'kitsi' ? 'KITSI' : 'KVSK' });
+        erpApplyBusinessEntityBrand({ theme: explicitTheme, company_name: explicitTheme === 'kitsi' ? 'KITSI' : 'KVSK CCTV & IT Solution' });
+        return;
+      }
+      var storedThemeProfile = erpGetStoredBusinessEntityThemeProfile();
+      if (storedThemeProfile && storedThemeProfile.theme) {
+        erpApplyBusinessEntityBrand(storedThemeProfile);
         return;
       }
       var current = erpGetCurrentBusinessEntityId();
@@ -174,11 +190,20 @@ document.addEventListener('DOMContentLoaded', () => {
       window.__CSRF_TOKEN__ = user.csrfToken;
     }
     updateRoleBadge(user.role);
+    const safeCurrentRole = normalizeAccessRole(user.role);
+    document.body?.setAttribute('data-access-role', safeCurrentRole);
+    document.body?.classList.toggle('is-staff-role', safeCurrentRole === 'staff');
+    document.body?.classList.toggle('is-admin-role', isAdminRoleValue(safeCurrentRole));
     if (activeTab === 'users' || document.body?.classList.contains('user-management-page')) {
       renderUsers();
     }
     
     if (isAdminRoleValue(user.role)) {
+      const adminSidebarGroup = document.querySelector('.sidebar-group[data-sidebar-group="admin"]');
+      if (adminSidebarGroup) {
+        adminSidebarGroup.style.display = '';
+        adminSidebarGroup.setAttribute('aria-hidden', 'false');
+      }
       const utab = document.getElementById('tab-users');
       if (utab) utab.style.display = 'block';
 
@@ -190,6 +215,12 @@ document.addEventListener('DOMContentLoaded', () => {
       
       const menuLogs = document.getElementById('menu-logs');
       if (menuLogs) menuLogs.style.display = 'block';
+    } else {
+      const adminSidebarGroup = document.querySelector('.sidebar-group[data-sidebar-group="admin"]');
+      if (adminSidebarGroup) {
+        adminSidebarGroup.style.display = 'none';
+        adminSidebarGroup.setAttribute('aria-hidden', 'true');
+      }
     }
 
     if (isAdminDashboardPage) {
@@ -1143,7 +1174,6 @@ function renderProjectMasterTable() {
           <div class="project-master-actions">
             <button class="btn btn-sm btn-edit" type="button" onclick="openProjectModal(${Number(project.id)})">Edit</button>
             <button class="btn btn-sm btn-add" type="button" onclick="openProjectRequisition(${Number(project.id)})">Add PR</button>
-            <button class="btn btn-sm btn-add" type="button" onclick="openProjectPurchaseOrder(${Number(project.id)})">Add PO</button>
             ${project.pdfFilename
               ? `<button class="btn btn-sm btn-pdf" type="button" onclick="openProjectPdfViewer(${Number(project.id)})">View PDF</button>`
               : `<span class="pdf-empty">N/A</span>`}
@@ -1201,7 +1231,6 @@ function renderProjectRecordsTable() {
           <div class="project-master-actions">
             <button class="btn btn-sm btn-edit" type="button" onclick="openProjectModal(${Number(project.id)})">Edit</button>
             <button class="btn btn-sm btn-add" type="button" onclick="openProjectRequisition(${Number(project.id)})">Add PR</button>
-            <button class="btn btn-sm btn-add" type="button" onclick="openProjectPurchaseOrder(${Number(project.id)})">Add PO</button>
             ${isArchived
               ? `<button class="btn btn-sm btn-restore" type="button" onclick="toggleProjectArchive(${Number(project.id)}, false)" title="Restore Project">Restore</button>`
               : `<button class="btn btn-sm btn-archive" type="button" onclick="toggleProjectArchive(${Number(project.id)}, true)" title="Archive Project">Archive</button>`}
@@ -2739,6 +2768,95 @@ function closeConfirmDialog(result = false) {
   if (!anyModalOpen) {
     document.body.style.overflow = '';
   }
+}
+
+function openApprovalPasswordDialog(role = 'staff') {
+  let backdrop = document.getElementById('approval-password-modal-backdrop');
+  if (!backdrop) {
+    backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop approval-password-backdrop';
+    backdrop.id = 'approval-password-modal-backdrop';
+    backdrop.innerHTML = `
+      <div class="modal approval-password-modal" role="dialog" aria-modal="true" aria-labelledby="approval-password-title">
+        <button class="modal-close" type="button" data-approval-password-cancel aria-label="Close approval dialog">X</button>
+        <div class="modal-title" id="approval-password-title">Approve Staff Account</div>
+        <p class="modal-copy">Enter your current admin password to approve this account.</p>
+        <div class="field full">
+          <label for="approval-password-input">Admin Password</label>
+          <input id="approval-password-input" type="password" autocomplete="current-password" />
+          <div class="modal-inline-message is-hidden" id="approval-password-message" aria-live="polite"></div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-cancel btn-sm" type="button" data-approval-password-cancel>Cancel</button>
+          <button class="btn btn-save btn-sm" type="button" data-approval-password-submit>Approve</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(backdrop);
+  }
+
+  const title = backdrop.querySelector('#approval-password-title');
+  const input = backdrop.querySelector('#approval-password-input');
+  const message = backdrop.querySelector('#approval-password-message');
+  const submitBtn = backdrop.querySelector('[data-approval-password-submit]');
+  const cancelBtns = backdrop.querySelectorAll('[data-approval-password-cancel]');
+  const roleLabel = typeof formatAccessRoleLabel === 'function' ? formatAccessRoleLabel(role) : String(role || 'Staff');
+
+  if (title) title.textContent = `Approve ${roleLabel} Account`;
+  if (input) {
+    input.value = '';
+    input.setAttribute('aria-invalid', 'false');
+  }
+  if (message) {
+    message.textContent = '';
+    message.classList.add('is-hidden');
+  }
+
+  backdrop.classList.add('open');
+  backdrop.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+
+  return new Promise((resolve) => {
+    let done = false;
+    const cleanup = (value) => {
+      if (done) return;
+      done = true;
+      backdrop.classList.remove('open');
+      backdrop.style.display = '';
+      cancelBtns.forEach((btn) => btn.removeEventListener('click', onCancel));
+      submitBtn?.removeEventListener('click', onSubmit);
+      input?.removeEventListener('keydown', onKeydown);
+      const anyModalOpen = document.querySelector('.modal-backdrop.open') || document.getElementById('pdf-viewer-backdrop')?.classList.contains('open');
+      if (!anyModalOpen) document.body.style.overflow = '';
+      resolve(value);
+    };
+    const showMessage = (text) => {
+      if (message) {
+        message.textContent = text;
+        message.classList.remove('is-hidden');
+      }
+      input?.setAttribute('aria-invalid', 'true');
+      input?.focus();
+    };
+    const onCancel = () => cleanup('');
+    const onSubmit = () => {
+      const password = String(input?.value || '').trim();
+      if (!password) {
+        showMessage('Current admin password is required.');
+        return;
+      }
+      cleanup(password);
+    };
+    const onKeydown = (event) => {
+      if (event.key === 'Enter') onSubmit();
+      if (event.key === 'Escape') onCancel();
+    };
+
+    cancelBtns.forEach((btn) => btn.addEventListener('click', onCancel));
+    submitBtn?.addEventListener('click', onSubmit);
+    input?.addEventListener('keydown', onKeydown);
+    setTimeout(() => input?.focus(), 0);
+  });
 }
 
 function triggerProjectPdfPicker() {
@@ -5648,6 +5766,23 @@ function setupPasswordToggleListeners() {
 }
 
 function setupSidebarLinkNavigation() {
+  function withActiveTheme(target) {
+    try {
+      const url = new URL(target, window.location.origin);
+      const currentTheme = String(
+        document.documentElement?.dataset?.businessEntityTheme ||
+        document.body?.dataset?.businessEntityTheme ||
+        ''
+      ).trim().toLowerCase();
+      if ((currentTheme === 'kitsi' || currentTheme === 'kvsk') && url.origin === window.location.origin) {
+        url.searchParams.set('theme', currentTheme);
+      }
+      return `${url.pathname}${url.search}${url.hash}`;
+    } catch (_) {
+      return target;
+    }
+  }
+
   document.querySelectorAll('.sidebar-link[href^="/"]').forEach((link) => {
     if (link.dataset.navBound === '1') return;
 
@@ -5663,7 +5798,7 @@ function setupSidebarLinkNavigation() {
       const target = String(link.dataset.navHref || link.getAttribute('href') || '').trim();
       if (!target || target === '#') return;
       event.preventDefault();
-      window.location.assign(target);
+      window.location.assign(withActiveTheme(target));
     });
   });
 }
@@ -5676,13 +5811,13 @@ function syncSidebarActiveLinks() {
   const routeAliases = {
     '/admin?view=dashboard': ['/admin'],
     '/reports': ['/admin?panel=reports'],
-    '/company-registry': ['/company'],
+    '/company-registry': ['/master-data?tab=companies', '/company'],
     '/admin?panel=project-records': ['/admin?view=project-records'],
     '/admin?view=all': ['/admin?view=total-projects'],
     '/admin?view=ongoing-projects': ['/admin?view=ongoing'],
     '/admin?view=logs': ['/admin?panel=logs'],
     '/admin?view=archived': ['/admin?panel=archived'],
-    '/master-data?tab=vendors': ['/procurement?tab=vendors', '/accounts-payable?tab=vendors'],
+    '/master-data?tab=vendors': ['/accounts-payable?tab=vendors'],
     '/procurement?tab=requisitions': ['/procurement', '/accounts-payable?tab=requisitions'],
     '/procurement?tab=rfq': ['/accounts-payable?tab=rfq'],
     '/procurement?tab=quotations': ['/accounts-payable?tab=quotations', '/procurement?tab=bid-evaluation', '/accounts-payable?tab=bid-evaluation'],
@@ -5697,9 +5832,14 @@ function syncSidebarActiveLinks() {
   function sameRoute(candidateHref) {
     try {
       const targetUrl = new URL(candidateHref, window.location.origin);
+      const currentComparable = new URL(currentUrl.toString());
+      currentComparable.searchParams.delete('theme');
+      targetUrl.searchParams.delete('theme');
       const targetPath = targetUrl.pathname.replace(/\/+$/, '') || '/';
       const targetSearch = targetUrl.search || '';
-      return targetPath === currentPath && targetSearch === currentSearch;
+      const comparablePath = currentComparable.pathname.replace(/\/+$/, '') || '/';
+      const comparableSearch = currentComparable.search || '';
+      return targetPath === comparablePath && targetSearch === comparableSearch;
     } catch (_) {
       return false;
     }
@@ -6282,7 +6422,7 @@ async function approveUser(id, role = 'staff') {
   const targetRole = String(role || 'staff');
   let adminPassword = '';
   if (targetRole === 'super_admin' || targetRole === 'admin' || targetRole === 'staff') {
-    adminPassword = window.prompt('Enter your current admin password to approve this privileged role:') || '';
+    adminPassword = await openApprovalPasswordDialog(targetRole);
     if (!adminPassword) return;
   }
 

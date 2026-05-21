@@ -67,7 +67,9 @@ function businessEntityProfileValue(value, fallback = 'Not set') {
 
 function getBusinessEntityBrandProfile(row) {
   const name = String(row?.company_name || '').trim();
-  if (/kitsi|ktiis|kinaadman/i.test(name) || String(row?.theme || '').toLowerCase() === 'kitsi') {
+  const theme = String(row?.theme || '').trim().toLowerCase();
+  const isKitsi = theme === 'kitsi' || /kitsi|ktiis|kinaadman/i.test(name);
+  if (isKitsi) {
     return {
       theme: 'kitsi',
       logo: '/assets/img/kitsi-logo.png',
@@ -105,7 +107,7 @@ function applyBusinessEntityBrand(row) {
   });
   try {
     localStorage.setItem(BUSINESS_ENTITY_THEME_KEY, JSON.stringify({
-      company_name: row?.company_name || '',
+      company_name: row?.company_name || (profile.theme === 'kitsi' ? 'KITSI' : 'KVSK CCTV & IT Solution'),
       theme: profile.theme,
       logo: profile.logo,
       alt: profile.alt,
@@ -564,7 +566,7 @@ function setStatus(message, type = '') {
 }
 
 function updateRegistryMetrics() {
-  const visibleCompanies = (Array.isArray(state.companies) ? state.companies : []).filter((company) => String(company.business_entity_id || '') === String(getCurrentBusinessEntityId() || ''));
+  const visibleCompanies = Array.isArray(state.companies) ? state.companies : [];
   const total = visibleCompanies.length;
   const archived = visibleCompanies.filter((company) => Number(company.archived || 0) === 1).length;
   const active = Math.max(0, total - archived);
@@ -721,6 +723,34 @@ function setCompanyRegistryFilter(value = 'active') {
   renderCompanies();
 }
 
+function getCompanyVendorProfile(company) {
+  const vendorId = Number(company?.vendor_profile_id || 0) || 0;
+  if (!vendorId) return null;
+  return {
+    id: vendorId,
+    vendorNo: String(company.vendor_profile_no || '').trim(),
+    vendorName: String(company.vendor_profile_name || '').trim(),
+    isActive: Number(company.vendor_profile_active || 0) ? 1 : 0
+  };
+}
+
+function renderCompanyVendorAction(company) {
+  if (Number(company?.archived || 0)) return '';
+
+  const vendor = getCompanyVendorProfile(company);
+  if (vendor) {
+    const label = vendor.vendorNo ? `Vendor ${vendor.vendorNo}` : 'Vendor Created';
+    const title = vendor.vendorName || label;
+    return `
+      <span class="registry-status-pill is-active" title="${escHtml(title)}">
+        ${escHtml(label)}
+      </span>
+    `;
+  }
+
+  return `<button class="btn btn-save btn-sm" type="button" onclick="createVendorProfileFromCompany(${Number(company.id)})">Make Vendor</button>`;
+}
+
 function renderCompanies() {
   const rows = $('companies-body');
   if (!rows) return;
@@ -781,10 +811,7 @@ function renderCompanies() {
         <td>
           <div class="erp-actions" style="justify-content:flex-start; margin-top:0;">
             <button class="btn btn-edit btn-sm" type="button" onclick="openCompanyModal(${Number(company.id)})">Edit</button>
-            ${Number(company.archived || 0)
-              ? ''
-              : `<button class="btn btn-save btn-sm" type="button" onclick="createVendorProfileFromCompany(${Number(company.id)})">Make Vendor</button>`
-            }
+            ${renderCompanyVendorAction(company)}
             ${isAdminUser()
               ? (Number(company.archived || 0)
                 ? `<button class="btn btn-save btn-sm" type="button" onclick="restoreCompany(${Number(company.id)})">Restore</button>`
@@ -803,12 +830,10 @@ async function loadCompanies() {
   setStatus('', '');
   try {
     const query = new URLSearchParams({
-      include_archived: '1',
-      business_entity_id: getCurrentBusinessEntityId() || getDefaultBusinessEntityId() || ''
+      include_archived: '1'
     });
     const companies = await fetchJson(`/api/company-registry?${query.toString()}`);
-    state.companies = (Array.isArray(companies) ? companies : [])
-      .filter((company) => String(company.business_entity_id || '') === String(getCurrentBusinessEntityId() || getDefaultBusinessEntityId() || ''));
+    state.companies = Array.isArray(companies) ? companies : [];
     renderCompanies();
     updateRegistryMetrics();
     setStatus('', '');
@@ -877,7 +902,7 @@ async function bootstrapCompanyRegistry() {
     event.preventDefault();
 
     const payload = {
-      business_entity_id: getCurrentBusinessEntityId() || getDefaultBusinessEntityId() || '',
+      business_entity_id: '',
       company_no: $('erp-company-no')?.value.trim(),
       company_name: $('erp-company-name')?.value.trim(),
       branch_code: $('erp-company-branch-code')?.value.trim(),

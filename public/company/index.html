@@ -5,10 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KVSK CCTV & IT Solution - Company Registry</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <script src="/assets/js/auth-guard.js?v=20260518d"></script>
+  <script>
+    if (new URLSearchParams(window.location.search).get('embedded') === '1') {
+      document.documentElement.classList.add('embedded-company-registry');
+    }
+  </script>
+  <script src="/assets/js/auth-guard.js?v=20260521q"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/css/shared.css?v=20260516f" />
-  <link rel="stylesheet" href="/company/company.css?v=20260514b" />
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260521p" />
+  <link rel="stylesheet" href="/company/company.css?v=20260521p" />
 
 </head>
 <body class="company-registry-page erp-clean-page">
@@ -43,6 +48,7 @@
         <img class="sidebar-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
         <div>
           <div class="header-logo" style="font-size: 1rem;">KVSK CCTV</div>
+          <div class="header-sub">Operations Control Panel</div>
         </div>
       </div>
       <button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()">X</button>
@@ -50,8 +56,6 @@
     <nav class="sidebar-nav">
       <a href="/admin" class="sidebar-link" id="menu-dashboard">Dashboard</a>
       <a href="/reports" class="sidebar-link" id="menu-reports">Reports</a>
-      <a href="/company-registry" class="sidebar-link active" id="menu-company-registry">Company Registry</a>
-
       <div class="sidebar-group" data-sidebar-group="projects">
         <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
           <span>Projects</span>
@@ -62,13 +66,23 @@
         </div>
       </div>
 
+      <div class="sidebar-group" data-sidebar-group="master-data">
+        <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+          <span>Master Data</span>
+          <span class="sidebar-group-caret">â–¾</span>
+        </button>
+        <div class="sidebar-group-items">
+          <a href="/company-registry" class="sidebar-link is-subitem active" id="menu-company-registry">Company Registry</a>
+          <a href="/master-data?tab=vendors" class="sidebar-link is-subitem">Vendors</a>
+        </div>
+      </div>
+
       <div class="sidebar-group" data-sidebar-group="accounts-payable">
         <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
           <span>AP</span>
           <span class="sidebar-group-caret">▾</span>
         </button>
         <div class="sidebar-group-items">
-          <a href="/accounts-payable?tab=vendors" class="sidebar-link is-subitem">Vendors</a>
           <a href="/accounts-payable?tab=requisitions" class="sidebar-link is-subitem">Purchase Requisitions</a>
           <a href="/accounts-payable?tab=purchase-orders" class="sidebar-link is-subitem">Purchase Orders</a>
           <a href="/accounts-payable?tab=goods-receipts" class="sidebar-link is-subitem">Goods Receipts</a>
@@ -107,8 +121,28 @@
   <main class="registry-shell">
     <div class="page-hero company-page-hero">
       <div class="page-hero-copy">
-        <div class="page-title">Company Registry</div>
+        <div class="page-title">Master Data Management</div>
         <p class="page-sub">Register, edit, archive, and restore company records.</p>
+      </div>
+    </div>
+
+    <div class="module-tabs master-data-tabs">
+      <button class="module-tab active" type="button" onclick="window.location.href='/company-registry'">Company Registry</button>
+      <button class="module-tab" type="button" onclick="window.location.href='/master-data?tab=vendors'">Vendors</button>
+    </div>
+
+    <div class="module-summary-grid company-summary-grid" aria-live="polite">
+      <div class="module-summary-card">
+        <span class="module-summary-label">Active Companies</span>
+        <div class="module-summary-value" id="registry-active-companies">0</div>
+      </div>
+      <div class="module-summary-card">
+        <span class="module-summary-label">Archived Companies</span>
+        <div class="module-summary-value" id="registry-archived-companies">0</div>
+      </div>
+      <div class="module-summary-card">
+        <span class="module-summary-label">Total Companies</span>
+        <div class="module-summary-value" id="registry-total-companies">0</div>
       </div>
     </div>
 
@@ -271,8 +305,28 @@
     </div>
   </div>
 
-  <script src="/assets/js/erp-core.js?v=20260519a"></script>
-  <script src="/company/company.js?v=20260518e"></script>
+  <script>
+    if (document.documentElement.classList.contains('embedded-company-registry')) {
+      const postEmbeddedHeight = () => {
+        const height = Math.max(
+          document.body?.scrollHeight || 0,
+          document.documentElement?.scrollHeight || 0,
+          document.body?.offsetHeight || 0,
+          document.documentElement?.offsetHeight || 0
+        );
+        window.parent?.postMessage({ type: 'master-data-frame-height', height }, window.location.origin);
+      };
+      window.addEventListener('load', postEmbeddedHeight);
+      window.addEventListener('resize', postEmbeddedHeight);
+      if (window.ResizeObserver) {
+        new ResizeObserver(postEmbeddedHeight).observe(document.body);
+      }
+      setTimeout(postEmbeddedHeight, 100);
+      setTimeout(postEmbeddedHeight, 600);
+    }
+  </script>
+  <script src="/assets/js/erp-core.js?v=20260521q"></script>
+  <script src="/company/company.js?v=20260521q"></script>
 </body>
 </html>
 

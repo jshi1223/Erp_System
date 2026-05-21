@@ -58,7 +58,7 @@ body.accounts-receivable-page .ar-tab-summary-grid {
 body.accounts-receivable-page[data-business-entity-theme] {
   background:
     radial-gradient(circle at top right, color-mix(in srgb, var(--primary-light) 16%, transparent), transparent 30%),
-    linear-gradient(180deg, color-mix(in srgb, var(--primary) 7%, #f7f9fc), #f8fafc 42%);
+    linear-gradient(180deg, color-mix(in srgb, var(--primary) 7%, #fff8f7), #fffafa 42%);
 }
 
 body.accounts-receivable-page[data-business-entity-theme] header {
@@ -191,7 +191,7 @@ body.accounts-receivable-page .sidebar {
 }
 
 body.accounts-receivable-page .sidebar-header {
-  background: rgba(244, 248, 253, 0.12) !important;
+  background: rgba(255, 248, 247, 0.12) !important;
   border-bottom: 1px solid color-mix(in srgb, var(--primary-light) 18%, transparent) !important;
 }
 

@@ -2,7 +2,7 @@ body.inventory-page {
   min-height: 100vh;
   background:
     radial-gradient(circle at top right, color-mix(in srgb, var(--primary-light, #ef5b4f) 16%, transparent), transparent 30%),
-    linear-gradient(180deg, color-mix(in srgb, var(--primary, #b42318) 7%, #f7f9fc), #f8fafc 42%);
+    linear-gradient(180deg, color-mix(in srgb, var(--primary, #b42318) 7%, #fff8f7), #fffafa 42%);
   color: var(--text, #162033);
   font-family: Inter, Arial, sans-serif;
 }
@@ -201,7 +201,7 @@ body.inventory-page .module-tab.active {
 }
 
 .inventory-panel th {
-  background: color-mix(in srgb, var(--primary, #b42318) 6%, #f8fafc);
+  background: color-mix(in srgb, var(--primary, #b42318) 6%, #fffafa);
   color: var(--muted, #667085);
   font-size: 0.72rem;
   font-weight: 800;

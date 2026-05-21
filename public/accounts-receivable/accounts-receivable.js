@@ -213,7 +213,9 @@ function businessEntityProfileValue(value, fallback = 'Not set') {
 
 function getBusinessEntityBrandProfile(row) {
   const name = String(row?.company_name || '').trim();
-  if (/kitsi|ktiis|kinaadman/i.test(name) || String(row?.theme || '').toLowerCase() === 'kitsi') {
+  const theme = String(row?.theme || '').trim().toLowerCase();
+  const isKitsi = theme === 'kitsi' || /kitsi|ktiis|kinaadman/i.test(name);
+  if (isKitsi) {
     return {
       theme: 'kitsi',
       logo: '/assets/img/kitsi-logo.png',
@@ -251,7 +253,7 @@ function applyBusinessEntityBrand(row) {
   });
   try {
     localStorage.setItem(BUSINESS_ENTITY_THEME_KEY, JSON.stringify({
-      company_name: row?.company_name || '',
+      company_name: row?.company_name || (profile.theme === 'kitsi' ? 'KITSI' : 'KVSK CCTV & IT Solution'),
       theme: profile.theme,
       logo: profile.logo,
       alt: profile.alt,

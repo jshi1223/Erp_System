@@ -242,6 +242,32 @@
 
   function getStoredBusinessEntityThemeProfile() {
     try {
+      var urlTheme = new URLSearchParams(window.location.search || '').get('theme');
+      urlTheme = String(urlTheme || '').trim().toLowerCase();
+      if (urlTheme === 'kitsi' || urlTheme === 'kvsk') {
+        var urlProfile = getBusinessEntityThemeFallback({ theme: urlTheme });
+        var storedProfile = {
+          company_name: urlProfile.theme === 'kitsi' ? 'KITSI' : 'KVSK CCTV & IT Solution',
+          theme: urlProfile.theme,
+          logo: urlProfile.logo,
+          alt: urlProfile.alt,
+          primary: urlProfile.primary,
+          primaryLight: urlProfile.primaryLight,
+          primaryDark: urlProfile.primaryDark,
+          accent: urlProfile.accent,
+          accent2: urlProfile.accent2
+        };
+        sessionStorage.setItem('kinaadman_pendingBusinessEntityTheme', JSON.stringify(storedProfile));
+        localStorage.setItem(BUSINESS_ENTITY_THEME_KEY, JSON.stringify(storedProfile));
+        return storedProfile;
+      }
+    } catch (_) {}
+    try {
+      var pendingRaw = sessionStorage.getItem('kinaadman_pendingBusinessEntityTheme');
+      var pending = pendingRaw ? JSON.parse(pendingRaw) : null;
+      if (pending && pending.theme) return pending;
+    } catch (_) {}
+    try {
       var raw = localStorage.getItem(BUSINESS_ENTITY_THEME_KEY);
       var stored = raw ? JSON.parse(raw) : null;
       if (stored && stored.theme) return stored;
@@ -293,7 +319,7 @@
       logo: canUseStoredTheme && stored.logo ? stored.logo : profile.logo,
       alt: canUseStoredTheme && stored.alt ? stored.alt : profile.alt
     };
-    var activeTheme = explicitTheme || (stored && stored.theme ? stored.theme : profile.theme);
+    var activeTheme = profile.theme;
     activeBusinessEntityBrandTitle = getBusinessEntityBrandTitle(
       canUseStoredTheme ? stored : { theme: activeTheme }
     );
@@ -322,7 +348,7 @@
     if (name) return name;
     var theme = String(profile && profile.theme ? profile.theme : '').toLowerCase();
     if (theme === 'kitsi') return 'KITSI';
-    return 'KVSK';
+    return 'KVSK CCTV & IT Solution';
   }
 
   function applyBusinessEntityLogoProfileToImage(img) {
@@ -831,11 +857,11 @@
           link('/company-registry', 'Company Registry', {
             id: 'menu-company-registry',
             subitem: true,
-            aliases: ['/company']
+            aliases: ['/master-data?tab=companies', '/company']
           }),
           link('/master-data?tab=vendors', 'Vendors', {
             subitem: true,
-            aliases: ['/procurement?tab=vendors', '/accounts-payable?tab=vendors']
+            aliases: ['/accounts-payable?tab=vendors']
           })
         ]),
         group('procurement', 'Procurement Management', false, [
@@ -914,6 +940,11 @@
     var role = String(data && data.role ? data.role : 'user').toLowerCase();
     var isAdmin = role === 'super_admin' || role === 'admin';
     var isStaff = role === 'staff';
+    if (document.body) {
+      document.body.setAttribute('data-access-role', role);
+      document.body.classList.toggle('is-staff-role', isStaff);
+      document.body.classList.toggle('is-admin-role', isAdmin);
+    }
     var adminOnlyHrefs = [
       '/user-management',
       '/business-entities',
@@ -932,6 +963,7 @@
       '/accounts-receivable?tab=documents'
     ];
     var adminOnlySelectors = [
+      '.sidebar-group[data-sidebar-group="admin"]',
       '#menu-users',
       '#menu-business-entities',
       '#menu-archive-center',
@@ -972,7 +1004,7 @@
 
     document.querySelectorAll('.sidebar-link').forEach(function (node) {
       var targetHref = String(node.dataset && node.dataset.navHref ? node.dataset.navHref : node.getAttribute('href') || '').trim();
-      if (targetHref === '/company-registry') {
+      if (targetHref === '/company-registry' || targetHref === '/master-data?tab=companies') {
         node.style.display = (isAdmin || isStaff) ? '' : 'none';
         node.setAttribute('aria-hidden', (isAdmin || isStaff) ? 'false' : 'true');
       }
@@ -980,27 +1012,6 @@
         node.style.display = (isAdmin || isStaff) ? '' : 'none';
         node.setAttribute('aria-hidden', (isAdmin || isStaff) ? 'false' : 'true');
       }
-    });
-  }
-
-  function setupSidebarLinkNavigation() {
-    document.querySelectorAll('.sidebar-link[href^="/"]').forEach(function (link) {
-      if (link.dataset.navBound === '1') return;
-
-      var rawHref = String(link.getAttribute('href') || '').trim();
-      if (!rawHref || rawHref.indexOf('//') === 0) return;
-
-      link.dataset.navBound = '1';
-      link.dataset.navHref = rawHref;
-
-      link.addEventListener('click', function (event) {
-        if (event.defaultPrevented) return;
-        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
-        var target = String(link.dataset.navHref || link.getAttribute('href') || '').trim();
-        if (!target || target === '#') return;
-        event.preventDefault();
-        window.location.assign(target);
-      });
     });
 
     staffHiddenSelectors.forEach(function (selector) {
@@ -1017,6 +1028,43 @@
           node.style.display = isStaff ? 'none' : '';
           node.setAttribute('aria-hidden', isStaff ? 'true' : 'false');
         }
+      });
+    });
+  }
+
+  function setupSidebarLinkNavigation() {
+    function withActiveTheme(target) {
+      try {
+        var url = new URL(target, window.location.origin);
+        var currentTheme = String(
+          (document.documentElement && document.documentElement.dataset ? document.documentElement.dataset.businessEntityTheme : '') ||
+          (document.body && document.body.dataset ? document.body.dataset.businessEntityTheme : '')
+        ).trim().toLowerCase();
+        if ((currentTheme === 'kitsi' || currentTheme === 'kvsk') && url.origin === window.location.origin) {
+          url.searchParams.set('theme', currentTheme);
+        }
+        return url.pathname + url.search + url.hash;
+      } catch (_) {
+        return target;
+      }
+    }
+
+    document.querySelectorAll('.sidebar-link[href^="/"]').forEach(function (link) {
+      if (link.dataset.navBound === '1') return;
+
+      var rawHref = String(link.getAttribute('href') || '').trim();
+      if (!rawHref || rawHref.indexOf('//') === 0) return;
+
+      link.dataset.navBound = '1';
+      link.dataset.navHref = rawHref;
+
+      link.addEventListener('click', function (event) {
+        if (event.defaultPrevented) return;
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+        var target = String(link.dataset.navHref || link.getAttribute('href') || '').trim();
+        if (!target || target === '#') return;
+        event.preventDefault();
+        window.location.assign(withActiveTheme(target));
       });
     });
   }

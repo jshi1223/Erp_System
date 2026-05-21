@@ -37,10 +37,12 @@ function getCurrentBusinessEntityId() {
 }
 
 function applyWorkspaceBadge() {
-  const current = getCurrentBusinessEntityId();
-  const row = businessEntitiesDb.find(entry => String(entry.id || '') === current) || null;
   const badge = document.getElementById('current-workspace-badge');
-  if (badge) badge.textContent = row?.company_name || 'Workspace';
+  if (badge) {
+    badge.textContent = 'KVSK Workspace';
+    badge.title = 'KVSK CCTV & IT Solution';
+    badge.setAttribute('aria-label', 'Current workspace: KVSK CCTV & IT Solution');
+  }
 }
 
 async function fetchJson(url, options = {}) {

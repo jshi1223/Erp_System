@@ -1,6 +1,7 @@
 ﻿  const loginCooldownByUsername = new Map();
   const BUSINESS_ENTITY_CONTEXT_KEY = 'kinaadman_businessEntityContext';
   const BUSINESS_ENTITY_THEME_KEY = 'kinaadman_businessEntityTheme';
+  const PENDING_BUSINESS_ENTITY_THEME_KEY = 'kinaadman_pendingBusinessEntityTheme';
   let loginCooldownTimer = null;
   let lastRateLimitedUsername = '';
   let loginBusinessEntities = [];
@@ -226,10 +227,10 @@
 
   function persistSelectedLoginEntity() {
     const profile = getThemeProfile(selectedLoginEntity.theme, selectedLoginEntity.name);
-    document.documentElement.dataset.loginWorkspace = profile.theme === 'kitsi' ? 'kitsi' : 'kvsk';
+    document.documentElement.dataset.loginWorkspace = profile.theme;
     localStorage.setItem(BUSINESS_ENTITY_CONTEXT_KEY, String(selectedLoginEntity.id || ''));
-    localStorage.setItem(BUSINESS_ENTITY_THEME_KEY, JSON.stringify({
-      company_name: selectedLoginEntity.name || '',
+    const storedThemeProfile = {
+      company_name: profile.theme === 'kitsi' ? 'KITSI' : 'KVSK CCTV & IT Solution',
       theme: profile.theme,
       logo: profile.logo,
       alt: profile.alt,
@@ -238,7 +239,9 @@
       primaryDark: profile.primaryDark,
       accent: profile.accent,
       accent2: profile.accent2
-    }));
+    };
+    localStorage.setItem(BUSINESS_ENTITY_THEME_KEY, JSON.stringify(storedThemeProfile));
+    sessionStorage.setItem(PENDING_BUSINESS_ENTITY_THEME_KEY, JSON.stringify(storedThemeProfile));
   }
 
   function findLoginEntityForPanel(panel) {
@@ -368,10 +371,12 @@
         errDiv.textContent = 'Login successful! Redirecting...';
 
         setTimeout(() => {
+          const selectedTheme = getThemeProfile(selectedLoginEntity.theme, selectedLoginEntity.name).theme;
+          const themeQuery = selectedTheme === 'kitsi' ? '?theme=kitsi' : '?theme=kvsk';
           if (data.role === 'super_admin' || data.role === 'admin' || data.role === 'staff') {
-            window.location.href = '/admin';
+            window.location.href = `/admin${themeQuery}`;
           } else {
-            window.location.href = '/status';
+            window.location.href = `/status${themeQuery}`;
           }
         }, 1000);
       } else {

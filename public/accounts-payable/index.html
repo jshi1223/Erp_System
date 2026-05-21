@@ -5,17 +5,59 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KVSK CCTV & IT Solution - Accounts Payable</title>
-  <script src="/assets/js/auth-guard.js?v=20260518d"></script>
+  <script src="/assets/js/auth-guard.js?v=20260521p"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/css/shared.css?v=20260516f" />
-  <link rel="stylesheet" href="/accounts-payable/accounts-payable.css?v=20260516c" />
-  <link rel="stylesheet" href="/accounts-payable/ap-purchasing.css?v=20260505a" />
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260521p" />
+  <link rel="stylesheet" href="/accounts-payable/accounts-payable.css?v=20260521p" />
+  <link rel="stylesheet" href="/accounts-payable/ap-purchasing.css?v=20260521p" />
 
   
 </head>
 <body class="erp-clean-page accounts-payable-page">
 <script>
-  document.body.dataset.workspaceMode = window.location.pathname.replace(/\/+$/, '') === '/procurement' ? 'procurement' : 'ap';
+  const workspacePath = window.location.pathname.replace(/\/+$/, '');
+  document.body.dataset.workspaceMode = workspacePath === '/master-data' ? 'master-data' : (workspacePath === '/procurement' ? 'procurement' : 'ap');
+  document.body.dataset.initialTab = workspacePath === '/master-data'
+    ? 'vendors'
+    : (workspacePath === '/procurement' ? 'requisitions' : '');
+  document.title = workspacePath === '/master-data'
+    ? 'KVSK CCTV & IT Solution - Master Data'
+    : (workspacePath === '/procurement'
+      ? 'KVSK CCTV & IT Solution - Procurement'
+      : 'KVSK CCTV & IT Solution - Accounts Payable');
+</script>
+<script>
+  function applyInitialWorkspaceLabels() {
+    const path = window.location.pathname.replace(/\/+$/, '');
+    const labels = path === '/master-data'
+      ? {
+          title: 'Master Data Management',
+          subtitle: 'Maintain company and vendor master records used across procurement, projects, and finance.',
+          headerSub: 'Master Data',
+          badge: 'Master Data Module'
+        }
+      : path === '/procurement'
+        ? {
+            title: 'Procurement Management',
+            subtitle: 'Manage requisitions, RFQs, quotation evaluation, purchase orders, and receipts.',
+            headerSub: 'Procurement',
+            badge: 'Procurement Module'
+          }
+        : {
+            title: 'Accounts Payable Management',
+            subtitle: 'Manage bills, vendor balances, aging, payments, and disbursements.',
+            headerSub: 'Accounts Payable',
+            badge: 'Payables Module'
+          };
+    const setText = (id, text) => {
+      const node = document.getElementById(id);
+      if (node) node.textContent = text;
+    };
+    setText('module-header-sub', labels.headerSub);
+    setText('module-admin-badge', labels.badge);
+    setText('module-page-title', labels.title);
+    setText('module-page-subtitle', labels.subtitle);
+  }
 </script>
 
 <!-- Header -->
@@ -73,6 +115,7 @@
       <div class="page-sub" id="module-page-subtitle">Manage bills and supplier payments in one workspace.</div>
     </div>
   </div>
+  <script>applyInitialWorkspaceLabels();</script>
 
   <div class="module-page-toolbar">
     <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-back-fallback="/admin?view=dashboard" onclick="goBackToDashboard()">Back to Dashboard</button>
@@ -335,7 +378,8 @@
 
   <!-- Navigation Tabs -->
   <div class="module-tabs">
-    <div class="module-tab ap-workspace-tab active" data-proc-tab="vendors" data-workspace-tab="vendors" onclick="switchApWorkspaceTab('vendors', this)">Vendors</div>
+    <button class="module-tab master-data-tab" type="button" data-master-data-tab="companies" onclick="window.location.href='/company-registry'" hidden>Company Registry</button>
+    <button class="module-tab master-data-tab ap-workspace-tab active" type="button" data-master-data-tab="vendors" data-proc-tab="vendors" data-workspace-tab="vendors" onclick="switchApWorkspaceTab('vendors', this)">Vendors</button>
     <div class="module-tab ap-workspace-tab" data-proc-tab="requisitions" data-workspace-tab="requisitions" onclick="switchApWorkspaceTab('requisitions', this)">Purchase Requisitions</div>
     <div class="module-tab ap-workspace-tab" data-proc-tab="rfq" data-workspace-tab="rfq" onclick="switchApWorkspaceTab('rfq', this)">RFQ</div>
     <div class="module-tab ap-workspace-tab" data-proc-tab="quotations" data-workspace-tab="quotations" onclick="switchApWorkspaceTab('quotations', this)">Quotations &amp; Evaluation</div>
@@ -350,12 +394,6 @@
 
   <div id="ap-purchasing-root" data-procurement-only>
     <div id="vendors" class="content-section ap-workspace-section active" data-proc-section="vendors">
-      <div class="module-panel-head">
-        <div>
-          <div class="section-title">Vendor Directory</div>
-          <div class="proc-help">Supplier records used for purchase orders, receiving, and bills.</div>
-        </div>
-      </div>
       <div class="table-wrap" style="margin-top: 12px;">
         <table class="registry-table">
           <thead>
@@ -790,11 +828,13 @@
         <div class="po-line-toolbar">
           <div>
             <label>Requested Items <span class="req-star">*</span></label>
-            <div class="po-line-helper">Add one or more requested items. Approval applies to the whole requisition.</div>
+            <div class="po-line-helper">Required: item name, quantity, unit, and estimated unit price for each requested item.</div>
           </div>
-          <button class="btn btn-add btn-sm" type="button" onclick="addRequisitionLineItem()">Add Item</button>
         </div>
         <div class="po-line-items" id="pr-line-items"></div>
+        <div class="po-line-add-row">
+          <button class="btn btn-add btn-sm" type="button" onclick="addRequisitionLineItem()">Add Item</button>
+        </div>
         <div class="po-line-footer">
           <div>
             <div class="po-line-footer-label">Estimated Requisition Total</div>
@@ -1034,8 +1074,9 @@
           <div>
             <label>Descriptions</label>
             <div class="po-line-helper">Add one or more descriptions. Each line item will be saved and shown in the PO table.</div>
+            <div class="po-line-lock-note">Line items are locked from the approved RFQ.</div>
           </div>
-          <button class="btn btn-add btn-sm" type="button" onclick="addPurchaseOrderLineItem()">Add Description</button>
+          <button class="btn btn-add btn-sm" type="button" id="po-add-line-item-btn" onclick="addPurchaseOrderLineItem()">Add Description</button>
         </div>
         <div class="po-line-items" id="po-line-items"></div>
         <div class="po-line-footer">
@@ -1294,7 +1335,18 @@
         <span class="sidebar-group-caret">?</span>
       </button>
       <div class="sidebar-group-items">
+        <a href="/admin?panel=project-records" class="sidebar-link is-subitem">Project Records</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="master-data">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Master Data</span>
+        <span class="sidebar-group-caret">?</span>
+      </button>
+      <div class="sidebar-group-items">
         <a href="/company-registry" class="sidebar-link is-subitem">Company Registry</a>
+        <a href="/master-data?tab=vendors" class="sidebar-link is-subitem">Vendors</a>
       </div>
     </div>
 
@@ -1304,7 +1356,6 @@
         <span class="sidebar-group-caret">?</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/procurement?tab=vendors" class="sidebar-link is-subitem active">Vendors</a>
         <a href="/procurement?tab=requisitions" class="sidebar-link is-subitem">Purchase Requisitions</a>
         <a href="/procurement?tab=rfq" class="sidebar-link is-subitem">RFQ</a>
         <a href="/procurement?tab=quotations" class="sidebar-link is-subitem">Quotations &amp; Evaluation</a>
@@ -1375,9 +1426,9 @@
   </div>
 </div>
 
-  <script src="/assets/js/erp-core.js?v=20260519a"></script>
-  <script src="/accounts-payable/ap-purchasing.js?v=20260519d"></script>
-  <script src="/accounts-payable/accounts-payable.js?v=20260518e"></script>
+  <script src="/assets/js/erp-core.js?v=20260521p"></script>
+  <script src="/accounts-payable/ap-purchasing.js?v=20260521p"></script>
+  <script src="/accounts-payable/accounts-payable.js?v=20260521p"></script>
 </body>
 </html>
 

@@ -68,6 +68,23 @@ body.erp-clean-page.accounts-payable-page .ap-summary-card[hidden] {
   display: none !important;
 }
 
+.ap-workspace-section {
+  display: none;
+}
+
+.ap-workspace-section.active {
+  display: block;
+}
+
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"] .ap-workspace-tab:not([data-workspace-tab="vendors"]),
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"] .ap-workspace-section:not(#vendors) {
+  display: none !important;
+}
+
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"][data-initial-tab="vendors"] #vendors {
+  display: block;
+}
+
 body.erp-clean-page.accounts-payable-page[data-workspace-mode="ap"] [data-procurement-only],
 body.erp-clean-page.accounts-payable-page[data-workspace-mode="ap"] .ap-workspace-tab[data-proc-tab],
 body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"] [data-ap-only],
@@ -82,7 +99,7 @@ body.erp-clean-page.accounts-payable-page .ap-tab-summary-grid {
 body.erp-clean-page.accounts-payable-page[data-business-entity-theme] {
   background:
     radial-gradient(circle at top right, color-mix(in srgb, var(--primary-light) 16%, transparent), transparent 30%),
-    linear-gradient(180deg, color-mix(in srgb, var(--primary) 7%, #f7f9fc), #f8fafc 42%);
+    linear-gradient(180deg, color-mix(in srgb, var(--primary) 7%, #fff8f7), #fffafa 42%);
 }
 
 body.erp-clean-page.accounts-payable-page[data-business-entity-theme] header {
@@ -280,8 +297,14 @@ body.erp-clean-page.accounts-payable-page .sidebar {
 }
 
 body.erp-clean-page.accounts-payable-page .sidebar-header {
-  background: rgba(244, 248, 253, 0.12) !important;
+  background: rgba(255, 248, 247, 0.12) !important;
   border-bottom: 1px solid color-mix(in srgb, var(--primary-light) 18%, transparent) !important;
+  justify-content: space-between !important;
+  padding: 18px 18px 14px !important;
+}
+
+body.erp-clean-page.accounts-payable-page .sidebar-brand {
+  display: flex !important;
 }
 
 body.erp-clean-page.accounts-payable-page .sidebar-header .header-logo,

@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en"><head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,10 +7,10 @@
   <meta http-equiv="Expires" content="0">
   <title>KVSK CCTV &amp; IT Solutions - Admin Panel</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<script src="/assets/js/auth-guard.js?v=20260518d"></script>
+<script src="/assets/js/auth-guard.js?v=20260521p"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Orbitron:wght@500;700;800&amp;family=Playfair+Display:wght@600;700&amp;family=IBM+Plex+Mono:wght@300;400;500&amp;display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/shared.css?v=20260516f">
-  <link rel="stylesheet" href="/admin/admin.css?v=20260518a">
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260521p">
+  <link rel="stylesheet" href="/admin/admin.css?v=20260521p">
 </head>
 <body class="admin-page">
 
@@ -71,7 +71,7 @@
     </div>
 
     <div class="stats dashboard-stats" style="display: grid;">
-      <!-- Company Registry -->
+      <!-- Master Data -->
       <div class="stat-card stat-card-company stat-card-link" id="stat-card-company-registry" onclick="window.location.href='/company-registry'">
         <div class="stat-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24">
@@ -85,9 +85,9 @@
             <path d="M16.5 16h1"></path>
           </svg>
         </div>
-        <div class="stat-label">Company Registry</div>
+        <div class="stat-label">Master Data</div>
         <div class="stat-val" id="stat-company-registry">0</div>
-        <div class="stat-mini" id="stat-company-registry-mini">All Companies • 0 active records</div>
+        <div class="stat-mini" id="stat-company-registry-mini">All Companies &bull; 0 active records</div>
       </div>
 
       <!-- Projects -->
@@ -101,7 +101,7 @@
         </div>
         <div class="stat-label">Projects</div>
         <div class="stat-val" id="stat-projects">0</div>
-        <div class="stat-mini" id="stat-projects-mini">All Companies • 0 projects</div>
+        <div class="stat-mini" id="stat-projects-mini">All Companies &bull; 0 projects</div>
       </div>
 
       <!-- Procurement -->
@@ -117,7 +117,7 @@
         </div>
         <div class="stat-label">Procurement</div>
         <div class="stat-val gold" id="stat-procurement">0</div>
-        <div class="stat-mini" id="stat-procurement-mini">All Companies • Vendors, PR, PO, GRN</div>
+        <div class="stat-mini" id="stat-procurement-mini">All Companies &bull; PR, PO, GRN</div>
       </div>
 
       <!-- Inventory -->
@@ -132,7 +132,7 @@
         </div>
         <div class="stat-label">Inventory</div>
         <div class="stat-val" id="stat-inventory">0</div>
-        <div class="stat-mini" id="stat-inventory-mini">All Companies • Products, warehouses, stock</div>
+        <div class="stat-mini" id="stat-inventory-mini">All Companies &bull; Products, warehouses, stock</div>
       </div>
       
       <!-- Accounts Payable -->
@@ -147,7 +147,7 @@
         </div>
         <div class="stat-label">Accounts Payable</div>
         <div class="stat-val" id="stat-ap">PHP 0.00</div>
-        <div class="stat-mini" id="stat-ap-mini">All Companies • 0 bills</div>
+        <div class="stat-mini" id="stat-ap-mini">All Companies &bull; 0 bills</div>
       </div>
       
       <!-- Accounts Receivable -->
@@ -162,7 +162,7 @@
         </div>
         <div class="stat-label">Accounts Receivable</div>
         <div class="stat-val gold" id="stat-ar">PHP 0.00</div>
-        <div class="stat-mini" id="stat-ar-mini">All Companies • 0 invoices</div>
+        <div class="stat-mini" id="stat-ar-mini">All Companies &bull; 0 invoices</div>
       </div>
       
       <!-- Reports -->
@@ -241,15 +241,15 @@
         <table class="project-records-table">
           <thead>
             <tr>
-              <th class="table-sort-header" aria-sort="none">Project No.<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th>
-              <th class="table-sort-header" aria-sort="none">Project Title<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th>
-              <th class="table-sort-header" aria-sort="none">Company<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th>
-              <th class="table-sort-header" aria-sort="none">Manager<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th>
-              <th class="text-center table-sort-header" aria-sort="none">Status<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th>
-              <th class="text-center table-sort-header" aria-sort="none">Priority<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th>
-              <th class="text-center table-sort-header" aria-sort="none">Start Date<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th>
-              <th class="text-center table-sort-header" aria-sort="none">End Date<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th>
-              <th class="text-right table-sort-header" aria-sort="none">Contract Amount<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th>
+              <th class="table-sort-header" aria-sort="none">Project No.<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="table-sort-header" aria-sort="none">Project Title<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="table-sort-header" aria-sort="none">Company<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="table-sort-header" aria-sort="none">Manager<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-center table-sort-header" aria-sort="none">Status<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-center table-sort-header" aria-sort="none">Priority<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-center table-sort-header" aria-sort="none">Start Date<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-center table-sort-header" aria-sort="none">End Date<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-right table-sort-header" aria-sort="none">Contract Amount<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
               <th class="text-center">Actions</th>
             </tr>
           </thead>
@@ -373,7 +373,7 @@
       <div class="table-wrap" style="max-height: 62vh; overflow:auto;" data-slide-ready="1">
         <table class="public-table">
           <thead>
-            <tr id="transaction-table-head"><th class="table-sort-header" aria-sort="none">Transaction No.<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th><th class="text-center table-sort-header" aria-sort="none">Type<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th><th class="table-sort-header" aria-sort="none">Client<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th><th class="table-sort-header" aria-sort="none">Project<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th><th class="table-sort-header" aria-sort="none">Service Order<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th><th class="table-sort-header" aria-sort="none">Description<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th><th class="text-center table-sort-header" aria-sort="none">Qty<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th><th class="text-center table-sort-header" aria-sort="none">Check<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th><th class="text-center table-sort-header" aria-sort="none">Customer PO Ref.<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th><th class="text-right table-sort-header" aria-sort="none">Amount<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th><th class="text-right table-sort-header" aria-sort="none">Bal<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th><th class="text-center table-sort-header" aria-sort="none">Date<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th><th class="text-center table-sort-header" aria-sort="none">Status<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th><th class="text-center">Actions</th></tr>
+            <tr id="transaction-table-head"><th class="table-sort-header" aria-sort="none">Transaction No.<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th><th class="text-center table-sort-header" aria-sort="none">Type<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th><th class="table-sort-header" aria-sort="none">Client<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th><th class="table-sort-header" aria-sort="none">Project<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th><th class="table-sort-header" aria-sort="none">Service Order<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th><th class="table-sort-header" aria-sort="none">Description<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th><th class="text-center table-sort-header" aria-sort="none">Qty<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th><th class="text-center table-sort-header" aria-sort="none">Check<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th><th class="text-center table-sort-header" aria-sort="none">Customer PO Ref.<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th><th class="text-right table-sort-header" aria-sort="none">Amount<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th><th class="text-right table-sort-header" aria-sort="none">Bal<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th><th class="text-center table-sort-header" aria-sort="none">Date<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th><th class="text-center table-sort-header" aria-sort="none">Status<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th><th class="text-center">Actions</th></tr>
           </thead>
           <tbody id="table-body"><tr class="empty-row"><td colspan="6">Hindi ma-load ang records.</td></tr></tbody>
         </table>
@@ -403,14 +403,14 @@
         <table>
           <thead>
             <tr>
-              <th class="table-sort-header" aria-sort="none">Project Name<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th>
-              <th class="text-center table-sort-header" aria-sort="none">Manager<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th>
-              <th class="table-sort-header" aria-sort="none">Members<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th>
-              <th class="text-center table-sort-header" aria-sort="none">Start Date<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th>
-              <th class="text-center table-sort-header" aria-sort="none">End Date<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th>
-              <th class="text-center table-sort-header" aria-sort="none">Progress<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th>
-              <th class="text-center table-sort-header" aria-sort="none">Status<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th>
-              <th class="text-right table-sort-header" aria-sort="none">Contract Amount<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th>
+              <th class="table-sort-header" aria-sort="none">Project Name<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-center table-sort-header" aria-sort="none">Manager<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="table-sort-header" aria-sort="none">Members<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-center table-sort-header" aria-sort="none">Start Date<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-center table-sort-header" aria-sort="none">End Date<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-center table-sort-header" aria-sort="none">Progress<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-center table-sort-header" aria-sort="none">Status<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-right table-sort-header" aria-sort="none">Contract Amount<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
               <th class="text-center">Actions</th>
             </tr>
           </thead>
@@ -449,11 +449,11 @@
         <table style="min-width: 100%;">
           <thead style="position: sticky; top: 0; z-index: 10;">
             <tr>
-              <th style="width: 180px;" class="table-sort-header" aria-sort="none">Timestamp<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th>
-              <th class="table-sort-header" aria-sort="none">Module<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th>
-              <th class="table-sort-header" aria-sort="none">User<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th>
-              <th class="table-sort-header" aria-sort="none">Action<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th>
-              <th class="table-sort-header" aria-sort="none">Details<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">↑</button></th>
+              <th style="width: 180px;" class="table-sort-header" aria-sort="none">Timestamp<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="table-sort-header" aria-sort="none">Module<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="table-sort-header" aria-sort="none">User<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="table-sort-header" aria-sort="none">Action<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="table-sort-header" aria-sort="none">Details<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
             </tr>
           </thead>
           <tbody id="logs-tbody">
@@ -596,8 +596,6 @@
   <nav class="sidebar-nav">
     <a href="#" class="sidebar-link active" id="menu-dashboard" onclick="openSidebarDashboard(this)">Dashboard</a>
     <a href="/reports" class="sidebar-link" id="menu-reports">Reports</a>
-    <a href="/company-registry" class="sidebar-link" id="menu-company-registry">Company Registry</a>
-
     <div class="sidebar-group" data-sidebar-group="projects">
       <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
         <span>Projects</span>
@@ -608,13 +606,23 @@
       </div>
     </div>
 
+    <div class="sidebar-group" data-sidebar-group="master-data">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Master Data</span>
+        <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/company-registry" class="sidebar-link is-subitem" id="menu-company-registry">Company Registry</a>
+        <a href="/master-data?tab=vendors" class="sidebar-link is-subitem">Vendors</a>
+      </div>
+    </div>
+
     <div class="sidebar-group" data-sidebar-group="procurement">
       <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
         <span>Procurement</span>
         <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/procurement?tab=vendors" class="sidebar-link is-subitem">Vendors</a>
         <a href="/procurement?tab=requisitions" class="sidebar-link is-subitem">Purchase Requisitions</a>
         <a href="/procurement?tab=rfq" class="sidebar-link is-subitem">RFQ</a>
         <a href="/procurement?tab=quotations" class="sidebar-link is-subitem">Quotations &amp; Evaluation</a>
@@ -806,7 +814,7 @@
         <div class="form-grid">
           <div class="field full">
             <label data-label-base="Project Title">Project Title<span class="field-label-status is-required">Required</span></label>
-            <input id="p-project-name" type="text" placeholder="PDZ Proposed 30% Progress Rate">
+            <input id="p-project-name" type="text" placeholder="PDZ Proposed 30% Progress Rate" required aria-required="true">
             <div class="project-field-message is-hidden" data-project-field-message="project_name" aria-live="polite"></div>
           </div>
           <div class="field full">
@@ -1435,8 +1443,9 @@
 </div>
 
 <!-- Scripts -->
-<script src="admin.js?v=20260519a"></script>
+<script src="admin.js?v=20260521p"></script>
 
 
 
 </body></html>
+

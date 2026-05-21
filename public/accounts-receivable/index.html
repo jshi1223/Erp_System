@@ -4,10 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KVSK CCTV & IT Solution - Accounts Receivable</title>
-  <script src="/assets/js/auth-guard.js?v=20260518d"></script>
+  <script src="/assets/js/auth-guard.js?v=20260521p"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/css/shared.css?v=20260516f" />
-  <link rel="stylesheet" href="/accounts-receivable/accounts-receivable.css?v=20260517c" />
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260521p" />
+  <link rel="stylesheet" href="/accounts-receivable/accounts-receivable.css?v=20260521p" />
 
   
 </head>
@@ -455,7 +455,18 @@
         <span class="sidebar-group-caret">?</span>
       </button>
       <div class="sidebar-group-items">
+        <a href="/admin?panel=project-records" class="sidebar-link is-subitem">Project Records</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="master-data">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Master Data</span>
+        <span class="sidebar-group-caret">?</span>
+      </button>
+      <div class="sidebar-group-items">
         <a href="/company-registry" class="sidebar-link is-subitem">Company Registry</a>
+        <a href="/master-data?tab=vendors" class="sidebar-link is-subitem">Vendors</a>
       </div>
     </div>
 
@@ -465,7 +476,6 @@
         <span class="sidebar-group-caret">?</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/accounts-payable?tab=vendors" class="sidebar-link is-subitem">Vendors</a>
         <a href="/accounts-payable?tab=requisitions" class="sidebar-link is-subitem">Purchase Requisitions</a>
         <a href="/accounts-payable?tab=purchase-orders" class="sidebar-link is-subitem">Purchase Orders</a>
         <a href="/accounts-payable?tab=goods-receipts" class="sidebar-link is-subitem">Goods Receipts</a>
@@ -772,8 +782,8 @@
 
 <div id="toast"></div>
 
-<script src="/assets/js/erp-core.js?v=20260519a"></script>
-<script src="/accounts-receivable/accounts-receivable.js?v=20260518c"></script>
+<script src="/assets/js/erp-core.js?v=20260521p"></script>
+<script src="/accounts-receivable/accounts-receivable.js?v=20260521p"></script>
 </body>
 </html>
 

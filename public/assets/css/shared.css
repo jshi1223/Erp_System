@@ -1,9 +1,9 @@
 /* Shared stylesheet bundle for ERP pages.
    Keep system-wide styles imported here so each page can own its local CSS file.
 */
-@import url("/assets/css/admin-style.css?v=20260503c");
-@import url("/assets/css/erp-clean.css?v=20260503c");
-@import url("/assets/css/white-green.css?v=20260503c");
+@import url("/assets/css/admin-style.css?v=20260521g");
+@import url("/assets/css/erp-clean.css?v=20260521g");
+@import url("/assets/css/white-green.css?v=20260521g");
 
 :root {
   --primary: #b42318;
@@ -217,6 +217,13 @@ body.erp-clean-page {
   --erp-accent-2: var(--primary-dark);
 }
 
+@media (min-width: 1025px) {
+  body.admin-page,
+  body.erp-clean-page {
+    zoom: 0.9;
+  }
+}
+
 body.admin-page .business-profile-menu,
 body.erp-clean-page .business-profile-menu,
 body.admin-page .business-entity-switcher,
@@ -304,6 +311,13 @@ body.erp-clean-page .module-tab {
   padding: 0 22px !important;
   text-transform: uppercase !important;
   white-space: nowrap !important;
+}
+
+body.admin-page .module-tab[hidden],
+body.erp-clean-page .module-tab[hidden],
+body.admin-page [hidden],
+body.erp-clean-page [hidden] {
+  display: none !important;
 }
 
 body.admin-page .module-tab:hover,
@@ -417,6 +431,11 @@ body.erp-clean-page .sidebar {
   color: #ffffff !important;
 }
 
+body.admin-page .sidebar::before,
+body.erp-clean-page .sidebar::before {
+  background: linear-gradient(90deg, var(--primary) 0%, var(--primary-dark) 100%) !important;
+}
+
 html[data-business-entity-theme="kitsi"] body.admin-page .sidebar,
 html[data-business-entity-theme="kitsi"] body.erp-clean-page .sidebar,
 body[data-business-entity-theme="kitsi"].admin-page .sidebar,
@@ -441,8 +460,10 @@ body[data-business-entity-theme="kvsk"].erp-clean-page .sidebar {
 
 body.admin-page .sidebar-header,
 body.erp-clean-page .sidebar-header {
-  background: rgba(244, 248, 253, 0.12) !important;
+  background: rgba(255, 248, 247, 0.12) !important;
   border-bottom: 1px solid color-mix(in srgb, var(--primary) 16%, transparent) !important;
+  display: flex !important;
+  justify-content: space-between !important;
   padding: 18px 18px 14px !important;
 }
 
@@ -659,6 +680,13 @@ body.erp-clean-page .sidebar-group.is-collapsed .sidebar-group-caret {
   transform: rotate(-90deg) !important;
 }
 
+body[data-access-role="staff"] .sidebar-group[data-sidebar-group="admin"],
+body[data-access-role="user"] .sidebar-group[data-sidebar-group="admin"],
+body.is-staff-role .sidebar-group[data-sidebar-group="admin"] {
+  display: none !important;
+  visibility: hidden !important;
+}
+
 body.admin-page .modal-backdrop.open,
 body.erp-clean-page .modal-backdrop.open {
   animation: erpOverlayFade 140ms ease both;
@@ -668,6 +696,126 @@ body.admin-page .modal-backdrop.open .modal,
 body.erp-clean-page .modal-backdrop.open .modal {
   animation: erpModalLift 180ms ease both;
   will-change: transform, opacity;
+}
+
+body.admin-page .approval-password-backdrop,
+body.erp-clean-page .approval-password-backdrop {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.48);
+  display: none;
+  inset: 0;
+  justify-content: center;
+  padding: 18px;
+  position: fixed;
+  z-index: 5000;
+}
+
+body.admin-page .approval-password-modal,
+body.erp-clean-page .approval-password-modal {
+  background: #fff;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 12px;
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.24);
+  max-width: 430px;
+  padding: 22px;
+  position: relative;
+  width: min(100%, 430px);
+}
+
+body.admin-page .approval-password-modal .modal-close,
+body.erp-clean-page .approval-password-modal .modal-close {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.06);
+  border: 0;
+  border-radius: 8px;
+  color: var(--muted, #64748b);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.86rem;
+  font-weight: 900;
+  height: 32px;
+  justify-content: center;
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  width: 32px;
+}
+
+body.admin-page .approval-password-modal .modal-close:hover,
+body.erp-clean-page .approval-password-modal .modal-close:hover {
+  background: rgba(15, 23, 42, 0.10);
+  color: var(--text, #0f172a);
+}
+
+body.admin-page .approval-password-modal .modal-title,
+body.erp-clean-page .approval-password-modal .modal-title {
+  color: var(--text, #0f172a);
+  font-size: 1.08rem;
+  font-weight: 800;
+  margin: 0 34px 8px 0;
+}
+
+body.admin-page .approval-password-modal .modal-copy,
+body.erp-clean-page .approval-password-modal .modal-copy {
+  color: var(--muted, #64748b);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  margin: 0 0 16px;
+}
+
+body.admin-page .approval-password-modal .field,
+body.erp-clean-page .approval-password-modal .field {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 16px;
+}
+
+body.admin-page .approval-password-modal label,
+body.erp-clean-page .approval-password-modal label {
+  color: var(--text, #0f172a);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+body.admin-page .approval-password-modal input,
+body.erp-clean-page .approval-password-modal input {
+  border: 1px solid rgba(15, 23, 42, 0.16);
+  border-radius: 8px;
+  font: inherit;
+  min-height: 42px;
+  padding: 0 12px;
+  width: 100%;
+}
+
+body.admin-page .approval-password-modal input:focus,
+body.erp-clean-page .approval-password-modal input:focus {
+  border-color: var(--primary, #16a34a);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary, #16a34a) 14%, transparent);
+  outline: none;
+}
+
+body.admin-page .approval-password-modal input[aria-invalid="true"],
+body.erp-clean-page .approval-password-modal input[aria-invalid="true"] {
+  border-color: var(--danger, #dc2626);
+}
+
+body.admin-page .approval-password-modal .modal-inline-message,
+body.erp-clean-page .approval-password-modal .modal-inline-message {
+  color: var(--danger, #dc2626);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+body.admin-page .approval-password-modal .modal-inline-message.is-hidden,
+body.erp-clean-page .approval-password-modal .modal-inline-message.is-hidden {
+  display: none;
+}
+
+body.admin-page .approval-password-modal .modal-actions,
+body.erp-clean-page .approval-password-modal .modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
 }
 
 body.admin-page .notifications-panel:not(.is-hidden),

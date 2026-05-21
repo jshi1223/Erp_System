@@ -29,8 +29,17 @@ document.addEventListener('DOMContentLoaded', () => {
       window.__CSRF_TOKEN__ = user.csrfToken;
     }
     updateRoleBadge(user.role);
+    const safeCurrentRole = normalizeAccessRole(user.role);
+    document.body?.setAttribute('data-access-role', safeCurrentRole);
+    document.body?.classList.toggle('is-staff-role', safeCurrentRole === 'staff');
+    document.body?.classList.toggle('is-admin-role', isAdminRoleValue(safeCurrentRole));
     
     if (isAdminRoleValue(user.role)) {
+      const adminSidebarGroup = document.querySelector('.sidebar-group[data-sidebar-group="admin"]');
+      if (adminSidebarGroup) {
+        adminSidebarGroup.style.display = '';
+        adminSidebarGroup.setAttribute('aria-hidden', 'false');
+      }
       const utab = document.getElementById('tab-users');
       if (utab) utab.style.display = 'block';
 
@@ -45,6 +54,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const menuArchiveCenter = document.getElementById('menu-archive-center');
       if (menuArchiveCenter) menuArchiveCenter.style.display = 'block';
+    } else {
+      const adminSidebarGroup = document.querySelector('.sidebar-group[data-sidebar-group="admin"]');
+      if (adminSidebarGroup) {
+        adminSidebarGroup.style.display = 'none';
+        adminSidebarGroup.setAttribute('aria-hidden', 'true');
+      }
     }
 
     const storedTab = localStorage.getItem('kinaadman_activeTab');
@@ -771,7 +786,7 @@ function collectDashboardCompanies() {
     addCompany(companyName, companyName);
   });
 
-  (Array.isArray(companyRegistryDb) ? companyRegistryDb : []).filter(businessEntityMatches).forEach(row => {
+  (Array.isArray(companyRegistryDb) ? companyRegistryDb : []).forEach(row => {
     const companyLabel = getRegistryCompanyLabel(row);
     addCompany(row.company_name || '', companyLabel);
   });
@@ -1331,7 +1346,6 @@ function renderProjectMasterTable() {
           <div class="project-master-actions">
             <button class="btn btn-sm btn-edit" type="button" onclick="openProjectModal(${Number(project.id)})">Edit</button>
             <button class="btn btn-sm btn-add" type="button" onclick="openProjectRequisition(${Number(project.id)})">Add PR</button>
-            <button class="btn btn-sm btn-add" type="button" onclick="openProjectPurchaseOrder(${Number(project.id)})">Add PO</button>
             ${project.pdfFilename
               ? `<button class="btn btn-sm btn-pdf" type="button" onclick="openProjectPdfViewer(${Number(project.id)})">View PDF</button>`
               : `<span class="pdf-empty">N/A</span>`}
@@ -1404,7 +1418,6 @@ function renderProjectRecordsTable() {
             <button class="btn btn-sm btn-edit" type="button" onclick="openProjectModal(${Number(project.id)})">Edit</button>
             <button class="btn btn-sm btn-pdf" type="button" onclick="openProjectLedger(${Number(project.id)})">Overview</button>
             <button class="btn btn-sm btn-add" type="button" onclick="openProjectRequisition(${Number(project.id)})">Add PR</button>
-            <button class="btn btn-sm btn-add" type="button" onclick="openProjectPurchaseOrder(${Number(project.id)})">Add PO</button>
             ${isArchived
               ? `<button class="btn btn-sm btn-restore" type="button" onclick="toggleProjectArchive(${Number(project.id)}, false)" title="Restore Project">Restore</button>`
               : `<button class="btn btn-sm btn-archive" type="button" onclick="toggleProjectArchive(${Number(project.id)}, true)" title="Archive Project">Archive</button>`}
@@ -2001,6 +2014,16 @@ function renderProjectOverviewMetric(label, value, note = '', tone = '') {
   `;
 }
 
+function renderProjectOverviewSignal(label, value, note = '', tone = '') {
+  return `
+    <div class="project-overview-signal${tone ? ` is-${escHtml(tone)}` : ''}">
+      <span>${escHtml(label)}</span>
+      <strong>${escHtml(String(value || '-').trim() || '-')}</strong>
+      ${note ? `<em>${escHtml(note)}</em>` : ''}
+    </div>
+  `;
+}
+
 function renderProjectOverviewStep(number, label, value, tone = '') {
   return `
     <div class="project-overview-step${tone ? ` is-${escHtml(tone)}` : ''}">
@@ -2063,6 +2086,7 @@ function renderProjectOverview(snapshot) {
   const documentCount = project.pdfFilename ? 1 : 0;
   const arPaymentCount = (snapshot.arPayments || []).length;
   const apPaymentCount = (snapshot.apPayments || []).length;
+  const linkedRecordCount = Number(totals.recordCount || 0);
   const netTotal = Number(totals.netTotal || 0);
   const collectionRate = Number(totals.arTotal || 0) > 0
     ? Math.min(100, Math.round((Number(totals.collectedTotal || 0) / Number(totals.arTotal || 0)) * 100))
@@ -2090,7 +2114,7 @@ function renderProjectOverview(snapshot) {
     : '<div class="project-overview-empty">No project team listed yet.</div>';
   const latestServiceOrders = [...(snapshot.serviceOrders || [])]
     .sort((a, b) => String(b.service_date || b.created_at || '').localeCompare(String(a.service_date || a.created_at || '')))
-    .slice(0, 4);
+    .slice(0, 3);
   const latestRows = latestServiceOrders.length
     ? latestServiceOrders.map((row) => `
       <div class="project-overview-activity">
@@ -2126,6 +2150,28 @@ function renderProjectOverview(snapshot) {
     renderProjectRelationshipItem('AP Bills', billCount, formatPhpCurrency(totals.apTotal || 0), billCount ? 'positive' : 'muted'),
     renderProjectRelationshipItem('AP Payments', apPaymentCount, formatPhpCurrency(totals.apPaidTotal || 0), apPaymentCount ? 'positive' : 'warning')
   ]);
+  const keySignals = [
+    renderProjectOverviewSignal('Collection', healthLabel, `${formatPhpCurrency(arBalance)} remaining`, arBalance > 0 ? 'warning' : 'positive'),
+    renderProjectOverviewSignal('Supplier Cost', costLabel, `${formatPhpCurrency(apBalance)} unpaid`, apBalance > 0 ? 'warning' : 'positive'),
+    renderProjectOverviewSignal('Margin', `${marginPercent}%`, formatPhpCurrency(grossProfit), profitTone),
+    renderProjectOverviewSignal('Linked Records', linkedRecordCount, 'Across AR, AP, payments, and documents', linkedRecordCount ? 'positive' : 'muted')
+  ].join('');
+  const compactMoneyMetrics = [
+    renderProjectOverviewMetric('Contract', formatPhpCurrency(contractAmount), 'Agreed project amount'),
+    renderProjectOverviewMetric('Downpayment', formatPhpCurrency(projectDownpayment), 'Recorded in project'),
+    renderProjectOverviewMetric('Balance', formatPhpCurrency(projectBalance), 'Contract minus downpayment', projectBalance > 0 ? 'warning' : 'positive'),
+    renderProjectOverviewMetric('Collected', formatPhpCurrency(totals.collectedTotal || 0), `${collectionRate}% of AR`, 'positive'),
+    renderProjectOverviewMetric('Supplier Balance', formatPhpCurrency(apBalance), `${apPaidRate}% paid`, apBalance > 0 ? 'warning' : 'positive'),
+    renderProjectOverviewMetric('Net Position', formatPhpCurrency(netTotal), 'AR minus AP', netTone)
+  ].join('');
+  const recordCountHtml = [
+    renderProjectOverviewDetail('Service Orders', serviceOrderCount),
+    renderProjectOverviewDetail('Receivables', receivableCount),
+    renderProjectOverviewDetail('Purchase Requests', requisitionCount),
+    renderProjectOverviewDetail('Purchase Orders', purchaseOrderCount),
+    renderProjectOverviewDetail('Bills', billCount),
+    renderProjectOverviewDetail('Documents', documentCount)
+  ].join('');
 
   return `
     <section class="project-overview-shell">
@@ -2146,62 +2192,21 @@ function renderProjectOverview(snapshot) {
         </div>
       </div>
 
-      <div class="project-overview-grid">
-        ${arRelationship}
-        ${apRelationship}
-      </div>
-
-      <div class="project-overview-card">
-        <div class="project-overview-section-head">
-          <div>
-            <div class="project-overview-kicker">Money Summary</div>
-            <h4>AR vs AP at a glance</h4>
-          </div>
-          <span class="project-overview-health is-${escHtml(netTone)}">${escHtml(netTotal >= 0 ? 'Positive position' : 'Negative position')}</span>
-        </div>
-        <div class="project-overview-metric-grid">
-          ${renderProjectOverviewMetric('Contract amount', formatPhpCurrency(contractAmount), 'Project agreed amount')}
-          ${renderProjectOverviewMetric('Project downpayment', formatPhpCurrency(projectDownpayment), 'Recorded in project')}
-          ${renderProjectOverviewMetric('Project balance', formatPhpCurrency(projectBalance), 'Contract minus downpayment', projectBalance > 0 ? 'warning' : 'positive')}
-          ${renderProjectOverviewMetric('Gross profit', formatPhpCurrency(grossProfit), `${marginPercent}% margin`, profitTone)}
-          ${renderProjectOverviewMetric('Customer billing', formatPhpCurrency(totals.arTotal || 0), 'Total AR expected')}
-          ${renderProjectOverviewMetric('Collected', formatPhpCurrency(totals.collectedTotal || 0), `${collectionRate}% collected`, 'positive')}
-          ${renderProjectOverviewMetric('Still collectible', formatPhpCurrency(arBalance), healthLabel, arBalance > 0 ? 'warning' : 'positive')}
-          ${renderProjectOverviewMetric('Supplier cost', formatPhpCurrency(totals.apTotal || 0), 'Total AP cost')}
-          ${renderProjectOverviewMetric('Supplier balance', formatPhpCurrency(apBalance), `${apPaidRate}% paid`, apBalance > 0 ? 'warning' : 'positive')}
-          ${renderProjectOverviewMetric('Net position', formatPhpCurrency(netTotal), 'AR total minus AP total', netTone)}
-        </div>
-      </div>
-
-      <div class="project-overview-grid">
+      <div class="project-overview-layout">
         <div class="project-overview-card">
           <div class="project-overview-section-head">
             <div>
-              <div class="project-overview-kicker">Project Flow</div>
-              <h4>How the records connect</h4>
+              <div class="project-overview-kicker">Money Summary</div>
+              <h4>Contract, collections, and supplier exposure</h4>
             </div>
+            <span class="project-overview-health is-${escHtml(netTone)}">${escHtml(netTotal >= 0 ? 'Positive position' : 'Negative position')}</span>
           </div>
-          <div class="project-overview-steps">
-            ${renderProjectOverviewStep('1', 'Project created', projectDocNo)}
-            ${renderProjectOverviewStep('2', 'Service Orders', `${serviceOrderCount} linked`, serviceOrderCount ? 'positive' : 'muted')}
-            ${renderProjectOverviewStep('3', 'AR records', `${transactionCount} transaction${transactionCount === 1 ? '' : 's'} / ${receivableCount} receivable${receivableCount === 1 ? '' : 's'}`, receivableCount ? 'positive' : 'muted')}
-            ${renderProjectOverviewStep('4', 'Procurement/AP', `${requisitionCount} PR / ${quotationCount} quote / ${purchaseOrderCount} PO / ${goodsReceiptCount} GRN / ${billCount} bill`, requisitionCount || quotationCount || purchaseOrderCount || goodsReceiptCount || billCount ? 'positive' : 'muted')}
-          </div>
+          <div class="project-overview-metric-grid">${compactMoneyMetrics}</div>
         </div>
 
-        <div class="project-overview-card">
-          <div class="project-overview-kicker">Linked Record Counts</div>
-          <div class="project-overview-counts">
-            ${renderProjectOverviewDetail('Service Orders', serviceOrderCount)}
-            ${renderProjectOverviewDetail('Transactions', transactionCount)}
-            ${renderProjectOverviewDetail('Receivables', receivableCount)}
-            ${renderProjectOverviewDetail('Purchase Requisitions', requisitionCount)}
-            ${renderProjectOverviewDetail('Quotations', quotationCount)}
-            ${renderProjectOverviewDetail('Purchase Orders', purchaseOrderCount)}
-            ${renderProjectOverviewDetail('Goods Receipts', goodsReceiptCount)}
-            ${renderProjectOverviewDetail('Bills', billCount)}
-            ${renderProjectOverviewDetail('Documents', documentCount)}
-          </div>
+        <div class="project-overview-card project-overview-signals-card">
+          <div class="project-overview-kicker">Review Signals</div>
+          <div class="project-overview-signal-grid">${keySignals}</div>
         </div>
       </div>
 
@@ -2213,8 +2218,13 @@ function renderProjectOverview(snapshot) {
           </div>
         </div>
         <div class="project-overview-card">
-          <div class="project-overview-kicker">Project Team</div>
-          <div class="project-overview-members">${memberHtml}</div>
+          <div class="project-overview-section-head">
+            <div>
+              <div class="project-overview-kicker">Linked Records</div>
+              <h4>Counts by module</h4>
+            </div>
+          </div>
+          <div class="project-overview-counts">${recordCountHtml}</div>
         </div>
       </div>
 
@@ -2223,6 +2233,15 @@ function renderProjectOverview(snapshot) {
           <div class="project-overview-kicker">Recent Service Orders</div>
           <div class="project-overview-activity-list">${latestRows}</div>
         </div>
+        <div class="project-overview-card">
+          <div class="project-overview-kicker">Project Team</div>
+          <div class="project-overview-members">${memberHtml}</div>
+        </div>
+      </div>
+
+      <div class="project-overview-grid project-overview-related-grid">
+        ${arRelationship}
+        ${apRelationship}
       </div>
     </section>
   `;
@@ -3707,12 +3726,13 @@ function businessEntityMatches(row) {
   const selected = getCurrentBusinessEntityId();
   if (!selected) return true;
   const rowId = String(row?.business_entity_id || '').trim();
-  return rowId === selected;
+  return !rowId || rowId === selected;
 }
 
 function getBusinessEntityBrandProfile(row) {
   const name = String(row?.company_name || '').trim();
-  const isKitsi = /kitsi|ktiis|kinaadman/i.test(name) || String(row?.theme || '').toLowerCase() === 'kitsi';
+  const theme = String(row?.theme || '').trim().toLowerCase();
+  const isKitsi = theme === 'kitsi' || /kitsi|ktiis|kinaadman/i.test(name);
   if (isKitsi) {
     return {
       theme: 'kitsi',
@@ -3737,15 +3757,49 @@ function getBusinessEntityBrandProfile(row) {
   };
 }
 
-function applyStoredBusinessEntityBrand() {
+function getStoredBusinessEntityThemeProfile() {
+  try {
+    const urlTheme = String(new URLSearchParams(window.location.search || '').get('theme') || '').trim().toLowerCase();
+    if (urlTheme === 'kitsi' || urlTheme === 'kvsk') {
+      const profile = getBusinessEntityBrandProfile({
+        theme: urlTheme,
+        company_name: urlTheme === 'kitsi' ? 'KITSI' : 'KVSK CCTV & IT Solution'
+      });
+      const storedProfile = {
+        company_name: profile.theme === 'kitsi' ? 'KITSI' : 'KVSK CCTV & IT Solution',
+        theme: profile.theme,
+        logo: profile.logo,
+        alt: profile.alt,
+        primary: profile.primary,
+        primaryLight: profile.primaryLight,
+        primaryDark: profile.primaryDark,
+        accent: profile.accent,
+        accent2: profile.accent2
+      };
+      sessionStorage.setItem('kinaadman_pendingBusinessEntityTheme', JSON.stringify(storedProfile));
+      localStorage.setItem(BUSINESS_ENTITY_THEME_KEY, JSON.stringify(storedProfile));
+      return storedProfile;
+    }
+  } catch (_) {}
+  try {
+    const pendingRaw = sessionStorage.getItem('kinaadman_pendingBusinessEntityTheme');
+    const pending = pendingRaw ? JSON.parse(pendingRaw) : null;
+    if (pending?.theme) return pending;
+  } catch (_) {}
   try {
     const raw = localStorage.getItem(BUSINESS_ENTITY_THEME_KEY);
     const stored = raw ? JSON.parse(raw) : null;
-    if (stored && stored.theme) {
-      applyBusinessEntityBrand(stored);
-      return;
-    }
+    if (stored?.theme) return stored;
   } catch (_) {}
+  return null;
+}
+
+function applyStoredBusinessEntityBrand() {
+  const stored = getStoredBusinessEntityThemeProfile();
+  if (stored?.theme) {
+    applyBusinessEntityBrand(stored);
+    return;
+  }
   applyBusinessEntityBrand({ company_name: 'KVSK' });
 }
 
@@ -3780,7 +3834,7 @@ function applyBusinessEntityBrand(row) {
   });
   try {
     localStorage.setItem(BUSINESS_ENTITY_THEME_KEY, JSON.stringify({
-      company_name: row?.company_name || '',
+      company_name: row?.company_name || (profile.theme === 'kitsi' ? 'KITSI' : 'KVSK CCTV & IT Solution'),
       theme: profile.theme,
       logo: profile.logo,
       alt: profile.alt,
@@ -4852,6 +4906,95 @@ function closeConfirmDialog(result = false) {
   if (!anyModalOpen) {
     document.body.style.overflow = '';
   }
+}
+
+function openApprovalPasswordDialog(role = 'staff') {
+  let backdrop = document.getElementById('approval-password-modal-backdrop');
+  if (!backdrop) {
+    backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop approval-password-backdrop';
+    backdrop.id = 'approval-password-modal-backdrop';
+    backdrop.innerHTML = `
+      <div class="modal approval-password-modal" role="dialog" aria-modal="true" aria-labelledby="approval-password-title">
+        <button class="modal-close" type="button" data-approval-password-cancel aria-label="Close approval dialog">X</button>
+        <div class="modal-title" id="approval-password-title">Approve Staff Account</div>
+        <p class="modal-copy">Enter your current admin password to approve this account.</p>
+        <div class="field full">
+          <label for="approval-password-input">Admin Password</label>
+          <input id="approval-password-input" type="password" autocomplete="current-password" />
+          <div class="modal-inline-message is-hidden" id="approval-password-message" aria-live="polite"></div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-cancel btn-sm" type="button" data-approval-password-cancel>Cancel</button>
+          <button class="btn btn-save btn-sm" type="button" data-approval-password-submit>Approve</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(backdrop);
+  }
+
+  const title = backdrop.querySelector('#approval-password-title');
+  const input = backdrop.querySelector('#approval-password-input');
+  const message = backdrop.querySelector('#approval-password-message');
+  const submitBtn = backdrop.querySelector('[data-approval-password-submit]');
+  const cancelBtns = backdrop.querySelectorAll('[data-approval-password-cancel]');
+  const roleLabel = typeof formatAccessRoleLabel === 'function' ? formatAccessRoleLabel(role) : String(role || 'Staff');
+
+  if (title) title.textContent = `Approve ${roleLabel} Account`;
+  if (input) {
+    input.value = '';
+    input.setAttribute('aria-invalid', 'false');
+  }
+  if (message) {
+    message.textContent = '';
+    message.classList.add('is-hidden');
+  }
+
+  backdrop.classList.add('open');
+  backdrop.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+
+  return new Promise((resolve) => {
+    let done = false;
+    const cleanup = (value) => {
+      if (done) return;
+      done = true;
+      backdrop.classList.remove('open');
+      backdrop.style.display = '';
+      cancelBtns.forEach((btn) => btn.removeEventListener('click', onCancel));
+      submitBtn?.removeEventListener('click', onSubmit);
+      input?.removeEventListener('keydown', onKeydown);
+      const anyModalOpen = document.querySelector('.modal-backdrop.open') || document.getElementById('pdf-viewer-backdrop')?.classList.contains('open');
+      if (!anyModalOpen) document.body.style.overflow = '';
+      resolve(value);
+    };
+    const showMessage = (text) => {
+      if (message) {
+        message.textContent = text;
+        message.classList.remove('is-hidden');
+      }
+      input?.setAttribute('aria-invalid', 'true');
+      input?.focus();
+    };
+    const onCancel = () => cleanup('');
+    const onSubmit = () => {
+      const password = String(input?.value || '').trim();
+      if (!password) {
+        showMessage('Current admin password is required.');
+        return;
+      }
+      cleanup(password);
+    };
+    const onKeydown = (event) => {
+      if (event.key === 'Enter') onSubmit();
+      if (event.key === 'Escape') onCancel();
+    };
+
+    cancelBtns.forEach((btn) => btn.addEventListener('click', onCancel));
+    submitBtn?.addEventListener('click', onSubmit);
+    input?.addEventListener('keydown', onKeydown);
+    setTimeout(() => input?.focus(), 0);
+  });
 }
 
 function triggerProjectPdfPicker() {
@@ -7143,8 +7286,7 @@ function updateCompanyRegistryStatCard() {
   const statCompanyRegistry = document.getElementById('stat-company-registry');
   const statCompanyRegistryMini = document.getElementById('stat-company-registry-mini');
   const companyRows = (Array.isArray(companyRegistryDb) ? companyRegistryDb : [])
-    .filter((company) => Number(company.archived || 0) === 0)
-    .filter((company) => businessEntityMatches(company));
+    .filter((company) => Number(company.archived || 0) === 0);
   const visibleCompanyRows = companyRows.filter((company) => companyMatchesDashboardFilter(company.company_name));
   const selectedCompany = normalizeDashboardCompanyName(currentDashboardCompany || localStorage.getItem('kinaadman_dashboardCompany') || 'all');
   const companyCount = selectedCompany === 'all' ? companyRows.length : visibleCompanyRows.length;
@@ -7304,19 +7446,18 @@ async function updateStats() {
       goodsReceiptsRes.json().catch(() => [])
     ]);
     if (statsSeq !== dashboardStatsSeq) return;
-    const vendorRows = (Array.isArray(vendors) ? vendors : []).filter(row => businessEntityMatches(row));
     const requisitionRows = (Array.isArray(requisitions) ? requisitions : []).filter(row => businessEntityMatches(row));
     const purchaseOrderRows = (Array.isArray(purchaseOrders) ? purchaseOrders : []).filter(row => businessEntityMatches(row));
     const goodsReceiptRows = (Array.isArray(goodsReceipts) ? goodsReceipts : []).filter(row => businessEntityMatches(row));
-    const procurementTotal = vendorRows.length + requisitionRows.length + purchaseOrderRows.length + goodsReceiptRows.length;
+    const procurementTotal = requisitionRows.length + purchaseOrderRows.length + goodsReceiptRows.length;
     if (statProcurement) statProcurement.textContent = String(procurementTotal);
     if (statProcurementMini) {
-      statProcurementMini.textContent = `${getCurrentDashboardCompanyLabel()} • ${vendorRows.length} vendors • ${requisitionRows.length} PR • ${purchaseOrderRows.length} PO • ${goodsReceiptRows.length} GRN`;
+      statProcurementMini.textContent = `${getCurrentDashboardCompanyLabel()} • ${requisitionRows.length} PR • ${purchaseOrderRows.length} PO • ${goodsReceiptRows.length} GRN`;
     }
   } catch (err) {
     console.error('Error fetching procurement stats:', err);
     if (statProcurement) statProcurement.textContent = '0';
-    if (statProcurementMini) statProcurementMini.textContent = `${getCurrentDashboardCompanyLabel()} • Vendors, PR, PO, GRN`;
+    if (statProcurementMini) statProcurementMini.textContent = `${getCurrentDashboardCompanyLabel()} • PR, PO, GRN`;
   }
 
   try {
@@ -8102,6 +8243,23 @@ function setupPasswordToggleListeners() {
 }
 
 function setupSidebarLinkNavigation() {
+  function withActiveTheme(target) {
+    try {
+      const url = new URL(target, window.location.origin);
+      const currentTheme = String(
+        document.documentElement?.dataset?.businessEntityTheme ||
+        document.body?.dataset?.businessEntityTheme ||
+        ''
+      ).trim().toLowerCase();
+      if ((currentTheme === 'kitsi' || currentTheme === 'kvsk') && url.origin === window.location.origin) {
+        url.searchParams.set('theme', currentTheme);
+      }
+      return `${url.pathname}${url.search}${url.hash}`;
+    } catch (_) {
+      return target;
+    }
+  }
+
   document.querySelectorAll('.sidebar-link[href^="/"]').forEach((link) => {
     if (link.dataset.navBound === '1') return;
 
@@ -8117,7 +8275,7 @@ function setupSidebarLinkNavigation() {
       const target = String(link.dataset.navHref || link.getAttribute('href') || '').trim();
       if (!target || target === '#') return;
       event.preventDefault();
-      window.location.assign(target);
+      window.location.assign(withActiveTheme(target));
     });
   });
 }
@@ -8130,22 +8288,27 @@ function syncSidebarActiveLinks() {
   const routeAliases = {
     '/admin?view=dashboard': ['/admin'],
     '/reports': ['/admin?panel=reports'],
-    '/company-registry': ['/company'],
+    '/company-registry': ['/master-data?tab=companies', '/company'],
     '/admin?panel=project-records': ['/admin?view=project-records'],
     '/admin?panel=project-records': ['/admin?view=total-projects'],
     '/admin?view=ongoing-projects': ['/admin?view=ongoing'],
     '/admin?view=logs': ['/admin?panel=logs'],
     '/admin?panel=archive-center': ['/admin?view=archive-center', '/admin?view=archived', '/admin?panel=archived'],
-    '/accounts-payable?tab=vendors': ['/accounts-payable'],
+    '/master-data?tab=vendors': ['/accounts-payable?tab=vendors', '/accounts-payable'],
     '/accounts-receivable?tab=service-orders': ['/accounts-receivable']
   };
 
   function sameRoute(candidateHref) {
     try {
       const targetUrl = new URL(candidateHref, window.location.origin);
+      const currentComparable = new URL(currentUrl.toString());
+      currentComparable.searchParams.delete('theme');
+      targetUrl.searchParams.delete('theme');
       const targetPath = targetUrl.pathname.replace(/\/+$/, '') || '/';
       const targetSearch = targetUrl.search || '';
-      return targetPath === currentPath && targetSearch === currentSearch;
+      const comparablePath = currentComparable.pathname.replace(/\/+$/, '') || '/';
+      const comparableSearch = currentComparable.search || '';
+      return targetPath === comparablePath && targetSearch === comparableSearch;
     } catch (_) {
       return false;
     }
@@ -8826,7 +8989,7 @@ async function approveUser(id, role = 'staff') {
   const targetRole = String(role || 'staff');
   let adminPassword = '';
   if (targetRole === 'super_admin' || targetRole === 'admin' || targetRole === 'staff') {
-    adminPassword = window.prompt('Enter your current admin password to approve this privileged role:') || '';
+    adminPassword = await openApprovalPasswordDialog(targetRole);
     if (!adminPassword) return;
   }
 

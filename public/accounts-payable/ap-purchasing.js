@@ -23,6 +23,7 @@ let viewingProjectLinkedRequisition = false;
 let currentRequisitionReadOnlyReason = '';
 let currentPurchaseOrderProjectId = null;
 let currentPurchaseOrderQuotationId = null;
+let purchaseOrderLineItemsLocked = false;
 let pendingPurchaseOrderRequisitionId = null;
 let vendorSearchBound = false;
 let vendorNumberPreviewToken = 0;
@@ -367,7 +368,7 @@ function setRequisitionReadOnlyMode(readOnly, reason = '') {
   modal.querySelectorAll('input, select, textarea').forEach((node) => {
     node.disabled = viewingProjectLinkedRequisition;
   });
-  modal.querySelectorAll('#pr-line-items button, .po-line-toolbar button').forEach((node) => {
+  modal.querySelectorAll('#pr-line-items button, .po-line-add-row button').forEach((node) => {
     node.disabled = viewingProjectLinkedRequisition;
   });
   const saveBtn = $('pr-save-btn');
@@ -529,7 +530,7 @@ function focusFirstInvalidRequisitionLineItem() {
     );
   }) || rows[0] || null;
   if (!firstIncomplete) {
-    return focusProcurementElement(document.querySelector('#pr-modal-backdrop .po-line-toolbar .btn-add'));
+    return focusProcurementElement(document.querySelector('#pr-modal-backdrop .po-line-add-row .btn-add'));
   }
   return focusProcurementElement(
     firstIncomplete.querySelector('.pr-line-item-name') ||
@@ -629,17 +630,21 @@ function clearRequisitionLineItemMessages() {
 
 function initProcurementPage() {
   const integratedApPage = !!$('ap-purchasing-root');
-  const procurementWorkspace = (window.location.pathname || '').replace(/\/+$/, '') === '/procurement';
+  const workspacePath = (window.location.pathname || '').replace(/\/+$/, '');
+  const procurementWorkspace = workspacePath === '/procurement';
+  const masterDataWorkspace = workspacePath === '/master-data';
   if (!integratedApPage && !$('procurement-page')) return;
-  if (integratedApPage && !procurementWorkspace) return;
+  if (integratedApPage && !procurementWorkspace && !masterDataWorkspace) return;
   setDefaultDates();
   setupProcurementModalValidationListeners();
   bindVendorTinMask();
   wireBackdropClose();
   vendorDirectorySortOrder = getSavedVendorSortOrder();
   const params = new URLSearchParams(window.location.search);
+  const masterDataRequestedTab = String(params.get('tab') || '').trim().toLowerCase();
+  const masterDataVendorTab = masterDataWorkspace && masterDataRequestedTab === 'vendors';
   const requestedTab = normalizeProcurementTab(params.get('tab') || '');
-  procurementTab = params.has('tab') ? requestedTab : getSavedProcurementTab();
+  procurementTab = masterDataWorkspace ? 'vendors' : (params.has('tab') ? requestedTab : getSavedProcurementTab());
   if (!integratedApPage) {
     switchProcTab(procurementTab, getProcurementTabButton(procurementTab));
   }
@@ -651,6 +656,12 @@ function initProcurementPage() {
   const openRequisition = String(params.get('action') || '').toLowerCase() === 'pr';
   const openPurchaseOrder = String(params.get('action') || '').toLowerCase() === 'po';
   loadProcurementData().then(() => {
+    if (masterDataWorkspace) {
+      if (masterDataVendorTab) {
+        switchProcTab('vendors', getProcurementTabButton('vendors'));
+      }
+      return;
+    }
     if (openRequisition) {
       if (typeof window.switchApWorkspaceTab === 'function') {
         window.switchApWorkspaceTab('requisitions', getProcurementTabButton('requisitions'));
@@ -1944,8 +1955,8 @@ function renderRequisitionLineItemRow(item = {}, index = 0) {
   return `
     <div class="po-line-item" data-pr-line-item data-line-index="${index}">
       <div class="field full">
-        <label>Item ${index + 1} Name</label>
-        <input type="text" class="pr-line-item-name" placeholder="CCTV cameras" value="${escHtml(itemName)}" oninput="syncRequisitionLineItem(this)" />
+        <label>Item ${index + 1} Name <span class="req-star">*</span></label>
+        <input type="text" class="pr-line-item-name" placeholder="CCTV cameras" value="${escHtml(itemName)}" required aria-required="true" oninput="syncRequisitionLineItem(this)" />
       </div>
       <div class="field full">
         <label>Item ${index + 1} Description</label>
@@ -1953,16 +1964,16 @@ function renderRequisitionLineItemRow(item = {}, index = 0) {
       </div>
       <div class="po-line-meta-grid">
         <div class="field">
-          <label>Qty</label>
-          <input type="number" class="pr-line-qty" min="1" step="1" value="${escHtml(quantity)}" oninput="syncRequisitionLineItem(this)" />
+          <label>Qty <span class="req-star">*</span></label>
+          <input type="number" class="pr-line-qty" min="1" step="1" value="${escHtml(quantity)}" required aria-required="true" oninput="syncRequisitionLineItem(this)" />
         </div>
         <div class="field">
-          <label>Unit</label>
-          <input type="text" class="pr-line-unit" placeholder="pcs" value="${escHtml(unit)}" oninput="syncRequisitionLineItem(this)" />
+          <label>Unit <span class="req-star">*</span></label>
+          <input type="text" class="pr-line-unit" placeholder="pcs" value="${escHtml(unit)}" required aria-required="true" oninput="syncRequisitionLineItem(this)" />
         </div>
         <div class="field">
-          <label>Est. Unit Price</label>
-          <input type="number" class="pr-line-unit-price" min="0" step="0.01" value="${unitPrice ? escHtml(unitPrice.toFixed(2)) : ''}" oninput="syncRequisitionLineItem(this)" />
+          <label>Est. Unit Price <span class="req-star">*</span></label>
+          <input type="number" class="pr-line-unit-price" min="0" step="0.01" value="${unitPrice ? escHtml(unitPrice.toFixed(2)) : ''}" required aria-required="true" oninput="syncRequisitionLineItem(this)" />
         </div>
         <div class="field">
           <label>Line Total</label>
@@ -2024,7 +2035,7 @@ function renumberRequisitionLineItems() {
     row.setAttribute('data-line-index', String(index));
     const nameLabel = row.querySelector('.field.full label');
     const descriptionLabel = row.querySelectorAll('.field.full label')[1];
-    if (nameLabel) nameLabel.textContent = `Item ${index + 1} Name`;
+    if (nameLabel) nameLabel.innerHTML = `Item ${index + 1} Name <span class="req-star">*</span>`;
     if (descriptionLabel) descriptionLabel.textContent = `Item ${index + 1} Description`;
   });
 }
@@ -2240,6 +2251,30 @@ function renderPurchaseOrderLineItemRow(item = {}, index = 0) {
   `;
 }
 
+function setPurchaseOrderLineItemsLocked(locked) {
+  purchaseOrderLineItemsLocked = Boolean(locked);
+  const field = document.querySelector('#po-modal-backdrop .po-lines-field');
+  if (field) field.classList.toggle('is-line-items-locked', purchaseOrderLineItemsLocked);
+
+  const lockMessage = 'Line items are locked from the approved RFQ.';
+  const addButton = $('po-add-line-item-btn');
+  if (addButton) {
+    addButton.disabled = purchaseOrderLineItemsLocked;
+    addButton.title = purchaseOrderLineItemsLocked ? lockMessage : '';
+  }
+
+  document.querySelectorAll('#po-line-items .po-line-description, #po-line-items .po-line-qty, #po-line-items .po-line-unit-price').forEach((input) => {
+    input.readOnly = purchaseOrderLineItemsLocked;
+    input.setAttribute('aria-readonly', purchaseOrderLineItemsLocked ? 'true' : 'false');
+    input.title = purchaseOrderLineItemsLocked ? lockMessage : '';
+  });
+
+  document.querySelectorAll('#po-line-items .po-line-remove-btn').forEach((button) => {
+    button.disabled = purchaseOrderLineItemsLocked;
+    button.title = purchaseOrderLineItemsLocked ? lockMessage : '';
+  });
+}
+
 function setPurchaseOrderLineItems(items = []) {
   const container = getPurchaseOrderLineItemsContainer();
   if (!container) return;
@@ -2248,9 +2283,14 @@ function setPurchaseOrderLineItems(items = []) {
   const rows = normalized.length ? normalized : [{}];
   container.innerHTML = rows.map((item, index) => renderPurchaseOrderLineItemRow(item, index)).join('');
   recalculatePurchaseOrderLineTotals();
+  setPurchaseOrderLineItemsLocked(purchaseOrderLineItemsLocked);
 }
 
 function addPurchaseOrderLineItem(item = {}) {
+  if (purchaseOrderLineItemsLocked) {
+    showToast('PO line items are locked from the approved RFQ.', 'error');
+    return;
+  }
   const container = getPurchaseOrderLineItemsContainer();
   if (!container) return;
   const index = container.querySelectorAll('[data-po-line-item]').length;
@@ -2262,6 +2302,10 @@ function addPurchaseOrderLineItem(item = {}) {
 }
 
 function removePurchaseOrderLineItem(button) {
+  if (purchaseOrderLineItemsLocked) {
+    showToast('PO line items are locked from the approved RFQ.', 'error');
+    return;
+  }
   const row = button?.closest('[data-po-line-item]');
   const container = getPurchaseOrderLineItemsContainer();
   if (!row || !container) return;
@@ -2279,6 +2323,15 @@ function removePurchaseOrderLineItem(button) {
   row.remove();
   renumberPurchaseOrderLineItems();
   recalculatePurchaseOrderLineTotals();
+}
+
+function getLockedPurchaseOrderLineItems() {
+  if (!purchaseOrderLineItemsLocked || !currentPurchaseOrderQuotationId) return [];
+  const quote = getQuotationById(currentPurchaseOrderQuotationId);
+  if (!quote) return [];
+  return buildPurchaseOrderItemsFromQuotation(quote).filter((item) => {
+    return String(item.description || '').trim() && Number(item.quantity || 0) > 0 && Number(item.unit_price || 0) > 0;
+  });
 }
 
 function renumberPurchaseOrderLineItems() {
@@ -2567,6 +2620,12 @@ function getSelectedQuotationForRequisition(requisitionId) {
   }) || null;
 }
 
+function getRfqAwardLockMessage(requisitionId) {
+  const selectedQuote = getSelectedQuotationForRequisition(requisitionId);
+  if (!selectedQuote) return '';
+  return `This PR already has an approved RFQ (${selectedQuote.quote_number || selectedQuote.vendor_name || selectedQuote.id}). New RFQs are disabled.`;
+}
+
 function getPurchaseOrderForRequisition(requisitionId) {
   const normalizedRequisitionId = Number(requisitionId || 0) || 0;
   if (!normalizedRequisitionId) return null;
@@ -2701,9 +2760,13 @@ function renderRfqWorkspace() {
     const requisitionId = Number(requisition?.id || quote?.requisition_id || 0) || 0;
     const selected = normalizeWorkflowStatus(row.status) === 'selected';
     const rejected = normalizeWorkflowStatus(row.status) === 'rejected';
+    const selectedQuoteForPr = getSelectedQuotationForRequisition(requisitionId);
+    const hasAwardedRfq = Boolean(selectedQuoteForPr);
     const existingPurchaseOrder = row.existingPurchaseOrder || getPurchaseOrderForRequisition(requisitionId);
-    const addLinkedRfqButton = !existingPurchaseOrder && requisitionId && (row.type === 'pending' || row.isFirstQuoteForPr)
+    const addLinkedRfqButton = !existingPurchaseOrder && !hasAwardedRfq && requisitionId && (row.type === 'pending' || row.isFirstQuoteForPr)
       ? `<button class="btn btn-add btn-sm" type="button" onclick="createRfqFromRequisition(${requisitionId})">${row.type === 'pending' ? 'Create RFQ' : 'Add RFQ'}</button>`
+      : hasAwardedRfq && (row.type === 'pending' || row.isFirstQuoteForPr)
+        ? '<button class="btn btn-add btn-sm" type="button" disabled title="Approved RFQ already exists for this PR">Add RFQ</button>'
       : existingPurchaseOrder && row.isFirstQuoteForPr
         ? '<button class="btn btn-add btn-sm" type="button" disabled title="PO already exists for this PR">Add RFQ</button>'
       : '';
@@ -2810,12 +2873,19 @@ function renderQuotationRequisitionOptions(selectedValue = '') {
   if (!select) return;
   const selected = String(selectedValue || select.value || '').trim();
   const rows = getApprovedRequisitionsForQuotes();
+  const currentQuotationId = Number(editingQuotationId || 0) || 0;
+  const visibleRows = rows.filter((row) => {
+    const selectedQuote = getSelectedQuotationForRequisition(row.id);
+    if (!selectedQuote) return true;
+    return currentQuotationId && Number(selectedQuote.id || 0) === currentQuotationId;
+  });
   select.innerHTML = [
     '<option value="">Select approved PR</option>',
-    ...rows.map((row) => {
+    ...visibleRows.map((row) => {
       const label = [row.pr_number, row.project_name || row.company_name, row.item_summary].filter(Boolean).join(' - ');
       return `<option value="${escHtml(row.id)}">${escHtml(label || row.pr_number || 'Approved PR')}</option>`;
-    })
+    }),
+    ...(!visibleRows.length ? ['<option value="" disabled>No approved PRs available for new RFQs</option>'] : [])
   ].join('');
   if (selected && Array.from(select.options || []).some((option) => String(option.value) === selected)) {
     select.value = selected;
@@ -2877,6 +2947,12 @@ function openQuotationModal(id = null, requisitionId = null) {
       editingQuotationId = null;
       return;
     }
+    const selectedQuote = getSelectedQuotationForRequisition(row.requisition_id);
+    if (selectedQuote && Number(selectedQuote.id || 0) !== Number(row.id || 0)) {
+      showToast(getRfqAwardLockMessage(row.requisition_id), 'error');
+      editingQuotationId = null;
+      return;
+    }
     $('quote-number').value = row.quote_number || '';
     renderQuotationRequisitionOptions(row.requisition_id || '');
     renderQuotationVendorOptions(row.vendor_id || '');
@@ -2890,6 +2966,11 @@ function openQuotationModal(id = null, requisitionId = null) {
     syncProcurementStatusSelect('quote-status', ['draft', 'submitted'], { lockStaff: false });
     $('quote-remarks').value = row.remarks || '';
   } else {
+    if (requisitionId && getSelectedQuotationForRequisition(requisitionId)) {
+      showToast(getRfqAwardLockMessage(requisitionId), 'error');
+      editingQuotationId = null;
+      return;
+    }
     void loadQuotationNumberPreview();
     if (requisitionId) {
       renderQuotationRequisitionOptions(requisitionId);
@@ -2913,6 +2994,10 @@ function createRfqFromRequisition(id) {
   }
   if (getPurchaseOrderForRequisition(row.id)) {
     showToast('This PR already has a purchase order. New RFQs are disabled.', 'error');
+    return;
+  }
+  if (getSelectedQuotationForRequisition(row.id)) {
+    showToast(getRfqAwardLockMessage(row.id), 'error');
     return;
   }
 
@@ -2943,6 +3028,14 @@ async function saveQuotation() {
   }
   if (getPurchaseOrderForRequisition(requisitionId)) {
     showToast('This PR already has a purchase order. RFQ changes are disabled.', 'error');
+    return;
+  }
+  const selectedQuote = getSelectedQuotationForRequisition(requisitionId);
+  if (selectedQuote && Number(selectedQuote.id || 0) !== Number(editingQuotationId || 0)) {
+    const message = getRfqAwardLockMessage(requisitionId);
+    setProcurementFieldMessage('quotation_requisition', message);
+    showToast(message, 'error');
+    focusFirstProcurementControl(['quote-requisition']);
     return;
   }
   let firstInvalid = '';
@@ -3089,6 +3182,7 @@ async function createPurchaseOrderFromQuotation(id) {
   currentPurchaseOrderQuotationId = Number(row.id || 0) || null;
   if ($('po-source-rfq')) $('po-source-rfq').value = row.quote_number || `RFQ #${row.id}`;
   setPurchaseOrderLineItems(buildPurchaseOrderItemsFromQuotation(row));
+  setPurchaseOrderLineItemsLocked(true);
   recalculatePurchaseOrderLineTotals();
   if ($('po-payment-terms')) $('po-payment-terms').value = row.payment_terms || '';
   if ($('po-notes')) {
@@ -3626,6 +3720,7 @@ async function cancelRequisition(id) {
 function resetPurchaseOrderForm() {
   currentPurchaseOrderProjectId = null;
   currentPurchaseOrderQuotationId = null;
+  setPurchaseOrderLineItemsLocked(false);
   syncPurchaseOrderProjectContext(null);
   ['po-number', 'po-payment-terms', 'po-prepared-by', 'po-approved-by', 'po-notes'].forEach((id) => {
     const el = $(id);
@@ -3712,7 +3807,11 @@ function openPurchaseOrderModal(id = null, vendorId = null, requisitionId = null
         quantity: row.quantity || 1,
         unit_price: row.unit_price || 0
       }]);
+    } else if (currentPurchaseOrderQuotationId) {
+      const quote = getQuotationById(currentPurchaseOrderQuotationId);
+      if (quote) setPurchaseOrderLineItems(buildPurchaseOrderItemsFromQuotation(quote));
     }
+    setPurchaseOrderLineItemsLocked(Boolean(currentPurchaseOrderQuotationId));
   } else {
     void loadPurchaseOrderNumberPreview();
     syncProcurementStatusSelect('po-status', ['draft'], { lockStaff: true });
@@ -3753,6 +3852,8 @@ async function savePurchaseOrder() {
   clearProcurementFieldMessages();
   clearPurchaseOrderLineItemMessages();
   const collected = collectPurchaseOrderLineItems();
+  const lockedLineItems = getLockedPurchaseOrderLineItems();
+  const payloadItems = lockedLineItems.length ? lockedLineItems : collected.items;
   const lineRows = Array.from(getPurchaseOrderLineItemsContainer()?.querySelectorAll('[data-po-line-item]') || []);
   const requisitionId = Number($('po-requisition').value || 0) || 0;
   const requisitionRow = requisitionId
@@ -3786,7 +3887,7 @@ async function savePurchaseOrder() {
     notes: $('po-notes').value.trim(),
     company_id: companyId,
     project_id: currentPurchaseOrderProjectId || null,
-    items: collected.items
+    items: payloadItems
   };
 
   let hasValidationError = false;
@@ -3817,7 +3918,7 @@ async function savePurchaseOrder() {
     markError('company_id', 'Selected project belongs to a different company.');
   }
 
-  if (collected.incompleteRows.length) {
+  if (!lockedLineItems.length && collected.incompleteRows.length) {
     collected.incompleteRows.forEach((lineNo) => {
       const row = lineRows[lineNo - 1];
       if (row) {
@@ -3825,7 +3926,7 @@ async function savePurchaseOrder() {
       }
     });
     markError('line_items', 'Complete the highlighted line item(s).');
-  } else if (!collected.items.length) {
+  } else if (!payloadItems.length) {
     const firstRow = lineRows[0];
     if (firstRow) {
       setPurchaseOrderLineItemMessage(firstRow, 'Add at least one complete description line item.');
