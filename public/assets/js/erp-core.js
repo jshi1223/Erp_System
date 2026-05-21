@@ -8,14 +8,14 @@ var erpCoreBusinessEntitiesDb = [];
 
 function erpGetStoredBusinessEntityThemeProfile() {
   try {
-    var pendingRaw = sessionStorage.getItem('kinaadman_pendingBusinessEntityTheme');
-    var pending = pendingRaw ? JSON.parse(pendingRaw) : null;
-    if (pending && pending.theme) return pending;
-  } catch (_) {}
-  try {
     var raw = localStorage.getItem(window.__ERP_BUSINESS_ENTITY_THEME_KEY__);
     var stored = raw ? JSON.parse(raw) : null;
     if (stored && stored.theme) return stored;
+  } catch (_) {}
+  try {
+    var pendingRaw = sessionStorage.getItem('kinaadman_pendingBusinessEntityTheme');
+    var pending = pendingRaw ? JSON.parse(pendingRaw) : null;
+    if (pending && pending.theme) return pending;
   } catch (_) {}
   return null;
 }
@@ -97,7 +97,7 @@ function erpApplyBusinessEntityBrand(row) {
   }
 
   try {
-    localStorage.setItem(window.__ERP_BUSINESS_ENTITY_THEME_KEY__, JSON.stringify({
+    var storedProfile = {
       company_name: row && row.company_name ? row.company_name : (profile.theme === 'kitsi' ? 'KITSI' : 'KVSK CCTV & IT Solution'),
       theme: profile.theme,
       logo: profile.logo,
@@ -107,7 +107,9 @@ function erpApplyBusinessEntityBrand(row) {
       primaryDark: profile.primaryDark,
       accent: profile.accent,
       accent2: profile.accent2
-    }));
+    };
+    localStorage.setItem(window.__ERP_BUSINESS_ENTITY_THEME_KEY__, JSON.stringify(storedProfile));
+    sessionStorage.setItem('kinaadman_pendingBusinessEntityTheme', JSON.stringify(storedProfile));
   } catch (_) {}
 }
 
@@ -1644,7 +1646,7 @@ function getProjectLifecycleLabel(project) {
   if (status === 'cancelled') return 'cancelled';
   if (status === 'on_hold') return 'on_hold';
   if (phase === 'upcoming') return 'upcoming';
-  if (phase === 'ended') return 'expired';
+  if (phase === 'ended') return 'overdue';
   if (phase === 'paused') return 'on_hold';
   return 'ongoing';
 }
@@ -1652,6 +1654,24 @@ function getProjectLifecycleLabel(project) {
 function getProjectLifecycleClass(project) {
   const label = getProjectLifecycleLabel(project);
   return `status-${label.replace(/_/g, '-')}`;
+}
+
+function getComputedProjectPriority(project) {
+  const status = String(project?.status || '').trim().toLowerCase();
+  if (status === 'draft' || status === 'completed' || status === 'cancelled' || project?.actual_end_date) return 'low';
+
+  const end = toDateOnly(project?.planned_end_date || project?.end_date);
+  if (!end) return 'medium';
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const daysLeft = Math.ceil((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (daysLeft < 0) return 'urgent';
+  if (daysLeft <= 3) return 'urgent';
+  if (daysLeft <= 7) return 'high';
+  if (daysLeft <= 14) return 'medium';
+  return 'low';
 }
 
 function findSourceTransactionForProject(project) {
@@ -1849,7 +1869,7 @@ function updateProjectPaymentDisplay() {
 function getProjectStatusFilterValue() {
   const filter = document.getElementById('project-status-filter');
   const value = String(filter?.value || 'all').toLowerCase();
-  return ['all', 'ongoing', 'upcoming', 'archived', 'completed', 'expired', 'cancelled'].includes(value)
+  return ['all', 'ongoing', 'upcoming', 'archived', 'completed', 'overdue', 'cancelled'].includes(value)
     ? value
     : 'all';
 }
@@ -2516,7 +2536,6 @@ function formatBackButtonLabel(target = '') {
   const routeLabels = {
     '/accounts-payable': 'Back to Accounts Payable',
     '/accounts-receivable': 'Back to Accounts Receivable',
-    '/company': 'Back to Company Registry',
     '/gantt-chart': 'Back to Gantt Chart',
     '/login': 'Back to Login',
     '/reports': 'Back to Reports',
@@ -2892,7 +2911,6 @@ async function saveProject() {
   const existingProject = editingProjectId
     ? (projectsDashboardDb || []).find(entry => Number(entry.id) === Number(editingProjectId))
     : null;
-  const priority = existingProject?.priority || 'medium';
   const status = String(existingProject?.status || 'active').trim() || 'active';
   const projectDocNoValue = String(document.getElementById('p-project-docno')?.value || '').trim() || String(existingProject?.project_docno || '').trim();
   const companyId = Number(getProjectCompanyInputValue() || existingProject?.company_id || 0) || 0;
@@ -2901,6 +2919,13 @@ async function saveProject() {
   const companyName = getProjectCompanyNameFromSelection(companyId) || String(existingProject?.company_name || existingProject?.client_name || '').trim();
   const plannedStartDate = document.getElementById('p-planned-start-date')?.value || currentProjectStartDate || '';
   const plannedEndDate = document.getElementById('p-planned-end-date')?.value || currentProjectEndDate || '';
+  const priority = getComputedProjectPriority({
+    ...existingProject,
+    status,
+    planned_end_date: plannedEndDate,
+    end_date: plannedEndDate,
+    actual_end_date: document.getElementById('p-actual-end-date')?.value || ''
+  });
   const companySelect = document.getElementById('p-company-select');
   const hasCompanyOptions = Number(companySelect?.options?.length || 0) > 1;
   if (!projectName || !plannedStartDate || !plannedEndDate || !companyId) {
@@ -5811,7 +5836,6 @@ function syncSidebarActiveLinks() {
   const routeAliases = {
     '/admin?view=dashboard': ['/admin'],
     '/reports': ['/admin?panel=reports'],
-    '/company-registry': ['/master-data?tab=companies', '/company'],
     '/admin?panel=project-records': ['/admin?view=project-records'],
     '/admin?view=all': ['/admin?view=total-projects'],
     '/admin?view=ongoing-projects': ['/admin?view=ongoing'],

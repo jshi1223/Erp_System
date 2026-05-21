@@ -20,6 +20,7 @@ html.embedded-company-registry body.company-registry-page .sidebar,
 html.embedded-company-registry body.company-registry-page .sidebar-overlay,
 html.embedded-company-registry body.company-registry-page .page-hero,
 html.embedded-company-registry body.company-registry-page .master-data-tabs,
+html.embedded-company-registry body.company-registry-page .company-summary-grid,
 html.embedded-company-registry body.company-registry-page .section-back-btn,
 html.embedded-company-registry body.company-registry-page .company-toolbar-stack {
   display: none !important;

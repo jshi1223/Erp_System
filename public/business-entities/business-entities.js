@@ -197,6 +197,10 @@ function fillBusinessEntityForm(row = null) {
 }
 
 function openBusinessEntityModal(id = null) {
+  if (!id) {
+    setStatus('Adding business entities is disabled. KVSK and KITSI workspaces are fixed.', 'error');
+    return;
+  }
   const row = id
     ? businessEntities.find((entry) => Number(entry.id || 0) === Number(id || 0)) || null
     : null;
@@ -242,6 +246,10 @@ function getBusinessEntityPayload() {
 
 async function saveBusinessEntity(event) {
   event.preventDefault();
+  if (!editingBusinessEntityId) {
+    setStatus('Adding business entities is disabled. Edit an existing workspace instead.', 'error');
+    return;
+  }
   const payload = getBusinessEntityPayload();
   if (!payload.company_name) {
     setStatus('Business title is required.', 'error');

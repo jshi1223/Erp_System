@@ -1198,6 +1198,29 @@ async function toggleProjectArchive(projectId, archive = true) {
   }
 }
 
+async function approveProject(projectId) {
+  const id = Number(projectId || 0);
+  if (!id || !isAdminUser()) return;
+
+  const confirmed = await openConfirmDialog({
+    title: 'Approve Project',
+    message: 'Approve this draft project? After approval, project activity and PR creation will be allowed.',
+    noText: 'Cancel',
+    yesText: 'Approve'
+  });
+  if (!confirmed) return;
+
+  try {
+    const res = await fetch(`/api/projects/${id}/approve`, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Unable to approve project.');
+    await loadProjectsDashboardData();
+    showToast(data.alreadyApproved ? 'Project is already approved.' : 'Project approved.', 'success');
+  } catch (err) {
+    showToast(err.message || 'Unable to approve project.', 'error');
+  }
+}
+
 async function loadProjectArchiveSummary(projectId) {
   try {
     const res = await fetch(`/api/projects/${Number(projectId)}/archive-summary`, { cache: 'no-store' });
@@ -1321,6 +1344,7 @@ function renderProjectMasterTable() {
     const sourceMembers = getProjectSourceMembers(project);
     const memberHtml = sourceMembers.map(formatProjectMemberSummary).filter(Boolean).join('') || '<div style="color:var(--muted); font-size:0.76rem;">-</div>';
     const isArchived = Number(project.is_archived || 0) === 1;
+    const isDraft = isProjectDraft(project);
 
     return `
       <tr>
@@ -1345,7 +1369,12 @@ function renderProjectMasterTable() {
         <td class="text-center" style="padding: 15px 20px;">
           <div class="project-master-actions">
             <button class="btn btn-sm btn-edit" type="button" onclick="openProjectModal(${Number(project.id)})">Edit</button>
-            <button class="btn btn-sm btn-add" type="button" onclick="openProjectRequisition(${Number(project.id)})">Add PR</button>
+            ${isDraft && isAdminUser()
+              ? `<button class="btn btn-sm btn-add" type="button" onclick="approveProject(${Number(project.id)})">Approve</button>`
+              : ''}
+            ${isDraft
+              ? `<span class="status-pill status-draft" title="Admin approval required before PR">For Approval</span>`
+              : `<button class="btn btn-sm btn-add" type="button" onclick="openProjectRequisition(${Number(project.id)})">Add PR</button>`}
             ${project.pdfFilename
               ? `<button class="btn btn-sm btn-pdf" type="button" onclick="openProjectPdfViewer(${Number(project.id)})">View PDF</button>`
               : `<span class="pdf-empty">N/A</span>`}
@@ -1376,7 +1405,7 @@ function renderProjectRecordsTable() {
         project.company_no || project.registry_company_no || '',
         project.project_manager || '',
         project.status || '',
-        project.priority || '',
+        getComputedProjectPriority(project),
         project.description || '',
         project.pono || '',
         project.checkno || ''
@@ -1398,9 +1427,10 @@ function renderProjectRecordsTable() {
     const manager = String(project.project_manager || '-').trim() || '-';
     const projectStatusLabel = String(project.status || getProjectLifecycleLabel(project) || 'planning').replace(/_/g, ' ');
     const projectStatusClass = `status-${String(project.status || getProjectLifecycleLabel(project) || 'planning').replace(/_/g, '-')}`;
-    const priorityLabel = String(project.priority || 'medium').replace(/_/g, ' ');
+    const priorityLabel = getComputedProjectPriority(project).replace(/_/g, ' ');
     const contractAmountText = formatPhpCurrency(project.budget || 0);
     const isArchived = Number(project.is_archived || 0) === 1;
+    const isDraft = isProjectDraft(project);
 
     return `
       <tr>
@@ -1417,7 +1447,12 @@ function renderProjectRecordsTable() {
           <div class="project-master-actions">
             <button class="btn btn-sm btn-edit" type="button" onclick="openProjectModal(${Number(project.id)})">Edit</button>
             <button class="btn btn-sm btn-pdf" type="button" onclick="openProjectLedger(${Number(project.id)})">Overview</button>
-            <button class="btn btn-sm btn-add" type="button" onclick="openProjectRequisition(${Number(project.id)})">Add PR</button>
+            ${isDraft && isAdminUser()
+              ? `<button class="btn btn-sm btn-add" type="button" onclick="approveProject(${Number(project.id)})">Approve</button>`
+              : ''}
+            ${isDraft
+              ? `<span class="status-pill status-draft" title="Admin approval required before PR">For Approval</span>`
+              : `<button class="btn btn-sm btn-add" type="button" onclick="openProjectRequisition(${Number(project.id)})">Add PR</button>`}
             ${isArchived
               ? `<button class="btn btn-sm btn-restore" type="button" onclick="toggleProjectArchive(${Number(project.id)}, false)" title="Restore Project">Restore</button>`
               : `<button class="btn btn-sm btn-archive" type="button" onclick="toggleProjectArchive(${Number(project.id)}, true)" title="Archive Project">Archive</button>`}
@@ -3117,9 +3152,11 @@ function getProjectEffectiveEndDate(project) {
 
 function getProjectPhase(project) {
   const status = String(project?.status || '').toLowerCase();
+  if (status === 'draft') return 'pending';
   if (status === 'cancelled') return 'closed';
   if (status === 'completed') return 'closed';
   if (status === 'on_hold') return 'paused';
+  if (getProjectTimelineDates(project).actualEnd) return 'closed';
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -3144,12 +3181,14 @@ function getProjectLifecycleLabel(project) {
 
   const status = String(project.status || '').toLowerCase();
   const phase = getProjectPhase(project);
+  const timeline = getProjectTimelineDates(project);
 
-  if (status === 'completed') return 'completed';
+  if (status === 'draft') return 'draft';
   if (status === 'cancelled') return 'cancelled';
   if (status === 'on_hold') return 'on_hold';
+  if (status === 'completed' || timeline.actualEnd) return 'completed';
   if (phase === 'upcoming') return 'upcoming';
-  if (phase === 'ended') return 'expired';
+  if (phase === 'ended') return 'overdue';
   if (phase === 'paused') return 'on_hold';
   return 'ongoing';
 }
@@ -3340,7 +3379,7 @@ function updateProjectPaymentDisplay() {
 function getProjectStatusFilterValue() {
   const filter = document.getElementById('project-status-filter');
   const value = String(filter?.value || 'all').toLowerCase();
-  return ['all', 'ongoing', 'upcoming', 'archived', 'completed', 'expired', 'cancelled'].includes(value)
+  return ['all', 'ongoing', 'upcoming', 'archived', 'completed', 'overdue', 'cancelled'].includes(value)
     ? value
     : 'all';
 }
@@ -3667,10 +3706,20 @@ function businessEntityProfileValue(value, fallback = 'Not set') {
   return text || fallback;
 }
 
+function getWorkspaceBusinessEntities(rows = businessEntitiesDb) {
+  const source = Array.isArray(rows) ? rows : [];
+  const filtered = source.filter((row) => {
+    const code = String(row?.entity_code || '').trim();
+    const name = String(row?.company_name || '').trim();
+    return /kvsk|kitsi|ktiis|kinaadman/i.test(`${code} ${name}`);
+  });
+  return filtered.length ? filtered : source;
+}
+
 function renderBusinessEntityProfilePanel(current = getCurrentBusinessEntityId()) {
   const panel = document.getElementById('business-profile-panel');
   if (!panel) return;
-  const rows = Array.isArray(businessEntitiesDb) ? businessEntitiesDb : [];
+  const rows = getWorkspaceBusinessEntities();
   panel.innerHTML = rows.length
     ? rows.map((row) => {
         const id = String(row.id || '');
@@ -3782,14 +3831,14 @@ function getStoredBusinessEntityThemeProfile() {
     }
   } catch (_) {}
   try {
-    const pendingRaw = sessionStorage.getItem('kinaadman_pendingBusinessEntityTheme');
-    const pending = pendingRaw ? JSON.parse(pendingRaw) : null;
-    if (pending?.theme) return pending;
-  } catch (_) {}
-  try {
     const raw = localStorage.getItem(BUSINESS_ENTITY_THEME_KEY);
     const stored = raw ? JSON.parse(raw) : null;
     if (stored?.theme) return stored;
+  } catch (_) {}
+  try {
+    const pendingRaw = sessionStorage.getItem('kinaadman_pendingBusinessEntityTheme');
+    const pending = pendingRaw ? JSON.parse(pendingRaw) : null;
+    if (pending?.theme) return pending;
   } catch (_) {}
   return null;
 }
@@ -3833,7 +3882,7 @@ function applyBusinessEntityBrand(row) {
     }
   });
   try {
-    localStorage.setItem(BUSINESS_ENTITY_THEME_KEY, JSON.stringify({
+    const storedProfile = {
       company_name: row?.company_name || (profile.theme === 'kitsi' ? 'KITSI' : 'KVSK CCTV & IT Solution'),
       theme: profile.theme,
       logo: profile.logo,
@@ -3843,13 +3892,15 @@ function applyBusinessEntityBrand(row) {
       primaryDark: profile.primaryDark,
       accent: profile.accent,
       accent2: profile.accent2
-    }));
+    };
+    localStorage.setItem(BUSINESS_ENTITY_THEME_KEY, JSON.stringify(storedProfile));
+    sessionStorage.setItem('kinaadman_pendingBusinessEntityTheme', JSON.stringify(storedProfile));
   } catch (_) {}
 }
 
 function renderBusinessEntitySwitcher() {
   const host = document.getElementById('business-entity-switcher');
-  const rows = Array.isArray(businessEntitiesDb) ? businessEntitiesDb : [];
+  const rows = getWorkspaceBusinessEntities();
   const current = getCurrentBusinessEntityId();
   if (host) {
     host.innerHTML = rows.map(row => {
@@ -3915,7 +3966,7 @@ async function loadBusinessEntities() {
     const res = await fetch('/api/business-entities', { cache: 'no-store' });
     const data = await res.json().catch(() => []);
     if (!res.ok) throw new Error(data.error || 'Unable to load operating companies.');
-    businessEntitiesDb = Array.isArray(data) ? data : [];
+    businessEntitiesDb = getWorkspaceBusinessEntities(Array.isArray(data) ? data : []);
   } catch (err) {
     console.error('Load business entities error:', err);
     businessEntitiesDb = [];
@@ -3941,6 +3992,28 @@ function isSuperAdminUser() {
 
 function isStaffUser() {
   return currentUser && normalizeAccessRole(currentUser.role) === 'staff';
+}
+
+function isProjectDraft(project) {
+  return String(project?.status || '').trim().toLowerCase() === 'draft';
+}
+
+function getComputedProjectPriority(project) {
+  const status = String(project?.status || '').trim().toLowerCase();
+  if (status === 'draft' || status === 'completed' || status === 'cancelled' || project?.actual_end_date) return 'low';
+
+  const end = toDateOnly(project?.planned_end_date || project?.end_date);
+  if (!end) return 'medium';
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const daysLeft = Math.ceil((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (daysLeft < 0) return 'urgent';
+  if (daysLeft <= 3) return 'urgent';
+  if (daysLeft <= 7) return 'high';
+  if (daysLeft <= 14) return 'medium';
+  return 'low';
 }
 
 function getNotificationReadStorageKey() {
@@ -4490,7 +4563,6 @@ function formatBackButtonLabel(target = '') {
   const routeLabels = {
     '/accounts-payable': 'Back to Accounts Payable',
     '/accounts-receivable': 'Back to Accounts Receivable',
-    '/company': 'Back to Company Registry',
     '/gantt-chart': 'Back to Gantt Chart',
     '/login': 'Back to Login',
     '/reports': 'Back to Reports',
@@ -4782,8 +4854,24 @@ function openProjectModal(projectId = null) {
     if (projectDocNoInput) projectDocNoInput.value = String(projectData.project_docno || '').trim();
     populateBusinessEntitySelect('p-business-entity-id', projectData.business_entity_id || '');
     setProjectModalValue('p-project-manager', projectData.project_manager || '');
-    setProjectModalValue('p-status', projectData.status || (project ? 'active' : 'planning'));
-    setProjectModalValue('p-priority', projectData.priority || 'medium');
+    const statusInput = document.getElementById('p-status');
+    const statusValue = isStaffUser()
+      ? (project ? (projectData.status || 'draft') : 'draft')
+      : (projectData.status || (project ? 'active' : 'planning'));
+    setProjectModalValue('p-status', statusValue);
+    if (statusInput) {
+      const statusField = statusInput.closest('.field');
+      if (statusField) statusField.style.display = project ? '' : 'none';
+      statusInput.disabled = isStaffUser();
+      statusInput.title = isStaffUser() ? 'Staff-created projects stay as Draft until Admin approval.' : '';
+    }
+    const priorityInput = document.getElementById('p-priority');
+    setProjectModalValue('p-priority', getComputedProjectPriority(projectData));
+    if (priorityInput) {
+      const priorityField = priorityInput.closest('.field');
+      if (priorityField) priorityField.style.display = 'none';
+      priorityInput.disabled = true;
+    }
     setProjectModalValue('p-description', projectData.description || '');
     setProjectModalValue('p-budget', Number(projectData.budget || 0) > 0 ? Number(projectData.budget || 0).toFixed(2) : '');
     setProjectModalValue('p-downpayment', Number(projectData.downpayment || 0) > 0 ? Number(projectData.downpayment || 0).toFixed(2) : '');
@@ -4820,6 +4908,9 @@ function openProjectModal(projectId = null) {
       saveBtn.disabled = false;
     }
     if (!project) {
+      if (isStaffUser()) {
+        setProjectModalNotice('Staff-created projects will be saved as Draft and require Admin or Super Admin approval.');
+      }
       fetch(`/api/projects/next-docno?business_entity_id=${encodeURIComponent(getCurrentBusinessEntityId() || getDefaultBusinessEntityId() || '')}`)
         .then(res => res.json().catch(() => ({})).then(data => ({ ok: res.ok, data })))
         .then(({ ok, data }) => {
@@ -5120,9 +5211,14 @@ async function saveProject() {
   const existingProject = editingProjectId
     ? (projectsDashboardDb || []).find(entry => Number(entry.id) === Number(editingProjectId))
     : null;
-  const priority = existingProject?.priority || 'medium';
   const status = String(document.getElementById('p-status')?.value || existingProject?.status || 'planning').trim() || 'planning';
-  const projectPriority = String(document.getElementById('p-priority')?.value || existingProject?.priority || priority || 'medium').trim() || 'medium';
+  const projectPriority = getComputedProjectPriority({
+    ...existingProject,
+    status,
+    planned_end_date: document.getElementById('p-planned-end-date')?.value || currentProjectEndDate || '',
+    end_date: document.getElementById('p-planned-end-date')?.value || currentProjectEndDate || '',
+    actual_end_date: document.getElementById('p-actual-end-date')?.value || ''
+  });
   const projectDocNoValue = String(document.getElementById('p-project-docno')?.value || '').trim() || String(existingProject?.project_docno || '').trim();
   const businessEntityId = getCurrentBusinessEntityId() || getDefaultBusinessEntityId() || '';
   const businessEntitySelect = document.getElementById('p-business-entity-id');
@@ -5273,7 +5369,13 @@ async function saveProject() {
         console.error('Gantt project after-save hook error:', hookErr);
       }
     }
-    showToast(isEdit ? 'Project record updated successfully.' : 'Project record created successfully.', 'success');
+    const draftSaved = String(data?.status || '').toLowerCase() === 'draft' || data?.requiresApproval;
+    showToast(
+      draftSaved
+        ? 'Project saved as Draft. Admin approval is required.'
+        : (isEdit ? 'Project record updated successfully.' : 'Project record created successfully.'),
+      'success'
+    );
     return data;
   } catch (err) {
     const errorText = String(err?.message || '').toLowerCase();
@@ -8288,7 +8390,6 @@ function syncSidebarActiveLinks() {
   const routeAliases = {
     '/admin?view=dashboard': ['/admin'],
     '/reports': ['/admin?panel=reports'],
-    '/company-registry': ['/master-data?tab=companies', '/company'],
     '/admin?panel=project-records': ['/admin?view=project-records'],
     '/admin?panel=project-records': ['/admin?view=total-projects'],
     '/admin?view=ongoing-projects': ['/admin?view=ongoing'],

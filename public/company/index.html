@@ -8,12 +8,14 @@
   <script>
     if (new URLSearchParams(window.location.search).get('embedded') === '1') {
       document.documentElement.classList.add('embedded-company-registry');
+    } else {
+      window.location.replace('/master-data?tab=companies');
     }
   </script>
-  <script src="/assets/js/auth-guard.js?v=20260521q"></script>
+  <script src="/assets/js/auth-guard.js?v=20260521v"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260521p" />
-  <link rel="stylesheet" href="/company/company.css?v=20260521p" />
+  <link rel="stylesheet" href="/company/company.css?v=20260521s" />
 
 </head>
 <body class="company-registry-page erp-clean-page">
@@ -29,13 +31,14 @@
           <img class="brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
           <div class="brand-copy">
             <div class="header-logo">KVSK CCTV & IT Solution</div>
+            <div class="header-sub">Master Data</div>
           </div>
         </div>
       </button>
     </div>
     <div class="header-right">
       <span class="workspace-badge" id="current-workspace-badge">Workspace</span>
-      <span class="admin-badge">Company Registry</span>
+      <span class="admin-badge">Master Data Module</span>
       <button class="btn btn-logout btn-sm" onclick="doLogout()">Logout</button>
     </div>
   </header>
@@ -72,7 +75,7 @@
           <span class="sidebar-group-caret">â–¾</span>
         </button>
         <div class="sidebar-group-items">
-          <a href="/company-registry" class="sidebar-link is-subitem active" id="menu-company-registry">Company Registry</a>
+          <a href="/master-data?tab=companies" class="sidebar-link is-subitem active" id="menu-company-registry">Company Registry</a>
           <a href="/master-data?tab=vendors" class="sidebar-link is-subitem">Vendors</a>
         </div>
       </div>
@@ -122,13 +125,20 @@
     <div class="page-hero company-page-hero">
       <div class="page-hero-copy">
         <div class="page-title">Master Data Management</div>
-        <p class="page-sub">Register, edit, archive, and restore company records.</p>
+        <p class="page-sub">Maintain company and vendor master records used across procurement, projects, and finance.</p>
       </div>
     </div>
 
-    <div class="module-tabs master-data-tabs">
-      <button class="module-tab active" type="button" onclick="window.location.href='/company-registry'">Company Registry</button>
-      <button class="module-tab" type="button" onclick="window.location.href='/master-data?tab=vendors'">Vendors</button>
+    <div class="company-toolbar-stack">
+      <div class="module-page-toolbar company-toolbar">
+        <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-smart-back="1" data-back-force-fallback="1" data-back-fallback="/admin?view=dashboard" onclick="goBackSmart('/admin?view=dashboard', true)">Back to Dashboard</button>
+        <div class="module-page-toolbar-actions company-toolbar-actions">
+          <div class="search-wrap top-search-bar module-toolbar-search company-toolbar-search">
+            <input id="company-search-input" type="text" placeholder="Search company no, name, or address..." oninput="renderCompanies()" />
+          </div>
+          <button class="btn btn-add btn-sm" type="button" onclick="openCompanyModal()">+ Add Company</button>
+        </div>
+      </div>
     </div>
 
     <div class="module-summary-grid company-summary-grid" aria-live="polite">
@@ -146,16 +156,9 @@
       </div>
     </div>
 
-    <div class="company-toolbar-stack">
-      <div class="module-page-toolbar company-toolbar">
-        <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-smart-back="1" data-back-force-fallback="1" data-back-fallback="/admin?view=dashboard" onclick="goBackSmart('/admin?view=dashboard', true)">Back to Dashboard</button>
-        <div class="module-page-toolbar-actions company-toolbar-actions">
-          <div class="search-wrap top-search-bar module-toolbar-search company-toolbar-search">
-            <input id="company-search-input" type="text" placeholder="Search company no, name, or address..." oninput="renderCompanies()" />
-          </div>
-          <button class="btn btn-add btn-sm" type="button" onclick="openCompanyModal()">+ Add Company</button>
-        </div>
-      </div>
+    <div class="module-tabs master-data-tabs">
+      <button class="module-tab active" type="button" onclick="window.location.href='/master-data?tab=companies'">Company Registry</button>
+      <button class="module-tab" type="button" onclick="window.location.href='/master-data?tab=vendors'">Vendors</button>
     </div>
 
     <div class="registry-status" id="erp-status"></div>
@@ -325,8 +328,8 @@
       setTimeout(postEmbeddedHeight, 600);
     }
   </script>
-  <script src="/assets/js/erp-core.js?v=20260521q"></script>
-  <script src="/company/company.js?v=20260521q"></script>
+  <script src="/assets/js/erp-core.js?v=20260521v"></script>
+  <script src="/company/company.js?v=20260521s"></script>
 </body>
 </html>
 

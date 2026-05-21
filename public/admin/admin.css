@@ -1291,8 +1291,6 @@ body.admin-page #project-ledger-page-section .project-submodule-tab {
   }
 }
 
-body.admin-page .business-profile-menu,
-body.admin-page .business-profile-panel,
 body.admin-page .business-entity-switcher {
   display: none !important;
   pointer-events: none !important;

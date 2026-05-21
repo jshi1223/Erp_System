@@ -172,7 +172,7 @@
     }
 
     var masterDataHtml = buildGroup('master-data', 'Master Data', [
-      buildLink('/company-registry', 'Company Registry', 'menu-company-registry'),
+      buildLink('/master-data?tab=companies', 'Company Registry', 'menu-company-registry'),
       buildLink('/master-data?tab=vendors', 'Vendors')
     ]);
 
@@ -263,14 +263,14 @@
       }
     } catch (_) {}
     try {
-      var pendingRaw = sessionStorage.getItem('kinaadman_pendingBusinessEntityTheme');
-      var pending = pendingRaw ? JSON.parse(pendingRaw) : null;
-      if (pending && pending.theme) return pending;
-    } catch (_) {}
-    try {
       var raw = localStorage.getItem(BUSINESS_ENTITY_THEME_KEY);
       var stored = raw ? JSON.parse(raw) : null;
       if (stored && stored.theme) return stored;
+    } catch (_) {}
+    try {
+      var pendingRaw = sessionStorage.getItem('kinaadman_pendingBusinessEntityTheme');
+      var pending = pendingRaw ? JSON.parse(pendingRaw) : null;
+      if (pending && pending.theme) return pending;
     } catch (_) {}
     return null;
   }
@@ -692,7 +692,7 @@
         var role = String(data.role || 'user').toLowerCase();
         var accessMatrix = [
           { prefixes: ['/user-management'], roles: ['super_admin', 'admin'] },
-          { prefixes: ['/company-registry'], roles: ['super_admin', 'admin', 'staff'] },
+          { prefixes: ['/master-data'], roles: ['super_admin', 'admin', 'staff'] },
           { prefixes: ['/master-data'], roles: ['super_admin', 'admin', 'staff'] },
           { prefixes: ['/admin'], roles: ['super_admin', 'admin', 'staff'] },
           { prefixes: ['/erp'], roles: ['super_admin', 'admin', 'staff'] },
@@ -854,10 +854,9 @@
           })
         ]),
         group('master-data', 'Master Data', false, [
-          link('/company-registry', 'Company Registry', {
+          link('/master-data?tab=companies', 'Company Registry', {
             id: 'menu-company-registry',
-            subitem: true,
-            aliases: ['/master-data?tab=companies', '/company']
+            subitem: true
           }),
           link('/master-data?tab=vendors', 'Vendors', {
             subitem: true,
@@ -1004,7 +1003,7 @@
 
     document.querySelectorAll('.sidebar-link').forEach(function (node) {
       var targetHref = String(node.dataset && node.dataset.navHref ? node.dataset.navHref : node.getAttribute('href') || '').trim();
-      if (targetHref === '/company-registry' || targetHref === '/master-data?tab=companies') {
+      if (targetHref === '/master-data?tab=companies') {
         node.style.display = (isAdmin || isStaff) ? '' : 'none';
         node.setAttribute('aria-hidden', (isAdmin || isStaff) ? 'false' : 'true');
       }

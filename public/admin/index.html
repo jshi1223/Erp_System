@@ -7,10 +7,10 @@
   <meta http-equiv="Expires" content="0">
   <title>KVSK CCTV &amp; IT Solutions - Admin Panel</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<script src="/assets/js/auth-guard.js?v=20260521p"></script>
+<script src="/assets/js/auth-guard.js?v=20260521v"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Orbitron:wght@500;700;800&amp;family=Playfair+Display:wght@600;700&amp;family=IBM+Plex+Mono:wght@300;400;500&amp;display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/shared.css?v=20260521p">
-  <link rel="stylesheet" href="/admin/admin.css?v=20260521p">
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260521s">
+  <link rel="stylesheet" href="/admin/admin.css?v=20260521s">
 </head>
 <body class="admin-page">
 
@@ -35,7 +35,10 @@
       </button>
     </div>
     <div class="header-right">
-      <span class="workspace-badge" id="current-workspace-badge">Workspace</span>
+      <div class="business-profile-menu">
+        <button class="workspace-badge business-profile-trigger" id="current-workspace-badge" type="button" aria-haspopup="true" aria-expanded="false">Workspace</button>
+        <div class="business-profile-panel" id="business-profile-panel" role="menu" aria-label="Switch workspace"></div>
+      </div>
       <span class="admin-badge" id="role-badge">ERP Command Center</span>
       <div class="notification-wrap">
         <button class="btn-icon notification-btn" type="button" onclick="toggleNotificationsPanel()" aria-label="Notifications" title="Notifications">
@@ -72,7 +75,7 @@
 
     <div class="stats dashboard-stats" style="display: grid;">
       <!-- Master Data -->
-      <div class="stat-card stat-card-company stat-card-link" id="stat-card-company-registry" onclick="window.location.href='/company-registry'">
+      <div class="stat-card stat-card-company stat-card-link" id="stat-card-company-registry" onclick="window.location.href='/master-data?tab=companies'">
         <div class="stat-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24">
             <path d="M4.5 20V6.5A1.5 1.5 0 0 1 6 5h7a1.5 1.5 0 0 1 1.5 1.5V20"></path>
@@ -612,7 +615,7 @@
         <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/company-registry" class="sidebar-link is-subitem" id="menu-company-registry">Company Registry</a>
+        <a href="/master-data?tab=companies" class="sidebar-link is-subitem" id="menu-company-registry">Company Registry</a>
         <a href="/master-data?tab=vendors" class="sidebar-link is-subitem">Vendors</a>
       </div>
     </div>
@@ -840,6 +843,7 @@
           <div class="field">
             <label data-label-base="Status">Status<span class="field-label-status is-optional">Optional</span></label>
             <select id="p-status">
+              <option value="draft">Draft / For Approval</option>
               <option value="planning">Planning</option>
               <option value="active">Active</option>
               <option value="on_hold">On Hold</option>
@@ -1443,7 +1447,7 @@
 </div>
 
 <!-- Scripts -->
-<script src="admin.js?v=20260521p"></script>
+<script src="admin.js?v=20260521v"></script>
 
 
 

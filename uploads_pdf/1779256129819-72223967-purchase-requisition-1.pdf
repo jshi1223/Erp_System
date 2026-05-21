@@ -1,0 +1,49 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+2 0 obj
+<< /Length 724 >>
+stream
+BT
+/F1 10 Tf
+1 0 0 1 50 760 Tm (Purchase Requisition) Tj
+1 0 0 1 50 746 Tm (PR-KVSK-2026-001 generated on 2026-05-20) Tj
+1 0 0 1 50 732 Tm (Status: submitted) Tj
+1 0 0 1 50 718 Tm (Company: CMP-001 - Apollo Lens) Tj
+1 0 0 1 50 704 Tm (Project: PRJ-2026-05-01 - Apollo CCTV) Tj
+1 0 0 1 50 690 Tm (Request Date: 2026-05-15) Tj
+1 0 0 1 50 676 Tm (Needed By: 2026-05-22) Tj
+1 0 0 1 50 662 Tm (Requested By:) Tj
+1 0 0 1 50 648 Tm (Submitted By: John Vaness) Tj
+1 0 0 1 50 634 Tm (Submitted At: 2026-05-18) Tj
+1 0 0 1 50 620 Tm (Department:) Tj
+1 0 0 1 50 606 Tm (Notes:) Tj
+1 0 0 1 50 592 Tm (Total: PHP 5,280.00) Tj
+1 0 0 1 50 578 Tm (Items:) Tj
+1 0 0 1 50 564 Tm (1. cctv | | 120 pcs | Unit PHP 44.00 | Line PHP 5,280.00) Tj
+ET
+endstream
+endobj
+3 0 obj
+<< /Type /Page /Parent 4 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R >> >> /Contents 2 0 R >>
+endobj
+4 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+5 0 obj
+<< /Type /Catalog /Pages 4 0 R >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000079 00000 n 
+0000000854 00000 n 
+0000000980 00000 n 
+0000001037 00000 n 
+trailer
+<< /Size 6 /Root 5 0 R >>
+startxref
+1086
+%%EOF

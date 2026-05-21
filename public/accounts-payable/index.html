@@ -5,10 +5,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KVSK CCTV & IT Solution - Accounts Payable</title>
-  <script src="/assets/js/auth-guard.js?v=20260521p"></script>
+  <script src="/assets/js/auth-guard.js?v=20260521v"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/css/shared.css?v=20260521p" />
-  <link rel="stylesheet" href="/accounts-payable/accounts-payable.css?v=20260521p" />
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260521v" />
+  <link rel="stylesheet" href="/accounts-payable/accounts-payable.css?v=20260521x" />
   <link rel="stylesheet" href="/accounts-payable/ap-purchasing.css?v=20260521p" />
 
   
@@ -16,9 +16,10 @@
 <body class="erp-clean-page accounts-payable-page">
 <script>
   const workspacePath = window.location.pathname.replace(/\/+$/, '');
+  const workspaceParams = new URLSearchParams(window.location.search);
   document.body.dataset.workspaceMode = workspacePath === '/master-data' ? 'master-data' : (workspacePath === '/procurement' ? 'procurement' : 'ap');
   document.body.dataset.initialTab = workspacePath === '/master-data'
-    ? 'vendors'
+    ? (workspaceParams.get('tab') || 'companies')
     : (workspacePath === '/procurement' ? 'requisitions' : '');
   document.title = workspacePath === '/master-data'
     ? 'KVSK CCTV & IT Solution - Master Data'
@@ -123,6 +124,19 @@
   </div>
 
   <div class="module-summary-grid ap-tab-summary-grid" id="ap-summary-grid" aria-live="polite">
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="companies">
+      <span class="module-summary-label">Active Companies</span>
+      <div class="module-summary-value" id="metric-master-companies-active">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="companies">
+      <span class="module-summary-label">Archived Companies</span>
+      <div class="module-summary-value" id="metric-master-companies-archived">0</div>
+    </div>
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="companies">
+      <span class="module-summary-label">Total Companies</span>
+      <div class="module-summary-value" id="metric-master-companies-total">0</div>
+    </div>
+
     <div class="module-summary-card ap-summary-card" data-summary-tabs="vendors">
       <span class="module-summary-label">Active Vendors</span>
       <div class="module-summary-value" id="metric-vendors-count">0</div>
@@ -378,7 +392,7 @@
 
   <!-- Navigation Tabs -->
   <div class="module-tabs">
-    <button class="module-tab master-data-tab" type="button" data-master-data-tab="companies" onclick="window.location.href='/company-registry'" hidden>Company Registry</button>
+    <button class="module-tab master-data-tab ap-workspace-tab" type="button" data-master-data-tab="companies" data-workspace-tab="companies" onclick="switchApWorkspaceTab('companies', this)">Company Registry</button>
     <button class="module-tab master-data-tab ap-workspace-tab active" type="button" data-master-data-tab="vendors" data-proc-tab="vendors" data-workspace-tab="vendors" onclick="switchApWorkspaceTab('vendors', this)">Vendors</button>
     <div class="module-tab ap-workspace-tab" data-proc-tab="requisitions" data-workspace-tab="requisitions" onclick="switchApWorkspaceTab('requisitions', this)">Purchase Requisitions</div>
     <div class="module-tab ap-workspace-tab" data-proc-tab="rfq" data-workspace-tab="rfq" onclick="switchApWorkspaceTab('rfq', this)">RFQ</div>
@@ -393,6 +407,15 @@
   </div>
 
   <div id="ap-purchasing-root" data-procurement-only>
+    <div id="companies" class="content-section ap-workspace-section master-data-company-section" data-master-data-section="companies">
+      <iframe
+        id="company-registry-frame"
+        class="master-data-company-frame"
+        title="Company Registry"
+        data-src="/erp?embedded=1"
+        loading="lazy"></iframe>
+    </div>
+
     <div id="vendors" class="content-section ap-workspace-section active" data-proc-section="vendors">
       <div class="table-wrap" style="margin-top: 12px;">
         <table class="registry-table">
@@ -1345,7 +1368,7 @@
         <span class="sidebar-group-caret">?</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/company-registry" class="sidebar-link is-subitem">Company Registry</a>
+        <a href="/master-data?tab=companies" class="sidebar-link is-subitem">Company Registry</a>
         <a href="/master-data?tab=vendors" class="sidebar-link is-subitem">Vendors</a>
       </div>
     </div>
@@ -1426,9 +1449,9 @@
   </div>
 </div>
 
-  <script src="/assets/js/erp-core.js?v=20260521p"></script>
-  <script src="/accounts-payable/ap-purchasing.js?v=20260521p"></script>
-  <script src="/accounts-payable/accounts-payable.js?v=20260521p"></script>
+  <script src="/assets/js/erp-core.js?v=20260521v"></script>
+  <script src="/accounts-payable/ap-purchasing.js?v=20260521w"></script>
+  <script src="/accounts-payable/accounts-payable.js?v=20260521x"></script>
 </body>
 </html>
 

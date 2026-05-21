@@ -16,10 +16,11 @@ const apToolbarState = {
   bills: { search: '' },
   payments: { search: '' }
 };
-const AP_MASTER_DATA_TABS = new Set(['vendors']);
+const AP_MASTER_DATA_TABS = new Set(['companies', 'vendors']);
 const AP_PROCUREMENT_TABS = new Set(['requisitions', 'rfq', 'quotations', 'purchase-orders', 'goods-receipts']);
 const AP_NATIVE_TABS = new Set(['bills', 'vendor-balances', 'ap-aging', 'payments', 'disbursements']);
 let activeApTab = 'vendors';
+let pendingOpenMasterDataCompanyModal = false;
 
 function isMasterDataWorkspacePage() {
   return (window.location.pathname || '').replace(/\/+$/, '') === '/master-data';
@@ -35,7 +36,7 @@ function getWorkspaceAllowedTabs() {
 }
 
 function getWorkspaceDefaultTab() {
-  if (isMasterDataWorkspacePage()) return 'vendors';
+  if (isMasterDataWorkspacePage()) return 'companies';
   return isProcurementWorkspacePage() ? 'requisitions' : 'bills';
 }
 
@@ -190,6 +191,7 @@ function isInCurrentMonth(value) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  setupMasterDataCompanyFrame();
   restoreApUiState();
   applyWorkspaceModeUi();
   bindMasterDataTabLinks();
@@ -494,6 +496,17 @@ function renderApToolbarControls(tab) {
 
   const state = apToolbarState[tab] || {};
 
+  if (tab === 'companies') {
+    actions.innerHTML = `
+      <div class="search-wrap top-search-bar module-toolbar-search">
+        <input id="master-data-company-search" type="text" placeholder="Search company no, name, or address..." oninput="filterMasterDataCompanies()" />
+      </div>
+      <button class="btn btn-add btn-sm" type="button" onclick="openMasterDataCompanyModal()">Add Company</button>
+    `;
+    syncMasterDataCompanySearch();
+    return;
+  }
+
   if (tab === 'bills') {
     actions.innerHTML = `
       <div class="search-wrap top-search-bar module-toolbar-search">
@@ -553,6 +566,31 @@ function switchTab(tab, btn, options = {}) {
 
 function switchApWorkspaceTab(tab, btn, options = {}) {
   const nextTab = normalizeApWorkspaceTab(tab);
+  if (nextTab === 'companies') {
+    const captureState = options.captureState !== false;
+    const persistState = options.persistState !== false;
+    if (captureState) {
+      captureApToolbarState(activeApTab);
+    }
+    activeApTab = nextTab;
+    if (isMasterDataWorkspacePage()) {
+      document.body.dataset.initialTab = nextTab;
+    }
+    document.querySelectorAll('.ap-workspace-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.ap-workspace-section').forEach(s => s.classList.remove('active'));
+    const tabButton = btn || document.querySelector('.ap-workspace-tab[data-workspace-tab="companies"]');
+    if (tabButton) tabButton.classList.add('active');
+    document.getElementById('companies')?.classList.add('active');
+    syncApSummaryCards(nextTab);
+    renderApToolbarControls(nextTab);
+    ensureMasterDataCompanyFrameLoaded();
+    loadMasterDataCompanyMetrics();
+    if (persistState) {
+      saveApUiState();
+      syncApTabUrl(nextTab);
+    }
+    return;
+  }
   if (AP_MASTER_DATA_TABS.has(nextTab) || AP_PROCUREMENT_TABS.has(nextTab)) {
     const captureState = options.captureState !== false;
     const persistState = options.persistState !== false;
@@ -582,6 +620,106 @@ function switchApWorkspaceTab(tab, btn, options = {}) {
   }
 
   switchTab(nextTab, btn, options);
+}
+
+function getMasterDataCompanyFrame() {
+  return document.getElementById('company-registry-frame');
+}
+
+function getMasterDataCompanyWindow() {
+  const frame = getMasterDataCompanyFrame();
+  return frame?.contentWindow || null;
+}
+
+function ensureMasterDataCompanyFrameLoaded() {
+  const frame = getMasterDataCompanyFrame();
+  if (!frame) return;
+  if (!frame.getAttribute('src')) {
+    frame.setAttribute('src', frame.dataset.src || '/erp?embedded=1');
+  }
+}
+
+function setupMasterDataCompanyFrame() {
+  window.addEventListener('message', (event) => {
+    if (event.origin !== window.location.origin) return;
+    if (event.data?.type === 'master-data-frame-height') {
+      const height = Math.max(520, Number(event.data.height || 0) || 0);
+      const frame = getMasterDataCompanyFrame();
+      if (frame) frame.style.height = `${height}px`;
+      return;
+    }
+    if (event.data?.type === 'master-data-company-metrics') {
+      renderMasterDataCompanyMetrics(event.data.metrics || {});
+    }
+  });
+  const frame = getMasterDataCompanyFrame();
+  if (frame && frame.dataset.bound !== '1') {
+    frame.dataset.bound = '1';
+    frame.addEventListener('load', () => {
+      syncMasterDataCompanySearch();
+      loadMasterDataCompanyMetrics();
+      if (pendingOpenMasterDataCompanyModal) {
+        pendingOpenMasterDataCompanyModal = false;
+        openMasterDataCompanyModal();
+      }
+    });
+  }
+}
+
+function syncMasterDataCompanySearch() {
+  const input = document.getElementById('master-data-company-search');
+  const frameWindow = getMasterDataCompanyWindow();
+  const frameInput = frameWindow?.document?.getElementById('company-search-input');
+  if (input && frameInput) {
+    frameInput.value = input.value || '';
+    if (typeof frameWindow.renderCompanies === 'function') {
+      frameWindow.renderCompanies();
+    }
+  }
+}
+
+function filterMasterDataCompanies() {
+  ensureMasterDataCompanyFrameLoaded();
+  syncMasterDataCompanySearch();
+}
+
+function renderMasterDataCompanyMetrics(metrics = {}) {
+  const total = Number(metrics.total || 0);
+  const archived = Number(metrics.archived || 0);
+  const active = Number(metrics.active || Math.max(0, total - archived));
+  const totalNode = document.getElementById('metric-master-companies-total');
+  const activeNode = document.getElementById('metric-master-companies-active');
+  const archivedNode = document.getElementById('metric-master-companies-archived');
+  if (totalNode) totalNode.textContent = String(total);
+  if (activeNode) activeNode.textContent = String(active);
+  if (archivedNode) archivedNode.textContent = String(archived);
+}
+
+async function loadMasterDataCompanyMetrics() {
+  if (!isMasterDataWorkspacePage()) return;
+  try {
+    const rows = await fetchJson('/api/company-registry?include_archived=1', { cache: 'no-store' });
+    const companies = Array.isArray(rows) ? rows : [];
+    const total = companies.length;
+    const archived = companies.filter((company) => Number(company.archived || 0) === 1).length;
+    renderMasterDataCompanyMetrics({
+      total,
+      archived,
+      active: Math.max(0, total - archived)
+    });
+  } catch (_) {
+    renderMasterDataCompanyMetrics();
+  }
+}
+
+function openMasterDataCompanyModal() {
+  ensureMasterDataCompanyFrameLoaded();
+  const frameWindow = getMasterDataCompanyWindow();
+  if (typeof frameWindow?.openCompanyModal === 'function') {
+    frameWindow.openCompanyModal();
+    return;
+  }
+  pendingOpenMasterDataCompanyModal = true;
 }
 
 function syncApTabUrl(tab) {

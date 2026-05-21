@@ -578,6 +578,13 @@ function updateRegistryMetrics() {
   if (totalNode) totalNode.textContent = String(total);
   if (activeNode) activeNode.textContent = String(active);
   if (archivedNode) archivedNode.textContent = String(archived);
+
+  if (window.parent && window.parent !== window) {
+    window.parent.postMessage({
+      type: 'master-data-company-metrics',
+      metrics: { total, active, archived }
+    }, window.location.origin);
+  }
 }
 
 function openModal() {

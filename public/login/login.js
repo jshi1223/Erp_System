@@ -364,19 +364,15 @@
       if (res.ok && data.status === 'success') {
         localStorage.removeItem('kinaadman_activeTab');
         localStorage.removeItem('kinaadman_dashboardPanel');
-        persistSelectedLoginEntity();
-
         // Show success message briefly
         errDiv.className = 'err-msg success-msg';
         errDiv.textContent = 'Login successful! Redirecting...';
 
         setTimeout(() => {
-          const selectedTheme = getThemeProfile(selectedLoginEntity.theme, selectedLoginEntity.name).theme;
-          const themeQuery = selectedTheme === 'kitsi' ? '?theme=kitsi' : '?theme=kvsk';
           if (data.role === 'super_admin' || data.role === 'admin' || data.role === 'staff') {
-            window.location.href = `/admin${themeQuery}`;
+            window.location.href = '/admin';
           } else {
-            window.location.href = `/status${themeQuery}`;
+            window.location.href = '/status';
           }
         }, 1000);
       } else {
@@ -645,6 +641,7 @@
   }
 
   function setupBrandPanelAnimations() {
+    if (document.querySelector('.login-brand-columns-static')) return;
     const panels = document.querySelectorAll('.login-brand-column');
     panels.forEach((panel) => {
       if (panel.dataset.loginBrandAnimationBound === '1') return;
@@ -715,7 +712,6 @@
 
     setupPasswordToggles();
     setupBrandPanelAnimations();
-    loadLoginBusinessEntities();
     showLoginForm();
     setTimeout(() => document.getElementById('uname').focus(), 100);
   };

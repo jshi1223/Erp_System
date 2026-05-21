@@ -1,0 +1,22 @@
+# Security for PDF uploads directory
+<FilesMatch "\.pdf$">
+    Header set Cache-Control "max-age=31536000, public"
+</FilesMatch>
+
+# Deny access to non-PDF files and directory listing
+Options -Indexes
+<Files "*">
+    <FilesMatch "\.pdf$">
+        ForceType application/pdf
+        Satisfy Any
+    </FilesMatch>
+    <FilesMatch "\.(php|pl|py|jsp|asp|sh|cgi)$">
+        Order allow,deny
+        Deny from all
+    </FilesMatch>
+</Files>
+
+# Prevent script execution
+<IfModule mod_php5.c>
+    php_flag engine off
+</IfModule>

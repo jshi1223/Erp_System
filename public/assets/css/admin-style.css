@@ -1672,7 +1672,8 @@ mark {
 }
 .status-unpaid,
 .status-cancelled,
-.status-expired {
+.status-expired,
+.status-overdue {
   background: #fee2e2;
   color: #b91c1c;
   border: 1px solid #fca5a5;
@@ -3862,7 +3863,8 @@ tbody td {
   border-color: rgba(220, 38, 38, 0.14) !important;
 }
 
-.table-wrap .status-pill.status-expired {
+.table-wrap .status-pill.status-expired,
+.table-wrap .status-pill.status-overdue {
   color: #7f1d1d !important;
   background: #fde5df !important;
   border-color: #f3b8ad !important;
@@ -4768,6 +4770,7 @@ th {
 .status-pill.status-unpaid,
 .status-pill.status-cancelled,
 .status-pill.status-expired,
+.status-pill.status-overdue,
 .status-pill.status-inactive {
   color: #b91c1c !important;
   background: #fee2e2 !important;

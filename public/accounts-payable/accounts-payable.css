@@ -76,13 +76,32 @@ body.erp-clean-page.accounts-payable-page .ap-summary-card[hidden] {
   display: block;
 }
 
-body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"] .ap-workspace-tab:not([data-workspace-tab="vendors"]),
-body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"] .ap-workspace-section:not(#vendors) {
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"] .ap-workspace-tab:not([data-workspace-tab="companies"]):not([data-workspace-tab="vendors"]),
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"] .ap-workspace-section:not(#companies):not(#vendors) {
   display: none !important;
 }
 
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"][data-initial-tab="companies"] #companies,
 body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"][data-initial-tab="vendors"] #vendors {
   display: block;
+}
+
+body.erp-clean-page.accounts-payable-page:not([data-workspace-mode="master-data"]) .master-data-tab,
+body.erp-clean-page.accounts-payable-page:not([data-workspace-mode="master-data"]) [data-master-data-section] {
+  display: none !important;
+}
+
+body.erp-clean-page.accounts-payable-page .master-data-company-section {
+  min-height: 520px;
+}
+
+body.erp-clean-page.accounts-payable-page .master-data-company-frame {
+  display: block;
+  width: 100%;
+  min-height: 620px;
+  border: 0;
+  border-radius: 18px;
+  background: transparent;
 }
 
 body.erp-clean-page.accounts-payable-page[data-workspace-mode="ap"] [data-procurement-only],

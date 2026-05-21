@@ -21,7 +21,7 @@
   <link rel="stylesheet" href="/assets/css/login.css?v=20260521p" />
   <link rel="stylesheet" href="/assets/css/erp-clean.css?v=20260521p" />
   <link rel="stylesheet" href="/assets/css/white-green.css?v=20260521p" />
-  <link rel="stylesheet" href="/login/login.css?v=20260521p" />
+  <link rel="stylesheet" href="/login/login.css?v=20260521x" />
 
 </head>
 <body class="erp-clean-page login-page">
@@ -29,37 +29,40 @@
 <div id="login-screen">
   <div class="login-shell">
     <aside class="login-panel login-panel-brand" aria-label="Portal brand">
-      <div class="login-brand-columns" aria-label="KVSK and KITSI portal">
-        <button class="login-brand-column login-brand-column-kvsk is-selected" type="button" data-entity-code="KVSK" data-entity-fallback-id="1" data-entity-name="KVSK CCTV & IT Solution" data-entity-theme="kvsk" aria-pressed="true">
-          <img class="login-brand-mark" src="/assets/img/kvsk-logo-switch.png" alt="KVSK CCTV & IT Solution logo" />
-          <div class="login-brand-column-copy">
-            <div class="login-logo">KVSK</div>
-            <div class="login-company">CCTV & IT Solution</div>
-            <p>Security and IT operations</p>
-          </div>
-          <div class="login-brand-tags">
-            <span>Projects</span>
-            <span>AP / AR</span>
-          </div>
-        </button>
+      <div class="login-product-panel">
+        <div class="login-product-kicker">ERP Operations Suite</div>
+        <h1 class="login-product-title">KVSK / KITSI ERP</h1>
+        <p class="login-product-copy">One secured workspace for operations, procurement, inventory, and finance.</p>
 
-        <button class="login-brand-column login-brand-column-kitsi" type="button" data-entity-code="KITSI" data-entity-fallback-id="2" data-entity-name="KITSI" data-entity-theme="kitsi" aria-pressed="false">
-          <img class="login-brand-mark" src="/assets/img/kitsi-logo.png" alt="KITSI logo" />
-          <div class="login-brand-column-copy">
-            <div class="login-logo">KITSI</div>
-            <div class="login-company">Kinaadman Integrator</div>
-            <p>ERP workspace</p>
+        <div class="login-brand-columns login-brand-columns-static login-brand-strip" aria-label="ERP portal">
+          <div class="login-brand-column login-brand-column-kvsk is-selected login-brand-chip" data-entity-code="KVSK" data-entity-fallback-id="1" data-entity-name="KVSK CCTV & IT Solution" data-entity-theme="kvsk">
+            <img class="login-brand-mark" src="/assets/img/kvsk-logo-switch.png" alt="KVSK CCTV & IT Solution logo" />
+            <div class="login-brand-column-copy">
+              <div class="login-logo">KVSK</div>
+              <div class="login-company">CCTV & IT Solution</div>
+            </div>
           </div>
-          <div class="login-brand-tags">
-            <span>Reports</span>
-          </div>
-        </button>
-      </div>
 
-      <div class="login-brand-bottom">
-        <span>Unified access</span>
-        <strong>KVSK / KITSI Portal</strong>
-        <small>Choose a workspace • Sign in once • Keep records separated</small>
+          <div class="login-brand-column login-brand-column-kitsi login-brand-chip" data-entity-code="KITSI" data-entity-fallback-id="2" data-entity-name="KITSI" data-entity-theme="kitsi">
+            <img class="login-brand-mark" src="/assets/img/kitsi-logo.png" alt="KITSI logo" />
+            <div class="login-brand-column-copy">
+              <div class="login-logo">KITSI</div>
+              <div class="login-company">Kinaadman Integrator</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="login-proof-list login-proof-list-compact" aria-label="ERP highlights">
+          <span>Approvals</span>
+          <span>Workspace Switch</span>
+          <span>Reports</span>
+        </div>
+
+        <div class="login-brand-bottom">
+          <span>Unified access</span>
+          <strong>KVSK / KITSI Portal</strong>
+          <small>Secure sign in. Workspace switcher inside the ERP.</small>
+        </div>
       </div>
     </aside>
 
@@ -67,7 +70,7 @@
       <div class="login-form-head">
         <div class="login-badge">SECURE ACCESS</div>
         <h1 class="login-heading">Welcome Back</h1>
-        <p class="login-subheading" id="login-workspace-copy">Sign in to the KVSK workspace for projects, AP, AR, and reports.</p>
+        <p class="login-subheading" id="login-workspace-copy">Sign in to your ERP account. Workspace switching is available after login.</p>
       </div>
 
       <div id="login-form" class="form-container">
@@ -166,7 +169,7 @@
   </div>
 </div>
 
-<script src="/login/login.js?v=20260521p"></script>
+<script src="/login/login.js?v=20260521x"></script>
 </body>
 </html>
 
