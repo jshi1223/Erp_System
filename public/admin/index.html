@@ -863,6 +863,7 @@
               <option value="draft">Draft / For Approval</option>
               <option value="planning">Planning</option>
               <option value="active">Active</option>
+              <option value="overdue">Overdue</option>
               <option value="on_hold">On Hold</option>
               <option value="completed">Completed</option>
               <option value="cancelled">Cancelled</option>
@@ -888,13 +889,13 @@
         <div class="section-divider">Project Dates</div>
         <div class="form-grid">
           <div class="field">
-            <label data-label-base="Start Date">Start Date<span class="field-label-status is-required">Required</span></label>
-            <input id="p-planned-start-date" type="date">
+            <label data-label-base="Planned Start Date">Planned Start Date<span class="field-label-status is-required">Required</span></label>
+            <input id="p-planned-start-date" type="date" required aria-required="true">
             <div class="project-field-message is-hidden" data-project-field-message="planned_start_date" aria-live="polite"></div>
           </div>
           <div class="field">
-            <label data-label-base="End Date">End Date<span class="field-label-status is-required">Required</span></label>
-            <input id="p-planned-end-date" type="date">
+            <label data-label-base="Planned End Date">Planned End Date<span class="field-label-status is-required">Required</span></label>
+            <input id="p-planned-end-date" type="date" required aria-required="true">
             <div class="project-field-message is-hidden" data-project-field-message="planned_end_date" aria-live="polite"></div>
           </div>
           <div class="field">
@@ -906,7 +907,7 @@
             <input id="p-actual-end-date" type="date">
             <div class="project-field-message is-hidden" data-project-field-message="actual_end_date" aria-live="polite"></div>
           </div>
-          <div class="field full">
+          <div class="field full" hidden>
             <label data-label-base="Status Reason">Status Reason<span class="field-label-status is-optional">Optional</span></label>
             <textarea id="p-status-reason" rows="3" placeholder="Reason for delay, hold, cancellation, or completion notes"></textarea>
           </div>

@@ -28,7 +28,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (user?.csrfToken) {
       window.__CSRF_TOKEN__ = user.csrfToken;
     }
-    updateRoleBadge(user.role);
+    updateRoleBadge(user);
     const safeCurrentRole = normalizeAccessRole(user.role);
     document.body?.setAttribute('data-access-role', safeCurrentRole);
     document.body?.classList.toggle('is-staff-role', safeCurrentRole === 'staff');
@@ -41,11 +41,12 @@ document.addEventListener('DOMContentLoaded', () => {
         adminSidebarGroup.setAttribute('aria-hidden', 'false');
       }
       const canManageSettings = safeCurrentRole === 'super_admin';
+      const canManageUsers = isAdminRoleValue(safeCurrentRole);
       const utab = document.getElementById('tab-users');
-      if (utab) utab.style.display = canManageSettings ? 'block' : 'none';
+      if (utab) utab.style.display = canManageUsers ? 'block' : 'none';
 
       const menuUsers = document.getElementById('menu-users');
-      if (menuUsers) menuUsers.style.display = canManageSettings ? 'block' : 'none';
+      if (menuUsers) menuUsers.style.display = canManageUsers ? 'block' : 'none';
 
       const menuBusinessEntities = document.getElementById('menu-business-entities');
       if (menuBusinessEntities) menuBusinessEntities.style.display = canManageSettings ? 'block' : 'none';
@@ -68,7 +69,7 @@ document.addEventListener('DOMContentLoaded', () => {
       localStorage.setItem('kinaadman_dashboardPanel', 'archive-center');
     }
     const archivedMenu = document.getElementById('menu-archived');
-    const allowedTabs = safeCurrentRole === 'super_admin' ? ['all', 'users'] : ['all'];
+    const allowedTabs = isAdminRoleValue(safeCurrentRole) ? ['all', 'users'] : ['all'];
 
     if (archivedMenu) archivedMenu.style.display = isAdminRoleValue(user.role) ? '' : 'none';
     activeTab = allowedTabs.includes(storedTab) ? storedTab : 'all';
@@ -407,19 +408,24 @@ function updateDashboardHero(panel) {
   pageSub.textContent = '';
 }
 
-function updateRoleBadge(role) {
+function updateRoleBadge(userOrRole) {
   const badge = document.getElementById('role-badge');
   if (!badge) return;
 
+  const user = typeof userOrRole === 'object' && userOrRole ? userOrRole : currentUser;
+  const role = typeof userOrRole === 'object' && userOrRole ? userOrRole.role : userOrRole;
   const safeRole = normalizeAccessRole(role);
   const labelMap = {
     super_admin: 'Super Admin',
-    admin: 'Administrator',
+    admin: 'Admin',
     staff: 'Staff',
     user: 'User'
   };
+  const name = String(user?.fullname || user?.username || '').trim();
+  const roleLabel = labelMap[safeRole] || 'User';
 
-  badge.textContent = labelMap[safeRole] || 'User';
+  badge.textContent = name ? `${name} (${roleLabel})` : roleLabel;
+  badge.title = name ? `Logged in as ${name} (${roleLabel})` : `Logged in as ${roleLabel}`;
   badge.dataset.role = safeRole;
 }
 
@@ -3162,6 +3168,7 @@ function getProjectPhase(project) {
   if (status === 'cancelled') return 'closed';
   if (status === 'completed') return 'closed';
   if (status === 'on_hold') return 'paused';
+  if (status === 'overdue') return 'ended';
   if (getProjectTimelineDates(project).actualEnd) return 'closed';
 
   const today = new Date();
@@ -3192,6 +3199,7 @@ function getProjectLifecycleLabel(project) {
   if (status === 'draft') return 'draft';
   if (status === 'cancelled') return 'cancelled';
   if (status === 'on_hold') return 'on_hold';
+  if (status === 'overdue') return 'overdue';
   if (status === 'completed' || timeline.actualEnd) return 'completed';
   if (phase === 'upcoming') return 'upcoming';
   if (phase === 'ended') return 'overdue';
@@ -4047,6 +4055,29 @@ function getComputedProjectPriority(project) {
   return 'low';
 }
 
+function computeProjectStatusFromDates({
+  existingStatus = '',
+  plannedEndDate = '',
+  actualStartDate = '',
+  actualEndDate = '',
+  keepDraft = false
+} = {}) {
+  const current = String(existingStatus || '').trim().toLowerCase();
+  if (keepDraft || current === 'draft') return 'draft';
+  if (current === 'cancelled' || current === 'on_hold') return current;
+  if (String(actualEndDate || '').trim()) return 'completed';
+
+  const plannedEnd = toDateOnly(plannedEndDate);
+  if (plannedEnd) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (today > plannedEnd) return 'overdue';
+  }
+
+  if (String(actualStartDate || '').trim()) return 'active';
+  return 'planning';
+}
+
 function getNotificationReadStorageKey() {
   return 'kinaadman_notification_reads';
 }
@@ -4900,9 +4931,9 @@ function openProjectModal(projectId = null) {
     setProjectModalValue('p-status', statusValue);
     if (statusInput) {
       const statusField = statusInput.closest('.field');
-      if (statusField) statusField.style.display = project ? '' : 'none';
-      statusInput.disabled = isStaffUser();
-      statusInput.title = isStaffUser() ? 'Staff-created projects stay as Draft until Admin approval.' : '';
+      if (statusField) statusField.style.display = 'none';
+      statusInput.disabled = false;
+      statusInput.title = 'Status is computed automatically from planned and actual dates.';
     }
     const priorityInput = document.getElementById('p-priority');
     setProjectModalValue('p-priority', getComputedProjectPriority(projectData));
@@ -5167,6 +5198,7 @@ function getProjectFieldNodes(fieldName) {
     project_manager: ['p-project-manager'],
     planned_start_date: ['p-planned-start-date'],
     planned_end_date: ['p-planned-end-date'],
+    actual_start_date: ['p-actual-start-date'],
     actual_end_date: ['p-actual-end-date'],
     budget: ['p-budget']
   };
@@ -5215,7 +5247,7 @@ function setProjectFieldHint(fieldName, message = '') {
 }
 
 function clearProjectFieldMessages() {
-  ['company', 'project_docno', 'project_name', 'project_manager', 'planned_start_date', 'planned_end_date', 'actual_end_date', 'budget'].forEach((fieldName) => {
+  ['company', 'project_docno', 'project_name', 'project_manager', 'planned_start_date', 'planned_end_date', 'actual_start_date', 'actual_end_date', 'budget'].forEach((fieldName) => {
     setProjectFieldMessage(fieldName, '');
   });
 }
@@ -5229,6 +5261,7 @@ function setupProjectModalValidationListeners() {
     ['p-project-manager', 'project_manager', 'input'],
     ['p-planned-start-date', 'planned_start_date', 'change'],
     ['p-planned-end-date', 'planned_end_date', 'change'],
+    ['p-actual-start-date', 'actual_start_date', 'change'],
     ['p-actual-end-date', 'actual_end_date', 'change'],
     ['p-budget', 'budget', 'input']
   ];
@@ -5252,14 +5285,6 @@ async function saveProject() {
   const existingProject = editingProjectId
     ? (projectsDashboardDb || []).find(entry => Number(entry.id) === Number(editingProjectId))
     : null;
-  const status = String(document.getElementById('p-status')?.value || existingProject?.status || 'planning').trim() || 'planning';
-  const projectPriority = getComputedProjectPriority({
-    ...existingProject,
-    status,
-    planned_end_date: document.getElementById('p-planned-end-date')?.value || currentProjectEndDate || '',
-    end_date: document.getElementById('p-planned-end-date')?.value || currentProjectEndDate || '',
-    actual_end_date: document.getElementById('p-actual-end-date')?.value || ''
-  });
   const projectDocNoValue = String(document.getElementById('p-project-docno')?.value || '').trim() || String(existingProject?.project_docno || '').trim();
   const businessEntityId = getCurrentBusinessEntityId() || getDefaultBusinessEntityId() || '';
   const businessEntitySelect = document.getElementById('p-business-entity-id');
@@ -5272,6 +5297,20 @@ async function saveProject() {
   const plannedEndDate = document.getElementById('p-planned-end-date')?.value || currentProjectEndDate || '';
   const actualStartDate = document.getElementById('p-actual-start-date')?.value || '';
   const actualEndDate = document.getElementById('p-actual-end-date')?.value || '';
+  const status = computeProjectStatusFromDates({
+    existingStatus: existingProject?.status || '',
+    plannedEndDate,
+    actualStartDate,
+    actualEndDate,
+    keepDraft: (!existingProject && isStaffUser()) || String(existingProject?.status || '').trim().toLowerCase() === 'draft'
+  });
+  const projectPriority = getComputedProjectPriority({
+    ...existingProject,
+    status,
+    planned_end_date: plannedEndDate,
+    end_date: plannedEndDate,
+    actual_end_date: actualEndDate
+  });
   const projectManager = String(document.getElementById('p-project-manager')?.value || '').trim();
   const description = String(document.getElementById('p-description')?.value || '').trim();
   const statusReason = String(document.getElementById('p-status-reason')?.value || '').trim();
@@ -5650,9 +5689,14 @@ function renderUsers() {
 
   tbody.innerHTML = scopedUsers.map(u => {
     const isSelf = Number(u.id) === Number(currentUser?.id || 0);
-    const editAttrs = `onclick="editUser(${u.id})"`;
-    const toggleAttrs = isSelf ? 'disabled title="Hindi puwedeng baguhin ang sarili mong account status."' : `onclick="toggleUser(${u.id})"`;
-    const deleteAttrs = isSelf ? 'disabled title="Hindi puwedeng i-delete ang sarili mong account."' : `onclick="deleteUser(${u.id})"`;
+    const canManageTarget = canCurrentUserManageUser(u);
+    const editAttrs = canManageTarget ? `onclick="editUser(${u.id})"` : 'disabled title="Only Super Admin can edit admin or super admin accounts."';
+    const toggleAttrs = isSelf
+      ? 'disabled title="Hindi puwedeng baguhin ang sarili mong account status."'
+      : (canManageTarget ? `onclick="toggleUser(${u.id})"` : 'disabled title="Only Super Admin can enable or disable admin/super admin accounts."');
+    const deleteAttrs = isSelf
+      ? 'disabled title="Hindi puwedeng i-delete ang sarili mong account."'
+      : (canManageTarget ? `onclick="deleteUser(${u.id})"` : 'disabled title="Only Super Admin can delete admin/super admin accounts."');
     const approvalStatus = getUserApprovalStatus(u);
     const statusLabel = approvalStatus === 'pending'
       ? 'Pending'
@@ -5692,7 +5736,7 @@ function renderUsers() {
         <td class="text-center" style="padding: 15px 20px;">
           <div class="actions" style="justify-content:center; gap:6px;">
             <button class="btn btn-sm btn-edit" ${editAttrs}>Edit</button>
-            ${approvalStatus === 'pending' && !isSelf ? `<button class="btn btn-sm btn-add" onclick="approveUser(${u.id}, 'staff')">Approve Staff</button><button class="btn btn-sm btn-delete" onclick="rejectUser(${u.id})">Reject</button>` : ''}
+            ${approvalStatus === 'pending' && !isSelf && canManageTarget ? `<button class="btn btn-sm btn-add" onclick="approveUser(${u.id}, 'staff')">Approve Staff</button><button class="btn btn-sm btn-delete" onclick="rejectUser(${u.id})">Reject</button>` : ''}
             <button class="btn btn-sm ${u.active?'btn-delete':'btn-add'}" ${toggleAttrs}>${u.active?'Disable':'Enable'}</button>
             <button class="btn btn-sm btn-delete" ${deleteAttrs}>Delete</button>
           </div>
@@ -8913,6 +8957,7 @@ function findUserDuplicateField(username, email, excludeId = 0) {
 
 function userModalNeedsAdminPassword() {
   if (userModalMode !== 'edit' || !userModalSnapshot) return false;
+  if (!isSuperAdminUser()) return false;
   const roleInput = document.getElementById('u-role');
   const statusInput = document.getElementById('u-status');
   const snapshotRole = normalizeAccessRole(userModalSnapshot.role || 'staff');
@@ -8942,6 +8987,15 @@ function syncSuperAdminRoleOption() {
     option.disabled = !allowSuperAdmin;
     option.hidden = !allowSuperAdmin;
   });
+  document.querySelectorAll('#u-role option[value="admin"]').forEach((option) => {
+    option.disabled = !allowSuperAdmin;
+    option.hidden = !allowSuperAdmin;
+  });
+}
+
+function canCurrentUserManageUser(user = {}) {
+  if (isSuperAdminUser()) return true;
+  return !isPrivilegedRoleValue(user?.role);
 }
 
 function syncUserModalMode() {
@@ -8986,6 +9040,11 @@ function openUserModal(user = null) {
   clearUserFieldMessages();
 
   if (user) {
+    if (!canCurrentUserManageUser(user)) {
+      closeUserModal();
+      showToast('Only Super Admin can edit admin or super admin accounts.', 'error');
+      return;
+    }
     const nameInput = document.getElementById('u-name');
     const usernameInput = document.getElementById('u-username');
     const emailInput = document.getElementById('u-email');
@@ -8997,6 +9056,7 @@ function openUserModal(user = null) {
     if (roleInput) {
       const safeRole = normalizeAccessRole(user.role || 'staff');
       roleInput.value = safeRole === 'user' ? 'staff' : safeRole;
+      roleInput.disabled = !isSuperAdminUser();
     }
     if (statusInput) statusInput.value = Number(user.active || 0) === 1 ? '1' : '0';
   }
@@ -9159,7 +9219,7 @@ async function approveUser(id, role = 'staff') {
   if (!id) return;
   const targetRole = String(role || 'staff');
   let adminPassword = '';
-  if (targetRole === 'super_admin' || targetRole === 'admin' || targetRole === 'staff') {
+  if (isSuperAdminUser() && (targetRole === 'super_admin' || targetRole === 'admin' || targetRole === 'staff')) {
     adminPassword = await openApprovalPasswordDialog(targetRole);
     if (!adminPassword) return;
   }

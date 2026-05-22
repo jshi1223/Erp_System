@@ -829,12 +829,14 @@
         <div class="modal-inline-message is-hidden" data-procurement-field-message="request_date" aria-live="polite"></div>
       </div>
       <div class="field">
-        <label>Requested By</label>
-        <input id="pr-requested-by" type="text" placeholder="Juan Dela Cruz" />
+        <label>Requested By <span class="req-star">*</span></label>
+        <input id="pr-requested-by" type="text" placeholder="Juan Dela Cruz" required aria-required="true" />
+        <div class="modal-inline-message is-hidden" data-procurement-field-message="requested_by" aria-live="polite"></div>
       </div>
       <div class="field">
-        <label>Needed By</label>
-        <input id="pr-needed-by" type="date" />
+        <label>Needed By <span class="req-star">*</span></label>
+        <input id="pr-needed-by" type="date" required aria-required="true" />
+        <div class="modal-inline-message is-hidden" data-procurement-field-message="needed_by" aria-live="polite"></div>
       </div>
       <div class="field" hidden>
         <label>Status</label>

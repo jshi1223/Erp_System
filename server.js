@@ -158,6 +158,7 @@ async function sendResendEmail(mailOptions) {
 
   const recipients = normalizeEmailRecipients(mailOptions?.to);
   if (!recipients.length) return { sent: false, reason: 'no-recipient' };
+  const attachments = await normalizeResendAttachments(mailOptions?.attachments);
 
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -170,7 +171,8 @@ async function sendResendEmail(mailOptions) {
       to: recipients,
       subject: mailOptions?.subject || 'ERP Notification',
       html: mailOptions?.html || String(mailOptions?.text || ''),
-      text: mailOptions?.text
+      text: mailOptions?.text,
+      ...(attachments.length ? { attachments } : {})
     })
   });
 
@@ -191,6 +193,36 @@ function parseEmailList(value) {
 
 function dedupeEmailList(emails = []) {
   return [...new Set((Array.isArray(emails) ? emails : []).filter(Boolean))];
+}
+
+async function normalizeResendAttachments(attachments = []) {
+  const source = Array.isArray(attachments) ? attachments : [];
+  const normalized = [];
+
+  for (const attachment of source) {
+    const filename = String(attachment?.filename || '').trim() || 'attachment.pdf';
+    try {
+      let contentBuffer = null;
+      if (Buffer.isBuffer(attachment?.content)) {
+        contentBuffer = attachment.content;
+      } else if (typeof attachment?.content === 'string' && attachment.content) {
+        contentBuffer = Buffer.from(attachment.content);
+      } else if (attachment?.path) {
+        contentBuffer = await fs.promises.readFile(attachment.path);
+      }
+
+      if (!contentBuffer) continue;
+      normalized.push({
+        filename,
+        content: contentBuffer.toString('base64'),
+        content_type: attachment?.contentType || attachment?.content_type || 'application/pdf'
+      });
+    } catch (err) {
+      console.error(`Email attachment read error (${filename}):`, err);
+    }
+  }
+
+  return normalized;
 }
 
 function getRequestBaseUrl(req) {
@@ -217,9 +249,7 @@ function buildAppUrl(pathname = '/', baseOverride = '') {
 
 async function getApprovalNotificationRecipients() {
   const configuredRecipients = parseEmailList(APPROVAL_NOTIFY_EMAILS);
-  if (configuredRecipients.length) {
-    return dedupeEmailList(configuredRecipients);
-  }
+  const adminRecipients = [];
 
   try {
     const rows = await queryAsync(`
@@ -231,11 +261,49 @@ async function getApprovalNotificationRecipients() {
         AND TRIM(email) <> ''
       ORDER BY CASE role WHEN 'super_admin' THEN 0 ELSE 1 END, id ASC
     `);
-    return dedupeEmailList(parseEmailList((rows || []).map((row) => row.email).join(',')));
+    adminRecipients.push(...parseEmailList((rows || []).map((row) => row.email).join(',')));
   } catch (err) {
     console.error('Approval recipient lookup error:', err);
-    return [];
   }
+
+  return dedupeEmailList([...configuredRecipients, ...adminRecipients]);
+}
+
+function toSafeAttachmentFilename(value, fallback = 'approval-summary') {
+  const text = String(value || fallback)
+    .trim()
+    .replace(/[^a-z0-9._-]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 90);
+  return text || fallback;
+}
+
+function buildApprovalSummaryPdfAttachment({ title = 'Approval Request', recordNo = '', submittedBy = '', details = [] } = {}) {
+  const rows = [
+    { Field: 'Type', Value: title },
+    recordNo ? { Field: 'Reference No.', Value: recordNo } : null,
+    submittedBy ? { Field: 'Submitted By', Value: submittedBy } : null,
+    ...details.map(([label, value]) => ({
+      Field: String(label || '').trim(),
+      Value: String(value || '').trim()
+    }))
+  ].filter((row) => row && row.Field && row.Value);
+
+  const subtitle = [
+    recordNo ? `Reference: ${recordNo}` : '',
+    submittedBy ? `Submitted By: ${submittedBy}` : ''
+  ].filter(Boolean).join(' | ');
+
+  return {
+    filename: `${toSafeAttachmentFilename(`${title}-${recordNo || Date.now()}`)}.pdf`,
+    content: buildSimplePdfBuffer({
+      title: `Approval Request - ${title}`,
+      subtitle,
+      headers: ['Field', 'Value'],
+      rows
+    }),
+    contentType: 'application/pdf'
+  };
 }
 
 async function sendSystemEmail(mailOptions) {
@@ -270,8 +338,10 @@ async function notifyApprovalRequest(req, options = {}) {
   const recipients = await getApprovalNotificationRecipients();
   const recordNo = String(options.recordNo || '').trim();
   const title = String(options.title || 'Approval Request').trim();
-  const submittedBy = String(options.submittedBy || getApprovalActorName(req)).trim();
+  const submittedBy = String(options.submittedBy || getApprovalActorLabel(req)).trim();
   const reviewUrl = buildAppUrl(options.reviewPath || '/admin');
+  const detailEntries = Object.entries(options.details || {})
+    .filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== '');
   const detailRows = Object.entries(options.details || {})
     .filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== '')
     .map(([label, value]) => `
@@ -287,11 +357,21 @@ async function notifyApprovalRequest(req, options = {}) {
     return { sent: false, reason: 'no-recipients' };
   }
 
+  const providedAttachments = Array.isArray(options.attachments) ? options.attachments.filter(Boolean) : [];
+  const attachments = providedAttachments.length
+    ? providedAttachments
+    : [buildApprovalSummaryPdfAttachment({
+      title,
+      recordNo,
+      submittedBy,
+      details: detailEntries
+    })];
+
   return sendSystemEmail({
     from: `Kinaadman ERP <${SMTP_FROM}>`,
     to: recipients.join(','),
     subject: `Approval needed: ${title}${recordNo ? ` ${recordNo}` : ''}`,
-    attachments: Array.isArray(options.attachments) ? options.attachments : undefined,
+    attachments,
     text: [
       `Approval needed: ${title}${recordNo ? ` ${recordNo}` : ''}`,
       `Submitted by: ${submittedBy}`,
@@ -335,22 +415,28 @@ async function notifyUserAccountDecision(userRow = {}, decision = 'approved', ro
   const approved = String(decision || '').toLowerCase() === 'approved';
   const loginUrl = buildAppUrl('/', options.baseUrl || '');
   const name = String(userRow.fullname || userRow.username || 'User').trim();
+  const decidedBy = String(options.decidedBy || options.approvedBy || '').trim();
+  const decisionLine = decidedBy
+    ? `${approved ? 'Approved' : 'Reviewed'} by: ${decidedBy}`
+    : '';
 
   return sendSystemEmail({
     from: `Kinaadman ERP <${SMTP_FROM}>`,
     to: email,
     subject: approved ? 'Your Kinaadman ERP account is approved' : 'Kinaadman ERP account request update',
     text: approved
-      ? `Hello ${name}, your account has been approved. You can now sign in at ${loginUrl}.`
-      : `Hello ${name}, your account registration was not approved. Please contact the administrator for details.`,
+      ? [`Hello ${name}, your account has been approved.`, decisionLine, `You can now sign in at ${loginUrl}.`].filter(Boolean).join('\n')
+      : [`Hello ${name}, your account registration was not approved.`, decisionLine, 'Please contact the administrator for details.'].filter(Boolean).join('\n'),
     html: `
       <div style="font-family:Arial,sans-serif;color:#1f2937;line-height:1.5;">
         <h2 style="margin:0 0 12px;">${approved ? 'Account Approved' : 'Account Request Update'}</h2>
         <p style="margin:0 0 12px;">Hello ${htmlEscape(name)},</p>
         ${approved
           ? `<p style="margin:0 0 12px;">Your Kinaadman ERP account has been approved as <strong>${htmlEscape(formatAccessRoleLabel(role))}</strong>. You can now sign in using your email and password.</p>
+             ${decidedBy ? `<p style="margin:0 0 12px;"><strong>Approved By:</strong> ${htmlEscape(decidedBy)}</p>` : ''}
              <p style="margin:16px 0;"><a href="${htmlEscape(loginUrl)}" style="background:#14532d;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;display:inline-block;">Sign In</a></p>`
-          : '<p style="margin:0 0 12px;">Your registration request was not approved. Please contact the administrator for details.</p>'}
+          : `<p style="margin:0 0 12px;">Your registration request was not approved. Please contact the administrator for details.</p>
+             ${decidedBy ? `<p style="margin:0 0 12px;"><strong>Reviewed By:</strong> ${htmlEscape(decidedBy)}</p>` : ''}`}
       </div>
     `
   });
@@ -422,7 +508,7 @@ async function notifyPurchaseRequisitionRequester(req, requisitionId, decision =
   const cancelled = String(decision || '').toLowerCase() === 'cancelled';
   const approved = !cancelled;
   const statusText = approved ? 'Approved' : 'Cancelled';
-  const actor = approved ? row.approved_by : row.cancelled_by;
+  const actor = String(options.decidedBy || (approved ? options.approvedBy : options.cancelledBy) || (approved ? row.approved_by : row.cancelled_by) || '').trim();
   const decidedAt = approved ? row.approved_at : row.cancelled_at;
   const reviewUrl = buildAppUrl('/procurement?tab=requisitions');
   const reason = String(options.reason || row.cancel_reason || '').trim();
@@ -537,7 +623,7 @@ async function notifyPurchaseOrderRequester(req, poId, decision = 'approved', op
 
   const cancelled = String(decision || '').toLowerCase() === 'cancelled';
   const statusText = cancelled ? 'Cancelled' : 'Approved';
-  const actor = cancelled ? row.cancelled_by : row.approved_by;
+  const actor = String(options.decidedBy || (cancelled ? options.cancelledBy : options.approvedBy) || (cancelled ? row.cancelled_by : row.approved_by) || '').trim();
   const decidedAt = cancelled ? row.cancelled_at : row.approved_at;
   const reason = String(options.reason || row.cancel_reason || '').trim();
   const reviewUrl = buildAppUrl('/procurement?tab=purchase-orders');
@@ -649,7 +735,7 @@ async function notifyRfqAwardedRequester(req, quotationId) {
   });
 }
 
-async function notifyFinanceApproval(req, type = 'bill', recordId = 0) {
+async function notifyFinanceApproval(req, type = 'bill', recordId = 0, options = {}) {
   const isPayment = String(type || '').toLowerCase() === 'payment';
   const rows = await queryAsync(isPayment ? `
     SELECT
@@ -695,6 +781,7 @@ async function notifyFinanceApproval(req, type = 'bill', recordId = 0) {
     ? (row.reference_number || `Payment #${recordId}`)
     : (row.bill_number || `Bill #${recordId}`);
   const reviewUrl = buildAppUrl(isPayment ? '/accounts-payable?tab=payments' : '/accounts-payable?tab=bills');
+  const approvedBy = String(options.approvedBy || row.approved_by || '').trim();
   const detailRows = (isPayment ? [
     ['Payment Type', row.payment_type],
     ['Reference No.', row.reference_number],
@@ -702,7 +789,7 @@ async function notifyFinanceApproval(req, type = 'bill', recordId = 0) {
     ['Payment Date', row.payment_date],
     ['Amount', row.amount],
     ['Method', row.payment_method],
-    ['Approved By', row.approved_by],
+    ['Approved By', approvedBy],
     ['Approved At', row.approved_at]
   ] : [
     ['Bill No.', row.bill_number],
@@ -711,7 +798,7 @@ async function notifyFinanceApproval(req, type = 'bill', recordId = 0) {
     ['Bill Date', row.bill_date],
     ['Due Date', row.due_date],
     ['Amount', row.total_amount],
-    ['Approved By', row.approved_by],
+    ['Approved By', approvedBy],
     ['Approved At', row.approved_at]
   ]).filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== '')
     .map(([label, value]) => `
@@ -734,6 +821,139 @@ async function notifyFinanceApproval(req, type = 'bill', recordId = 0) {
         <p style="margin:16px 0;"><a href="${htmlEscape(reviewUrl)}" style="background:#14532d;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;display:inline-block;">View in ERP</a></p>
       </div>
     `
+  });
+}
+
+async function notifyBillApprovalRequest(req, billId) {
+  const rows = await queryAsync(`
+    SELECT
+      ap.id,
+      ap.bill_number,
+      ap.bill_date,
+      ap.due_date,
+      ap.total_amount,
+      ap.notes,
+      ap.pdfFilename,
+      v.vendor_name,
+      po.po_number,
+      p.project_name,
+      be.company_name
+    FROM accounts_payable ap
+    LEFT JOIN vendors v ON v.id = ap.vendor_id
+    LEFT JOIN purchase_orders po ON po.id = ap.po_id
+    LEFT JOIN projects p ON p.id = ap.project_id
+    LEFT JOIN business_entities be ON be.id = ap.business_entity_id
+    WHERE ap.id = ?
+    LIMIT 1
+  `, [billId]);
+  const row = rows?.[0] || null;
+  if (!row) return { sent: false, reason: 'not-found' };
+
+  const attachments = [];
+  const pdfFilename = String(row.pdfFilename || '').trim();
+  const pdfPath = pdfFilename ? path.join(UPLOAD_DIR, path.basename(pdfFilename)) : '';
+  if (pdfFilename && fs.existsSync(pdfPath)) {
+    attachments.push({
+      filename: path.basename(pdfFilename),
+      path: pdfPath,
+      contentType: 'application/pdf'
+    });
+  }
+
+  return notifyApprovalRequest(req, {
+    title: 'AP Bill',
+    recordNo: row.bill_number || `Bill #${billId}`,
+    submittedBy: getApprovalActorLabel(req),
+    reviewPath: '/accounts-payable?tab=bills',
+    details: {
+      Company: row.company_name,
+      Vendor: row.vendor_name,
+      Project: row.project_name,
+      'PO No.': row.po_number,
+      'Bill Date': row.bill_date,
+      'Due Date': row.due_date,
+      Amount: row.total_amount,
+      Notes: row.notes
+    },
+    attachments: attachments.length ? attachments : undefined
+  });
+}
+
+async function notifyPaymentApprovalRequest(req, paymentId) {
+  const rows = await queryAsync(`
+    SELECT
+      pay.id,
+      pay.payment_type,
+      pay.payment_date,
+      pay.amount,
+      pay.payment_method,
+      pay.reference_number,
+      pay.notes,
+      ap.bill_number,
+      v.vendor_name
+    FROM payments pay
+    LEFT JOIN accounts_payable ap ON ap.id = pay.ap_id
+    LEFT JOIN vendors v ON v.id = ap.vendor_id
+    WHERE pay.id = ?
+    LIMIT 1
+  `, [paymentId]);
+  const row = rows?.[0] || null;
+  if (!row) return { sent: false, reason: 'not-found' };
+  if (String(row.payment_type || '').toLowerCase() !== 'ap') {
+    return { sent: false, reason: 'not-ap-payment' };
+  }
+
+  return notifyApprovalRequest(req, {
+    title: 'AP Payment',
+    recordNo: row.reference_number || `Payment #${paymentId}`,
+    submittedBy: getApprovalActorLabel(req),
+    reviewPath: '/accounts-payable?tab=payments',
+    details: {
+      Vendor: row.vendor_name,
+      'Bill No.': row.bill_number,
+      'Payment Date': row.payment_date,
+      Amount: row.amount,
+      Method: row.payment_method,
+      Notes: row.notes
+    }
+  });
+}
+
+async function notifyProjectApprovalRequest(req, projectId) {
+  const rows = await queryAsync(`
+    SELECT
+      p.id,
+      p.project_docno,
+      p.project_name,
+      p.project_manager,
+      p.start_date,
+      p.end_date,
+      p.budget,
+      p.priority,
+      p.created_by,
+      c.company_name
+    FROM projects p
+    LEFT JOIN company_registry c ON c.id = p.company_id
+    WHERE p.id = ?
+    LIMIT 1
+  `, [projectId]);
+  const row = rows?.[0] || null;
+  if (!row) return { sent: false, reason: 'not-found' };
+
+  return notifyApprovalRequest(req, {
+    title: 'Project Approval',
+    recordNo: row.project_docno || `Project #${projectId}`,
+    submittedBy: getApprovalActorLabel(req),
+    reviewPath: '/admin?panel=project-records&tab=projects',
+    details: {
+      Company: row.company_name,
+      Project: row.project_name,
+      Manager: row.project_manager,
+      'Start Date': row.start_date,
+      'End Date': row.end_date,
+      Budget: row.budget,
+      Priority: row.priority
+    }
   });
 }
 
@@ -938,18 +1158,25 @@ function isStaffRole(role) {
   return normalizeAccessRole(role) === 'staff';
 }
 
-function normalizeProjectStatusForSave(status, actualStartDate = null, actualEndDate = null) {
+function normalizeProjectStatusForSave(status, actualStartDate = null, actualEndDate = null, plannedEndDate = null) {
   const requestedStatus = String(status || '').trim().toLowerCase();
-  const allowedProjectStatuses = new Set(['draft', 'planning', 'active', 'on_hold', 'completed', 'cancelled']);
+  const allowedProjectStatuses = new Set(['draft', 'planning', 'active', 'on_hold', 'completed', 'cancelled', 'overdue']);
   const safeStatus = allowedProjectStatuses.has(requestedStatus) ? requestedStatus : 'planning';
   const hasActualStart = Boolean(String(actualStartDate || '').trim());
   const hasActualEnd = Boolean(String(actualEndDate || '').trim());
 
   if (safeStatus === 'draft' || safeStatus === 'cancelled' || safeStatus === 'on_hold') return safeStatus;
   if (hasActualEnd) return 'completed';
+  const plannedEnd = new Date(String(plannedEndDate || '').slice(0, 10));
+  if (!Number.isNaN(plannedEnd.getTime())) {
+    plannedEnd.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (today > plannedEnd) return 'overdue';
+  }
   if (safeStatus === 'completed') return hasActualEnd ? 'completed' : (hasActualStart ? 'active' : 'planning');
   if (hasActualStart) return 'active';
-  return safeStatus;
+  return 'planning';
 }
 
 function computeProjectPriority(plannedEndDate = null, actualEndDate = null, status = '') {
@@ -973,6 +1200,23 @@ function computeProjectPriority(plannedEndDate = null, actualEndDate = null, sta
 
 function canManageSuperAdmin(req) {
   return isSuperAdminRole(getAuthenticatedUser(req)?.role);
+}
+
+function canManagePrivilegedUsers(req) {
+  return isSuperAdminRole(getAuthenticatedUser(req)?.role);
+}
+
+function isPrivilegedUserRoleValue(role) {
+  return ['super_admin', 'admin'].includes(normalizeAccessRole(role));
+}
+
+function assertCanManageUserTarget(req, targetRole, action = 'manage') {
+  if (canManagePrivilegedUsers(req)) return;
+  if (isPrivilegedUserRoleValue(targetRole)) {
+    const err = new Error(`Only Super Admin can ${action} admin or super admin accounts.`);
+    err.statusCode = 403;
+    throw err;
+  }
 }
 
 function hashResetToken(token) {
@@ -1640,7 +1884,7 @@ const protectedStaticHtmlPaths = new Map([
   ['/reports/index.html', protectAdminOnly],
   ['/gantt-chart/index.html', protectAdminOnly],
   ['/business-entities/index.html', protectSuperAdmin],
-  ['/user-management/index.html', protectSuperAdmin],
+  ['/user-management/index.html', protectAdminOnly],
   ['/user-index/index.html', protectAuthenticated]
 ]);
 
@@ -4720,10 +4964,10 @@ function buildProfessionalPurchaseRequisitionPdf(row, itemRows = [], total = 0) 
   text(150, 615, formatPdfDate(row.request_date) || '-', { size: 9 });
   text(62, 597, 'Needed By', { bold: true, size: 8, color: '0.36 0.38 0.42' });
   text(150, 597, formatPdfDate(row.needed_by) || '-', { size: 9 });
-  text(62, 579, 'Department', { bold: true, size: 8, color: '0.36 0.38 0.42' });
-  text(150, 579, truncatePdfValue(row.department || '-', 24), { size: 9 });
-  text(62, 561, 'Requested By', { bold: true, size: 8, color: '0.36 0.38 0.42' });
-  text(150, 561, truncatePdfValue(row.requested_by || '-', 24), { size: 9 });
+  text(62, 579, 'Requested By', { bold: true, size: 8, color: '0.36 0.38 0.42' });
+  text(150, 579, truncatePdfValue(row.requested_by || '-', 24), { size: 9 });
+  text(62, 561, 'Submitted By', { bold: true, size: 8, color: '0.36 0.38 0.42' });
+  text(150, 561, truncatePdfValue(row.submitted_by || '-', 24), { size: 9 });
 
   rect(314, 543, 248, 108, { stroke: '0.82 0.84 0.87' });
   rect(314, 631, 248, 20, { fill: '0.94 0.95 0.96' });
@@ -6554,7 +6798,7 @@ app.get('/gantt-chart', protectAdminOnly, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'gantt-chart', 'index.html'));
 });
 
-app.get('/user-management', protectSuperAdmin, (req, res) => {
+app.get('/user-management', protectAdminOnly, (req, res) => {
   noCache(res);
   res.sendFile(path.join(__dirname, 'public', 'user-management', 'index.html'));
 });
@@ -6747,7 +6991,7 @@ app.post('/register', registerRateLimiter, async (req, res) => {
               sendBackgroundNotification(() => notifyApprovalRequest(req, {
                 title: 'User Registration',
                 recordNo: email,
-                submittedBy: name,
+                submittedBy: `${name} (Staff)`,
                 reviewPath: '/user-management',
                 details: {
                   Name: name,
@@ -9552,6 +9796,7 @@ app.post('/api/bills', protectAdmin, upload.single('pdf_file'), async (req, res)
       prefix: 'BILL',
       documentNo: billNumber
     });
+    sendBackgroundNotification(() => notifyBillApprovalRequest(req, result.insertId), 'ap bill approval request email');
     res.json({ id: result.insertId, project_id: projectId, po_id: poId });
   } catch (err) {
     if (isPostgresUniqueViolation(err)) {
@@ -9635,6 +9880,7 @@ app.put('/api/bills/:id', protectAdmin, upload.single('pdf_file'), async (req, r
       fs.unlink(oldPath, () => {});
     }
 
+    sendBackgroundNotification(() => notifyBillApprovalRequest(req, billId), 'ap bill approval request email');
     res.json({ id: billId, project_id: projectId, po_id: poId });
   } catch (err) {
     cleanupUploadedPdf();
@@ -9670,7 +9916,9 @@ app.post('/api/bills/:id/approve', protectAdminOnly, async (req, res) => {
     );
     await syncPayableBalance(billId);
     logAction(req, 'APPROVE_AP_BILL', `Approved AP bill ${rows[0].bill_number || billId}`);
-    sendBackgroundNotification(() => notifyFinanceApproval(req, 'bill', billId), 'ap bill approved email');
+    sendBackgroundNotification(() => notifyFinanceApproval(req, 'bill', billId, {
+      approvedBy: getApprovalActorLabel(req)
+    }), 'ap bill approved email');
     res.json({ success: true, approval_status: 'approved', approved_by: approvedBy });
   } catch (err) {
     console.error('Approve AP bill error:', err);
@@ -10246,6 +10494,15 @@ app.post('/api/procurement/requisitions', protectAdmin, async (req, res) => {
   if (!projectId) {
     return res.status(400).json({ error: 'Project is required for purchase requisitions.' });
   }
+  if (!requestDate) {
+    return res.status(400).json({ error: 'Request date is required.' });
+  }
+  if (!requestedBy) {
+    return res.status(400).json({ error: 'Requested by is required.' });
+  }
+  if (!neededBy) {
+    return res.status(400).json({ error: 'Needed by date is required.' });
+  }
 
   try {
     const projectRecord = await resolvePurchaseOrderProjectContext(projectId, companyId);
@@ -10417,6 +10674,13 @@ function resolveProcurementStatusForActor(req, requestedStatus, {
 function getApprovalActorName(req) {
   const actor = getAuthenticatedUser(req) || {};
   return String(actor.fullname || actor.username || 'Admin').trim() || 'Admin';
+}
+
+function getApprovalActorLabel(req) {
+  const actor = getAuthenticatedUser(req) || {};
+  const name = getApprovalActorName(req);
+  const role = formatAccessRoleLabel(actor.role || 'user');
+  return `${name} (${role})`;
 }
 
 function assertStatusTransition(currentStatus, nextStatus, allowedMap, label) {
@@ -10986,6 +11250,15 @@ app.put('/api/procurement/requisitions/:id', protectAdmin, async (req, res) => {
   if (!projectId) {
     return res.status(400).json({ error: 'Project is required for purchase requisitions.' });
   }
+  if (!requestDate) {
+    return res.status(400).json({ error: 'Request date is required.' });
+  }
+  if (!requestedBy) {
+    return res.status(400).json({ error: 'Requested by is required.' });
+  }
+  if (!neededBy) {
+    return res.status(400).json({ error: 'Needed by date is required.' });
+  }
 
   try {
     const requisitionRows = await queryAsync('SELECT id, status, requested_by_email FROM purchase_requisitions WHERE id = ? LIMIT 1', [requisitionId]);
@@ -11358,7 +11631,9 @@ app.post('/api/procurement/requisitions/:id/approve', protectAdminOnly, async (r
       [getApprovalActorName(req), requisitionId]
     );
     logAction(req, 'APPROVE_PURCHASE_REQUISITION', `Approved requisition ${rows[0].pr_number}`);
-    sendBackgroundNotification(() => notifyPurchaseRequisitionRequester(req, requisitionId, 'approved'), 'purchase requisition approved email');
+    sendBackgroundNotification(() => notifyPurchaseRequisitionRequester(req, requisitionId, 'approved', {
+      approvedBy: getApprovalActorLabel(req)
+    }), 'purchase requisition approved email');
     res.json({ success: true, status: 'approved' });
   } catch (err) {
     const validationMessage = String(err?.message || '').toLowerCase();
@@ -11389,7 +11664,10 @@ app.post('/api/procurement/requisitions/:id/cancel', protectAdminOnly, async (re
       [getApprovalActorName(req), cancelReason, requisitionId]
     );
     logAction(req, 'CANCEL_PURCHASE_REQUISITION', `Cancelled requisition ${rows[0].pr_number}`);
-    sendBackgroundNotification(() => notifyPurchaseRequisitionRequester(req, requisitionId, 'cancelled', { reason: cancelReason }), 'purchase requisition cancelled email');
+    sendBackgroundNotification(() => notifyPurchaseRequisitionRequester(req, requisitionId, 'cancelled', {
+      reason: cancelReason,
+      cancelledBy: getApprovalActorLabel(req)
+    }), 'purchase requisition cancelled email');
     res.json({ success: true, status: 'cancelled' });
   } catch (err) {
     const validationMessage = String(err?.message || '').toLowerCase();
@@ -11594,7 +11872,9 @@ app.post('/api/procurement/purchase-orders/:id/approve', protectAdminOnly, async
       [approvedBy, poId]
     );
     logAction(req, 'APPROVE_PURCHASE_ORDER', `Approved purchase order ${rows[0].po_number}`);
-    sendBackgroundNotification(() => notifyPurchaseOrderRequester(req, poId, 'approved'), 'purchase order approved email');
+    sendBackgroundNotification(() => notifyPurchaseOrderRequester(req, poId, 'approved', {
+      approvedBy: getApprovalActorLabel(req)
+    }), 'purchase order approved email');
     res.json({ success: true, status: 'approved', approved_by: approvedBy });
   } catch (err) {
     const validationMessage = String(err?.message || '').toLowerCase();
@@ -11625,7 +11905,10 @@ app.post('/api/procurement/purchase-orders/:id/cancel', protectAdminOnly, async 
       [getApprovalActorName(req), cancelReason, poId]
     );
     logAction(req, 'CANCEL_PURCHASE_ORDER', `Cancelled purchase order ${rows[0].po_number}`);
-    sendBackgroundNotification(() => notifyPurchaseOrderRequester(req, poId, 'cancelled', { reason: cancelReason }), 'purchase order cancelled email');
+    sendBackgroundNotification(() => notifyPurchaseOrderRequester(req, poId, 'cancelled', {
+      reason: cancelReason,
+      cancelledBy: getApprovalActorLabel(req)
+    }), 'purchase order cancelled email');
     res.json({ success: true, status: 'cancelled' });
   } catch (err) {
     const validationMessage = String(err?.message || '').toLowerCase();
@@ -12136,6 +12419,7 @@ app.post('/api/payments', protectAdmin, async (req, res) => {
 
     if (payment.payment_type === 'ap' && payment.ap_id) {
       await syncPayableBalance(payment.ap_id);
+      sendBackgroundNotification(() => notifyPaymentApprovalRequest(req, result.insertId), 'ap payment approval request email');
     } else if (payment.payment_type === 'ar' && payment.ar_id) {
       await syncReceivableBalance(payment.ar_id);
     }
@@ -12215,7 +12499,9 @@ app.post('/api/payments/:id/approve', protectAdminOnly, async (req, res) => {
     }
 
     logAction(req, 'APPROVE_PAYMENT', `Approved ${payment.payment_type || 'payment'} payment ID ${paymentId}`);
-    sendBackgroundNotification(() => notifyFinanceApproval(req, 'payment', paymentId), 'payment approved email');
+    sendBackgroundNotification(() => notifyFinanceApproval(req, 'payment', paymentId, {
+      approvedBy: getApprovalActorLabel(req)
+    }), 'payment approved email');
     res.json({ success: true, approval_status: 'approved', approved_by: approvedBy });
   } catch (err) {
     console.error('Approve payment error:', err);
@@ -12531,7 +12817,7 @@ app.post('/api/projects', protectAdmin, upload.single('pdf_file'), (req, res) =>
   const isStaffCreator = isStaffRole(actorRole);
   const resolvedProjectStatus = isStaffCreator
     ? 'draft'
-    : normalizeProjectStatusForSave(status || 'planning', actual_start_date, actual_end_date);
+    : normalizeProjectStatusForSave(status || 'planning', actual_start_date, actual_end_date, resolvedPlannedEnd);
   const resolvedProjectPriority = computeProjectPriority(resolvedPlannedEnd, actual_end_date, resolvedProjectStatus);
   const approvedBy = resolvedProjectStatus === 'draft' ? null : getApprovalActorName(req);
   const todayYmd = new Date().toISOString().slice(0, 10);
@@ -12686,6 +12972,9 @@ app.post('/api/projects', protectAdmin, upload.single('pdf_file'), (req, res) =>
                 console.error('Default task creation failed:', taskErr);
               }
               logAction(req, 'CREATE_PROJECT', `Project Doc No: ${finalProjectDocno} | Status: ${resolvedProjectStatus} | Company ID: ${resolvedCompanyId} | Company No: ${resolvedCompanyNo} | Company Name: ${resolvedCompanyName}`);
+              if (resolvedProjectStatus === 'draft') {
+                sendBackgroundNotification(() => notifyProjectApprovalRequest(req, projectId), 'project approval request email');
+              }
               res.json({
                 id: projectId,
                 project_docno: finalProjectDocno || null,
@@ -12828,7 +13117,7 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
     const currentProjectStatus = String(rows[0].status || 'planning').trim().toLowerCase() || 'planning';
     const resolvedProjectStatus = isStaffRole(actorRole)
       ? currentProjectStatus
-      : normalizeProjectStatusForSave(status || currentProjectStatus, actual_start_date, actual_end_date);
+      : normalizeProjectStatusForSave(status || currentProjectStatus, actual_start_date, actual_end_date, resolvedPlannedEnd);
     const resolvedProjectPriority = computeProjectPriority(resolvedPlannedEnd, actual_end_date, resolvedProjectStatus);
     const newlyApprovedBy = currentProjectStatus === 'draft' && resolvedProjectStatus !== 'draft'
       ? getApprovalActorName(req)
@@ -12879,7 +13168,7 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
                project_members_2 = ?, member_role_2 = ?, member_phone_2 = ?,
                project_members_3 = ?, member_role_3 = ?, member_phone_3 = ?,
                start_date = ?, end_date = ?, planned_start_date = ?, planned_end_date = ?,
-               actual_start_date = COALESCE(?, actual_start_date), actual_end_date = COALESCE(?, actual_end_date),
+               actual_start_date = ?, actual_end_date = ?,
                status_reason = COALESCE(?, status_reason), paused_at = ?, cancelled_at = ?,
                project_manager = ?, pdfFilename = ?, budget = ?, qty = ?, unit_cost = ?, members = ?,
                status = COALESCE(?, status), priority = COALESCE(?, priority),
@@ -13392,7 +13681,7 @@ app.get('/api/projects/:projectId/summary', protectAdmin, (req, res) => {
 });
 
 // ==================== USER MANAGEMENT (ADMIN ONLY) ====================
-app.get('/api/admin/users', protectSuperAdmin, (req, res) => {
+app.get('/api/admin/users', protectAdminOnly, (req, res) => {
   db.query(`
     SELECT
       u.id,
@@ -13420,7 +13709,7 @@ app.get('/api/admin/users', protectSuperAdmin, (req, res) => {
   });
 });
 
-app.post('/api/admin/users', protectSuperAdmin, async (req, res) => {
+app.post('/api/admin/users', protectAdminOnly, async (req, res) => {
   return res.status(403).json({ error: 'Use the registration flow for new accounts. Admins cannot create user passwords.' });
   const { name, username, email, password, role, active } = req.body;
   const normalizedUsername = String(username || '').trim();
@@ -13475,7 +13764,7 @@ app.post('/api/admin/users', protectSuperAdmin, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.patch('/api/admin/users/:id', protectSuperAdmin, async (req, res) => {
+app.patch('/api/admin/users/:id', protectAdminOnly, async (req, res) => {
 
   const userId = Number(req.params.id || 0);
   const { name, username, email, role, active, adminPassword } = req.body;
@@ -13512,6 +13801,11 @@ app.patch('/api/admin/users/:id', protectSuperAdmin, async (req, res) => {
     const actorIsSuperAdmin = canManageSuperAdmin(req);
     const isPrivilegeChange = !isSelf && isPrivilegedRole(updateRole) && updateRole !== previousRole;
     const isApprovingAsPrivileged = !isSelf && previousApprovalStatus === 'pending' && updateActive === 1 && isPrivilegedRole(updateRole);
+
+    assertCanManageUserTarget(req, previousRole, 'edit');
+    if (!actorIsSuperAdmin && updateRole !== previousRole) {
+      return res.status(403).json({ error: 'Only Super Admin can change user roles.' });
+    }
 
     if (!isSelf && (previousRole === 'super_admin' || updateRole === 'super_admin') && !actorIsSuperAdmin) {
       return res.status(403).json({ error: 'Super admin access can only be managed by another super admin.' });
@@ -13585,7 +13879,7 @@ app.patch('/api/admin/users/:id', protectSuperAdmin, async (req, res) => {
     });
   } catch (e) {
     console.error('Update User Route Error:', e);
-    res.status(500).json({ error: e.message });
+    res.status(e.statusCode || 500).json({ error: e.message });
   }
 });
 
@@ -13664,7 +13958,7 @@ app.get('/api/admin/logs', protectAdminOnly, (req, res) => {
   });
 });
 
-app.patch('/api/admin/users/:id/approve', protectSuperAdmin, async (req, res) => {
+app.patch('/api/admin/users/:id/approve', protectAdminOnly, async (req, res) => {
 
   const userId = Number(req.params.id || 0);
   const requestedRole = normalizeAccessRole(req.body?.role);
@@ -13682,16 +13976,23 @@ app.patch('/api/admin/users/:id/approve', protectSuperAdmin, async (req, res) =>
     const rows = await queryAsync('SELECT id, username, fullname, email, role, approval_status FROM users WHERE id = ? LIMIT 1', [userId]);
     if (!rows.length) return res.status(404).json({ error: 'User not found.' });
     const previousRole = normalizeAccessRole(rows[0].role);
+    const actorIsSuperAdmin = canManageSuperAdmin(req);
 
-    if (previousRole === 'super_admin' && role !== 'super_admin' && !canManageSuperAdmin(req)) {
+    assertCanManageUserTarget(req, previousRole, 'approve');
+
+    if (!actorIsSuperAdmin && role !== 'staff') {
+      return res.status(403).json({ error: 'Admin can approve staff accounts only.' });
+    }
+
+    if (previousRole === 'super_admin' && role !== 'super_admin' && !actorIsSuperAdmin) {
       return res.status(403).json({ error: 'Super admin access can only be managed by another super admin.' });
     }
 
-    if (role === 'super_admin' && !canManageSuperAdmin(req)) {
+    if (role === 'super_admin' && !actorIsSuperAdmin) {
       return res.status(403).json({ error: 'Super admin access can only be assigned by another super admin.' });
     }
 
-    if (isPrivilegedRole(role)) {
+    if (actorIsSuperAdmin && isPrivilegedRole(role)) {
       const confirmed = await verifyCurrentAdminPassword(req, adminPassword);
       if (!confirmed) {
         return res.status(403).json({ error: 'Current admin password is required before assigning privileged access.' });
@@ -13704,16 +14005,17 @@ app.patch('/api/admin/users/:id/approve', protectSuperAdmin, async (req, res) =>
     );
     logAction(req, 'APPROVE_USER', `Approved account: ${rows[0].username} as ${role}`);
     sendBackgroundNotification(() => notifyUserAccountDecision(rows[0], 'approved', role, {
-      baseUrl: getRequestBaseUrl(req)
+      baseUrl: getRequestBaseUrl(req),
+      approvedBy: getApprovalActorLabel(req)
     }), 'user approval result email');
     res.json({ success: true });
   } catch (err) {
     console.error('Approve User Error:', err);
-    res.status(500).json({ error: err.message || 'Unable to approve user.' });
+    res.status(err.statusCode || 500).json({ error: err.message || 'Unable to approve user.' });
   }
 });
 
-app.patch('/api/admin/users/:id/reject', protectSuperAdmin, async (req, res) => {
+app.patch('/api/admin/users/:id/reject', protectAdminOnly, async (req, res) => {
 
   const userId = Number(req.params.id || 0);
   if (!Number.isInteger(userId) || userId <= 0) {
@@ -13726,6 +14028,7 @@ app.patch('/api/admin/users/:id/reject', protectSuperAdmin, async (req, res) => 
   try {
     const rows = await queryAsync('SELECT id, username, fullname, email, role FROM users WHERE id = ? LIMIT 1', [userId]);
     if (!rows.length) return res.status(404).json({ error: 'User not found.' });
+    assertCanManageUserTarget(req, rows[0].role, 'reject');
     if (normalizeAccessRole(rows[0].role) === 'super_admin' && !canManageSuperAdmin(req)) {
       return res.status(403).json({ error: 'Super admin access can only be managed by another super admin.' });
     }
@@ -13736,12 +14039,13 @@ app.patch('/api/admin/users/:id/reject', protectSuperAdmin, async (req, res) => 
     );
     logAction(req, 'REJECT_USER', `Rejected account request: ${rows[0].username} (${rows[0].role})`);
     sendBackgroundNotification(() => notifyUserAccountDecision(rows[0], 'rejected', rows[0].role, {
-      baseUrl: getRequestBaseUrl(req)
+      baseUrl: getRequestBaseUrl(req),
+      decidedBy: getApprovalActorLabel(req)
     }), 'user rejection result email');
     res.json({ success: true });
   } catch (err) {
     console.error('Reject User Error:', err);
-    res.status(500).json({ error: err.message || 'Unable to reject user.' });
+    res.status(err.statusCode || 500).json({ error: err.message || 'Unable to reject user.' });
   }
 });
 
@@ -13930,7 +14234,7 @@ app.get('/api/transactions/export', protectAdmin, (req, res) => {
   });
 });
 
-app.patch('/api/admin/users/:id/toggle', protectSuperAdmin, (req, res) => {
+app.patch('/api/admin/users/:id/toggle', protectAdminOnly, (req, res) => {
 
   const userId = Number(req.params.id);
   if (!Number.isInteger(userId) || userId <= 0) {
@@ -13946,6 +14250,11 @@ app.patch('/api/admin/users/:id/toggle', protectSuperAdmin, (req, res) => {
 
     const target = rows[0];
     const targetRole = normalizeAccessRole(target.role);
+    try {
+      assertCanManageUserTarget(req, targetRole, 'enable or disable');
+    } catch (accessErr) {
+      return res.status(accessErr.statusCode || 403).json({ error: accessErr.message });
+    }
     if (targetRole === 'super_admin' && !canManageSuperAdmin(req)) {
       return res.status(403).json({ error: 'Super admin access can only be managed by another super admin.' });
     }
@@ -13990,7 +14299,7 @@ app.patch('/api/admin/users/:id/toggle', protectSuperAdmin, (req, res) => {
   });
 });
 
-app.delete('/api/admin/users/:id', protectSuperAdmin, (req, res) => {
+app.delete('/api/admin/users/:id', protectAdminOnly, (req, res) => {
 
   const userId = Number(req.params.id);
   if (!Number.isInteger(userId) || userId <= 0) {
@@ -14006,6 +14315,11 @@ app.delete('/api/admin/users/:id', protectSuperAdmin, (req, res) => {
 
     const target = rows[0];
     const targetRole = normalizeAccessRole(target.role);
+    try {
+      assertCanManageUserTarget(req, targetRole, 'delete');
+    } catch (accessErr) {
+      return res.status(accessErr.statusCode || 403).json({ error: accessErr.message });
+    }
     if (targetRole === 'super_admin' && !canManageSuperAdmin(req)) {
       return res.status(403).json({ error: 'Super admin access can only be managed by another super admin.' });
     }
@@ -14052,7 +14366,7 @@ app.delete('/api/admin/users/:id', protectSuperAdmin, (req, res) => {
   });
 });
 
-app.patch('/api/admin/users/:id/reset-password', protectSuperAdmin, async (req, res) => {
+app.patch('/api/admin/users/:id/reset-password', protectAdminOnly, async (req, res) => {
   return res.status(403).json({ error: 'Admins cannot set user passwords. Use forgot password / reset link flow.' });
 
   const userId = Number(req.params.id);

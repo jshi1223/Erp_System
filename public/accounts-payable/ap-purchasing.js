@@ -422,6 +422,8 @@ function getProcurementFieldNodes(fieldName) {
     vendor_no: ['f-vendor-no'],
     company_id: ['pr-company', 'po-company'],
     request_date: ['pr-request-date'],
+    requested_by: ['pr-requested-by'],
+    needed_by: ['pr-needed-by'],
     pr_line_items: ['pr-line-items'],
     po_number: ['po-number'],
     requisition_id: ['po-source-rfq', 'po-requisition'],
@@ -547,6 +549,8 @@ function setupProcurementModalValidationListeners() {
     ['f-vendor-no', 'vendor_no', 'input'],
     ['pr-company', 'company_id', 'change'],
     ['pr-request-date', 'request_date', 'change'],
+    ['pr-requested-by', 'requested_by', 'input'],
+    ['pr-needed-by', 'needed_by', 'change'],
     ['po-number', 'po_number', 'input'],
     ['po-company', 'company_id', 'change'],
     ['pr-project', 'project_id', 'change'],
@@ -3600,6 +3604,8 @@ async function saveRequisition() {
   if (!payload.project_id) markError('project_id', 'Project selection is required for traceability.');
   if (!payload.company_id) markError('company_id', 'Company selection is required.');
   if (!payload.request_date) markError('request_date', 'Request Date is required.');
+  if (!payload.requested_by) markError('requested_by', 'Requested By is required.');
+  if (!payload.needed_by) markError('needed_by', 'Needed By is required.');
 
   if (hasValidationError) {
     if (firstInvalidField === 'pr_line_items') {
@@ -3609,7 +3615,9 @@ async function saveRequisition() {
     focusFirstProcurementField(firstInvalidField, {
       company_id: ['pr-company'],
       project_id: ['pr-project'],
-      request_date: ['pr-request-date']
+      request_date: ['pr-request-date'],
+      requested_by: ['pr-requested-by'],
+      needed_by: ['pr-needed-by']
     });
     return;
   }

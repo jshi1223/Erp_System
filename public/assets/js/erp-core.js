@@ -191,7 +191,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (user?.csrfToken) {
       window.__CSRF_TOKEN__ = user.csrfToken;
     }
-    updateRoleBadge(user.role);
+    updateRoleBadge(user);
     const safeCurrentRole = normalizeAccessRole(user.role);
     document.body?.setAttribute('data-access-role', safeCurrentRole);
     document.body?.classList.toggle('is-staff-role', safeCurrentRole === 'staff');
@@ -213,7 +213,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (menuUsers) menuUsers.style.display = 'block';
 
       const menuBusinessEntities = document.getElementById('menu-business-entities');
-      if (menuBusinessEntities) menuBusinessEntities.style.display = 'block';
+      if (menuBusinessEntities) menuBusinessEntities.style.display = safeCurrentRole === 'super_admin' ? 'block' : 'none';
       
       const menuLogs = document.getElementById('menu-logs');
       if (menuLogs) menuLogs.style.display = 'block';
@@ -464,19 +464,24 @@ function updateDashboardHero(panel) {
   pageSub.textContent = '';
 }
 
-function updateRoleBadge(role) {
+function updateRoleBadge(userOrRole) {
   const badge = document.getElementById('role-badge');
   if (!badge) return;
 
+  const user = typeof userOrRole === 'object' && userOrRole ? userOrRole : currentUser;
+  const role = typeof userOrRole === 'object' && userOrRole ? userOrRole.role : userOrRole;
   const safeRole = normalizeAccessRole(role);
   const labelMap = {
     super_admin: 'Super Admin',
-    admin: 'Administrator',
+    admin: 'Admin',
     staff: 'Staff',
     user: 'User'
   };
+  const name = String(user?.fullname || user?.username || '').trim();
+  const roleLabel = labelMap[safeRole] || 'User';
 
-  badge.textContent = labelMap[safeRole] || 'User';
+  badge.textContent = name ? `${name} (${roleLabel})` : roleLabel;
+  badge.title = name ? `Logged in as ${name} (${roleLabel})` : `Logged in as ${roleLabel}`;
   badge.dataset.role = safeRole;
 }
 
@@ -3260,13 +3265,17 @@ function renderApprovalUserRow(u, q) {
   const safeRole = getSafeUserRole(u);
   const approvalRole = safeRole === 'user' ? 'staff' : safeRole;
   const isSelf = Number(u.id) === Number(currentUser?.id || 0);
+  const canManageTarget = canCurrentUserManageUser(u);
   const statusMeta = getUserStatusMeta(u);
   const approveAttrs = isSelf
     ? 'disabled title="Hindi puwedeng i-approve ang sarili mong account dito."'
-    : `onclick="approveUser(${u.id}, '${approvalRole}')"`;
+    : (canManageTarget ? `onclick="approveUser(${u.id}, '${approvalRole}')"` : 'disabled title="Only Super Admin can approve admin or super admin accounts."');
   const rejectAttrs = isSelf
     ? 'disabled title="Hindi puwedeng i-reject ang sarili mong account dito."'
-    : `onclick="rejectUser(${u.id})"`;
+    : (canManageTarget ? `onclick="rejectUser(${u.id})"` : 'disabled title="Only Super Admin can reject admin or super admin accounts."');
+  const editAttrs = canManageTarget
+    ? `onclick="editUser(${u.id})"`
+    : 'disabled title="Only Super Admin can edit admin or super admin accounts."';
 
   return `
     <tr style="height: 70px;">
@@ -3277,7 +3286,7 @@ function renderApprovalUserRow(u, q) {
       <td class="text-center" style="padding: 15px 20px; font-size: 0.95rem;"><span class="status-pill ${statusMeta.className}">${statusMeta.label}</span></td>
       <td class="text-center" style="padding: 15px 20px;">
         <div class="actions" style="justify-content:center; gap:6px;">
-          <button class="btn btn-sm btn-edit" onclick="editUser(${u.id})">Edit</button>
+          <button class="btn btn-sm btn-edit" ${editAttrs}>Edit</button>
           <button class="btn btn-sm btn-add" ${approveAttrs}>Approve Staff</button>
           <button class="btn btn-sm btn-delete" ${rejectAttrs}>Reject</button>
         </div>
@@ -3288,13 +3297,17 @@ function renderApprovalUserRow(u, q) {
 
 function renderManagedUserRow(u, q) {
   const isSelf = Number(u.id) === Number(currentUser?.id || 0);
+  const canManageTarget = canCurrentUserManageUser(u);
   const approvalStatus = getUserApprovalStatus(u);
   const isRejected = approvalStatus === 'rejected';
   const statusMeta = getUserStatusMeta(u);
   const toggleAttrs = isSelf
     ? 'disabled title="Hindi puwedeng baguhin ang sarili mong account status."'
-    : (isRejected ? 'disabled title="Edit the rejected account to approve it first."' : `onclick="toggleUser(${u.id})"`);
-  const deleteAttrs = isSelf ? 'disabled title="Hindi puwedeng i-delete ang sarili mong account."' : `onclick="deleteUser(${u.id})"`;
+    : (!canManageTarget ? 'disabled title="Only Super Admin can enable or disable admin/super admin accounts."' : (isRejected ? 'disabled title="Edit the rejected account to approve it first."' : `onclick="toggleUser(${u.id})"`));
+  const deleteAttrs = isSelf ? 'disabled title="Hindi puwedeng i-delete ang sarili mong account."' : (canManageTarget ? `onclick="deleteUser(${u.id})"` : 'disabled title="Only Super Admin can delete admin/super admin accounts."');
+  const editAttrs = canManageTarget
+    ? `onclick="editUser(${u.id})"`
+    : 'disabled title="Only Super Admin can edit admin or super admin accounts."';
 
   return `
     <tr style="height: 70px;">
@@ -3305,7 +3318,7 @@ function renderManagedUserRow(u, q) {
       <td class="text-center" style="padding: 15px 20px; font-size: 0.8rem; color: var(--muted); white-space: nowrap;">${renderUserDateCell(u.last_login, 'Never')}</td>
       <td class="text-center" style="padding: 15px 20px;">
         <div class="actions" style="justify-content:center; gap:6px;">
-          <button class="btn btn-sm btn-edit" onclick="editUser(${u.id})">Edit</button>
+          <button class="btn btn-sm btn-edit" ${editAttrs}>Edit</button>
           <button class="btn btn-sm ${u.active ? 'btn-delete' : 'btn-add'}" ${toggleAttrs}>${u.active ? 'Disable' : 'Enable'}</button>
           <button class="btn btn-sm btn-delete" ${deleteAttrs}>Delete</button>
         </div>
@@ -6221,6 +6234,7 @@ function findUserDuplicateField(username, email, excludeId = 0) {
 
 function userModalNeedsAdminPassword() {
   if (userModalMode !== 'edit' || !userModalSnapshot) return false;
+  if (!isSuperAdminUser()) return false;
   const roleInput = document.getElementById('u-role');
   const statusInput = document.getElementById('u-status');
   const snapshotRole = normalizeAccessRole(userModalSnapshot.role || 'staff');
@@ -6250,6 +6264,15 @@ function syncSuperAdminRoleOption() {
     option.disabled = !allowSuperAdmin;
     option.hidden = !allowSuperAdmin;
   });
+  document.querySelectorAll('#u-role option[value="admin"]').forEach((option) => {
+    option.disabled = !allowSuperAdmin;
+    option.hidden = !allowSuperAdmin;
+  });
+}
+
+function canCurrentUserManageUser(user = {}) {
+  if (isSuperAdminUser()) return true;
+  return !isPrivilegedRoleValue(user?.role);
 }
 
 function syncUserModalMode() {
@@ -6296,6 +6319,11 @@ function openUserModal(user = null) {
   resetUserModalForm();
 
   if (user) {
+    if (!canCurrentUserManageUser(user)) {
+      closeUserModal();
+      showToast('Only Super Admin can edit admin or super admin accounts.', 'error');
+      return;
+    }
     const nameInput = document.getElementById('u-name');
     const usernameInput = document.getElementById('u-username');
     const emailInput = document.getElementById('u-email');
@@ -6307,6 +6335,7 @@ function openUserModal(user = null) {
     if (roleInput) {
       const safeRole = normalizeAccessRole(user.role || 'staff');
       roleInput.value = safeRole === 'user' ? 'staff' : safeRole;
+      roleInput.disabled = !isSuperAdminUser();
     }
     if (statusInput) statusInput.value = Number(user.active || 0) === 1 ? '1' : '0';
   }
@@ -6445,7 +6474,7 @@ async function approveUser(id, role = 'staff') {
   if (!id) return;
   const targetRole = String(role || 'staff');
   let adminPassword = '';
-  if (targetRole === 'super_admin' || targetRole === 'admin' || targetRole === 'staff') {
+  if (isSuperAdminUser() && (targetRole === 'super_admin' || targetRole === 'admin' || targetRole === 'staff')) {
     adminPassword = await openApprovalPasswordDialog(targetRole);
     if (!adminPassword) return;
   }
