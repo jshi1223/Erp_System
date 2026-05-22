@@ -814,7 +814,7 @@
       <div class="field full">
         <label>Company <span class="req-star">*</span></label>
         <input id="pr-company-search" type="text" placeholder="Auto-filled from selected project" autocomplete="off" oninput="renderCompanyOptions('pr-company')" />
-        <select id="pr-company"></select>
+        <select id="pr-company" hidden aria-hidden="true"></select>
         <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">Select a project first. The company is filled automatically from the linked project.</div>
         <div class="modal-inline-message is-hidden" data-procurement-field-message="company_id" aria-live="polite"></div>
       </div>

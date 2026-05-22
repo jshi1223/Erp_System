@@ -277,6 +277,19 @@ body.admin-page .archive-summary-grid {
   margin-bottom: 16px;
 }
 
+body.admin-page #dashboard > main > .stats.dashboard-stats:first-of-type {
+  align-items: stretch;
+  background: transparent !important;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  margin-bottom: 16px;
+  min-height: 0;
+}
+
+body.admin-page #dashboard > main > .stats.dashboard-stats:first-of-type .stat-card {
+  min-height: 132px;
+}
+
 body.admin-page .archive-center-wrap {
   max-height: none;
   overflow-x: auto;
@@ -420,6 +433,7 @@ body.admin-page #archive-center-section .module-page-toolbar .section-back-btn {
   body.admin-page .archive-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
 }
 
 @media (max-width: 640px) {

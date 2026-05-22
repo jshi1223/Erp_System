@@ -77,18 +77,20 @@ function requisitionCanCreateRfq(requisition) {
 }
 
 function requisitionIsLockedForEditing(requisition) {
-  const status = normalizeWorkflowStatus(requisition?.status || 'draft');
-  return ['approved', 'ordered', 'received', 'cancelled', 'rejected'].includes(status);
+  const status = normalizeWorkflowStatus(requisition?.status || 'draft') || 'draft';
+  return status !== 'draft';
 }
 
 function getRequisitionLockedReason(requisition) {
-  const status = normalizeWorkflowStatus(requisition?.status || 'draft');
+  const status = normalizeWorkflowStatus(requisition?.status || 'draft') || 'draft';
+  if (status === 'submitted') return 'Submitted requisitions are locked and waiting for approval.';
+  if (status === 'pending') return 'Pending requisitions are locked and waiting for approval.';
   if (status === 'approved') return 'Approved requisitions are locked. Create RFQ/PO from this request or cancel/revise through a controlled flow.';
   if (status === 'ordered') return 'This requisition is already converted to a purchase order.';
   if (status === 'received') return 'This requisition is already received and closed.';
   if (status === 'cancelled') return 'Cancelled requisitions are view-only.';
   if (status === 'rejected') return 'Rejected requisitions are view-only.';
-  if (Number(requisition?.project_id || 0) > 0) return 'Project-linked requisitions are view-only from this modal.';
+  if (status !== 'draft') return 'Only draft requisitions can be edited.';
   return '';
 }
 
@@ -1597,6 +1599,15 @@ function renderCompanyOptions(selectId = 'pr-company', emptyLabel = 'Select comp
   if (current) select.value = current;
 }
 
+function getProcurementCompanyLabelById(companyId) {
+  const id = Number(companyId || 0) || 0;
+  if (!id) return '';
+  const company = (Array.isArray(procurementState.companies) ? procurementState.companies : [])
+    .find((entry) => Number(entry.id || 0) === id);
+  if (!company) return '';
+  return [company.company_no, company.company_name].filter(Boolean).join(' - ') || company.company_name || 'Company';
+}
+
 function renderPurchaseOrderRequisitionOptions(selectedValue = null) {
   const select = $('po-requisition');
   if (!select) return;
@@ -1737,7 +1748,7 @@ function syncRequisitionProjectContext(projectId = currentRequisitionProjectId) 
       setProcurementFieldMessage('project_id', '');
     }
     if (companySearch) {
-      companySearch.value = '';
+      companySearch.value = getProcurementCompanyLabelById(companyId);
       companySearch.disabled = true;
     }
   } else {
@@ -2538,7 +2549,7 @@ function renderRequisitions() {
       ? `<button class="btn btn-cancel btn-sm" type="button" onclick="cancelRequisition(${Number(row.id)})">Cancel</button>`
       : '';
     const pdfFilename = row.pdfFilename || `purchase-requisition-${Number(row.id)}.pdf`;
-    const editLabel = Number(row.project_id || 0) > 0 ? 'View' : 'Edit';
+    const editLabel = requisitionIsLockedForEditing(row) ? 'View' : 'Edit';
     const pdfButton = `<div class="erp-actions" style="justify-content:center;">
         <button class="btn btn-pdf btn-sm" type="button" onclick="openRequisitionPdfViewer(${Number(row.id)})">View PDF</button>
         <a class="btn btn-save btn-sm" href="/api/procurement/requisitions/${Number(row.id)}/pdf?download=1" download="${escHtml(pdfFilename)}">Download</a>
@@ -3529,7 +3540,7 @@ function openRequisitionModal(id = null, options = {}) {
     syncProcurementStatusSelect('pr-status', ['draft'], { lockStaff: true });
     setRequisitionLineItems(getRequisitionLineItems(row));
     $('pr-notes').value = row.notes || '';
-    const readOnly = requisitionIsLockedForEditing(row) || Number(row.project_id || 0) > 0;
+    const readOnly = requisitionIsLockedForEditing(row);
     setRequisitionReadOnlyMode(readOnly, getRequisitionLockedReason(row));
   } else {
     const companyId = Number(options.companyId || pendingRequisitionCompanyId || 0) || 0;

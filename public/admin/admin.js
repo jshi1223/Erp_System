@@ -40,14 +40,15 @@ document.addEventListener('DOMContentLoaded', () => {
         adminSidebarGroup.style.display = '';
         adminSidebarGroup.setAttribute('aria-hidden', 'false');
       }
+      const canManageSettings = safeCurrentRole === 'super_admin';
       const utab = document.getElementById('tab-users');
-      if (utab) utab.style.display = 'block';
+      if (utab) utab.style.display = canManageSettings ? 'block' : 'none';
 
       const menuUsers = document.getElementById('menu-users');
-      if (menuUsers) menuUsers.style.display = 'block';
+      if (menuUsers) menuUsers.style.display = canManageSettings ? 'block' : 'none';
 
       const menuBusinessEntities = document.getElementById('menu-business-entities');
-      if (menuBusinessEntities) menuBusinessEntities.style.display = 'block';
+      if (menuBusinessEntities) menuBusinessEntities.style.display = canManageSettings ? 'block' : 'none';
       
       const menuLogs = document.getElementById('menu-logs');
       if (menuLogs) menuLogs.style.display = 'block';
@@ -67,7 +68,7 @@ document.addEventListener('DOMContentLoaded', () => {
       localStorage.setItem('kinaadman_dashboardPanel', 'archive-center');
     }
     const archivedMenu = document.getElementById('menu-archived');
-    const allowedTabs = isAdminRoleValue(user.role) ? ['all', 'users'] : ['all'];
+    const allowedTabs = safeCurrentRole === 'super_admin' ? ['all', 'users'] : ['all'];
 
     if (archivedMenu) archivedMenu.style.display = isAdminRoleValue(user.role) ? '' : 'none';
     activeTab = allowedTabs.includes(storedTab) ? storedTab : 'all';
@@ -93,6 +94,8 @@ document.addEventListener('DOMContentLoaded', () => {
       loadUsers();
       renderUsers();
     }
+
+    applyPermissionMatrix();
 
     if (document.querySelector('.stats')) {
       loadRecords();
@@ -455,7 +458,6 @@ function openDashboardPanel(panel = 'home', opts = {}) {
   if (statsRow) {
     statsRow.style.display = panel === 'home' ? 'grid' : 'none';
   }
-
   if (panel === 'home') {
     updateSidebarMenuState('dashboard');
   } else if (panel === 'reports') {
@@ -1378,9 +1380,11 @@ function renderProjectMasterTable() {
             ${project.pdfFilename
               ? `<button class="btn btn-sm btn-pdf" type="button" onclick="openProjectPdfViewer(${Number(project.id)})">View PDF</button>`
               : `<span class="pdf-empty">N/A</span>`}
-            ${isArchived
-              ? `<button class="btn btn-sm btn-restore" type="button" onclick="toggleProjectArchive(${Number(project.id)}, false)" title="Restore Project">Restore</button>`
-              : `<button class="btn btn-sm btn-archive" type="button" onclick="toggleProjectArchive(${Number(project.id)}, true)" title="Archive Project">Archive</button>`}
+            ${isAdminUser()
+              ? (isArchived
+                ? `<button class="btn btn-sm btn-restore" type="button" onclick="toggleProjectArchive(${Number(project.id)}, false)" title="Restore Project">Restore</button>`
+                : `<button class="btn btn-sm btn-archive" type="button" onclick="toggleProjectArchive(${Number(project.id)}, true)" title="Archive Project">Archive</button>`)
+              : ''}
           </div>
         </td>
       </tr>
@@ -1453,9 +1457,11 @@ function renderProjectRecordsTable() {
             ${isDraft
               ? `<span class="status-pill status-draft" title="Admin approval required before PR">For Approval</span>`
               : `<button class="btn btn-sm btn-add" type="button" onclick="openProjectRequisition(${Number(project.id)})">Add PR</button>`}
-            ${isArchived
-              ? `<button class="btn btn-sm btn-restore" type="button" onclick="toggleProjectArchive(${Number(project.id)}, false)" title="Restore Project">Restore</button>`
-              : `<button class="btn btn-sm btn-archive" type="button" onclick="toggleProjectArchive(${Number(project.id)}, true)" title="Archive Project">Archive</button>`}
+            ${isAdminUser()
+              ? (isArchived
+                ? `<button class="btn btn-sm btn-restore" type="button" onclick="toggleProjectArchive(${Number(project.id)}, false)" title="Restore Project">Restore</button>`
+                : `<button class="btn btn-sm btn-archive" type="button" onclick="toggleProjectArchive(${Number(project.id)}, true)" title="Archive Project">Archive</button>`)
+              : ''}
           </div>
         </td>
       </tr>
@@ -3994,6 +4000,31 @@ function isStaffUser() {
   return currentUser && normalizeAccessRole(currentUser.role) === 'staff';
 }
 
+function applyPermissionMatrix() {
+  const role = normalizeAccessRole(currentUser?.role);
+  const canCreateDrafts = role === 'staff' || role === 'admin' || role === 'super_admin';
+  const canApproveOperations = role === 'admin' || role === 'super_admin';
+  const canManageSettings = role === 'super_admin';
+
+  document.body?.classList.toggle('can-create-drafts', canCreateDrafts);
+  document.body?.classList.toggle('can-approve-operations', canApproveOperations);
+  document.body?.classList.toggle('can-manage-settings', canManageSettings);
+
+  document.querySelectorAll('[data-requires-role="super_admin"]').forEach((node) => {
+    node.style.display = canManageSettings ? '' : 'none';
+    if ('disabled' in node) node.disabled = !canManageSettings;
+  });
+
+  document.querySelectorAll('[data-requires-approval-role="admin"]').forEach((node) => {
+    node.style.display = canApproveOperations ? '' : 'none';
+    if ('disabled' in node) node.disabled = !canApproveOperations;
+  });
+
+  document.querySelectorAll('[data-staff-draft-note]').forEach((node) => {
+    node.style.display = role === 'staff' ? '' : 'none';
+  });
+}
+
 function isProjectDraft(project) {
   return String(project?.status || '').trim().toLowerCase() === 'draft';
 }
@@ -4329,6 +4360,14 @@ function loadUsers() {
 }
 
 function switchTab(tab, btn) {
+  if (tab === 'users' && !isSuperAdminUser()) {
+    activeTab = 'all';
+    localStorage.setItem('kinaadman_activeTab', 'all');
+    openDashboardPanel('home');
+    showToast('Super admin lang ang may access sa user/settings management.', 'error');
+    return;
+  }
+
   if (!isAdminUser() && tab !== 'all') {
     activeTab = 'all';
     localStorage.setItem('kinaadman_activeTab', 'all');
@@ -5125,6 +5164,7 @@ function getProjectFieldNodes(fieldName) {
     company: ['p-company-search', 'p-company-id'],
     project_docno: ['p-project-docno'],
     project_name: ['p-project-name'],
+    project_manager: ['p-project-manager'],
     planned_start_date: ['p-planned-start-date'],
     planned_end_date: ['p-planned-end-date'],
     actual_end_date: ['p-actual-end-date'],
@@ -5175,7 +5215,7 @@ function setProjectFieldHint(fieldName, message = '') {
 }
 
 function clearProjectFieldMessages() {
-  ['company', 'project_docno', 'project_name', 'planned_start_date', 'planned_end_date', 'actual_end_date', 'budget'].forEach((fieldName) => {
+  ['company', 'project_docno', 'project_name', 'project_manager', 'planned_start_date', 'planned_end_date', 'actual_end_date', 'budget'].forEach((fieldName) => {
     setProjectFieldMessage(fieldName, '');
   });
 }
@@ -5186,6 +5226,7 @@ function setupProjectModalValidationListeners() {
       filterProjectCompanies();
     }],
     ['p-project-name', 'project_name', 'input'],
+    ['p-project-manager', 'project_manager', 'input'],
     ['p-planned-start-date', 'planned_start_date', 'change'],
     ['p-planned-end-date', 'planned_end_date', 'change'],
     ['p-actual-end-date', 'actual_end_date', 'change'],
@@ -5256,9 +5297,10 @@ async function saveProject() {
     if (!firstInvalidField) firstInvalidField = fieldName;
   };
 
-  if (!projectDocNoValue || !projectName || !plannedStartDate || !plannedEndDate || !companyId) {
+  if (!projectDocNoValue || !projectName || !projectManager || !plannedStartDate || !plannedEndDate || !companyId) {
     if (!projectDocNoValue) markProjectError('project_docno', 'Project No. is required.');
     if (!projectName) markProjectError('project_name', 'Project title is required.');
+    if (!projectManager) markProjectError('project_manager', 'Project manager is required.');
     if (!companyId) {
       if (!hasCompanyOptions) {
         markProjectError('company', 'No companies available yet. Please add a company in Company Registry first.');
@@ -5272,6 +5314,7 @@ async function saveProject() {
       project_name: ['p-project-name'],
       project_docno: ['p-project-docno'],
       company: ['p-company-search'],
+      project_manager: ['p-project-manager'],
       planned_start_date: ['p-planned-start-date'],
       planned_end_date: ['p-planned-end-date']
     };
@@ -7399,6 +7442,19 @@ function updateCompanyRegistryStatCard() {
   }
 }
 
+function updateNetPositionSummaryCard(receivableBalance = 0, payableBalance = 0) {
+  const statReports = document.getElementById('stat-reports');
+  const statReportsMini = document.getElementById('stat-reports-mini');
+  const netPosition = Number(receivableBalance || 0) - Number(payableBalance || 0);
+
+  if (statReports) {
+    statReports.textContent = formatPhpCurrency(netPosition);
+  }
+  if (statReportsMini) {
+    statReportsMini.textContent = `${getCurrentDashboardCompanyLabel()} • ${formatPhpCurrency(receivableBalance)} AR • ${formatPhpCurrency(payableBalance)} AP`;
+  }
+}
+
 async function updateStats() {
   const statsSeq = ++dashboardStatsSeq;
   const statLabel1 = document.getElementById('stat-label-1');
@@ -7419,6 +7475,8 @@ async function updateStats() {
   const statApMini = document.getElementById('stat-ap-mini');
   const statAr = document.getElementById('stat-ar');
   const statsYear = new Date().getFullYear();
+  let dashboardReceivableBalance = 0;
+  let dashboardPayableBalance = 0;
 
   if (statLabel1) statLabel1.textContent = 'Projects';
   if (statLabel2) statLabel2.textContent = 'Ongoing Projects';
@@ -7446,13 +7504,18 @@ async function updateStats() {
     if (status === 'completed' || status === 'cancelled' || status === 'on_hold') return false;
     return getProjectPhase(project) === 'ongoing';
   }).length;
+  const overdueProjectsCount = visibleProjects.filter(project => {
+    const status = String(project.status || '').toLowerCase();
+    if (status === 'completed' || status === 'cancelled' || status === 'draft') return false;
+    return getProjectPhase(project) === 'ended';
+  }).length;
 
   if (statProjects) statProjects.textContent = String(totalProjectsCount);
   if (statOngoing) statOngoing.textContent = String(ongoingProjectsCount);
   updateProjectWorkspaceSummary();
   const projectsMini = document.getElementById('stat-projects-mini');
   if (projectsMini) {
-    projectsMini.textContent = `${getCurrentDashboardCompanyLabel()} • ${totalProjectsCount} project${totalProjectsCount === 1 ? '' : 's'}`;
+    projectsMini.textContent = `${getCurrentDashboardCompanyLabel()} • ${ongoingProjectsCount} ongoing • ${overdueProjectsCount} overdue`;
   }
 
   try {
@@ -7514,6 +7577,7 @@ async function updateStats() {
       const paidAmount = getTransactionPaidAmountValue(r);
       return sum + Math.max(0, amount - paidAmount);
     }, 0);
+    dashboardReceivableBalance = totalReceivable;
 
     if (statAr) statAr.textContent = 'PHP ' + totalReceivable.toLocaleString('en-PH', { minimumFractionDigits: 2 });
     if (statArMini) {
@@ -7530,6 +7594,7 @@ async function updateStats() {
     updateCompanyRegistryStatCard();
     if (statAr) statAr.textContent = 'PHP 0.00';
     if (statArMini) statArMini.textContent = `${getCurrentDashboardCompanyLabel()} • 0 invoices`;
+    dashboardReceivableBalance = 0;
     renderInvoiceStatusQuickView([]);
     renderProjectLedgerStats([]);
   }
@@ -7551,10 +7616,12 @@ async function updateStats() {
     const requisitionRows = (Array.isArray(requisitions) ? requisitions : []).filter(row => businessEntityMatches(row));
     const purchaseOrderRows = (Array.isArray(purchaseOrders) ? purchaseOrders : []).filter(row => businessEntityMatches(row));
     const goodsReceiptRows = (Array.isArray(goodsReceipts) ? goodsReceipts : []).filter(row => businessEntityMatches(row));
-    const procurementTotal = requisitionRows.length + purchaseOrderRows.length + goodsReceiptRows.length;
-    if (statProcurement) statProcurement.textContent = String(procurementTotal);
+    const pendingRequisitions = requisitionRows.filter(row => !['ordered', 'cancelled'].includes(String(row.status || 'draft').toLowerCase())).length;
+    const pendingPurchaseOrders = purchaseOrderRows.filter(row => !['received', 'cancelled'].includes(String(row.status || 'draft').toLowerCase())).length;
+    const pendingProcurement = pendingRequisitions + pendingPurchaseOrders;
+    if (statProcurement) statProcurement.textContent = String(pendingProcurement);
     if (statProcurementMini) {
-      statProcurementMini.textContent = `${getCurrentDashboardCompanyLabel()} • ${requisitionRows.length} PR • ${purchaseOrderRows.length} PO • ${goodsReceiptRows.length} GRN`;
+      statProcurementMini.textContent = `${getCurrentDashboardCompanyLabel()} • ${pendingRequisitions} PR pending • ${pendingPurchaseOrders} PO pending`;
     }
   } catch (err) {
     console.error('Error fetching procurement stats:', err);
@@ -7593,14 +7660,17 @@ async function updateStats() {
       const paidAmount = parseFloat(b.paid_amount) || 0;
       return sum + Math.max(0, totalAmount - paidAmount);
     }, 0);
+    dashboardPayableBalance = totalPayable;
     if (statAp) statAp.textContent = 'PHP ' + totalPayable.toLocaleString('en-PH', { minimumFractionDigits: 2 });
     if (statApMini) statApMini.textContent = `${getCurrentDashboardCompanyLabel()} • ${billRows.length} bill${billRows.length === 1 ? '' : 's'}`;
   } catch (err) {
     console.error('Error fetching payable stats:', err);
     if (statAp) statAp.textContent = 'PHP 0.00';
     if (statApMini) statApMini.textContent = `${getCurrentDashboardCompanyLabel()} • 0 bills`;
+    dashboardPayableBalance = 0;
   }
 
+  updateNetPositionSummaryCard(dashboardReceivableBalance, dashboardPayableBalance);
   await loadNotifications();
 }
 
@@ -9175,7 +9245,19 @@ function openArchiveCenter() {
 }
 
 function loadLogs() {
-  fetch('/api/admin/logs')
+  const q = String(document.getElementById('logs-search')?.value || '').trim();
+  const action = String(document.getElementById('logs-filter')?.value || '').trim();
+  const moduleName = String(document.getElementById('logs-module-filter')?.value || '').trim();
+  const dateFrom = String(document.getElementById('logs-date-from')?.value || '').trim();
+  const dateTo = String(document.getElementById('logs-date-to')?.value || '').trim();
+  const params = new URLSearchParams({ limit: '250' });
+  if (q) params.set('q', q);
+  if (action) params.set('action', action);
+  if (moduleName) params.set('module', moduleName);
+  if (dateFrom) params.set('date_from', dateFrom);
+  if (dateTo) params.set('date_to', dateTo);
+
+  fetch(`/api/admin/logs?${params.toString()}`, { cache: 'no-store' })
     .then(res => {
       if (!res.ok) throw new Error('Unauthorized or Server Error');
       return res.json();
@@ -9187,7 +9269,7 @@ function loadLogs() {
     .catch(() => {
       const tbody = document.getElementById('logs-tbody');
       if (tbody) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center" style="color: var(--danger);">Failed to load logs.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center" style="color: var(--danger);">Failed to load logs.</td></tr>';
       }
     });
 }
@@ -9201,7 +9283,7 @@ function renderLogs() {
   if (!tbody) return;
 
   if (!filtered.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="text-center">No logs found.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center">No logs found.</td></tr>';
     return;
   }
 
@@ -9212,6 +9294,7 @@ function renderLogs() {
       <td><strong>${highlight(log.fullname || log.username || 'System', q)}</strong></td>
       <td><span class="log-action-badge">${highlight(log.action, q)}</span></td>
       <td style="font-size: 0.7rem; white-space: normal;">${highlight(log.details, q)}</td>
+      <td style="font-size: 0.7rem;">${highlight(log.ip_address || '-', q)}</td>
     </tr>
   `).join('');
 }
@@ -9222,22 +9305,32 @@ function getFilteredLogs(tokens, action) {
       log.module || '',
       log.fullname || '',
       log.username || '',
+      log.user_role || '',
       log.action || '',
-      log.details || ''
+      log.details || '',
+      log.ip_address || ''
     ].join(' ').toLowerCase();
     const searchMatch = !tokens.length || tokens.every((token) => haystack.includes(token));
     const actionMatch = !action || String(log.action || '') === action;
-    return searchMatch && actionMatch;
+    const moduleName = String(document.getElementById('logs-module-filter')?.value || '').trim().toLowerCase();
+    const moduleMatch = !moduleName || String(log.module || 'system').toLowerCase() === moduleName;
+    return searchMatch && actionMatch && moduleMatch;
   });
 }
 
 function exportLogs(format = 'xls') {
   const q = String(document.getElementById('logs-search')?.value || '').trim();
   const action = String(document.getElementById('logs-filter')?.value || '').trim();
+  const moduleName = String(document.getElementById('logs-module-filter')?.value || '').trim();
+  const dateFrom = String(document.getElementById('logs-date-from')?.value || '').trim();
+  const dateTo = String(document.getElementById('logs-date-to')?.value || '').trim();
   const params = new URLSearchParams();
   params.set('format', String(format || 'xls').toLowerCase());
   if (q) params.set('q', q);
   if (action) params.set('action', action);
+  if (moduleName) params.set('module', moduleName);
+  if (dateFrom) params.set('date_from', dateFrom);
+  if (dateTo) params.set('date_to', dateTo);
   window.location.href = `/api/admin/logs/export?${params.toString()}`;
 }
 

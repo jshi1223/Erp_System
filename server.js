@@ -1639,8 +1639,8 @@ const protectedStaticHtmlPaths = new Map([
   ['/inventory/index.html', protectAdmin],
   ['/reports/index.html', protectAdminOnly],
   ['/gantt-chart/index.html', protectAdminOnly],
-  ['/business-entities/index.html', protectAdminOnly],
-  ['/user-management/index.html', protectAdminOnly],
+  ['/business-entities/index.html', protectSuperAdmin],
+  ['/user-management/index.html', protectSuperAdmin],
   ['/user-index/index.html', protectAuthenticated]
 ]);
 
@@ -4887,6 +4887,18 @@ function protectAdminOnly(req, res, next) {
   return rejectUnauthorized(req, res);
 }
 
+function protectSuperAdmin(req, res, next) {
+  const user = getAuthenticatedUser(req);
+  if (user && isSuperAdminRole(user.role)) {
+    return next();
+  }
+
+  if (isApiRequest(req)) {
+    return res.status(403).json({ error: 'Super admin access required' });
+  }
+  return rejectUnauthorized(req, res);
+}
+
 function sendTransactionPdf(req, res, whereClause, params) {
   db.query(
     `SELECT id, docno, pdfFilename FROM transactions WHERE ${whereClause} LIMIT 1`,
@@ -6542,12 +6554,12 @@ app.get('/gantt-chart', protectAdminOnly, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'gantt-chart', 'index.html'));
 });
 
-app.get('/user-management', protectAdminOnly, (req, res) => {
+app.get('/user-management', protectSuperAdmin, (req, res) => {
   noCache(res);
   res.sendFile(path.join(__dirname, 'public', 'user-management', 'index.html'));
 });
 
-app.get('/business-entities', protectAdminOnly, (req, res) => {
+app.get('/business-entities', protectSuperAdmin, (req, res) => {
   noCache(res);
   res.sendFile(path.join(__dirname, 'public', 'business-entities', 'index.html'));
 });
@@ -8292,7 +8304,7 @@ app.get('/api/public-business-entities', async (req, res) => {
   }
 });
 
-app.post('/api/business-entities/:id/vendor-profile', protectAdminOnly, async (req, res) => {
+app.post('/api/business-entities/:id/vendor-profile', protectSuperAdmin, async (req, res) => {
   const businessEntityId = Number(req.params.id || 0);
   if (!businessEntityId) return res.status(400).json({ error: 'Invalid business entity id.' });
 
@@ -8395,7 +8407,7 @@ app.post('/api/business-entities/:id/vendor-profile', protectAdminOnly, async (r
   }
 });
 
-app.post('/api/business-entities', protectAdminOnly, async (req, res) => {
+app.post('/api/business-entities', protectSuperAdmin, async (req, res) => {
   try {
     const entityCode = String(req.body.entity_code || '').trim() || generateCode('ENT');
     const companyName = String(req.body.company_name || '').trim();
@@ -8432,7 +8444,7 @@ app.post('/api/business-entities', protectAdminOnly, async (req, res) => {
   }
 });
 
-app.put('/api/business-entities/:id', protectAdminOnly, async (req, res) => {
+app.put('/api/business-entities/:id', protectSuperAdmin, async (req, res) => {
   const businessEntityId = Number(req.params.id || 0);
   if (!businessEntityId) return res.status(400).json({ error: 'Invalid business entity id.' });
 
@@ -10382,7 +10394,8 @@ function normalizeProcurementWorkflowStatus(status) {
 }
 
 function procurementRequisitionIsLocked(status) {
-  return ['approved', 'ordered', 'received', 'cancelled', 'rejected'].includes(normalizeProcurementWorkflowStatus(status));
+  const normalizedStatus = normalizeProcurementWorkflowStatus(status || 'draft') || 'draft';
+  return normalizedStatus !== 'draft';
 }
 
 function resolveProcurementStatusForActor(req, requestedStatus, {
@@ -12525,8 +12538,9 @@ app.post('/api/projects', protectAdmin, upload.single('pdf_file'), (req, res) =>
   const resolvedPausedAt = resolvedProjectStatus === 'on_hold' ? (paused_at || todayYmd) : (paused_at || null);
   const resolvedCancelledAt = resolvedProjectStatus === 'cancelled' ? (cancelled_at || todayYmd) : (cancelled_at || null);
 
-  if (!project_name || !start_date || !end_date)
-    return res.status(400).json({ error: 'Missing required fields' });
+  if (!String(project_name || '').trim() || !Number(company_id || 0) || !String(project_manager || '').trim() || !start_date || !end_date) {
+    return res.status(400).json({ error: 'Project title, company, project manager, start date, and end date are required.' });
+  }
 
   if (normalizedMemberPhone && !isValidPhone(normalizedMemberPhone)) {
     return res.status(400).json({ error: 'Member phone number must be digits only, 7 to 15 digits.' });
@@ -12761,8 +12775,9 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
   const normalizedMemberPhone2 = normalizePhone(member_phone_2);
   const normalizedMemberPhone3 = normalizePhone(member_phone_3);
 
-  if (!project_name || !start_date || !end_date)
-    return res.status(400).json({ error: 'Missing required fields' });
+  if (!String(project_name || '').trim() || !Number(company_id || 0) || !String(project_manager || '').trim() || !start_date || !end_date) {
+    return res.status(400).json({ error: 'Project title, company, project manager, start date, and end date are required.' });
+  }
 
   if (normalizedMemberPhone && !isValidPhone(normalizedMemberPhone)) {
     return res.status(400).json({ error: 'Member phone number must be digits only, 7 to 15 digits.' });
@@ -13377,8 +13392,7 @@ app.get('/api/projects/:projectId/summary', protectAdmin, (req, res) => {
 });
 
 // ==================== USER MANAGEMENT (ADMIN ONLY) ====================
-app.get('/api/admin/users', protectAdminOnly, (req, res) => {
-  if (!isAdminRole(req.session.user.role)) return res.status(403).json({ error: 'Access denied' });
+app.get('/api/admin/users', protectSuperAdmin, (req, res) => {
   db.query(`
     SELECT
       u.id,
@@ -13406,8 +13420,7 @@ app.get('/api/admin/users', protectAdminOnly, (req, res) => {
   });
 });
 
-app.post('/api/admin/users', protectAdminOnly, async (req, res) => {
-  if (!isAdminRole(req.session.user.role)) return res.status(403).json({ error: 'Access denied' });
+app.post('/api/admin/users', protectSuperAdmin, async (req, res) => {
   return res.status(403).json({ error: 'Use the registration flow for new accounts. Admins cannot create user passwords.' });
   const { name, username, email, password, role, active } = req.body;
   const normalizedUsername = String(username || '').trim();
@@ -13462,8 +13475,7 @@ app.post('/api/admin/users', protectAdminOnly, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.patch('/api/admin/users/:id', protectAdminOnly, async (req, res) => {
-  if (!isAdminRole(req.session.user.role)) return res.status(403).json({ error: 'Access denied' });
+app.patch('/api/admin/users/:id', protectSuperAdmin, async (req, res) => {
 
   const userId = Number(req.params.id || 0);
   const { name, username, email, role, active, adminPassword } = req.body;
@@ -13582,6 +13594,51 @@ app.get('/api/admin/logs', protectAdminOnly, (req, res) => {
     return res.status(403).json({ error: 'Access denied' });
   }
 
+  const search = String(req.query.q || '').trim().toLowerCase();
+  const action = String(req.query.action || '').trim();
+  const moduleName = String(req.query.module || '').trim().toLowerCase();
+  const userId = Number(req.query.user_id || 0) || null;
+  const dateFrom = String(req.query.date_from || '').trim();
+  const dateTo = String(req.query.date_to || '').trim();
+  const limit = Math.max(25, Math.min(500, Number(req.query.limit || 200) || 200));
+  const where = [];
+  const params = [];
+
+  if (search) {
+    where.push(`(
+      LOWER(COALESCE(l.module, '')) LIKE ?
+      OR LOWER(COALESCE(l.action, '')) LIKE ?
+      OR LOWER(COALESCE(l.details, '')) LIKE ?
+      OR LOWER(COALESCE(l.ip_address, '')) LIKE ?
+      OR LOWER(COALESCE(u.fullname, '')) LIKE ?
+      OR LOWER(COALESCE(u.username, '')) LIKE ?
+      OR LOWER(COALESCE(u.role, '')) LIKE ?
+    )`);
+    const like = `%${search}%`;
+    params.push(like, like, like, like, like, like, like);
+  }
+  if (action) {
+    where.push('l.action = ?');
+    params.push(action);
+  }
+  if (moduleName) {
+    where.push("LOWER(COALESCE(l.module, 'system')) = ?");
+    params.push(moduleName);
+  }
+  if (userId) {
+    where.push('l.user_id = ?');
+    params.push(userId);
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) {
+    where.push('l.created_at::date >= ?');
+    params.push(dateFrom);
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
+    where.push('l.created_at::date <= ?');
+    params.push(dateTo);
+  }
+  params.push(limit);
+
   db.query(`
     SELECT
       l.id,
@@ -13595,9 +13652,10 @@ app.get('/api/admin/logs', protectAdminOnly, (req, res) => {
       COALESCE(u.role, 'system') AS user_role
     FROM system_logs l
     LEFT JOIN users u ON u.id = l.user_id
+    ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
     ORDER BY l.created_at DESC, l.id DESC
-    LIMIT 200
-  `, (err, rows) => {
+    LIMIT ?
+  `, params, (err, rows) => {
     if (err) {
       console.error('Load logs error:', err);
       return res.status(500).json({ error: err.message });
@@ -13606,8 +13664,7 @@ app.get('/api/admin/logs', protectAdminOnly, (req, res) => {
   });
 });
 
-app.patch('/api/admin/users/:id/approve', protectAdminOnly, async (req, res) => {
-  if (!isAdminRole(req.session.user.role)) return res.status(403).json({ error: 'Access denied' });
+app.patch('/api/admin/users/:id/approve', protectSuperAdmin, async (req, res) => {
 
   const userId = Number(req.params.id || 0);
   const requestedRole = normalizeAccessRole(req.body?.role);
@@ -13656,8 +13713,7 @@ app.patch('/api/admin/users/:id/approve', protectAdminOnly, async (req, res) => 
   }
 });
 
-app.patch('/api/admin/users/:id/reject', protectAdminOnly, async (req, res) => {
-  if (!isAdminRole(req.session.user.role)) return res.status(403).json({ error: 'Access denied' });
+app.patch('/api/admin/users/:id/reject', protectSuperAdmin, async (req, res) => {
 
   const userId = Number(req.params.id || 0);
   if (!Number.isInteger(userId) || userId <= 0) {
@@ -13698,6 +13754,47 @@ app.get('/api/admin/logs/export', protectAdminOnly, async (req, res) => {
     const format = String(req.query.format || 'csv').toLowerCase();
     const search = String(req.query.q || '').trim().toLowerCase();
     const action = String(req.query.action || '').trim();
+    const moduleName = String(req.query.module || '').trim().toLowerCase();
+    const userId = Number(req.query.user_id || 0) || null;
+    const dateFrom = String(req.query.date_from || '').trim();
+    const dateTo = String(req.query.date_to || '').trim();
+    const where = [];
+    const params = [];
+
+    if (search) {
+      where.push(`(
+        LOWER(COALESCE(l.module, '')) LIKE ?
+        OR LOWER(COALESCE(l.action, '')) LIKE ?
+        OR LOWER(COALESCE(l.details, '')) LIKE ?
+        OR LOWER(COALESCE(l.ip_address, '')) LIKE ?
+        OR LOWER(COALESCE(u.fullname, '')) LIKE ?
+        OR LOWER(COALESCE(u.username, '')) LIKE ?
+        OR LOWER(COALESCE(u.role, '')) LIKE ?
+      )`);
+      const like = `%${search}%`;
+      params.push(like, like, like, like, like, like, like);
+    }
+    if (action) {
+      where.push('l.action = ?');
+      params.push(action);
+    }
+    if (moduleName) {
+      where.push("LOWER(COALESCE(l.module, 'system')) = ?");
+      params.push(moduleName);
+    }
+    if (userId) {
+      where.push('l.user_id = ?');
+      params.push(userId);
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) {
+      where.push('l.created_at::date >= ?');
+      params.push(dateFrom);
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
+      where.push('l.created_at::date <= ?');
+      params.push(dateTo);
+    }
+
     const rows = await queryAsync(`
       SELECT
         l.module,
@@ -13709,29 +13806,15 @@ app.get('/api/admin/logs/export', protectAdminOnly, async (req, res) => {
         COALESCE(l.ip_address, '') AS ip_address
       FROM system_logs l
       LEFT JOIN users u ON u.id = l.user_id
+      ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
       ORDER BY l.created_at DESC, l.id DESC
       LIMIT 500
-    `);
-
-    const filtered = rows.filter((row) => {
-      const haystack = [
-        row.module || '',
-        row.user_name || '',
-        row.user_role || '',
-        row.action || '',
-        row.details || '',
-        row.ip_address || ''
-      ].join(' ').toLowerCase();
-      const tokens = search ? search.split(/\s+/).filter(Boolean) : [];
-      const searchMatch = !tokens.length || tokens.every((token) => haystack.includes(token));
-      const actionMatch = !action || String(row.action || '') === action;
-      return searchMatch && actionMatch;
-    });
+    `, params);
 
     const filenameBase = `system-logs-${new Date().toISOString().slice(0, 10)}`;
-    logAction(req, 'EXPORT_SYSTEM_LOGS', `Exported system logs as ${format.toUpperCase()} | Filters: ${search || 'none'} | Action: ${action || 'all'}`, 'audit');
+    logAction(req, 'EXPORT_SYSTEM_LOGS', `Exported system logs as ${format.toUpperCase()} | Filters: ${search || 'none'} | Action: ${action || 'all'} | Module: ${moduleName || 'all'}`, 'audit');
 
-    const exportRows = filtered.map((row) => ({
+    const exportRows = rows.map((row) => ({
       created_at: row.created_at,
       module: row.module || '',
       user_name: row.user_name,
@@ -13847,8 +13930,7 @@ app.get('/api/transactions/export', protectAdmin, (req, res) => {
   });
 });
 
-app.patch('/api/admin/users/:id/toggle', protectAdminOnly, (req, res) => {
-  if (!isAdminRole(req.session.user.role)) return res.status(403).json({ error: 'Access denied' });
+app.patch('/api/admin/users/:id/toggle', protectSuperAdmin, (req, res) => {
 
   const userId = Number(req.params.id);
   if (!Number.isInteger(userId) || userId <= 0) {
@@ -13908,8 +13990,7 @@ app.patch('/api/admin/users/:id/toggle', protectAdminOnly, (req, res) => {
   });
 });
 
-app.delete('/api/admin/users/:id', protectAdminOnly, (req, res) => {
-  if (!isAdminRole(req.session.user.role)) return res.status(403).json({ error: 'Access denied' });
+app.delete('/api/admin/users/:id', protectSuperAdmin, (req, res) => {
 
   const userId = Number(req.params.id);
   if (!Number.isInteger(userId) || userId <= 0) {
@@ -13971,9 +14052,8 @@ app.delete('/api/admin/users/:id', protectAdminOnly, (req, res) => {
   });
 });
 
-app.patch('/api/admin/users/:id/reset-password', protectAdminOnly, async (req, res) => {
+app.patch('/api/admin/users/:id/reset-password', protectSuperAdmin, async (req, res) => {
   return res.status(403).json({ error: 'Admins cannot set user passwords. Use forgot password / reset link flow.' });
-  if (!isAdminRole(req.session.user.role)) return res.status(403).json({ error: 'Access denied' });
 
   const userId = Number(req.params.id);
   const password = String(req.body?.password || '').trim();

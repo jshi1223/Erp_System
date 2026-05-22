@@ -3,3 +3,8 @@
 database_exports/
 .codex-edge-profile/ 
 tmp/ 
+echo .codex-edge-profile/ >> .gitignore
+echo tmp/ >> .gitignore
+echo node_modules/ >> .gitignore
+echo vendor/ >> .gitignore
+echo .env >> .gitignore

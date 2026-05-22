@@ -72,8 +72,9 @@
     <div class="module-page-toolbar-actions reports-toolbar-actions">
       <div class="reports-company-search-shell">
         <div class="search-wrap top-search-bar module-toolbar-search reports-company-search">
-          <input id="reports-company-search-input" type="text" placeholder="Search company name..." oninput="setReportsCompanyQuery(this.value)" />
+          <input id="reports-company-search-input" type="text" placeholder="Filter by company name or no..." oninput="setReportsCompanyQuery(this.value)" autocomplete="off" />
         </div>
+        <div class="reports-company-results" id="reports-company-results"></div>
       </div>
     </div>
   </div>

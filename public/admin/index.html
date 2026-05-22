@@ -168,7 +168,7 @@
         <div class="stat-mini" id="stat-ar-mini">All Companies &bull; 0 invoices</div>
       </div>
       
-      <!-- Reports -->
+      <!-- Net Position -->
       <div class="stat-card stat-card-warning stat-card-link" id="stat-card-reports" onclick="openReportsPanel()">
         <div class="stat-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24">
@@ -178,9 +178,9 @@
             <path d="M15 15.5v-3"></path>
           </svg>
         </div>
-        <div class="stat-label">Reports</div>
-        <div class="stat-val gold" id="stat-reports">LIVE</div>
-        <div class="stat-mini" id="stat-reports-mini">Collections Overview &amp; Analytics</div>
+        <div class="stat-label">Net Position</div>
+        <div class="stat-val gold" id="stat-reports">PHP 0.00</div>
+        <div class="stat-mini" id="stat-reports-mini">AR balance minus AP balance</div>
       </div>
     </div>
 
@@ -430,21 +430,36 @@
           <button class="btn btn-cancel btn-sm" type="button" onclick="exportLogs('xls')">Export Excel</button>
           <button class="btn btn-cancel btn-sm" type="button" onclick="exportLogs('pdf')">Export PDF</button>
           <div class="search-wrap top-search-bar module-toolbar-search">
-            <input id="logs-search" type="text" placeholder="Search user, action, or details..." oninput="renderLogs()">
+            <input id="logs-search" type="text" placeholder="Search user, action, IP, or details..." oninput="loadLogs()">
           </div>
-          <select id="logs-filter" class="filter-select" onchange="renderLogs()">
+          <select id="logs-module-filter" class="filter-select" onchange="loadLogs()">
+            <option value="">All Modules</option>
+            <option value="auth">Auth</option>
+            <option value="projects">Projects</option>
+            <option value="finance">Finance</option>
+            <option value="procurement">Procurement</option>
+            <option value="master-data">Master Data</option>
+            <option value="audit">Audit</option>
+            <option value="system">System</option>
+          </select>
+          <select id="logs-filter" class="filter-select" onchange="loadLogs()">
             <option value="">All Actions</option>
             <option value="LOGIN">Login</option>
             <option value="LOGOUT">Logout</option>
+            <option value="CREATE_PROJECT">Create Project</option>
+            <option value="APPROVE_PROJECT">Approve Project</option>
             <option value="CREATE_TRANSACTION">Create Transaction</option>
             <option value="UPDATE_TRANSACTION">Update Transaction</option>
             <option value="ARCHIVE_TRANSACTION">Archive Transaction</option>
             <option value="RESTORE_TRANSACTION">Restore Transaction</option>
             <option value="CREATE_USER">Create User</option>
+            <option value="APPROVE_USER">Approve User</option>
             <option value="TOGGLE_USER_STATUS">Toggle User</option>
             <option value="DELETE_USER">Delete User</option>
             <option value="HARD_DELETE">Hard Delete</option>
           </select>
+          <input id="logs-date-from" class="filter-select" type="date" onchange="loadLogs()" aria-label="Logs from date">
+          <input id="logs-date-to" class="filter-select" type="date" onchange="loadLogs()" aria-label="Logs to date">
         </div>
       </div>
 
@@ -457,6 +472,7 @@
               <th class="table-sort-header" aria-sort="none">User<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
               <th class="table-sort-header" aria-sort="none">Action<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
               <th class="table-sort-header" aria-sort="none">Details<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="table-sort-header" aria-sort="none">IP<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
             </tr>
           </thead>
           <tbody id="logs-tbody">
@@ -837,8 +853,9 @@
             <div class="project-field-message is-hidden" data-project-field-message="company" aria-live="polite"></div>
           </div>
           <div class="field">
-            <label data-label-base="Project Manager">Project Manager<span class="field-label-status is-optional">Optional</span></label>
-            <input id="p-project-manager" type="text" placeholder="Owner or accountable person">
+            <label data-label-base="Project Manager">Project Manager<span class="field-label-status is-required">Required</span></label>
+            <input id="p-project-manager" type="text" placeholder="Owner or accountable person" required aria-required="true">
+            <div class="project-field-message is-hidden" data-project-field-message="project_manager" aria-live="polite"></div>
           </div>
           <div class="field">
             <label data-label-base="Status">Status<span class="field-label-status is-optional">Optional</span></label>
