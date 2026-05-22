@@ -12511,6 +12511,8 @@ app.post('/api/projects', protectAdmin, upload.single('pdf_file'), (req, res) =>
   const normalizedMemberPhone = normalizePhone(member_phone);
   const normalizedMemberPhone2 = normalizePhone(member_phone_2);
   const normalizedMemberPhone3 = normalizePhone(member_phone_3);
+  const resolvedPlannedStart = planned_start_date || start_date;
+  const resolvedPlannedEnd = planned_end_date || end_date;
   const actor = getAuthenticatedUser(req) || {};
   const actorRole = normalizeAccessRole(actor.role);
   const isStaffCreator = isStaffRole(actorRole);
@@ -12538,8 +12540,6 @@ app.post('/api/projects', protectAdmin, upload.single('pdf_file'), (req, res) =>
     return res.status(400).json({ error: 'Member 3 phone number must be digits only, 7 to 15 digits.' });
   }
 
-  const resolvedPlannedStart = planned_start_date || start_date;
-  const resolvedPlannedEnd = planned_end_date || end_date;
   const projectMembersSummary = [
     project_members && member_role && normalizedMemberPhone ? `${project_members} (${member_role}) - ${normalizedMemberPhone}` : '',
     project_members_2 && member_role_2 && normalizedMemberPhone2 ? `${project_members_2} (${member_role_2}) - ${normalizedMemberPhone2}` : '',
