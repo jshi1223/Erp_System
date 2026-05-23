@@ -4,6 +4,82 @@
   margin-bottom: 16px;
 }
 
+body.company-registry-page #company-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.48);
+}
+
+body.company-registry-page #company-modal-backdrop.open {
+  display: flex;
+}
+
+body.company-registry-page .modal-company {
+  width: min(960px, calc(100vw - 48px)) !important;
+  max-width: 960px !important;
+  max-height: min(88vh, 820px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.24);
+}
+
+html.embedded-company-registry body.company-registry-page .modal-company {
+  width: min(960px, calc(100vw - 56px)) !important;
+  max-width: 960px !important;
+  max-height: calc(100vh - 56px) !important;
+}
+
+body.company-registry-page .modal-company .modal-header {
+  flex: 0 0 auto;
+}
+
+body.company-registry-page .modal-company .modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 22px 22px;
+}
+
+body.company-registry-page .modal-company .form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+body.company-registry-page .modal-company .form-grid .field.full {
+  grid-column: 1 / -1;
+}
+
+body.company-registry-page .modal-company input,
+body.company-registry-page .modal-company select,
+body.company-registry-page .modal-company textarea {
+  width: 100%;
+}
+
+@media (max-width: 720px) {
+  body.company-registry-page #company-modal-backdrop {
+    padding: 12px;
+    align-items: flex-start;
+  }
+
+  body.company-registry-page .modal-company {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+  }
+
+  body.company-registry-page .modal-company .form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 html.embedded-company-registry,
 html.embedded-company-registry body.company-registry-page {
   width: 100% !important;

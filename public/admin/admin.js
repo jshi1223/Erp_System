@@ -16,6 +16,11 @@ function isPrivilegedRoleValue(role) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  if (window.location.pathname.replace(/\/+$/, '') === '/admin' && !new URLSearchParams(window.location.search).has('panel')) {
+    currentDashboardCompany = 'all';
+    localStorage.setItem('kinaadman_dashboardCompany', 'all');
+    localStorage.setItem('kinaadman_dashboardPanel', 'home');
+  }
   applyStoredBusinessEntityBrand();
   loadNotificationReadState();
   const initialParams = new URLSearchParams(window.location.search);
@@ -163,7 +168,6 @@ function applyInitialAdminView(user) {
   const requestedView = params.get('view');
   const requestedPanel = params.get('panel');
   const requestedTab = params.get('tab');
-  const rememberedPanel = localStorage.getItem('kinaadman_dashboardPanel');
   const rememberedProjectWorkspaceTab = localStorage.getItem('kinaadman_projectWorkspaceTab');
   const allowedPanels = ['home', 'project-records', 'project-ledger', 'total-projects', 'ongoing-projects', 'system-logs', 'archive-center'];
   const allowedTabs = isAdminRoleValue(user?.role) ? ['all', 'archived', 'users'] : ['all'];
@@ -270,11 +274,10 @@ function applyInitialAdminView(user) {
   }
 
   if (!requestedView) {
-    const restoredPanel = allowedPanels.includes(rememberedPanel) ? rememberedPanel : 'home';
-    if (restoredPanel === 'project-records') {
-      currentProjectWorkspaceTab = normalizeProjectWorkspaceTab(rememberedProjectWorkspaceTab || currentProjectWorkspaceTab);
-    }
-    openDashboardPanel(restoredPanel);
+    currentDashboardCompany = 'all';
+    localStorage.setItem('kinaadman_dashboardCompany', 'all');
+    localStorage.setItem('kinaadman_dashboardPanel', 'home');
+    openDashboardPanel('home');
     return;
   }
 
@@ -427,6 +430,7 @@ function updateRoleBadge(userOrRole) {
   badge.textContent = name ? `${name} (${roleLabel})` : roleLabel;
   badge.title = name ? `Logged in as ${name} (${roleLabel})` : `Logged in as ${roleLabel}`;
   badge.dataset.role = safeRole;
+  badge.dataset.userReady = '1';
 }
 
 function openDashboardPanel(panel = 'home', opts = {}) {
@@ -1383,9 +1387,7 @@ function renderProjectMasterTable() {
             ${isDraft
               ? `<span class="status-pill status-draft" title="Admin approval required before PR">For Approval</span>`
               : `<button class="btn btn-sm btn-add" type="button" onclick="openProjectRequisition(${Number(project.id)})">Add PR</button>`}
-            ${project.pdfFilename
-              ? `<button class="btn btn-sm btn-pdf" type="button" onclick="openProjectPdfViewer(${Number(project.id)})">View PDF</button>`
-              : `<span class="pdf-empty">N/A</span>`}
+            <button class="btn btn-sm btn-pdf" type="button" onclick="openProjectPdfViewer(${Number(project.id)})">View PDF</button>
             ${isAdminUser()
               ? (isArchived
                 ? `<button class="btn btn-sm btn-restore" type="button" onclick="toggleProjectArchive(${Number(project.id)}, false)" title="Restore Project">Restore</button>`
@@ -3863,7 +3865,10 @@ function applyStoredBusinessEntityBrand() {
     applyBusinessEntityBrand(stored);
     return;
   }
-  applyBusinessEntityBrand({ company_name: 'KVSK' });
+  if (document.documentElement?.dataset?.businessEntityThemeReady === '1') return;
+  if (!/^\/admin(?:\/|$)?/i.test(String(window.location.pathname || ''))) {
+    applyBusinessEntityBrand({ company_name: 'KVSK' });
+  }
 }
 
 function applyBusinessEntityBrand(row) {
@@ -4516,13 +4521,19 @@ function openSidebarDashboard(btn) {
   setSidebarOpen(false);
 }
 
+function navigateDashboardCard(href) {
+  const target = String(href || '').trim();
+  if (!target) return;
+  setSidebarOpen(false);
+  window.location.href = target;
+}
+
 function openTotalProjectsFromDashboard() {
-  openDashboardPanel('project-records');
+  navigateDashboardCard('/admin?panel=project-records');
 }
 
 function openProjectsFromDashboard() {
-  openDashboardPanel('project-records');
-  setSidebarOpen(false);
+  navigateDashboardCard('/admin?panel=project-records');
 }
 
 function openProjectStatsModal() {
@@ -4567,8 +4578,7 @@ function closeProjectStatsModal() {
 
 function openProjectRecordsFromStats() {
   closeProjectStatsModal();
-  openDashboardPanel('project-records');
-  setSidebarOpen(false);
+  navigateDashboardCard('/admin?panel=project-records');
 }
 
 function updateProjectStatsModal() {
@@ -4585,20 +4595,19 @@ function updateProjectStatsModal() {
 }
 
 function openAllTransactionsFromDashboard() {
-  openDashboardPanel('project-records');
+  navigateDashboardCard('/admin?panel=project-records');
 }
 
 function openReportsPanel() {
-  window.location.href = '/reports';
+  navigateDashboardCard('/reports');
 }
 
 function openProjectsDashboard() {
-  openDashboardPanel('project-records');
-  setSidebarOpen(false);
+  navigateDashboardCard('/admin?panel=project-records');
 }
 
 function openServiceOrdersDashboard() {
-  window.location.href = '/accounts-receivable?tab=service-orders';
+  navigateDashboardCard('/accounts-receivable?tab=service-orders');
 }
 
 function goBackSmart(fallback = '/admin?view=dashboard', forceFallback = false) {
@@ -5200,7 +5209,14 @@ function getProjectFieldNodes(fieldName) {
     planned_end_date: ['p-planned-end-date'],
     actual_start_date: ['p-actual-start-date'],
     actual_end_date: ['p-actual-end-date'],
-    budget: ['p-budget']
+    description: ['p-description'],
+    budget: ['p-budget'],
+    downpayment: ['p-downpayment'],
+    checkno: ['p-checkno'],
+    pono: ['p-pono'],
+    project_members: ['p-project-members'],
+    member_role: ['p-member-role'],
+    member_phone: ['p-member-phone']
   };
 
   return (map[fieldName] || [])
@@ -5247,7 +5263,7 @@ function setProjectFieldHint(fieldName, message = '') {
 }
 
 function clearProjectFieldMessages() {
-  ['company', 'project_docno', 'project_name', 'project_manager', 'planned_start_date', 'planned_end_date', 'actual_start_date', 'actual_end_date', 'budget'].forEach((fieldName) => {
+  ['company', 'project_docno', 'project_name', 'project_manager', 'planned_start_date', 'planned_end_date', 'actual_start_date', 'actual_end_date', 'description', 'budget', 'downpayment', 'checkno', 'pono', 'project_members', 'member_role', 'member_phone'].forEach((fieldName) => {
     setProjectFieldMessage(fieldName, '');
   });
 }
@@ -5263,7 +5279,14 @@ function setupProjectModalValidationListeners() {
     ['p-planned-end-date', 'planned_end_date', 'change'],
     ['p-actual-start-date', 'actual_start_date', 'change'],
     ['p-actual-end-date', 'actual_end_date', 'change'],
-    ['p-budget', 'budget', 'input']
+    ['p-description', 'description', 'input'],
+    ['p-budget', 'budget', 'input'],
+    ['p-downpayment', 'downpayment', 'input'],
+    ['p-checkno', 'checkno', 'input'],
+    ['p-pono', 'pono', 'input'],
+    ['p-project-members', 'project_members', 'input'],
+    ['p-member-role', 'member_role', 'change'],
+    ['p-member-phone', 'member_phone', 'input']
   ];
 
   bindings.forEach(([id, fieldName, eventName, onChange]) => {
@@ -5336,26 +5359,52 @@ async function saveProject() {
     if (!firstInvalidField) firstInvalidField = fieldName;
   };
 
-  if (!projectDocNoValue || !projectName || !projectManager || !plannedStartDate || !plannedEndDate || !companyId) {
+  const rawBudgetValue = String(document.getElementById('p-budget')?.value || '').trim();
+  const rawDownpaymentValue = String(document.getElementById('p-downpayment')?.value || '').trim();
+  const missingProjectFields = [];
+  const requireProjectField = (fieldName, missing, message, label) => {
+    if (!missing) return;
+    missingProjectFields.push(label);
+    markProjectError(fieldName, message);
+  };
+
+  requireProjectField('project_docno', !projectDocNoValue, 'Project No. is required.', 'Project No.');
+  requireProjectField('project_name', !projectName, 'Project title is required.', 'Project Title');
+  requireProjectField('company', !companyId, hasCompanyOptions ? 'Type an exact company no/name, or a search with one match.' : 'No companies available yet. Please add a company in Company Registry first.', 'Company');
+  requireProjectField('project_manager', !projectManager, 'Project manager is required.', 'Project Manager');
+  requireProjectField('description', !description, 'Scope / Description is required.', 'Scope / Description');
+  requireProjectField('planned_start_date', !plannedStartDate, 'Start date is required.', 'Planned Start Date');
+  requireProjectField('planned_end_date', !plannedEndDate, 'End date is required.', 'Planned End Date');
+  requireProjectField('actual_start_date', !actualStartDate, 'Actual start date is required.', 'Actual Start');
+  requireProjectField('actual_end_date', !actualEndDate, 'Actual end date is required.', 'Actual End');
+  requireProjectField('budget', !rawBudgetValue || budgetValue <= 0, 'Contract amount is required and must be greater than zero.', 'Contract Amount');
+  requireProjectField('downpayment', !rawDownpaymentValue || downpaymentValue < 0, 'Downpayment is required and cannot be negative.', 'Downpayment');
+  requireProjectField('checkno', !checkNo, 'Check No. is required.', 'Check No.');
+  requireProjectField('pono', !customerPoRef, 'Customer PO Ref. is required.', 'Customer PO Ref.');
+  requireProjectField('project_members', !teamFields.project_members, 'Member 1 is required.', 'Member 1');
+  requireProjectField('member_role', !teamFields.member_role, 'Role 1 is required.', 'Role 1');
+  requireProjectField('member_phone', !teamFields.member_phone, 'Phone 1 is required.', 'Phone 1');
+
+  if (missingProjectFields.length) {
+    setProjectModalNotice(`Complete all project information before saving: ${missingProjectFields.join(', ')}.`);
     if (!projectDocNoValue) markProjectError('project_docno', 'Project No. is required.');
-    if (!projectName) markProjectError('project_name', 'Project title is required.');
-    if (!projectManager) markProjectError('project_manager', 'Project manager is required.');
-    if (!companyId) {
-      if (!hasCompanyOptions) {
-        markProjectError('company', 'No companies available yet. Please add a company in Company Registry first.');
-      } else {
-        markProjectError('company', 'Type an exact company no/name, or a search with one match.');
-      }
-    }
-    if (!plannedStartDate) markProjectError('planned_start_date', 'Start date is required.');
-    if (!plannedEndDate) markProjectError('planned_end_date', 'End date is required.');
     const projectFieldFocusMap = {
       project_name: ['p-project-name'],
       project_docno: ['p-project-docno'],
       company: ['p-company-search'],
       project_manager: ['p-project-manager'],
+      description: ['p-description'],
       planned_start_date: ['p-planned-start-date'],
-      planned_end_date: ['p-planned-end-date']
+      planned_end_date: ['p-planned-end-date'],
+      actual_start_date: ['p-actual-start-date'],
+      actual_end_date: ['p-actual-end-date'],
+      budget: ['p-budget'],
+      downpayment: ['p-downpayment'],
+      checkno: ['p-checkno'],
+      pono: ['p-pono'],
+      project_members: ['p-project-members'],
+      member_role: ['p-member-role'],
+      member_phone: ['p-member-phone']
     };
     focusProjectFieldOnTab(firstInvalidField, projectFieldFocusMap[firstInvalidField] || []);
     return;
@@ -5793,9 +5842,7 @@ function renderTable() {
     const paidAmount = getTransactionPaidAmountValue(r);
     const balanceAmount = Math.max(0, Number(r.amount || 0) - paidAmount);
 
-    const docCell = r.pdfFilename
-      ? `<span class="doc-link" onclick="event.stopPropagation(); openPdfViewer(${r.id})" title="View PDF">${hDocno}</span>`
-      : `<span class="doc-link no-pdf" title="No PDF">${hDocno}</span>`;
+    const docCell = `<span class="doc-link" onclick="event.stopPropagation(); openPdfViewer(${r.id})" title="View PDF">${hDocno}</span>`;
 
     return `
       <tr>
@@ -5821,7 +5868,7 @@ function renderTable() {
         ${isTransactionsPage ? `
         <td class="text-center">
           <div class="actions">
-            ${r.pdfFilename ? `<button class="btn btn-pdf btn-sm" onclick="event.stopPropagation(); openPdfViewer(${r.id})" title="View PDF">PDF</button>` : ''}
+            <button class="btn btn-pdf btn-sm" onclick="event.stopPropagation(); openPdfViewer(${r.id})" title="View PDF">PDF</button>
             ${activeTab === 'archived'
               ? `<button class="btn btn-edit btn-sm" onclick="event.stopPropagation(); openArchivedModal(${r.id})" title="View Record">View</button><button class="btn btn-restore btn-sm" onclick="event.stopPropagation(); restoreArchivedDirect(${r.id})" title="Restore Record">Restore</button>`
               : `<button class="btn btn-edit btn-sm" onclick="event.stopPropagation(); openModal(${r.id})">Edit</button><button class="btn btn-archive btn-sm" onclick="event.stopPropagation(); openDelModal(${r.id})" title="Archive Record">Archive</button>`}
@@ -5829,7 +5876,7 @@ function renderTable() {
         </td>` : `
         <td class="text-center">
           <div class="actions">
-            ${r.pdfFilename ? `<button class="btn btn-pdf btn-sm" onclick="event.stopPropagation(); openPdfViewer(${r.id})" title="View PDF">PDF</button>` : ''}
+            <button class="btn btn-pdf btn-sm" onclick="event.stopPropagation(); openPdfViewer(${r.id})" title="View PDF">PDF</button>
             ${activeTab === 'archived'
               ? (isAdminUser()
                   ? `<button class="btn btn-edit btn-sm" onclick="event.stopPropagation(); openArchivedModal(${r.id})" title="View Record">View</button><button class="btn btn-restore btn-sm" onclick="event.stopPropagation(); restoreArchivedDirect(${r.id})" title="Restore Record">Restore</button>`
@@ -7530,12 +7577,12 @@ async function updateStats() {
 
   if (statCard3) {
     statCard3.classList.add('stat-card-link');
-    statCard3.onclick = () => { window.location.href = '/accounts-payable?tab=bills'; };
+    statCard3.onclick = () => navigateDashboardCard('/accounts-payable?tab=bills');
   }
 
   if (statCard4) {
     statCard4.classList.add('stat-card-link');
-    statCard4.onclick = () => { window.location.href = '/accounts-receivable?tab=invoices'; };
+    statCard4.onclick = () => navigateDashboardCard('/accounts-receivable?tab=invoices');
   }
 
   const visibleProjects = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
@@ -8571,13 +8618,14 @@ function confirmHardDelete() {
 
 function openPdfViewer(id) {
   const r = db.find(u => u.id === id);
-  if (!r || !r.pdfFilename) return showToast('No PDF attached', 'error');
+  if (!r) return showToast('Record not found.', 'error');
 
   const pdfUrl = `/api/transactions/${r.id}/pdf`;
+  const pdfName = r.pdfFilename || `${r.docno || 'transaction'}-summary.pdf`;
 
-  document.getElementById('pdf-viewer-title').textContent = r.pdfFilename || 'Document Viewer';
+  document.getElementById('pdf-viewer-title').textContent = pdfName;
   document.getElementById('pdf-dl-btn').href = pdfUrl;
-  document.getElementById('pdf-dl-btn').download = r.pdfFilename;
+  document.getElementById('pdf-dl-btn').download = pdfName;
 
   const frame = document.getElementById('pdf-frame');
   const fallback = document.getElementById('pdf-fallback');
@@ -8592,18 +8640,19 @@ function openPdfViewer(id) {
 
 function openProjectPdfViewer(id) {
   const project = (projectsDashboardDb || []).find(entry => Number(entry.id) === Number(id));
-  if (!project || !project.pdfFilename) return showToast('No PDF attached', 'error');
+  if (!project) return showToast('Project not found.', 'error');
 
   const pdfUrl = `/api/projects/${project.id}/pdf`;
+  const pdfName = project.pdfFilename || `${project.project_docno || 'project'}-summary.pdf`;
 
-  document.getElementById('pdf-viewer-title').textContent = project.pdfFilename || 'Project PDF';
+  document.getElementById('pdf-viewer-title').textContent = pdfName;
   document.getElementById('pdf-dl-btn').href = pdfUrl;
-  document.getElementById('pdf-dl-btn').download = project.pdfFilename;
+  document.getElementById('pdf-dl-btn').download = pdfName;
 
   const fallbackBtn = document.getElementById('pdf-fallback-dl');
   if (fallbackBtn) {
     fallbackBtn.href = pdfUrl;
-    fallbackBtn.download = project.pdfFilename;
+    fallbackBtn.download = pdfName;
   }
 
   const frame = document.getElementById('pdf-frame');
@@ -8656,13 +8705,14 @@ function openProjectTransaction(projectId) {
 function viewArchivedPdf() {
   if (!viewingArchivedId) return;
   const r = db.find(u => u.id === viewingArchivedId);
-  if (!r || !r.pdfFilename) return showToast('No PDF attached', 'error');
+  if (!r) return showToast('Record not found.', 'error');
 
   const pdfUrl = `/api/transactions/${r.id}/pdf`;
+  const pdfName = r.pdfFilename || `${r.docno || 'archived-record'}-summary.pdf`;
 
-  document.getElementById('pdf-viewer-title').textContent = r.pdfFilename || 'Archived Document';
+  document.getElementById('pdf-viewer-title').textContent = pdfName;
   document.getElementById('pdf-dl-btn').href = pdfUrl;
-  document.getElementById('pdf-dl-btn').download = r.pdfFilename;
+  document.getElementById('pdf-dl-btn').download = pdfName;
 
   const frame = document.getElementById('pdf-frame');
   const fallback = document.getElementById('pdf-fallback');

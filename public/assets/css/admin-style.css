@@ -4319,17 +4319,6 @@ tbody td {
   transform: translateY(-50%) scale(1.2);
 }
 
-.page-hero::after {
-  content: 'CCTV / SECURITY / IT OPS';
-  position: absolute;
-  top: 18px;
-  right: 24px;
-  font-family: 'Orbitron', 'IBM Plex Mono', monospace;
-  font-size: 0.64rem;
-  letter-spacing: 0.18em;
-  color: rgba(180, 35, 24, 0.72);
-}
-
 .page-hero {
   position: relative;
 }
@@ -4346,11 +4335,6 @@ tbody td {
     height: 40px;
   }
 
-  .page-hero::after {
-    position: static;
-    display: block;
-    margin-top: 10px;
-  }
 }
 
 @media (max-width: 1024px) {

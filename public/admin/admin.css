@@ -37,6 +37,22 @@
   }
 }
 
+body.admin-page[data-initial-dashboard-panel="project-records"] main > .dashboard-stats,
+body.admin-page[data-initial-dashboard-panel="project-ledger"] main > .dashboard-stats,
+body.admin-page[data-initial-dashboard-panel="ongoing-projects"] main > .dashboard-stats,
+body.admin-page[data-initial-dashboard-panel="system-logs"] main > .dashboard-stats,
+body.admin-page[data-initial-dashboard-panel="archive-center"] main > .dashboard-stats {
+  display: none !important;
+}
+
+body.admin-page[data-initial-dashboard-panel="project-records"] #project-records-section,
+body.admin-page[data-initial-dashboard-panel="project-ledger"] #project-ledger-page-section,
+body.admin-page[data-initial-dashboard-panel="ongoing-projects"] #ongoing-projects-section,
+body.admin-page[data-initial-dashboard-panel="system-logs"] #system-logs-section,
+body.admin-page[data-initial-dashboard-panel="archive-center"] #archive-center-section {
+  display: block !important;
+}
+
 body.admin-page #dashboard .stat-card-company {
   background:
     radial-gradient(circle at top right, rgba(34, 197, 94, 0.24), transparent 34%),
@@ -155,6 +171,11 @@ body.admin-page .business-profile-trigger {
   font-weight: 800;
   padding: 8px 12px;
   text-transform: uppercase;
+}
+
+body.admin-page #role-badge[data-user-ready="0"] {
+  min-width: 118px;
+  visibility: hidden;
 }
 
 body.admin-page .business-profile-panel {
@@ -288,6 +309,11 @@ body.admin-page #dashboard > main > .stats.dashboard-stats:first-of-type {
 
 body.admin-page #dashboard > main > .stats.dashboard-stats:first-of-type .stat-card {
   min-height: 132px;
+}
+
+body.admin-page .page-hero::after {
+  content: none !important;
+  display: none !important;
 }
 
 body.admin-page .archive-center-wrap {

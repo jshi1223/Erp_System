@@ -52,6 +52,7 @@
     onReady();
   }
   installSharedUiFallbacks();
+  watchSharedSidebarMount();
   verifySession();
 
   function installSharedUiFallbacks() {
@@ -240,6 +241,26 @@
     nav.dataset.financeNormalized = '1';
   }
 
+  function watchSharedSidebarMount() {
+    if (document.getElementById('sidebar')) {
+      renderSharedSidebar();
+      return;
+    }
+    if (typeof MutationObserver !== 'function') return;
+    var observer = new MutationObserver(function () {
+      if (!document.getElementById('sidebar')) return;
+      observer.disconnect();
+      renderSharedSidebar();
+      if (typeof syncSidebarGroupStates === 'function') {
+        syncSidebarGroupStates();
+      }
+      if (typeof syncSidebarActiveLinks === 'function') {
+        syncSidebarActiveLinks();
+      }
+    });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+  }
+
   function getStoredBusinessEntityThemeProfile() {
     try {
       var urlTheme = new URLSearchParams(window.location.search || '').get('theme');
@@ -312,6 +333,8 @@
       explicitTheme = String(document.body.dataset.businessEntityTheme || '').trim();
     }
     var stored = getStoredBusinessEntityThemeProfile();
+    var shouldWaitForAdminBusinessEntity = !stored
+      && /^\/admin(?:\/|$)?/i.test(String(window.location.pathname || ''));
     var canUseStoredTheme = Boolean(!explicitTheme && stored);
     var baseProfile = explicitTheme ? { theme: explicitTheme } : (canUseStoredTheme ? stored : { theme: 'kvsk' });
     var profile = getBusinessEntityThemeFallback(baseProfile);
@@ -331,15 +354,21 @@
     root.style.setProperty('--accent2', canUseStoredTheme && stored.accent2 ? stored.accent2 : profile.accent2);
     if (root.dataset) {
       root.dataset.businessEntityTheme = activeTheme;
-      root.dataset.businessEntityThemeReady = '1';
+      if (!shouldWaitForAdminBusinessEntity) {
+        root.dataset.businessEntityThemeReady = '1';
+      }
     }
     if (document.body) {
       document.body.dataset.businessEntityTheme = activeTheme;
-      document.body.dataset.businessEntityThemeReady = '1';
+      if (!shouldWaitForAdminBusinessEntity) {
+        document.body.dataset.businessEntityThemeReady = '1';
+      }
     }
     activeBusinessEntityLogoProfile = logoProfile;
-    applyBusinessEntityLogoProfileToDocument();
-    applyBusinessEntityBrandTextToDocument();
+    if (!shouldWaitForAdminBusinessEntity) {
+      applyBusinessEntityLogoProfileToDocument();
+      applyBusinessEntityBrandTextToDocument();
+    }
     watchBusinessEntityLogoNodes();
   }
 

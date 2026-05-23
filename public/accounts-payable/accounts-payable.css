@@ -68,6 +68,21 @@ body.erp-clean-page.accounts-payable-page .ap-summary-card[hidden] {
   display: none !important;
 }
 
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"][data-initial-tab="companies"] .ap-summary-card:not([data-summary-tabs~="companies"]),
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"][data-initial-tab="vendors"] .ap-summary-card:not([data-summary-tabs~="vendors"]),
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="ap"][data-initial-tab="bills"] .ap-summary-card:not([data-summary-tabs~="bills"]),
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="ap"][data-initial-tab="vendor-balances"] .ap-summary-card:not([data-summary-tabs~="vendor-balances"]),
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="ap"][data-initial-tab="ap-aging"] .ap-summary-card:not([data-summary-tabs~="ap-aging"]),
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="ap"][data-initial-tab="payments"] .ap-summary-card:not([data-summary-tabs~="payments"]),
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="ap"][data-initial-tab="disbursements"] .ap-summary-card:not([data-summary-tabs~="disbursements"]),
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="requisitions"] .ap-summary-card:not([data-summary-tabs~="requisitions"]),
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="rfq"] .ap-summary-card:not([data-summary-tabs~="rfq"]),
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="quotations"] .ap-summary-card:not([data-summary-tabs~="quotations"]),
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="purchase-orders"] .ap-summary-card:not([data-summary-tabs~="purchase-orders"]),
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="goods-receipts"] .ap-summary-card:not([data-summary-tabs~="goods-receipts"]) {
+  display: none !important;
+}
+
 .ap-workspace-section {
   display: none;
 }
@@ -81,8 +96,39 @@ body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"] .ap
   display: none !important;
 }
 
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"][data-initial-tab="companies"] #vendors,
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"][data-initial-tab="vendors"] #companies {
+  display: none !important;
+}
+
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="requisitions"] .ap-workspace-section:not(#requisitions),
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="rfq"] .ap-workspace-section:not(#rfq),
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="quotations"] .ap-workspace-section:not(#quotations),
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="purchase-orders"] .ap-workspace-section:not(#purchase-orders),
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="goods-receipts"] .ap-workspace-section:not(#goods-receipts),
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="ap"][data-initial-tab="bills"] .ap-workspace-section:not(#bills),
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="ap"][data-initial-tab="vendor-balances"] .ap-workspace-section:not(#vendor-balances),
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="ap"][data-initial-tab="ap-aging"] .ap-workspace-section:not(#ap-aging),
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="ap"][data-initial-tab="payments"] .ap-workspace-section:not(#payments),
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="ap"][data-initial-tab="disbursements"] .ap-workspace-section:not(#disbursements) {
+  display: none !important;
+}
+
 body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"][data-initial-tab="companies"] #companies,
 body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"][data-initial-tab="vendors"] #vendors {
+  display: block;
+}
+
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="requisitions"] #requisitions,
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="rfq"] #rfq,
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="quotations"] #quotations,
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="purchase-orders"] #purchase-orders,
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="goods-receipts"] #goods-receipts,
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="ap"][data-initial-tab="bills"] #bills,
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="ap"][data-initial-tab="vendor-balances"] #vendor-balances,
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="ap"][data-initial-tab="ap-aging"] #ap-aging,
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="ap"][data-initial-tab="payments"] #payments,
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="ap"][data-initial-tab="disbursements"] #disbursements {
   display: block;
 }
 
@@ -435,6 +481,8 @@ body.accounts-payable-page .business-entity-switcher {
 
 body.accounts-payable-page .modal-backdrop:not(.open),
 body.accounts-payable-page .modal-backdrop[hidden],
+body.accounts-payable-page #master-company-modal-backdrop:not(.open),
+body.accounts-payable-page #master-company-modal-backdrop[hidden],
 body.accounts-payable-page #vendor-modal-backdrop:not(.open),
 body.accounts-payable-page #vendor-modal-backdrop[hidden] {
   display: none !important;

@@ -4863,7 +4863,7 @@ function buildSimplePdfBuffer({ title, subtitle = '', headers = [], rows = [], b
 }
 
 function sendPdfTableResponse(res, filename, title, headers, rows, subtitle = '') {
-  const pdf = buildSimplePdfBuffer({ title, subtitle, headers, rows });
+  const pdf = buildSimplePdfBuffer({ title, subtitle, headers, rows, branded: true });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.send(pdf);
@@ -5052,6 +5052,131 @@ function buildProfessionalPurchaseRequisitionPdf(row, itemRows = [], total = 0) 
   return Buffer.from(pdf, 'binary');
 }
 
+function buildProfessionalSummaryPdf({
+  title = 'DOCUMENT SUMMARY',
+  documentNo = '',
+  status = '',
+  brandSource = {},
+  leftTitle = 'DETAILS',
+  leftRows = [],
+  rightTitle = 'REFERENCE',
+  rightRows = [],
+  tableTitle = '',
+  tableHeaders = [],
+  tableRows = [],
+  notes = '',
+  totalLabel = '',
+  totalValue = null
+} = {}) {
+  const brand = getPurchaseRequisitionPdfBrand(brandSource);
+  const objects = [
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>'
+  ];
+
+  const content = [];
+  function text(x, y, value, options = {}) {
+    const font = options.bold ? 'F2' : 'F1';
+    const size = Number(options.size || 9);
+    const color = options.color || '0.12 0.12 0.12';
+    content.push(`BT /${font} ${size} Tf ${color} rg 1 0 0 1 ${x} ${y} Tm (${escapePdfText(value)}) Tj ET`);
+  }
+  function rect(x, y, w, h, options = {}) {
+    const fill = options.fill || null;
+    const stroke = options.stroke || null;
+    if (fill) content.push(`${fill} rg ${x} ${y} ${w} ${h} re f`);
+    if (stroke) content.push(`${stroke} RG ${x} ${y} ${w} ${h} re S`);
+  }
+  function line(x1, y1, x2, y2, color = '0.70 0.70 0.70') {
+    content.push(`${color} RG 0.6 w ${x1} ${y1} m ${x2} ${y2} l S`);
+  }
+  function fieldRows(x, y, rows) {
+    let currentY = y;
+    (rows || []).slice(0, 7).forEach(([label, value]) => {
+      text(x, currentY, label, { bold: true, size: 8, color: '0.36 0.38 0.42' });
+      text(x + 88, currentY, truncatePdfValue(value || '-', 28), { size: 9 });
+      currentY -= 18;
+    });
+  }
+
+  text(50, 755, brand.name, { bold: true, size: 14, color: brand.accent });
+  text(50, 739, brand.subtitle, { size: 8, color: '0.25 0.25 0.25' });
+  line(50, 728, 562, 728, brand.accent);
+
+  rect(50, 670, 512, 36, { fill: '0.96 0.97 0.98', stroke: '0.80 0.83 0.86' });
+  text(64, 690, title, { bold: true, size: 16, color: '0.08 0.08 0.08' });
+  text(420, 691, documentNo || '-', { bold: true, size: 12, color: brand.accent });
+  text(420, 677, `Status: ${String(status || '-').toUpperCase()}`, { size: 8, color: '0.28 0.30 0.34' });
+
+  rect(50, 512, 248, 139, { stroke: '0.82 0.84 0.87' });
+  rect(50, 631, 248, 20, { fill: '0.94 0.95 0.96' });
+  text(62, 638, leftTitle, { bold: true, size: 9 });
+  fieldRows(62, 615, leftRows);
+
+  rect(314, 512, 248, 139, { stroke: '0.82 0.84 0.87' });
+  rect(314, 631, 248, 20, { fill: '0.94 0.95 0.96' });
+  text(326, 638, rightTitle, { bold: true, size: 9 });
+  fieldRows(326, 615, rightRows);
+
+  let y = 480;
+  if (tableTitle && tableHeaders.length) {
+    text(50, y, tableTitle, { bold: true, size: 10 });
+    y -= 25;
+    rect(50, y, 512, 20, { fill: brand.accent });
+    const colXs = tableHeaders.length <= 3 ? [62, 250, 430] : [58, 190, 315, 455];
+    tableHeaders.slice(0, colXs.length).forEach((header, index) => {
+      text(colXs[index], y + 7, header, { bold: true, size: 8, color: '1 1 1' });
+    });
+    y -= 24;
+    (tableRows || []).slice(0, 8).forEach((row, rowIndex) => {
+      rect(50, y - 6, 512, 22, { fill: rowIndex % 2 === 0 ? '1 1 1' : '0.98 0.98 0.98', stroke: '0.88 0.89 0.91' });
+      tableHeaders.slice(0, colXs.length).forEach((header, colIndex) => {
+        text(colXs[colIndex], y + 1, truncatePdfValue(row?.[header] || '-', colIndex === 0 ? 22 : 26), { size: 8 });
+      });
+      y -= 22;
+    });
+  }
+
+  rect(50, 150, 290, 46, { stroke: '0.82 0.84 0.87' });
+  text(62, 178, 'Notes', { bold: true, size: 9 });
+  text(62, 162, truncatePdfValue(notes || '-', 54), { size: 8, color: '0.24 0.25 0.28' });
+
+  if (totalLabel) {
+    rect(360, 150, 202, 46, { fill: '0.96 0.97 0.98', stroke: '0.80 0.83 0.86' });
+    text(374, 178, totalLabel, { bold: true, size: 10 });
+    text(450, 178, totalValue === null ? '-' : formatPdfMoney(totalValue), { bold: true, size: 12, color: brand.accent });
+    text(374, 162, `Generated: ${formatPdfDate(new Date())}`, { size: 8, color: '0.36 0.38 0.42' });
+  }
+
+  line(72, 105, 220, 105);
+  line(390, 105, 538, 105);
+  text(96, 90, 'Prepared / Submitted By', { size: 8, color: '0.36 0.38 0.42' });
+  text(430, 90, 'Approved By', { size: 8, color: '0.36 0.38 0.42' });
+
+  const contentStream = content.join('\n');
+  const contentObjectNumber = objects.length + 1;
+  const pageObjectNumber = objects.length + 2;
+  const pagesObjectNumber = objects.length + 3;
+  const catalogObjectNumber = objects.length + 4;
+  objects.push(`<< /Length ${Buffer.byteLength(contentStream, 'utf8')} >>\nstream\n${contentStream}\nendstream`);
+  objects.push(`<< /Type /Page /Parent ${pagesObjectNumber} 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents ${contentObjectNumber} 0 R >>`);
+  objects.push(`<< /Type /Pages /Kids [${pageObjectNumber} 0 R] /Count 1 >>`);
+  objects.push(`<< /Type /Catalog /Pages ${pagesObjectNumber} 0 R >>`);
+
+  let pdf = '%PDF-1.4\n';
+  const offsets = ['0000000000 65535 f \n'];
+  objects.forEach((body, index) => {
+    offsets.push(`${String(pdf.length).padStart(10, '0')} 00000 n \n`);
+    pdf += `${index + 1} 0 obj\n${body}\nendobj\n`;
+  });
+  const xrefStart = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n`;
+  pdf += offsets.join('');
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogObjectNumber} 0 R >>\n`;
+  pdf += `startxref\n${xrefStart}\n%%EOF`;
+  return Buffer.from(pdf, 'binary');
+}
+
 async function buildPurchaseRequisitionPdf(requisitionId) {
   const rows = await queryAsync(`
     SELECT
@@ -5089,6 +5214,256 @@ async function generatePurchaseRequisitionPdfFile(requisitionId) {
   const filePath = path.join(UPLOAD_DIR, filename);
   await fs.promises.writeFile(filePath, pdf);
   await queryAsync('UPDATE purchase_requisitions SET pdfFilename = ? WHERE id = ?', [filename, requisitionId]);
+  return { filename, filePath };
+}
+
+function buildProjectSummaryPdf(row = {}) {
+  return buildProfessionalSummaryPdf({
+    title: 'PROJECT SUMMARY',
+    documentNo: row.project_docno || `PROJECT-${row.id || ''}`,
+    status: row.status || 'planning',
+    brandSource: row,
+    leftTitle: 'PROJECT DETAILS',
+    leftRows: [
+      ['Project Title', row.project_name],
+      ['Project Manager', row.project_manager],
+      ['Client / Company', [row.company_no, row.company_name || row.client_name].filter(Boolean).join(' - ')],
+      ['Operating Company', [row.business_entity_code, row.business_entity_name].filter(Boolean).join(' - ')],
+      ['Priority', row.priority],
+      ['Check No.', row.checkno],
+      ['Customer PO Ref.', row.pono]
+    ],
+    rightTitle: 'SCHEDULE / TEAM',
+    rightRows: [
+      ['Planned Start', formatPdfDate(row.planned_start_date || row.start_date)],
+      ['Planned End', formatPdfDate(row.planned_end_date || row.end_date)],
+      ['Actual Start', formatPdfDate(row.actual_start_date)],
+      ['Actual End', formatPdfDate(row.actual_end_date)],
+      ['Member 1', [row.project_members, row.member_role, row.member_phone].filter(Boolean).join(' | ')],
+      ['Member 2', [row.project_members_2, row.member_role_2, row.member_phone_2].filter(Boolean).join(' | ')],
+      ['Member 3', [row.project_members_3, row.member_role_3, row.member_phone_3].filter(Boolean).join(' | ')]
+    ],
+    notes: row.description || row.status_reason || '',
+    totalLabel: 'Contract Amount',
+    totalValue: row.budget
+  });
+}
+
+async function generateProjectPdfFile(projectId) {
+  const rows = await queryAsync(`
+    SELECT
+      p.*,
+      be.company_name AS business_entity_name,
+      be.entity_code AS business_entity_code
+    FROM projects p
+    LEFT JOIN business_entities be ON be.id = p.business_entity_id
+    WHERE p.id = ?
+    LIMIT 1
+  `, [projectId]);
+  const row = rows?.[0];
+  if (!row) throw new Error('Project not found.');
+
+  const pdf = buildProjectSummaryPdf(row);
+  const timestamp = Date.now();
+  const filename = `${timestamp}-${Math.round(Math.random() * 1e9)}-project-${Number(projectId)}.pdf`;
+  const filePath = path.join(UPLOAD_DIR, filename);
+  await fs.promises.writeFile(filePath, pdf);
+  await queryAsync('UPDATE projects SET pdfFilename = ? WHERE id = ?', [filename, projectId]);
+  return { filename, filePath };
+}
+
+function buildTransactionSummaryPdf(row = {}) {
+  const paid = Number(row.downpayment || row.receivable_paid_amount || 0) || 0;
+  const total = Number(row.amount || 0) || 0;
+  const balance = Math.max(0, total - paid);
+  return buildProfessionalSummaryPdf({
+    title: String(row.type || '').toLowerCase() === 'receipt' ? 'PAYMENT RECEIPT' : 'SALES INVOICE',
+    documentNo: row.docno || `TX-${row.id || ''}`,
+    status: row.status || row.receivable_status || '',
+    brandSource: row,
+    leftTitle: 'TRANSACTION DETAILS',
+    leftRows: [
+      ['Date', formatPdfDate(row.date)],
+      ['Customer', row.company_name || row.client],
+      ['Description', row.description],
+      ['Qty', row.qty],
+      ['Unit Price', formatPdfMoney(row.unitprice)],
+      ['Check No.', row.checkno],
+      ['Customer PO Ref.', row.pono]
+    ],
+    rightTitle: 'PROJECT / COMPANY',
+    rightRows: [
+      ['Operating Company', [row.business_entity_code, row.business_entity_name].filter(Boolean).join(' - ')],
+      ['Company No.', row.company_no],
+      ['Project', [row.project_docno, row.project_name].filter(Boolean).join(' - ')],
+      ['Service Order', [row.so_number, row.service_title].filter(Boolean).join(' - ')],
+      ['Start Date', formatPdfDate(row.project_start_date)],
+      ['End Date', formatPdfDate(row.project_end_date)],
+      ['Balance', formatPdfMoney(balance)]
+    ],
+    tableTitle: 'AMOUNT SUMMARY',
+    tableHeaders: ['Item', 'Value', 'Amount'],
+    tableRows: [
+      { Item: 'Subtotal', Value: `${Number(row.qty || 0) || 0} x ${formatPdfMoney(row.unitprice)}`, Amount: formatPdfMoney(total) },
+      { Item: 'Paid', Value: 'Payment received', Amount: formatPdfMoney(paid) },
+      { Item: 'Balance', Value: 'Remaining balance', Amount: formatPdfMoney(balance) }
+    ],
+    notes: row.description || '',
+    totalLabel: 'Total Amount',
+    totalValue: total
+  });
+}
+
+async function generateTransactionPdfFile(transactionId) {
+  const rows = await queryAsync(`
+    SELECT
+      t.*,
+      be.company_name AS business_entity_name,
+      be.entity_code AS business_entity_code,
+      c.company_no,
+      c.company_name,
+      p.project_docno,
+      p.project_name,
+      so.so_number,
+      so.service_title,
+      ar.paid_amount AS receivable_paid_amount,
+      ar.status AS receivable_status
+    FROM transactions t
+    LEFT JOIN business_entities be ON be.id = t.business_entity_id
+    LEFT JOIN company_registry c ON c.id = t.company_id
+    LEFT JOIN projects p ON p.id = t.project_id
+    LEFT JOIN service_orders so ON so.id = t.service_order_id
+    LEFT JOIN accounts_receivable ar ON ar.transaction_id = t.id
+    WHERE t.id = ?
+    LIMIT 1
+  `, [transactionId]);
+  const row = rows?.[0];
+  if (!row) throw new Error('Transaction not found.');
+
+  const pdf = buildTransactionSummaryPdf(row);
+  const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}-transaction-${Number(transactionId)}.pdf`;
+  const filePath = path.join(UPLOAD_DIR, filename);
+  await fs.promises.writeFile(filePath, pdf);
+  await queryAsync('UPDATE transactions SET pdfFilename = ? WHERE id = ?', [filename, transactionId]);
+  return { filename, filePath };
+}
+
+function buildBillSummaryPdf(row = {}) {
+  return buildProfessionalSummaryPdf({
+    title: 'ACCOUNTS PAYABLE BILL',
+    documentNo: row.bill_number || `BILL-${row.id || ''}`,
+    status: row.approval_status || row.status || 'pending',
+    brandSource: row,
+    leftTitle: 'BILL DETAILS',
+    leftRows: [
+      ['Bill Date', formatPdfDate(row.bill_date)],
+      ['Due Date', formatPdfDate(row.due_date)],
+      ['Vendor', row.vendor_name],
+      ['PO Number', row.po_number],
+      ['Project', [row.project_docno, row.project_name].filter(Boolean).join(' - ')],
+      ['Status', row.approval_status || row.status],
+      ['Approved By', row.approved_by]
+    ],
+    rightTitle: 'COMPANY',
+    rightRows: [
+      ['Operating Company', [row.business_entity_code, row.business_entity_name].filter(Boolean).join(' - ')],
+      ['Client / Company', [row.company_no, row.company_name].filter(Boolean).join(' - ')],
+      ['Submitted', formatPdfDate(row.created_at)],
+      ['Approved At', formatPdfDate(row.approved_at)]
+    ],
+    notes: row.notes || '',
+    totalLabel: 'Total Amount',
+    totalValue: row.total_amount
+  });
+}
+
+async function generateBillPdfFile(billId) {
+  const rows = await queryAsync(`
+    SELECT
+      ap.*,
+      be.company_name AS business_entity_name,
+      be.entity_code AS business_entity_code,
+      v.vendor_name,
+      po.po_number,
+      p.project_docno,
+      p.project_name,
+      c.company_no,
+      c.company_name
+    FROM accounts_payable ap
+    LEFT JOIN business_entities be ON be.id = ap.business_entity_id
+    LEFT JOIN vendors v ON v.id = ap.vendor_id
+    LEFT JOIN purchase_orders po ON po.id = ap.po_id
+    LEFT JOIN projects p ON p.id = ap.project_id
+    LEFT JOIN company_registry c ON c.id = p.company_id
+    WHERE ap.id = ?
+    LIMIT 1
+  `, [billId]);
+  const row = rows?.[0];
+  if (!row) throw new Error('Bill not found.');
+
+  const pdf = buildBillSummaryPdf(row);
+  const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}-bill-${Number(billId)}.pdf`;
+  const filePath = path.join(UPLOAD_DIR, filename);
+  await fs.promises.writeFile(filePath, pdf);
+  await queryAsync('UPDATE accounts_payable SET pdfFilename = ? WHERE id = ?', [filename, billId]);
+  return { filename, filePath };
+}
+
+function buildServiceOrderSummaryPdf(row = {}) {
+  return buildProfessionalSummaryPdf({
+    title: 'SERVICE ORDER',
+    documentNo: row.so_number || `SO-${row.id || ''}`,
+    status: row.status || 'draft',
+    brandSource: row,
+    leftTitle: 'SERVICE DETAILS',
+    leftRows: [
+      ['Service Date', formatPdfDate(row.service_date)],
+      ['Service Type', row.service_type],
+      ['Service Title', row.service_title],
+      ['Vendor', row.vendor_name],
+      ['Total Amount', formatPdfMoney(row.total_amount)],
+      ['Project', [row.project_docno, row.project_name].filter(Boolean).join(' - ')],
+      ['Company', [row.company_no, row.company_name].filter(Boolean).join(' - ')]
+    ],
+    rightTitle: 'OPERATING COMPANY',
+    rightRows: [
+      ['Entity', [row.business_entity_code, row.business_entity_name].filter(Boolean).join(' - ')],
+      ['Created', formatPdfDate(row.created_at)],
+      ['Archived', row.is_archived ? 'Yes' : 'No']
+    ],
+    notes: row.description || row.notes || '',
+    totalLabel: 'Total Amount',
+    totalValue: row.total_amount
+  });
+}
+
+async function generateServiceOrderPdfFile(serviceOrderId) {
+  const rows = await queryAsync(`
+    SELECT
+      so.*,
+      be.company_name AS business_entity_name,
+      be.entity_code AS business_entity_code,
+      v.vendor_name,
+      c.company_no,
+      c.company_name,
+      p.project_docno,
+      p.project_name
+    FROM service_orders so
+    LEFT JOIN business_entities be ON be.id = so.business_entity_id
+    LEFT JOIN vendors v ON v.id = so.vendor_id
+    LEFT JOIN company_registry c ON c.id = so.company_id
+    LEFT JOIN projects p ON p.id = so.project_id
+    WHERE so.id = ?
+    LIMIT 1
+  `, [serviceOrderId]);
+  const row = rows?.[0];
+  if (!row) throw new Error('Service order not found.');
+
+  const pdf = buildServiceOrderSummaryPdf(row);
+  const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}-service-order-${Number(serviceOrderId)}.pdf`;
+  const filePath = path.join(UPLOAD_DIR, filename);
+  await fs.promises.writeFile(filePath, pdf);
+  await queryAsync('UPDATE service_orders SET pdfFilename = ? WHERE id = ?', [filename, serviceOrderId]);
   return { filename, filePath };
 }
 
@@ -5143,124 +5518,136 @@ function protectSuperAdmin(req, res, next) {
   return rejectUnauthorized(req, res);
 }
 
-function sendTransactionPdf(req, res, whereClause, params) {
-  db.query(
-    `SELECT id, docno, pdfFilename FROM transactions WHERE ${whereClause} LIMIT 1`,
-    params,
-    (err, rows) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (!rows.length || !rows[0].pdfFilename) {
-        return res.status(404).json({ error: 'PDF not found' });
-      }
-
-      const record = rows[0];
-      const safeFilename = path.basename(record.pdfFilename);
-      const filePath = path.join(UPLOAD_DIR, safeFilename);
-
-      if (!fs.existsSync(filePath)) {
-        return res.status(404).json({ error: 'PDF file missing on disk' });
-      }
-
-      noCache(res);
-      res.type('application/pdf');
-      if (req.query.download === '1') {
-        return res.download(filePath, safeFilename);
-      }
-
-      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(safeFilename)}"`);
-      return res.sendFile(filePath);
+async function sendTransactionPdf(req, res, whereClause, params) {
+  try {
+    const rows = await queryAsync(
+      `SELECT id, docno, pdfFilename FROM transactions WHERE ${whereClause} LIMIT 1`,
+      params
+    );
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Transaction not found' });
     }
-  );
+
+    const record = rows[0];
+    let safeFilename = record.pdfFilename ? path.basename(record.pdfFilename) : '';
+    let filePath = safeFilename ? path.join(UPLOAD_DIR, safeFilename) : '';
+
+    if (!safeFilename || !fs.existsSync(filePath)) {
+      const generated = await generateTransactionPdfFile(record.id);
+      safeFilename = generated.filename;
+      filePath = generated.filePath;
+    }
+
+    noCache(res);
+    res.type('application/pdf');
+    if (req.query.download === '1') {
+      return res.download(filePath, safeFilename);
+    }
+
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(safeFilename)}"`);
+    return res.sendFile(filePath);
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'Unable to generate transaction PDF.' });
+  }
 }
 
-function sendBillPdf(req, res, billId) {
-  db.query(
-    'SELECT id, bill_number, pdfFilename FROM accounts_payable WHERE id = ? LIMIT 1',
-    [billId],
-    (err, rows) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (!rows.length || !rows[0].pdfFilename) {
-        return res.status(404).json({ error: 'PDF not found' });
-      }
-
-      const record = rows[0];
-      const safeFilename = path.basename(record.pdfFilename);
-      const filePath = path.join(UPLOAD_DIR, safeFilename);
-
-      if (!fs.existsSync(filePath)) {
-        return res.status(404).json({ error: 'PDF file missing on disk' });
-      }
-
-      noCache(res);
-      res.type('application/pdf');
-      if (req.query.download === '1') {
-        return res.download(filePath, safeFilename);
-      }
-
-      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(safeFilename)}"`);
-      return res.sendFile(filePath);
+async function sendBillPdf(req, res, billId) {
+  try {
+    const rows = await queryAsync(
+      'SELECT id, bill_number, pdfFilename FROM accounts_payable WHERE id = ? LIMIT 1',
+      [billId]
+    );
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Bill not found' });
     }
-  );
+
+    const record = rows[0];
+    let safeFilename = record.pdfFilename ? path.basename(record.pdfFilename) : '';
+    let filePath = safeFilename ? path.join(UPLOAD_DIR, safeFilename) : '';
+
+    if (!safeFilename || !fs.existsSync(filePath)) {
+      const generated = await generateBillPdfFile(record.id);
+      safeFilename = generated.filename;
+      filePath = generated.filePath;
+    }
+
+    noCache(res);
+    res.type('application/pdf');
+    if (req.query.download === '1') {
+      return res.download(filePath, safeFilename);
+    }
+
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(safeFilename)}"`);
+    return res.sendFile(filePath);
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'Unable to generate bill PDF.' });
+  }
 }
 
-function sendProjectPdf(req, res, projectId) {
-  db.query(
-    'SELECT id, project_docno, pdfFilename FROM projects WHERE id = ? LIMIT 1',
-    [projectId],
-    (err, rows) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (!rows.length || !rows[0].pdfFilename) {
-        return res.status(404).json({ error: 'PDF not found' });
-      }
-
-      const record = rows[0];
-      const safeFilename = path.basename(record.pdfFilename);
-      const filePath = path.join(UPLOAD_DIR, safeFilename);
-
-      if (!fs.existsSync(filePath)) {
-        return res.status(404).json({ error: 'PDF file missing on disk' });
-      }
-
-      noCache(res);
-      res.type('application/pdf');
-      if (req.query.download === '1') {
-        return res.download(filePath, safeFilename);
-      }
-
-      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(safeFilename)}"`);
-      return res.sendFile(filePath);
+async function sendProjectPdf(req, res, projectId) {
+  try {
+    const rows = await queryAsync(
+      'SELECT id, project_docno, pdfFilename FROM projects WHERE id = ? LIMIT 1',
+      [projectId]
+    );
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Project not found' });
     }
-  );
+
+    const record = rows[0];
+    let safeFilename = record.pdfFilename ? path.basename(record.pdfFilename) : '';
+    let filePath = safeFilename ? path.join(UPLOAD_DIR, safeFilename) : '';
+
+    if (!safeFilename || !fs.existsSync(filePath)) {
+      const generated = await generateProjectPdfFile(projectId);
+      safeFilename = generated.filename;
+      filePath = generated.filePath;
+    }
+
+    noCache(res);
+    res.type('application/pdf');
+    if (req.query.download === '1') {
+      return res.download(filePath, safeFilename);
+    }
+
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(safeFilename)}"`);
+    return res.sendFile(filePath);
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'Unable to generate project PDF.' });
+  }
 }
 
-function sendServiceOrderPdf(req, res, serviceOrderId) {
-  db.query(
-    'SELECT id, so_number, pdfFilename FROM service_orders WHERE id = ? LIMIT 1',
-    [serviceOrderId],
-    (err, rows) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (!rows.length || !rows[0].pdfFilename) {
-        return res.status(404).json({ error: 'PDF not found' });
-      }
-
-      const record = rows[0];
-      const safeFilename = path.basename(record.pdfFilename);
-      const filePath = path.join(UPLOAD_DIR, safeFilename);
-
-      if (!fs.existsSync(filePath)) {
-        return res.status(404).json({ error: 'PDF file missing on disk' });
-      }
-
-      noCache(res);
-      res.type('application/pdf');
-      if (req.query.download === '1') {
-        return res.download(filePath, safeFilename);
-      }
-
-      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(safeFilename)}"`);
-      return res.sendFile(filePath);
+async function sendServiceOrderPdf(req, res, serviceOrderId) {
+  try {
+    const rows = await queryAsync(
+      'SELECT id, so_number, pdfFilename FROM service_orders WHERE id = ? LIMIT 1',
+      [serviceOrderId]
+    );
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Service order not found' });
     }
-  );
+
+    const record = rows[0];
+    let safeFilename = record.pdfFilename ? path.basename(record.pdfFilename) : '';
+    let filePath = safeFilename ? path.join(UPLOAD_DIR, safeFilename) : '';
+
+    if (!safeFilename || !fs.existsSync(filePath)) {
+      const generated = await generateServiceOrderPdfFile(record.id);
+      safeFilename = generated.filename;
+      filePath = generated.filePath;
+    }
+
+    noCache(res);
+    res.type('application/pdf');
+    if (req.query.download === '1') {
+      return res.download(filePath, safeFilename);
+    }
+
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(safeFilename)}"`);
+    return res.sendFile(filePath);
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'Unable to generate service order PDF.' });
+  }
 }
 
 function normalizeServiceOrderStatusValue(status) {
@@ -6842,22 +7229,54 @@ app.get('/status', protectAuthenticated, (req, res) => {
 
 
 
-app.get('/api/me', (req, res) => {
+app.get('/api/me', async (req, res) => {
   noCache(res);
   const user = getAuthenticatedUser(req);
   if (!user) {
     return res.status(401).json({ loggedIn: false });
   }
-  const csrfToken = req.session?.user ? ensureSessionCsrfToken(req) : '';
-  res.json({
-    loggedIn: true,
-    id: user.id,
-    username: user.username,
-    fullname: user.fullname,
-    role:     user.role,
-    permissions: getRolePermissions(user.role),
-    csrfToken
-  });
+
+  try {
+    const rows = await queryAsync(
+      'SELECT id, username, fullname, email, role, active FROM users WHERE id = ? LIMIT 1',
+      [user.id]
+    );
+    const freshUser = rows && rows[0];
+
+    if (!freshUser || Number(freshUser.active) !== 1) {
+      if (req.session?.user) {
+        req.session.destroy(() => {});
+      }
+      return res.status(401).json({ loggedIn: false });
+    }
+
+    const freshRole = normalizeAccessRole(freshUser.role);
+    const currentUser = {
+      id: freshUser.id,
+      username: freshUser.username,
+      fullname: freshUser.fullname,
+      email: freshUser.email,
+      role: freshRole
+    };
+
+    if (req.session?.user) {
+      req.session.user = currentUser;
+    }
+
+    const csrfToken = req.session?.user ? ensureSessionCsrfToken(req) : '';
+    res.json({
+      loggedIn: true,
+      id: currentUser.id,
+      username: currentUser.username,
+      fullname: currentUser.fullname,
+      role: currentUser.role,
+      permissions: getRolePermissions(currentUser.role),
+      csrfToken
+    });
+  } catch (err) {
+    console.error('Current user lookup error:', err);
+    res.status(500).json({ loggedIn: false, message: 'Unable to verify current user' });
+  }
 });
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -12761,6 +13180,38 @@ app.get('/api/projects/stats', protectAdmin, (req, res) => {
   });
 });
 
+function getMissingProjectRequiredFields(input = {}) {
+  const requiredFields = [
+    ['project_name', 'Project title'],
+    ['company_id', 'Company'],
+    ['description', 'Scope / Description'],
+    ['checkno', 'Check No.'],
+    ['pono', 'Customer PO Ref.'],
+    ['project_manager', 'Project manager'],
+    ['project_members', 'Member 1'],
+    ['member_role', 'Role 1'],
+    ['member_phone', 'Phone 1'],
+    ['start_date', 'Planned start date'],
+    ['end_date', 'Planned end date'],
+    ['actual_start_date', 'Actual start date'],
+    ['actual_end_date', 'Actual end date'],
+    ['budget', 'Contract amount'],
+    ['downpayment', 'Downpayment']
+  ];
+
+  return requiredFields
+    .filter(([key]) => {
+      if (key === 'company_id') return !Number(input[key] || 0);
+      if (key === 'budget' || key === 'downpayment') {
+        const raw = String(input[key] ?? '').trim();
+        if (raw === '' || Number.isNaN(Number(raw))) return true;
+        return key === 'budget' ? Number(raw) <= 0 : Number(raw) < 0;
+      }
+      return !String(input[key] || '').trim();
+    })
+    .map(([, label]) => label);
+}
+
 app.post('/api/projects', protectAdmin, upload.single('pdf_file'), (req, res) => {
   const {
     project_name,
@@ -12824,8 +13275,9 @@ app.post('/api/projects', protectAdmin, upload.single('pdf_file'), (req, res) =>
   const resolvedPausedAt = resolvedProjectStatus === 'on_hold' ? (paused_at || todayYmd) : (paused_at || null);
   const resolvedCancelledAt = resolvedProjectStatus === 'cancelled' ? (cancelled_at || todayYmd) : (cancelled_at || null);
 
-  if (!String(project_name || '').trim() || !Number(company_id || 0) || !String(project_manager || '').trim() || !start_date || !end_date) {
-    return res.status(400).json({ error: 'Project title, company, project manager, start date, and end date are required.' });
+  const missingProjectFields = getMissingProjectRequiredFields({ ...req.body, start_date, end_date });
+  if (missingProjectFields.length) {
+    return res.status(400).json({ error: `Please complete all project information before saving: ${missingProjectFields.join(', ')}.` });
   }
 
   if (normalizedMemberPhone && !isValidPhone(normalizedMemberPhone)) {
@@ -13064,8 +13516,9 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
   const normalizedMemberPhone2 = normalizePhone(member_phone_2);
   const normalizedMemberPhone3 = normalizePhone(member_phone_3);
 
-  if (!String(project_name || '').trim() || !Number(company_id || 0) || !String(project_manager || '').trim() || !start_date || !end_date) {
-    return res.status(400).json({ error: 'Project title, company, project manager, start date, and end date are required.' });
+  const missingProjectFields = getMissingProjectRequiredFields({ ...req.body, start_date, end_date });
+  if (missingProjectFields.length) {
+    return res.status(400).json({ error: `Please complete all project information before saving: ${missingProjectFields.join(', ')}.` });
   }
 
   if (normalizedMemberPhone && !isValidPhone(normalizedMemberPhone)) {

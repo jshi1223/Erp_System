@@ -5,10 +5,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KVSK CCTV & IT Solution - Accounts Payable</title>
-  <script src="/assets/js/auth-guard.js?v=20260521v"></script>
+  <script src="/assets/js/auth-guard.js?v=20260522a"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260521v" />
-  <link rel="stylesheet" href="/accounts-payable/accounts-payable.css?v=20260521x" />
+  <link rel="stylesheet" href="/accounts-payable/accounts-payable.css?v=20260522d" />
   <link rel="stylesheet" href="/accounts-payable/ap-purchasing.css?v=20260521p" />
 
   
@@ -17,10 +17,22 @@
 <script>
   const workspacePath = window.location.pathname.replace(/\/+$/, '');
   const workspaceParams = new URLSearchParams(window.location.search);
-  document.body.dataset.workspaceMode = workspacePath === '/master-data' ? 'master-data' : (workspacePath === '/procurement' ? 'procurement' : 'ap');
-  document.body.dataset.initialTab = workspacePath === '/master-data'
-    ? (workspaceParams.get('tab') || 'companies')
-    : (workspacePath === '/procurement' ? 'requisitions' : '');
+  const workspaceMode = workspacePath === '/master-data' ? 'master-data' : (workspacePath === '/procurement' ? 'procurement' : 'ap');
+  const workspaceTabParam = String(workspaceParams.get('tab') || '').trim().toLowerCase();
+  const workspaceTabSets = {
+    'master-data': new Set(['companies', 'vendors']),
+    procurement: new Set(['requisitions', 'rfq', 'quotations', 'purchase-orders', 'goods-receipts']),
+    ap: new Set(['bills', 'vendor-balances', 'ap-aging', 'payments', 'disbursements'])
+  };
+  const workspaceDefaultTabs = {
+    'master-data': 'companies',
+    procurement: 'requisitions',
+    ap: 'bills'
+  };
+  document.body.dataset.workspaceMode = workspaceMode;
+  document.body.dataset.initialTab = workspaceTabSets[workspaceMode].has(workspaceTabParam)
+    ? workspaceTabParam
+    : workspaceDefaultTabs[workspaceMode];
   document.title = workspacePath === '/master-data'
     ? 'KVSK CCTV & IT Solution - Master Data'
     : (workspacePath === '/procurement'
@@ -137,23 +149,23 @@
       <div class="module-summary-value" id="metric-master-companies-total">0</div>
     </div>
 
-    <div class="module-summary-card ap-summary-card" data-summary-tabs="vendors">
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="vendors" hidden>
       <span class="module-summary-label">Active Vendors</span>
       <div class="module-summary-value" id="metric-vendors-count">0</div>
     </div>
-    <div class="module-summary-card ap-summary-card" data-summary-tabs="vendors">
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="vendors" hidden>
       <span class="module-summary-label">Inactive Vendors</span>
       <div class="module-summary-value" id="metric-vendors-inactive">0</div>
     </div>
-    <div class="module-summary-card ap-summary-card" data-summary-tabs="vendors">
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="vendors" hidden>
       <span class="module-summary-label">Total Vendors</span>
       <div class="module-summary-value" id="metric-vendors-total">0</div>
     </div>
-    <div class="module-summary-card ap-summary-card" data-summary-tabs="vendors">
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="vendors" hidden>
       <span class="module-summary-label">Vendors With POs</span>
       <div class="module-summary-value" id="metric-vendors-with-po">0</div>
     </div>
-    <div class="module-summary-card ap-summary-card" data-summary-tabs="vendors">
+    <div class="module-summary-card ap-summary-card" data-summary-tabs="vendors" hidden>
       <span class="module-summary-label">Payable Vendors</span>
       <div class="module-summary-value" id="metric-vendors-payable">0</div>
     </div>
@@ -389,11 +401,17 @@
       <div class="module-summary-value" id="metric-disbursement-linked-bills">0</div>
     </div>
   </div>
+  <script>
+    document.querySelectorAll('#ap-summary-grid .ap-summary-card').forEach((card) => {
+      const tabs = String(card.dataset.summaryTabs || '').split(',').map((tab) => tab.trim().toLowerCase());
+      card.hidden = !tabs.includes(document.body.dataset.initialTab);
+    });
+  </script>
 
   <!-- Navigation Tabs -->
   <div class="module-tabs">
     <button class="module-tab master-data-tab ap-workspace-tab" type="button" data-master-data-tab="companies" data-workspace-tab="companies" onclick="switchApWorkspaceTab('companies', this)">Company Registry</button>
-    <button class="module-tab master-data-tab ap-workspace-tab active" type="button" data-master-data-tab="vendors" data-proc-tab="vendors" data-workspace-tab="vendors" onclick="switchApWorkspaceTab('vendors', this)">Vendors</button>
+    <button class="module-tab master-data-tab ap-workspace-tab" type="button" data-master-data-tab="vendors" data-proc-tab="vendors" data-workspace-tab="vendors" onclick="switchApWorkspaceTab('vendors', this)">Vendors</button>
     <div class="module-tab ap-workspace-tab" data-proc-tab="requisitions" data-workspace-tab="requisitions" onclick="switchApWorkspaceTab('requisitions', this)">Purchase Requisitions</div>
     <div class="module-tab ap-workspace-tab" data-proc-tab="rfq" data-workspace-tab="rfq" onclick="switchApWorkspaceTab('rfq', this)">RFQ</div>
     <div class="module-tab ap-workspace-tab" data-proc-tab="quotations" data-workspace-tab="quotations" onclick="switchApWorkspaceTab('quotations', this)">Quotations &amp; Evaluation</div>
@@ -405,6 +423,11 @@
     <div class="module-tab ap-workspace-tab" data-tab="payments" data-workspace-tab="payments" onclick="switchApWorkspaceTab('payments', this)">Payments</div>
     <div class="module-tab ap-workspace-tab" data-tab="disbursements" data-workspace-tab="disbursements" onclick="switchApWorkspaceTab('disbursements', this)">Disbursements</div>
   </div>
+  <script>
+    document.querySelectorAll('.ap-workspace-tab').forEach((tab) => {
+      tab.classList.toggle('active', tab.dataset.workspaceTab === document.body.dataset.initialTab);
+    });
+  </script>
 
   <div id="ap-purchasing-root" data-procurement-only>
     <div id="companies" class="content-section ap-workspace-section master-data-company-section" data-master-data-section="companies">
@@ -416,7 +439,7 @@
         loading="lazy"></iframe>
     </div>
 
-    <div id="vendors" class="content-section ap-workspace-section active" data-proc-section="vendors">
+    <div id="vendors" class="content-section ap-workspace-section" data-proc-section="vendors">
       <div class="table-wrap" style="margin-top: 12px;">
         <table class="registry-table">
           <thead>
@@ -726,6 +749,74 @@
 </footer>
 
 <div id="toast" role="status" aria-live="polite"></div>
+
+<!-- COMPANY MODAL -->
+<div class="modal-backdrop" id="master-company-modal-backdrop" data-master-data-section="companies" hidden>
+  <div class="modal modal-project" style="max-width: 760px;">
+    <button class="modal-close" type="button" onclick="closeMasterDataCompanyModal()">X</button>
+    <div class="user-modal-brand">
+      <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <div>
+        <div class="user-modal-kicker">Master Data</div>
+        <div class="modal-title" id="master-company-modal-title" style="margin-bottom:0;">Add Company</div>
+      </div>
+    </div>
+    <div class="section-divider">Company Details</div>
+    <div class="modal-grid-compact">
+      <div class="field">
+        <label>Company No. <span class="req-star">*</span></label>
+        <input id="f-master-company-no" type="text" placeholder="Auto-generated" readonly required aria-required="true" />
+        <div class="modal-inline-message is-hidden" data-master-company-field-message="company_no" aria-live="polite"></div>
+      </div>
+      <div class="field">
+        <label>Branch Code</label>
+        <input id="f-master-company-branch-code" type="text" maxlength="10" placeholder="Optional, e.g. BR-01" />
+      </div>
+      <div class="field full">
+        <label>Company Name <span class="req-star">*</span></label>
+        <input id="f-master-company-name" type="text" placeholder="Company or client name" required aria-required="true" />
+        <div class="modal-inline-message is-hidden" data-master-company-field-message="company_name" aria-live="polite"></div>
+      </div>
+      <div class="field">
+        <label>Contact Person <span class="req-star">*</span></label>
+        <input id="f-master-company-contact" type="text" placeholder="Juan Dela Cruz" required aria-required="true" />
+        <div class="modal-inline-message is-hidden" data-master-company-field-message="contact_person" aria-live="polite"></div>
+      </div>
+      <div class="field">
+        <label>Email <span class="req-star">*</span></label>
+        <input id="f-master-company-email" type="email" placeholder="company@example.com" required aria-required="true" />
+        <div class="modal-inline-message is-hidden" data-master-company-field-message="email" aria-live="polite"></div>
+      </div>
+      <div class="field">
+        <label>Phone <span class="req-star">*</span></label>
+        <select id="f-master-company-phone-country" aria-label="Phone country">
+          <option value="PH">PH +63</option>
+          <option value="OTHER">Other country</option>
+        </select>
+        <input id="f-master-company-phone" type="text" placeholder="11 digits, e.g. 09171234567" maxlength="11" inputmode="numeric" autocomplete="tel" required aria-required="true" />
+        <div class="modal-inline-message is-hidden" data-master-company-field-message="phone" aria-live="polite"></div>
+      </div>
+      <div class="field">
+        <label>TIN <span class="req-star">*</span></label>
+        <input id="f-master-company-tin" type="text" placeholder="000-000-000-000" maxlength="15" inputmode="numeric" autocomplete="off" required aria-required="true" />
+        <div class="modal-inline-message is-hidden" data-master-company-field-message="tin" aria-live="polite"></div>
+      </div>
+      <div class="field full">
+        <label>Address <span class="req-star">*</span></label>
+        <textarea id="f-master-company-address" style="height:70px" placeholder="Complete address" required aria-required="true"></textarea>
+        <div class="modal-inline-message is-hidden" data-master-company-field-message="address" aria-live="polite"></div>
+      </div>
+      <div class="field full">
+        <label>Notes</label>
+        <textarea id="f-master-company-notes" style="height:70px" placeholder="Optional notes"></textarea>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-cancel btn-sm" type="button" onclick="closeMasterDataCompanyModal()">Cancel</button>
+      <button class="btn btn-save btn-sm" id="master-company-save-btn" type="button" onclick="saveMasterDataCompany()">Create Company</button>
+    </div>
+  </div>
+</div>
 
 <!-- VENDOR MODAL -->
 <div class="modal-backdrop" id="vendor-modal-backdrop" data-procurement-only>
@@ -1340,7 +1431,7 @@
 
 <!-- Sidebar Menu -->
 <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
-<div class="sidebar" id="sidebar">
+<div class="sidebar" id="sidebar" data-shared-sidebar-rendered="1">
   <div class="sidebar-header">
     <div class="sidebar-brand">
       <img class="sidebar-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
@@ -1349,25 +1440,27 @@
         <div class="header-sub">Operations Control Panel</div>
       </div>
     </div>
-    <button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()">X</button>
+    <button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()" aria-label="Close menu">&times;</button>
   </div>
   <nav class="sidebar-nav">
-    <a href="/admin?view=dashboard" class="sidebar-link">Dashboard</a>
+    <a href="/admin?view=dashboard" class="sidebar-link" id="menu-dashboard">Dashboard</a>
+    <a href="/reports" class="sidebar-link" id="menu-reports">Reports</a>
 
     <div class="sidebar-group" data-sidebar-group="projects">
       <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
         <span>Projects</span>
-        <span class="sidebar-group-caret">?</span>
+        <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/admin?panel=project-records" class="sidebar-link is-subitem">Project Records</a>
+        <a href="/admin?panel=project-records" class="sidebar-link is-subitem" id="menu-projects">Project Records</a>
+        <a href="/gantt-chart" class="sidebar-link is-subitem" id="menu-gantt-chart">Gantt Chart</a>
       </div>
     </div>
 
     <div class="sidebar-group" data-sidebar-group="master-data">
       <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
         <span>Master Data</span>
-        <span class="sidebar-group-caret">?</span>
+        <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
       </button>
       <div class="sidebar-group-items">
         <a href="/master-data?tab=companies" class="sidebar-link is-subitem">Company Registry</a>
@@ -1377,8 +1470,8 @@
 
     <div class="sidebar-group" data-sidebar-group="procurement">
       <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
-        <span>Procurement</span>
-        <span class="sidebar-group-caret">?</span>
+        <span>Procurement Management</span>
+        <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
       </button>
       <div class="sidebar-group-items">
         <a href="/procurement?tab=requisitions" class="sidebar-link is-subitem">Purchase Requisitions</a>
@@ -1389,52 +1482,45 @@
       </div>
     </div>
 
-    <div class="sidebar-group" data-sidebar-group="accounts-payable">
+    <div class="sidebar-group" data-sidebar-group="inventory">
       <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
-        <span>AP</span>
-        <span class="sidebar-group-caret">?</span>
+        <span>Inventory Management</span>
+        <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/inventory" class="sidebar-link is-subitem" id="menu-inventory">Products, Warehouses &amp; Stock</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="finance">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Financial Management</span>
+        <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
       </button>
       <div class="sidebar-group-items">
         <a href="/accounts-payable?tab=bills" class="sidebar-link is-subitem">Bills</a>
         <a href="/accounts-payable?tab=vendor-balances" class="sidebar-link is-subitem">Vendor Balances</a>
         <a href="/accounts-payable?tab=ap-aging" class="sidebar-link is-subitem">AP Aging</a>
-        <a href="/accounts-payable?tab=payments" class="sidebar-link is-subitem">Payments</a>
+        <a href="/accounts-payable?tab=payments" class="sidebar-link is-subitem">AP Payments</a>
         <a href="/accounts-payable?tab=disbursements" class="sidebar-link is-subitem">Disbursements</a>
-      </div>
-    </div>
-
-    <div class="sidebar-group" data-sidebar-group="accounts-receivable">
-      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
-        <span>AR</span>
-        <span class="sidebar-group-caret">?</span>
-      </button>
-      <div class="sidebar-group-items">
-        <a href="/accounts-receivable?tab=service-orders" class="sidebar-link is-subitem">Service Orders</a>
-        <a href="/accounts-receivable?tab=transactions" class="sidebar-link is-subitem">Transactions</a>
-        <a href="/accounts-receivable?tab=receivables" class="sidebar-link is-subitem">Receivables</a>
-        <a href="/accounts-receivable?tab=collections" class="sidebar-link is-subitem">Payments</a>
+        <a href="/accounts-receivable?tab=invoices" class="sidebar-link is-subitem">AR Invoices</a>
+        <a href="/accounts-receivable?tab=collections" class="sidebar-link is-subitem">AR Collections</a>
+        <a href="/accounts-receivable?tab=customer-balances" class="sidebar-link is-subitem">AR Customer Balances</a>
+        <a href="/accounts-receivable?tab=ar-aging" class="sidebar-link is-subitem">AR Aging</a>
+        <a href="/reports" class="sidebar-link is-subitem">General Ledger / Reports</a>
       </div>
     </div>
 
     <div class="sidebar-group" data-sidebar-group="admin" data-sidebar-default-collapsed="1">
       <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
         <span>Admin</span>
-        <span class="sidebar-group-caret">?</span>
+        <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
       </button>
       <div class="sidebar-group-items">
         <a href="/user-management" class="sidebar-link is-subitem" id="menu-users">User Management</a>
         <a href="/business-entities" class="sidebar-link is-subitem" id="menu-business-entities">Business Entities</a>
+        <a href="/admin?panel=archive-center" class="sidebar-link is-subitem" id="menu-archive-center">Archive Center</a>
         <a href="/admin?view=logs" class="sidebar-link is-subitem" id="menu-logs">System Logs</a>
-      </div>
-    </div>
-
-    <div class="sidebar-group" data-sidebar-group="archived" data-sidebar-default-collapsed="1">
-      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
-        <span>Archived</span>
-        <span class="sidebar-group-caret">?</span>
-      </button>
-      <div class="sidebar-group-items">
-        <a href="/admin?panel=archive-center" class="sidebar-link">Archive Center</a>
       </div>
     </div>
   </nav>
@@ -1452,10 +1538,13 @@
 </div>
 
   <script src="/assets/js/erp-core.js?v=20260521v"></script>
-  <script src="/accounts-payable/ap-purchasing.js?v=20260521w"></script>
-  <script src="/accounts-payable/accounts-payable.js?v=20260521x"></script>
+  <script src="/accounts-payable/ap-purchasing.js?v=20260522a"></script>
+  <script src="/accounts-payable/accounts-payable.js?v=20260522c"></script>
 </body>
 </html>
+
+
+
 
 
 

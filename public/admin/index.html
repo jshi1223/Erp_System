@@ -7,12 +7,33 @@
   <meta http-equiv="Expires" content="0">
   <title>KVSK CCTV &amp; IT Solutions - Admin Panel</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<script src="/assets/js/auth-guard.js?v=20260521v"></script>
+<script src="/assets/js/auth-guard.js?v=20260522b"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Orbitron:wght@500;700;800&amp;family=Playfair+Display:wght@600;700&amp;family=IBM+Plex+Mono:wght@300;400;500&amp;display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/shared.css?v=20260521s">
-  <link rel="stylesheet" href="/admin/admin.css?v=20260521s">
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260522a">
+  <link rel="stylesheet" href="/admin/admin.css?v=20260522e">
 </head>
 <body class="admin-page">
+<script>
+  (function () {
+    var params = new URLSearchParams(window.location.search || '');
+    var panel = String(params.get('panel') || '').trim();
+    var view = String(params.get('view') || '').trim();
+    var initialPanel = 'home';
+    if (panel === 'project-records' || view === 'all' || view === 'project-records') initialPanel = 'project-records';
+    else if (panel === 'project-ledger') initialPanel = 'project-ledger';
+    else if (panel === 'ongoing-projects' || view === 'ongoing' || view === 'ongoing-projects') initialPanel = 'ongoing-projects';
+    else if (panel === 'system-logs' || view === 'logs') initialPanel = 'system-logs';
+    else if (panel === 'archive-center' || view === 'archive-center' || view === 'archived') initialPanel = 'archive-center';
+    document.body.dataset.initialDashboardPanel = initialPanel;
+    document.body.dataset.dashboardPanel = initialPanel;
+    if (initialPanel === 'home') {
+      try {
+        localStorage.setItem('kinaadman_dashboardCompany', 'all');
+        localStorage.setItem('kinaadman_dashboardPanel', 'home');
+      } catch (_) {}
+    }
+  })();
+</script>
 
 <!-- DASHBOARD -->
 <div id="dashboard" style="display: flex; min-height: 100vh; flex-direction: column;">
@@ -36,10 +57,10 @@
     </div>
     <div class="header-right">
       <div class="business-profile-menu">
-        <button class="workspace-badge business-profile-trigger" id="current-workspace-badge" type="button" aria-haspopup="true" aria-expanded="false">Workspace</button>
+        <button class="workspace-badge business-profile-trigger" id="current-workspace-badge" type="button" aria-haspopup="true" aria-expanded="false">KVSK Workspace</button>
         <div class="business-profile-panel" id="business-profile-panel" role="menu" aria-label="Switch workspace"></div>
       </div>
-      <span class="admin-badge" id="role-badge">ERP Command Center</span>
+      <span class="admin-badge" id="role-badge" data-user-ready="0" aria-live="polite"></span>
       <div class="notification-wrap">
         <button class="btn-icon notification-btn" type="button" onclick="toggleNotificationsPanel()" aria-label="Notifications" title="Notifications">
           <svg viewBox="0 0 24 24" aria-hidden="true" class="notification-icon">
@@ -63,6 +84,30 @@
       <button class="btn btn-logout btn-sm" onclick="doLogout()">Logout</button>
     </div>
   </header>
+  <script>
+    (function () {
+      var stored = null;
+      try {
+        var raw = localStorage.getItem('kinaadman_businessEntityTheme');
+        stored = raw ? JSON.parse(raw) : null;
+      } catch (_) {}
+      if (!stored || !stored.theme) return;
+      var name = String(stored && stored.company_name ? stored.company_name : 'KVSK CCTV & IT Solution').trim();
+      var theme = String(stored && stored.theme ? stored.theme : '').trim().toLowerCase();
+      var label = theme === 'kitsi' || /kitsi|ktiis|kinaadman/i.test(name) ? 'KITSI' : 'KVSK';
+      var badge = document.getElementById('current-workspace-badge');
+      if (badge) {
+        badge.textContent = label + ' Workspace';
+        badge.title = name;
+        badge.setAttribute('aria-label', 'Current workspace: ' + name);
+      }
+      var brand = document.querySelector('header .brand-copy .header-logo');
+      if (brand) brand.textContent = name;
+      if (document.documentElement && document.documentElement.dataset) {
+        document.documentElement.dataset.businessEntityBrandTextReady = '1';
+      }
+    })();
+  </script>
 
   <!-- Main Content -->
   <main>
@@ -72,10 +117,22 @@
         <div class="page-sub page-subtitle"></div>
       </div>
     </div>
+    <script>
+      (function () {
+        var panel = document.body.dataset.initialDashboardPanel || 'home';
+        var title = document.querySelector('.page-title');
+        if (!title) return;
+        if (panel === 'project-records') title.textContent = 'Projects';
+        else if (panel === 'project-ledger') title.textContent = 'Project Overview';
+        else if (panel === 'ongoing-projects') title.textContent = 'Ongoing Projects';
+        else if (panel === 'system-logs') title.textContent = 'System Logs';
+        else if (panel === 'archive-center') title.textContent = 'Archive Center';
+      })();
+    </script>
 
     <div class="stats dashboard-stats" style="display: grid;">
       <!-- Master Data -->
-      <div class="stat-card stat-card-company stat-card-link" id="stat-card-company-registry" onclick="window.location.href='/master-data?tab=companies'">
+      <div class="stat-card stat-card-company stat-card-link" id="stat-card-company-registry" onclick="navigateDashboardCard('/master-data?tab=companies')">
         <div class="stat-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24">
             <path d="M4.5 20V6.5A1.5 1.5 0 0 1 6 5h7a1.5 1.5 0 0 1 1.5 1.5V20"></path>
@@ -104,11 +161,11 @@
         </div>
         <div class="stat-label">Projects</div>
         <div class="stat-val" id="stat-projects">0</div>
-        <div class="stat-mini" id="stat-projects-mini">All Companies &bull; 0 projects</div>
+        <div class="stat-mini" id="stat-projects-mini">All Companies &bull; 0 ongoing &bull; 0 overdue</div>
       </div>
 
       <!-- Procurement -->
-      <div class="stat-card stat-card-warning stat-card-link" id="stat-card-procurement" onclick="window.location.href='/procurement'">
+      <div class="stat-card stat-card-warning stat-card-link" id="stat-card-procurement" onclick="navigateDashboardCard('/procurement?tab=requisitions')">
         <div class="stat-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24">
             <path d="M5 5.5h14v5H5z"></path>
@@ -120,11 +177,11 @@
         </div>
         <div class="stat-label">Procurement</div>
         <div class="stat-val gold" id="stat-procurement">0</div>
-        <div class="stat-mini" id="stat-procurement-mini">All Companies &bull; PR, PO, GRN</div>
+        <div class="stat-mini" id="stat-procurement-mini">All Companies &bull; 0 PR pending &bull; 0 PO pending</div>
       </div>
 
       <!-- Inventory -->
-      <div class="stat-card stat-card-primary stat-card-link" id="stat-card-inventory" onclick="window.location.href='/inventory'">
+      <div class="stat-card stat-card-primary stat-card-link" id="stat-card-inventory" onclick="navigateDashboardCard('/inventory')">
         <div class="stat-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24">
             <path d="M4.5 7.5 12 3.8l7.5 3.7-7.5 3.7-7.5-3.7z"></path>
@@ -135,11 +192,11 @@
         </div>
         <div class="stat-label">Inventory</div>
         <div class="stat-val" id="stat-inventory">0</div>
-        <div class="stat-mini" id="stat-inventory-mini">All Companies &bull; Products, warehouses, stock</div>
+        <div class="stat-mini" id="stat-inventory-mini">All Companies &bull; 0 warehouses &bull; 0 low stock</div>
       </div>
       
       <!-- Accounts Payable -->
-      <div class="stat-card stat-card-danger stat-card-link" id="stat-card-ap" onclick="window.location.href='/accounts-payable?tab=bills'">
+      <div class="stat-card stat-card-danger stat-card-link" id="stat-card-ap" onclick="navigateDashboardCard('/accounts-payable?tab=bills')">
         <div class="stat-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24">
             <path d="M6.5 4.5h11A1.5 1.5 0 0 1 19 6v12a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 18V6a1.5 1.5 0 0 1 1.5-1.5z"></path>
@@ -154,7 +211,7 @@
       </div>
       
       <!-- Accounts Receivable -->
-      <div class="stat-card stat-card-accent stat-card-link" id="stat-card-ar" onclick="window.location.href='/accounts-receivable?tab=invoices'">
+      <div class="stat-card stat-card-accent stat-card-link" id="stat-card-ar" onclick="navigateDashboardCard('/accounts-receivable?tab=invoices')">
         <div class="stat-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24">
             <path d="M7 4.5h7l4 4V19.5H7A1.5 1.5 0 0 1 5.5 18V6A1.5 1.5 0 0 1 7 4.5z"></path>
@@ -180,7 +237,7 @@
         </div>
         <div class="stat-label">Net Position</div>
         <div class="stat-val gold" id="stat-reports">PHP 0.00</div>
-        <div class="stat-mini" id="stat-reports-mini">AR balance minus AP balance</div>
+        <div class="stat-mini" id="stat-reports-mini">All Companies &bull; PHP 0.00 AR &bull; PHP 0.00 AP</div>
       </div>
     </div>
 
@@ -602,18 +659,19 @@
 
 <!-- Sidebar Menu -->
 <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
-<div class="sidebar" id="sidebar">
+<div class="sidebar" id="sidebar" data-shared-sidebar-rendered="1">
   <div class="sidebar-header">
     <div class="sidebar-brand">
       <img class="sidebar-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV &amp; IT Solution logo">
       <div>
         <div class="header-logo" style="font-size: 1rem;">KVSK CCTV</div>
+        <div class="header-sub">Operations Control Panel</div>
       </div>
     </div>
     <button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()" aria-label="Close menu">&times;</button>
   </div>
   <nav class="sidebar-nav">
-    <a href="#" class="sidebar-link active" id="menu-dashboard" onclick="openSidebarDashboard(this)">Dashboard</a>
+    <a href="/admin?view=dashboard" class="sidebar-link active" id="menu-dashboard">Dashboard</a>
     <a href="/reports" class="sidebar-link" id="menu-reports">Reports</a>
     <div class="sidebar-group" data-sidebar-group="projects">
       <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
@@ -621,7 +679,8 @@
         <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/admin?panel=project-records" class="sidebar-link" id="menu-projects">Projects</a>
+        <a href="/admin?panel=project-records" class="sidebar-link is-subitem" id="menu-projects">Project Records</a>
+        <a href="/gantt-chart" class="sidebar-link is-subitem" id="menu-gantt-chart">Gantt Chart</a>
       </div>
     </div>
 
@@ -638,7 +697,7 @@
 
     <div class="sidebar-group" data-sidebar-group="procurement">
       <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
-        <span>Procurement</span>
+        <span>Procurement Management</span>
         <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
       </button>
       <div class="sidebar-group-items">
@@ -650,27 +709,32 @@
       </div>
     </div>
 
-    <div class="sidebar-group" data-sidebar-group="accounts-payable">
+    <div class="sidebar-group" data-sidebar-group="inventory">
       <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
-        <span>AP</span>
+        <span>Inventory Management</span>
+        <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/inventory" class="sidebar-link is-subitem" id="menu-inventory">Products, Warehouses &amp; Stock</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="finance">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Financial Management</span>
         <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
       </button>
       <div class="sidebar-group-items">
         <a href="/accounts-payable?tab=bills" class="sidebar-link is-subitem" id="menu-accounts-payable">Bills</a>
         <a href="/accounts-payable?tab=vendor-balances" class="sidebar-link is-subitem">Vendor Balances</a>
         <a href="/accounts-payable?tab=ap-aging" class="sidebar-link is-subitem">AP Aging</a>
-        <a href="/accounts-payable?tab=payments" class="sidebar-link is-subitem">Payments</a>
+        <a href="/accounts-payable?tab=payments" class="sidebar-link is-subitem">AP Payments</a>
         <a href="/accounts-payable?tab=disbursements" class="sidebar-link is-subitem">Disbursements</a>
-      </div>
-    </div>
-
-    <div class="sidebar-group" data-sidebar-group="accounts-receivable">
-      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
-        <span>AR</span>
-        <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
-      </button>
-      <div class="sidebar-group-items">
-        <a href="/accounts-receivable" class="sidebar-link" id="menu-accounts-receivable">Accounts Receivable</a>
+        <a href="/accounts-receivable?tab=invoices" class="sidebar-link is-subitem" id="menu-accounts-receivable">AR Invoices</a>
+        <a href="/accounts-receivable?tab=collections" class="sidebar-link is-subitem">AR Collections</a>
+        <a href="/accounts-receivable?tab=customer-balances" class="sidebar-link is-subitem">AR Customer Balances</a>
+        <a href="/accounts-receivable?tab=ar-aging" class="sidebar-link is-subitem">AR Aging</a>
+        <a href="/reports" class="sidebar-link is-subitem">General Ledger / Reports</a>
       </div>
     </div>
 
@@ -680,10 +744,10 @@
         <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/user-management" class="sidebar-link is-subitem" id="menu-users" style="display:none">User Management</a>
-        <a href="/business-entities" class="sidebar-link is-subitem" id="menu-business-entities" style="display:none">Business Entities</a>
-        <a href="/admin?panel=archive-center" class="sidebar-link is-subitem" id="menu-archive-center" style="display:none">Archive Center</a>
-        <a href="#" class="sidebar-link is-subitem" id="menu-logs" style="display:none" onclick="openLogsPanel()">System Logs</a>
+        <a href="/user-management" class="sidebar-link is-subitem" id="menu-users">User Management</a>
+        <a href="/business-entities" class="sidebar-link is-subitem" id="menu-business-entities">Business Entities</a>
+        <a href="/admin?panel=archive-center" class="sidebar-link is-subitem" id="menu-archive-center">Archive Center</a>
+        <a href="/admin?view=logs" class="sidebar-link is-subitem" id="menu-logs">System Logs</a>
       </div>
     </div>
   </nav>
@@ -858,8 +922,8 @@
             <div class="project-field-message is-hidden" data-project-field-message="project_manager" aria-live="polite"></div>
           </div>
           <div class="field">
-            <label data-label-base="Status">Status<span class="field-label-status is-optional">Optional</span></label>
-            <select id="p-status">
+            <label data-label-base="Status">Status<span class="field-label-status is-required">Required</span></label>
+            <select id="p-status" required aria-required="true">
               <option value="draft">Draft / For Approval</option>
               <option value="planning">Planning</option>
               <option value="active">Active</option>
@@ -870,8 +934,8 @@
             </select>
           </div>
           <div class="field">
-            <label data-label-base="Priority">Priority<span class="field-label-status is-optional">Optional</span></label>
-            <select id="p-priority">
+            <label data-label-base="Priority">Priority<span class="field-label-status is-required">Required</span></label>
+            <select id="p-priority" required aria-required="true">
               <option value="low">Low</option>
               <option value="medium">Medium</option>
               <option value="high">High</option>
@@ -879,8 +943,8 @@
             </select>
           </div>
           <div class="field full">
-            <label data-label-base="Scope / Description">Scope / Description<span class="field-label-status is-optional">Optional</span></label>
-            <textarea id="p-description" rows="3" placeholder="Project scope, deliverables, or important notes"></textarea>
+            <label data-label-base="Scope / Description">Scope / Description<span class="field-label-status is-required">Required</span></label>
+            <textarea id="p-description" rows="3" placeholder="Project scope, deliverables, or important notes" required aria-required="true"></textarea>
           </div>
         </div>
       </div>
@@ -899,12 +963,12 @@
             <div class="project-field-message is-hidden" data-project-field-message="planned_end_date" aria-live="polite"></div>
           </div>
           <div class="field">
-            <label data-label-base="Actual Start">Actual Start<span class="field-label-status is-optional">Optional</span></label>
-            <input id="p-actual-start-date" type="date">
+            <label data-label-base="Actual Start">Actual Start<span class="field-label-status is-required">Required</span></label>
+            <input id="p-actual-start-date" type="date" required aria-required="true">
           </div>
           <div class="field">
-            <label data-label-base="Actual End">Actual End<span class="field-label-status is-optional">Optional</span></label>
-            <input id="p-actual-end-date" type="date">
+            <label data-label-base="Actual End">Actual End<span class="field-label-status is-required">Required</span></label>
+            <input id="p-actual-end-date" type="date" required aria-required="true">
             <div class="project-field-message is-hidden" data-project-field-message="actual_end_date" aria-live="polite"></div>
           </div>
           <div class="field full" hidden>
@@ -918,13 +982,13 @@
         <div class="section-divider">Project Financials</div>
         <div class="form-grid">
           <div class="field">
-            <label data-label-base="Contract Amount">Contract Amount<span class="field-label-status is-optional">Optional</span></label>
-            <input id="p-budget" type="number" step="0.01" min="0" placeholder="0.00">
+            <label data-label-base="Contract Amount">Contract Amount<span class="field-label-status is-required">Required</span></label>
+            <input id="p-budget" type="number" step="0.01" min="0" placeholder="0.00" required aria-required="true">
             <div class="project-field-message is-hidden" data-project-field-message="budget" aria-live="polite"></div>
           </div>
           <div class="field">
-            <label data-label-base="Downpayment">Downpayment<span class="field-label-status is-optional">Optional</span></label>
-            <input id="p-downpayment" type="number" step="0.01" min="0" placeholder="0.00">
+            <label data-label-base="Downpayment">Downpayment<span class="field-label-status is-required">Required</span></label>
+            <input id="p-downpayment" type="number" step="0.01" min="0" placeholder="0.00" required aria-required="true">
           </div>
           <div class="field">
             <label data-label-base="Balance">Balance<span class="field-label-status is-optional">Optional</span></label>
@@ -935,12 +999,12 @@
             <span id="p-payment-status-display" class="status-pill status-unpaid">Unpaid</span>
           </div>
           <div class="field">
-            <label data-label-base="Check No.">Check No.<span class="field-label-status is-optional">Optional</span></label>
-            <input id="p-checkno" type="text" placeholder="Check reference">
+            <label data-label-base="Check No.">Check No.<span class="field-label-status is-required">Required</span></label>
+            <input id="p-checkno" type="text" placeholder="Check reference" required aria-required="true">
           </div>
           <div class="field">
-            <label data-label-base="Customer PO Ref.">Customer PO Ref.<span class="field-label-status is-optional">Optional</span></label>
-            <input id="p-pono" type="text" placeholder="Customer purchase order no.">
+            <label data-label-base="Customer PO Ref.">Customer PO Ref.<span class="field-label-status is-required">Required</span></label>
+            <input id="p-pono" type="text" placeholder="Customer purchase order no." required aria-required="true">
           </div>
         </div>
       </div>
@@ -949,12 +1013,12 @@
         <div class="section-divider">Project Team</div>
         <div class="form-grid">
           <div class="field" data-project-team-row="1">
-            <label data-label-base="Member 1">Member 1<span class="field-label-status is-optional">Optional</span></label>
-            <input id="p-project-members" type="text" placeholder="Full name">
+            <label data-label-base="Member 1">Member 1<span class="field-label-status is-required">Required</span></label>
+            <input id="p-project-members" type="text" placeholder="Full name" required aria-required="true">
           </div>
           <div class="field" data-project-team-row="1">
-            <label data-label-base="Role 1">Role 1<span class="field-label-status is-optional">Optional</span></label>
-            <select id="p-member-role">
+            <label data-label-base="Role 1">Role 1<span class="field-label-status is-required">Required</span></label>
+            <select id="p-member-role" required aria-required="true">
               <option value="">Select role</option>
               <option value="Project Manager">Project Manager</option>
               <option value="Site Supervisor">Site Supervisor</option>
@@ -972,8 +1036,8 @@
             </select>
           </div>
           <div class="field" data-project-team-row="1">
-            <label data-label-base="Phone 1">Phone 1<span class="field-label-status is-optional">Optional</span></label>
-            <input id="p-member-phone" type="text" placeholder="09171234567" inputmode="numeric">
+            <label data-label-base="Phone 1">Phone 1<span class="field-label-status is-required">Required</span></label>
+            <input id="p-member-phone" type="text" placeholder="09171234567" inputmode="numeric" required aria-required="true">
           </div>
           <div class="field" data-project-team-row="2" hidden="">
             <label data-label-base="Member 2">Member 2<span class="field-label-status is-optional">Optional</span></label>
@@ -1465,9 +1529,17 @@
 </div>
 
 <!-- Scripts -->
-<script src="admin.js?v=20260521v"></script>
+<script src="admin.js?v=20260522e"></script>
 
 
 
 </body></html>
+
+
+
+
+
+
+
+
 

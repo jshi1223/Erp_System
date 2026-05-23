@@ -1181,9 +1181,7 @@ function renderProjectMasterTable() {
           <div class="project-master-actions">
             <button class="btn btn-sm btn-edit" type="button" onclick="openProjectModal(${Number(project.id)})">Edit</button>
             <button class="btn btn-sm btn-add" type="button" onclick="openProjectRequisition(${Number(project.id)})">Add PR</button>
-            ${project.pdfFilename
-              ? `<button class="btn btn-sm btn-pdf" type="button" onclick="openProjectPdfViewer(${Number(project.id)})">View PDF</button>`
-              : `<span class="pdf-empty">N/A</span>`}
+            <button class="btn btn-sm btn-pdf" type="button" onclick="openProjectPdfViewer(${Number(project.id)})">View PDF</button>
             ${isArchived
               ? `<button class="btn btn-sm btn-restore" type="button" onclick="toggleProjectArchive(${Number(project.id)}, false)" title="Restore Project">Restore</button>`
               : `<button class="btn btn-sm btn-archive" type="button" onclick="toggleProjectArchive(${Number(project.id)}, true)" title="Archive Project">Archive</button>`}
@@ -3430,9 +3428,7 @@ function renderTable() {
     const paidAmount = getTransactionPaidAmountValue(r);
     const balanceAmount = Math.max(0, Number(r.amount || 0) - paidAmount);
 
-    const docCell = r.pdfFilename
-      ? `<span class="doc-link" onclick="event.stopPropagation(); openPdfViewer(${r.id})" title="View PDF">${hDocno}</span>`
-      : `<span class="doc-link no-pdf" title="No PDF">${hDocno}</span>`;
+    const docCell = `<span class="doc-link" onclick="event.stopPropagation(); openPdfViewer(${r.id})" title="View PDF">${hDocno}</span>`;
 
     return `
       <tr>
@@ -3457,7 +3453,7 @@ function renderTable() {
         ${isTransactionsPage ? `
         <td class="text-center">
           <div class="actions">
-            ${r.pdfFilename ? `<button class="btn btn-pdf btn-sm" onclick="event.stopPropagation(); openPdfViewer(${r.id})" title="View PDF">PDF</button>` : ''}
+            <button class="btn btn-pdf btn-sm" onclick="event.stopPropagation(); openPdfViewer(${r.id})" title="View PDF">PDF</button>
             ${activeTab === 'archived'
               ? `<button class="btn btn-edit btn-sm" onclick="event.stopPropagation(); openArchivedModal(${r.id})" title="View Record">View</button><button class="btn btn-restore btn-sm" onclick="event.stopPropagation(); restoreArchivedDirect(${r.id})" title="Restore Record">Restore</button>`
               : `${Number(r.project_id || 0) ? `<button class="btn btn-add btn-sm" onclick="event.stopPropagation(); openProjectTransaction(${Number(r.project_id)})" title="Add Transaction">Add Transaction</button>` : ''}<button class="btn btn-edit btn-sm" onclick="event.stopPropagation(); openModal(${r.id})">Edit</button><button class="btn btn-archive btn-sm" onclick="event.stopPropagation(); openDelModal(${r.id})" title="Archive Record">Archive</button>`}
@@ -3465,7 +3461,7 @@ function renderTable() {
         </td>` : `
         <td class="text-center">
           <div class="actions">
-            ${r.pdfFilename ? `<button class="btn btn-pdf btn-sm" onclick="event.stopPropagation(); openPdfViewer(${r.id})" title="View PDF">PDF</button>` : ''}
+            <button class="btn btn-pdf btn-sm" onclick="event.stopPropagation(); openPdfViewer(${r.id})" title="View PDF">PDF</button>
             ${activeTab === 'archived'
               ? (isAdminUser()
                   ? `<button class="btn btn-edit btn-sm" onclick="event.stopPropagation(); openArchivedModal(${r.id})" title="View Record">View</button><button class="btn btn-restore btn-sm" onclick="event.stopPropagation(); restoreArchivedDirect(${r.id})" title="Restore Record">Restore</button>`
@@ -5924,13 +5920,14 @@ function confirmHardDelete() {
 
 function openPdfViewer(id) {
   const r = db.find(u => u.id === id);
-  if (!r || !r.pdfFilename) return showToast('No PDF attached', 'error');
+  if (!r) return showToast('Record not found.', 'error');
 
   const pdfUrl = `/api/transactions/${r.id}/pdf`;
+  const pdfName = r.pdfFilename || `${r.docno || 'transaction'}-summary.pdf`;
 
-  document.getElementById('pdf-viewer-title').textContent = r.pdfFilename || 'Document Viewer';
+  document.getElementById('pdf-viewer-title').textContent = pdfName;
   document.getElementById('pdf-dl-btn').href = pdfUrl;
-  document.getElementById('pdf-dl-btn').download = r.pdfFilename;
+  document.getElementById('pdf-dl-btn').download = pdfName;
 
   const frame = document.getElementById('pdf-frame');
   const fallback = document.getElementById('pdf-fallback');
@@ -5945,18 +5942,19 @@ function openPdfViewer(id) {
 
 function openProjectPdfViewer(id) {
   const project = (projectsDashboardDb || []).find(entry => Number(entry.id) === Number(id));
-  if (!project || !project.pdfFilename) return showToast('No PDF attached', 'error');
+  if (!project) return showToast('Project not found.', 'error');
 
   const pdfUrl = `/api/projects/${project.id}/pdf`;
+  const pdfName = project.pdfFilename || `${project.project_docno || 'project'}-summary.pdf`;
 
-  document.getElementById('pdf-viewer-title').textContent = project.pdfFilename || 'Project PDF';
+  document.getElementById('pdf-viewer-title').textContent = pdfName;
   document.getElementById('pdf-dl-btn').href = pdfUrl;
-  document.getElementById('pdf-dl-btn').download = project.pdfFilename;
+  document.getElementById('pdf-dl-btn').download = pdfName;
 
   const fallbackBtn = document.getElementById('pdf-fallback-dl');
   if (fallbackBtn) {
     fallbackBtn.href = pdfUrl;
-    fallbackBtn.download = project.pdfFilename;
+    fallbackBtn.download = pdfName;
   }
 
   const frame = document.getElementById('pdf-frame');
@@ -6009,13 +6007,14 @@ function openProjectTransaction(projectId) {
 function viewArchivedPdf() {
   if (!viewingArchivedId) return;
   const r = db.find(u => u.id === viewingArchivedId);
-  if (!r || !r.pdfFilename) return showToast('No PDF attached', 'error');
+  if (!r) return showToast('Record not found.', 'error');
 
   const pdfUrl = `/api/transactions/${r.id}/pdf`;
+  const pdfName = r.pdfFilename || `${r.docno || 'archived-record'}-summary.pdf`;
 
-  document.getElementById('pdf-viewer-title').textContent = r.pdfFilename || 'Archived Document';
+  document.getElementById('pdf-viewer-title').textContent = pdfName;
   document.getElementById('pdf-dl-btn').href = pdfUrl;
-  document.getElementById('pdf-dl-btn').download = r.pdfFilename;
+  document.getElementById('pdf-dl-btn').download = pdfName;
 
   const frame = document.getElementById('pdf-frame');
   const fallback = document.getElementById('pdf-fallback');

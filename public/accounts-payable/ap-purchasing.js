@@ -650,7 +650,7 @@ function initProcurementPage() {
   const masterDataRequestedTab = String(params.get('tab') || '').trim().toLowerCase();
   const masterDataVendorTab = masterDataWorkspace && masterDataRequestedTab === 'vendors';
   const requestedTab = normalizeProcurementTab(params.get('tab') || '');
-  procurementTab = masterDataWorkspace ? 'vendors' : (params.has('tab') ? requestedTab : getSavedProcurementTab());
+  procurementTab = masterDataWorkspace ? (masterDataVendorTab ? 'vendors' : 'companies') : (params.has('tab') ? requestedTab : getSavedProcurementTab());
   if (!integratedApPage) {
     switchProcTab(procurementTab, getProcurementTabButton(procurementTab));
   }

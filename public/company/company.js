@@ -646,6 +646,16 @@ function resetCompanyForm() {
 }
 
 async function openCompanyModal(companyId = null) {
+  if (document.documentElement.classList.contains('embedded-company-registry') && window.parent && window.parent !== window) {
+    try {
+      window.parent.postMessage({
+        type: 'master-data-company-open-modal',
+        companyId: companyId ? Number(companyId) : null
+      }, window.location.origin);
+      return;
+    } catch (_) {}
+  }
+
   resetCompanyForm();
 
   if (companyId) {
@@ -995,6 +1005,7 @@ async function bootstrapCompanyRegistry() {
   window.openCompanyModal = openCompanyModal;
   window.closeCompanyModal = closeCompanyModal;
   window.resetCompanyForm = resetCompanyForm;
+  window.loadCompanies = loadCompanies;
   window.renderCompanies = renderCompanies;
   window.setCompanyRegistryFilter = setCompanyRegistryFilter;
   window.setBusinessEntityContext = setBusinessEntityContext;

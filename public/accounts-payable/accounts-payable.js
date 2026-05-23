@@ -20,7 +20,7 @@ const AP_MASTER_DATA_TABS = new Set(['companies', 'vendors']);
 const AP_PROCUREMENT_TABS = new Set(['requisitions', 'rfq', 'quotations', 'purchase-orders', 'goods-receipts']);
 const AP_NATIVE_TABS = new Set(['bills', 'vendor-balances', 'ap-aging', 'payments', 'disbursements']);
 let activeApTab = 'vendors';
-let pendingOpenMasterDataCompanyModal = false;
+let editingMasterDataCompanyId = null;
 
 function isMasterDataWorkspacePage() {
   return (window.location.pathname || '').replace(/\/+$/, '') === '/master-data';
@@ -192,10 +192,14 @@ function isInCurrentMonth(value) {
 
 document.addEventListener('DOMContentLoaded', () => {
   setupMasterDataCompanyFrame();
+  bindMasterDataCompanyModal();
   restoreApUiState();
+  const params = new URLSearchParams(window.location.search);
+  if (params.has('tab')) {
+    activeApTab = normalizeApWorkspaceTab(params.get('tab'));
+  }
   applyWorkspaceModeUi();
   bindMasterDataTabLinks();
-  const params = new URLSearchParams(window.location.search);
   const requestedTab = params.has('tab') ? normalizeApWorkspaceTab(params.get('tab')) : activeApTab;
   const initialButton = document.querySelector(`.ap-workspace-tab[data-workspace-tab="${requestedTab}"]`)
     || document.querySelector('.ap-workspace-tab.active')
@@ -650,6 +654,10 @@ function setupMasterDataCompanyFrame() {
     }
     if (event.data?.type === 'master-data-company-metrics') {
       renderMasterDataCompanyMetrics(event.data.metrics || {});
+      return;
+    }
+    if (event.data?.type === 'master-data-company-open-modal') {
+      openMasterDataCompanyModal(event.data.companyId || null);
     }
   });
   const frame = getMasterDataCompanyFrame();
@@ -658,11 +666,291 @@ function setupMasterDataCompanyFrame() {
     frame.addEventListener('load', () => {
       syncMasterDataCompanySearch();
       loadMasterDataCompanyMetrics();
-      if (pendingOpenMasterDataCompanyModal) {
-        pendingOpenMasterDataCompanyModal = false;
-        openMasterDataCompanyModal();
+    });
+  }
+}
+
+function bindMasterDataCompanyModal() {
+  const backdrop = document.getElementById('master-company-modal-backdrop');
+  if (backdrop && backdrop.dataset.bound !== '1') {
+    backdrop.dataset.bound = '1';
+    backdrop.addEventListener('click', (event) => {
+      if (event.target === event.currentTarget) {
+        closeMasterDataCompanyModal();
       }
     });
+  }
+
+  const tinInput = document.getElementById('f-master-company-tin');
+  if (tinInput && tinInput.dataset.tinMaskBound !== '1') {
+    const applyMask = () => {
+      const formatted = formatMasterDataCompanyTin(tinInput.value);
+      if (tinInput.value !== formatted) tinInput.value = formatted;
+    };
+    tinInput.dataset.tinMaskBound = '1';
+    tinInput.addEventListener('input', applyMask);
+    tinInput.addEventListener('blur', applyMask);
+  }
+
+  ['f-master-company-name', 'f-master-company-contact', 'f-master-company-email', 'f-master-company-phone', 'f-master-company-tin', 'f-master-company-address'].forEach((id) => {
+    const input = document.getElementById(id);
+    if (!input || input.dataset.companyValidationBound === '1') return;
+    input.dataset.companyValidationBound = '1';
+    input.addEventListener('input', () => setMasterDataCompanyFieldMessage(getMasterDataCompanyFieldName(id), ''));
+  });
+}
+
+function getMasterDataCompanyFieldName(id) {
+  const map = {
+    'f-master-company-no': 'company_no',
+    'f-master-company-name': 'company_name',
+    'f-master-company-contact': 'contact_person',
+    'f-master-company-email': 'email',
+    'f-master-company-phone': 'phone',
+    'f-master-company-tin': 'tin',
+    'f-master-company-address': 'address'
+  };
+  return map[id] || '';
+}
+
+function getMasterDataCompanyControl(fieldName) {
+  const map = {
+    company_no: 'f-master-company-no',
+    company_name: 'f-master-company-name',
+    contact_person: 'f-master-company-contact',
+    email: 'f-master-company-email',
+    phone: 'f-master-company-phone',
+    tin: 'f-master-company-tin',
+    address: 'f-master-company-address'
+  };
+  return document.getElementById(map[fieldName] || '');
+}
+
+function setMasterDataCompanyFieldMessage(fieldName, message = '') {
+  const text = String(message || '').trim();
+  document.querySelectorAll(`[data-master-company-field-message="${fieldName}"]`).forEach((notice) => {
+    const field = notice.closest('.field');
+    notice.textContent = text;
+    notice.classList.toggle('is-hidden', !text);
+    if (field) field.classList.toggle('has-error', !!text);
+  });
+  const control = getMasterDataCompanyControl(fieldName);
+  if (control) control.setAttribute('aria-invalid', text ? 'true' : 'false');
+}
+
+function clearMasterDataCompanyFieldMessages() {
+  ['company_no', 'company_name', 'contact_person', 'email', 'phone', 'tin', 'address'].forEach((fieldName) => {
+    setMasterDataCompanyFieldMessage(fieldName, '');
+  });
+}
+
+function normalizeMasterDataCompanyPhone(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function normalizeMasterDataCompanyTin(value) {
+  return String(value || '').replace(/\D/g, '').slice(0, 12);
+}
+
+function formatMasterDataCompanyTin(value) {
+  const digits = normalizeMasterDataCompanyTin(value);
+  return digits.replace(/(\d{3})(?=\d)/g, '$1-').slice(0, 15);
+}
+
+function resetMasterDataCompanyForm() {
+  editingMasterDataCompanyId = null;
+  clearMasterDataCompanyFieldMessages();
+  ['f-master-company-no', 'f-master-company-branch-code', 'f-master-company-name', 'f-master-company-contact', 'f-master-company-email', 'f-master-company-phone', 'f-master-company-tin', 'f-master-company-address', 'f-master-company-notes'].forEach((id) => {
+    const input = document.getElementById(id);
+    if (input) input.value = '';
+  });
+  const saveBtn = document.getElementById('master-company-save-btn');
+  const title = document.getElementById('master-company-modal-title');
+  if (title) title.textContent = 'Add Company';
+  if (saveBtn) {
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Create Company';
+  }
+}
+
+async function loadMasterDataCompanyNumberPreview() {
+  const input = document.getElementById('f-master-company-no');
+  if (input) input.value = 'Loading...';
+  try {
+    const data = await fetchJson('/api/company-registry/next-no', { cache: 'no-store' });
+    if (input) input.value = data.company_no || '';
+  } catch (_) {
+    if (input) input.value = '';
+  }
+}
+
+async function openMasterDataCompanyModal(companyId = null) {
+  resetMasterDataCompanyForm();
+  bindMasterDataCompanyModal();
+  const numericCompanyId = Number(companyId || 0) || 0;
+  editingMasterDataCompanyId = numericCompanyId || null;
+  if (numericCompanyId) {
+    await loadMasterDataCompanyForEdit(numericCompanyId);
+  } else {
+    loadMasterDataCompanyNumberPreview();
+  }
+  const backdrop = document.getElementById('master-company-modal-backdrop');
+  if (backdrop) {
+    backdrop.hidden = false;
+    backdrop.style.removeProperty('display');
+    backdrop.style.removeProperty('visibility');
+    backdrop.style.removeProperty('opacity');
+    backdrop.style.removeProperty('pointer-events');
+    backdrop.classList.add('open');
+    backdrop.setAttribute('aria-hidden', 'false');
+  }
+  document.body.style.overflow = 'hidden';
+  setTimeout(() => document.getElementById('f-master-company-name')?.focus(), 60);
+}
+
+async function loadMasterDataCompanyForEdit(companyId) {
+  const title = document.getElementById('master-company-modal-title');
+  const saveBtn = document.getElementById('master-company-save-btn');
+  if (title) title.textContent = 'Edit Company';
+  if (saveBtn) saveBtn.textContent = 'Save Changes';
+
+  try {
+    const rows = await fetchJson('/api/company-registry?include_archived=1', { cache: 'no-store' });
+    const company = (Array.isArray(rows) ? rows : []).find((row) => Number(row.id || 0) === Number(companyId)) || null;
+    if (!company) throw new Error('Company not found.');
+    document.getElementById('f-master-company-no').value = company.company_no || '';
+    document.getElementById('f-master-company-branch-code').value = String(company.branch_code || '').trim() === '000' ? '' : (company.branch_code || '');
+    document.getElementById('f-master-company-name').value = company.company_name || '';
+    document.getElementById('f-master-company-contact').value = company.contact_person || '';
+    document.getElementById('f-master-company-email').value = company.email || '';
+    document.getElementById('f-master-company-phone').value = company.phone || '';
+    document.getElementById('f-master-company-tin').value = formatMasterDataCompanyTin(company.tin || '');
+    document.getElementById('f-master-company-address').value = company.address || '';
+    document.getElementById('f-master-company-notes').value = company.notes || '';
+  } catch (err) {
+    showToast(err.message || 'Unable to load company.', 'error');
+    editingMasterDataCompanyId = null;
+  }
+}
+
+function closeMasterDataCompanyModal() {
+  const backdrop = document.getElementById('master-company-modal-backdrop');
+  if (backdrop) {
+    backdrop.classList.remove('open');
+    backdrop.hidden = true;
+    backdrop.style.setProperty('display', 'none', 'important');
+    backdrop.style.setProperty('visibility', 'hidden', 'important');
+    backdrop.style.setProperty('opacity', '0', 'important');
+    backdrop.style.setProperty('pointer-events', 'none', 'important');
+    backdrop.setAttribute('aria-hidden', 'true');
+  }
+  document.body.style.overflow = '';
+  resetMasterDataCompanyForm();
+}
+
+function validateMasterDataCompanyForm(payload) {
+  clearMasterDataCompanyFieldMessages();
+  const required = [
+    ['company_no', payload.company_no, 'Company No. is required.'],
+    ['company_name', payload.company_name, 'Company Name is required.'],
+    ['contact_person', payload.contact_person, 'Contact Person is required.'],
+    ['email', payload.email, 'Email is required.'],
+    ['phone', payload.phone, 'Phone is required.'],
+    ['tin', payload.tin, 'TIN is required.'],
+    ['address', payload.address, 'Address is required.']
+  ];
+  let firstInvalid = '';
+  required.forEach(([fieldName, value, message]) => {
+    if (!String(value || '').trim()) {
+      setMasterDataCompanyFieldMessage(fieldName, message);
+      if (!firstInvalid) firstInvalid = fieldName;
+    }
+  });
+
+  if (payload.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.email)) {
+    setMasterDataCompanyFieldMessage('email', 'Please enter a valid email address.');
+    if (!firstInvalid) firstInvalid = 'email';
+  }
+
+  if (payload.phone && typeof isValidPhoneForField === 'function' && !isValidPhoneForField('f-master-company-phone', payload.phone)) {
+    setMasterDataCompanyFieldMessage('phone', getPhoneValidationMessage('f-master-company-phone', 'Phone'));
+    if (!firstInvalid) firstInvalid = 'phone';
+  }
+
+  if (payload.tin && normalizeMasterDataCompanyTin(payload.tin).length !== 12) {
+    setMasterDataCompanyFieldMessage('tin', 'TIN must follow 000-000-000-000 format.');
+    if (!firstInvalid) firstInvalid = 'tin';
+  }
+
+  if (firstInvalid) {
+    getMasterDataCompanyControl(firstInvalid)?.focus();
+    return false;
+  }
+  return true;
+}
+
+function refreshMasterDataCompanyFrame() {
+  const frameWindow = getMasterDataCompanyWindow();
+  if (typeof frameWindow?.loadCompanies === 'function') {
+    frameWindow.loadCompanies();
+  }
+}
+
+async function saveMasterDataCompany() {
+  const payload = {
+    company_no: String(document.getElementById('f-master-company-no')?.value || '').trim(),
+    branch_code: String(document.getElementById('f-master-company-branch-code')?.value || '').trim(),
+    company_name: String(document.getElementById('f-master-company-name')?.value || '').trim(),
+    contact_person: String(document.getElementById('f-master-company-contact')?.value || '').trim(),
+    email: String(document.getElementById('f-master-company-email')?.value || '').trim(),
+    phone: normalizeMasterDataCompanyPhone(document.getElementById('f-master-company-phone')?.value || ''),
+    tin: formatMasterDataCompanyTin(document.getElementById('f-master-company-tin')?.value || ''),
+    address: String(document.getElementById('f-master-company-address')?.value || '').trim(),
+    status: 'active',
+    notes: String(document.getElementById('f-master-company-notes')?.value || '').trim()
+  };
+
+  if (!validateMasterDataCompanyForm(payload)) return;
+
+  const saveBtn = document.getElementById('master-company-save-btn');
+  const isEdit = Number(editingMasterDataCompanyId || 0) > 0;
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving...';
+  }
+
+  try {
+    await fetchJson(isEdit ? `/api/company-registry/${Number(editingMasterDataCompanyId)}` : '/api/company-registry', {
+      method: isEdit ? 'PUT' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    closeMasterDataCompanyModal();
+    refreshMasterDataCompanyFrame();
+    loadMasterDataCompanyMetrics();
+    showToast(isEdit ? 'Company updated successfully!' : 'Company created successfully!', 'success');
+  } catch (err) {
+    const message = err.message || 'Unable to save company.';
+    const lower = message.toLowerCase();
+    if (lower.includes('tin')) {
+      setMasterDataCompanyFieldMessage('tin', message);
+      getMasterDataCompanyControl('tin')?.focus();
+    } else if (lower.includes('phone')) {
+      setMasterDataCompanyFieldMessage('phone', message);
+      getMasterDataCompanyControl('phone')?.focus();
+    } else if (lower.includes('email')) {
+      setMasterDataCompanyFieldMessage('email', message);
+      getMasterDataCompanyControl('email')?.focus();
+    } else {
+      setMasterDataCompanyFieldMessage('company_name', message);
+      getMasterDataCompanyControl('company_name')?.focus();
+    }
+    showToast(message, 'error');
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = isEdit ? 'Save Changes' : 'Create Company';
+    }
   }
 }
 
@@ -710,16 +998,6 @@ async function loadMasterDataCompanyMetrics() {
   } catch (_) {
     renderMasterDataCompanyMetrics();
   }
-}
-
-function openMasterDataCompanyModal() {
-  ensureMasterDataCompanyFrameLoaded();
-  const frameWindow = getMasterDataCompanyWindow();
-  if (typeof frameWindow?.openCompanyModal === 'function') {
-    frameWindow.openCompanyModal();
-    return;
-  }
-  pendingOpenMasterDataCompanyModal = true;
 }
 
 function syncApTabUrl(tab) {
@@ -1101,9 +1379,7 @@ function filterBills() {
     const isOverdue = new Date(b.due_date) < new Date() && balance > 0;
     const status = getPayableUiStatus(b);
     const approval = getApprovalUiStatus(b);
-    const pdfButton = b.pdfFilename
-      ? `<button class="btn btn-pdf btn-sm" type="button" onclick="openBillPdfViewer(${b.id})">View PDF</button>`
-      : '<span class="pdf-empty">N/A</span>';
+    const pdfButton = `<button class="btn btn-pdf btn-sm" type="button" onclick="openBillPdfViewer(${b.id})">View PDF</button>`;
     const approveButton = canApproveApRecords() && approval.key === 'pending'
       ? `<button class="btn btn-save btn-sm" type="button" onclick="approveBill(${b.id})">Approve</button>`
       : '';
@@ -1389,17 +1665,18 @@ function removeBillPdf(resetInput = true, markExistingRemoval = true) {
 
 function openBillPdfViewer(id) {
   const bill = billsDb.find(b => b.id === id);
-  if (!bill || !bill.pdfFilename) {
-    showToast('No PDF attached.', 'error');
+  if (!bill) {
+    showToast('Bill not found.', 'error');
     return;
   }
 
   const pdfUrl = `/api/bills/${bill.id}/pdf`;
-  document.getElementById('pdf-viewer-title').textContent = bill.pdfFilename || 'Bill PDF';
+  const pdfName = bill.pdfFilename || `${bill.bill_number || 'bill'}-summary.pdf`;
+  document.getElementById('pdf-viewer-title').textContent = pdfName;
   document.getElementById('pdf-dl-btn').href = pdfUrl;
-  document.getElementById('pdf-dl-btn').download = bill.pdfFilename;
+  document.getElementById('pdf-dl-btn').download = pdfName;
   document.getElementById('pdf-fallback-dl').href = pdfUrl;
-  document.getElementById('pdf-fallback-dl').download = bill.pdfFilename;
+  document.getElementById('pdf-fallback-dl').download = pdfName;
 
   const frame = document.getElementById('pdf-frame');
   const fallback = document.getElementById('pdf-fallback');
