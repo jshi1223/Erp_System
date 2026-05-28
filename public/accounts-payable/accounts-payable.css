@@ -403,14 +403,6 @@ body.erp-clean-page.accounts-payable-page[data-business-entity-theme="kvsk"] .si
   box-shadow: 24px 0 54px rgba(75, 18, 16, 0.26) !important;
 }
 
-body.erp-clean-page.accounts-payable-page[data-business-entity-theme="kitsi"] .sidebar {
-  background:
-    radial-gradient(circle at top right, rgba(34, 199, 232, 0.24), transparent 28%),
-    linear-gradient(180deg, #0898c7 0%, #005b96 100%) !important;
-  border-right-color: rgba(34, 199, 232, 0.26) !important;
-  box-shadow: 24px 0 54px rgba(0, 91, 150, 0.24) !important;
-}
-
 body.erp-clean-page.accounts-payable-page[data-business-entity-theme] .sidebar-link.active,
 body.erp-clean-page.accounts-payable-page[data-business-entity-theme] .sidebar-link.is-subitem.active {
   background: linear-gradient(135deg, color-mix(in srgb, var(--primary-light) 54%, transparent), color-mix(in srgb, var(--primary-dark) 92%, transparent)) !important;

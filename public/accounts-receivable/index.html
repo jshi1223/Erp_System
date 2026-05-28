@@ -4,10 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KVSK CCTV & IT Solution - Accounts Receivable</title>
-  <script src="/assets/js/auth-guard.js?v=20260522a"></script>
+  <script src="/assets/js/auth-guard.js?v=20260528b"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260521p" />
-  <link rel="stylesheet" href="/accounts-receivable/accounts-receivable.css?v=20260521p" />
+  <link rel="stylesheet" href="/accounts-receivable/accounts-receivable.css?v=20260528a" />
 
   
 </head>
@@ -65,6 +65,26 @@
       <div class="page-title">Accounts Receivable</div>
     </div>
   </div>
+  <script>
+    (function () {
+      var path = String(window.location.pathname || '').replace(/\/+$/, '').toLowerCase();
+      var map = {
+        '/sales-management': { title: 'Sales Management', badge: 'Sales Management Module' },
+        '/service-operations': { title: 'Service Operations', badge: 'Service Operations Module' },
+        '/accounts-receivable': { title: 'Accounts Receivable', badge: 'Financial Management - AR' }
+      };
+      var mode = path === '/sales-management' ? 'sales' : (path === '/service-operations' ? 'service' : 'finance');
+      var meta = map[path] || map['/accounts-receivable'];
+      if (document.body && document.body.dataset) document.body.dataset.moduleMode = mode;
+      var pageTitle = document.querySelector('.page-title');
+      var headerSub = document.querySelector('header .brand-copy .header-sub');
+      var badge = document.querySelector('.admin-badge');
+      if (pageTitle) pageTitle.textContent = meta.title;
+      if (headerSub) headerSub.textContent = meta.title;
+      if (badge) badge.textContent = meta.badge;
+      document.title = 'KVSK CCTV & IT Solution - ' + meta.title;
+    })();
+  </script>
 
   <div class="module-page-toolbar">
     <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-back-fallback="/admin?view=dashboard" onclick="goBackToDashboard()">Back to Dashboard</button>
@@ -744,6 +764,10 @@
         <input id="f-so-date" type="date" />
       </div>
       <div class="form-group">
+        <label>Business Entity *</label>
+        <select id="f-so-business-entity" required aria-required="true"></select>
+      </div>
+      <div class="form-group">
         <label>Project</label>
         <select id="f-so-project" onchange="syncServiceOrderCompanyFromProject()">
           <option value="">Select Project</option>
@@ -803,10 +827,11 @@
 
 <div id="toast"></div>
 
-<script src="/assets/js/erp-core.js?v=20260521v"></script>
-<script src="/accounts-receivable/accounts-receivable.js?v=20260521p"></script>
+<script src="/assets/js/erp-core.js?v=20260528b"></script>
+<script src="/accounts-receivable/accounts-receivable.js?v=20260528b"></script>
 </body>
 </html>
+
 
 
 

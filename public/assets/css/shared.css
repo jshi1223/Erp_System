@@ -29,6 +29,11 @@ html:not([data-business-entity-brand-text-ready="1"]) body.erp-clean-page .works
   visibility: hidden;
 }
 
+html:not([data-sidebar-ready="1"]) body.admin-page .sidebar,
+html:not([data-sidebar-ready="1"]) body.erp-clean-page .sidebar {
+  visibility: hidden;
+}
+
 body.admin-page header,
 body.erp-clean-page header {
   background:

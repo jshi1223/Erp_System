@@ -198,21 +198,8 @@
   }
 
   function getThemeProfile(theme, name) {
-    const safeTheme = String(theme || '').toLowerCase() === 'kitsi' || /kitsi|kinaadman/i.test(String(name || ''))
-      ? 'kitsi'
-      : 'kvsk';
-    if (safeTheme === 'kitsi') {
-      return {
-        theme: 'kitsi',
-        logo: '/assets/img/kitsi-logo.png',
-        alt: 'KITSI logo',
-        primary: '#0898c7',
-        primaryLight: '#22c7e8',
-        primaryDark: '#005b96',
-        accent: '#07a6d6',
-        accent2: '#005b96'
-      };
-    }
+    void theme;
+    void name;
     return {
       theme: 'kvsk',
       logo: '/assets/img/kvsk-logo-switch.png',
@@ -230,7 +217,7 @@
     document.documentElement.dataset.loginWorkspace = profile.theme;
     localStorage.setItem(BUSINESS_ENTITY_CONTEXT_KEY, String(selectedLoginEntity.id || ''));
     const storedThemeProfile = {
-      company_name: profile.theme === 'kitsi' ? 'KITSI' : 'KVSK CCTV & IT Solution',
+      company_name: selectedLoginEntity.name || 'KVSK CCTV & IT Solution',
       theme: profile.theme,
       logo: profile.logo,
       alt: profile.alt,
@@ -281,11 +268,11 @@
     });
     const copy = document.getElementById('login-workspace-copy');
     if (copy) {
-      const label = selectedLoginEntity.theme === 'kitsi' ? 'KITSI' : 'KVSK';
+      const label = /kitsi|ktiis/i.test(selectedLoginEntity.name || selectedLoginEntity.code || '') ? 'KITSI' : 'KVSK';
       copy.textContent = `Sign in to the ${label} workspace for projects, AP, AR, and reports.`;
     }
     if (document.body) {
-      document.body.dataset.loginWorkspace = selectedLoginEntity.theme === 'kitsi' ? 'kitsi' : 'kvsk';
+      document.body.dataset.loginWorkspace = 'kvsk';
     }
     persistSelectedLoginEntity();
     if (shouldAnimate) playBrandPanelAnimation(panel);

@@ -44,20 +44,7 @@ function erpGetExplicitBusinessEntityTheme() {
 }
 
 function erpGetBusinessEntityBrandProfile(row) {
-  var name = String(row && row.company_name ? row.company_name : '').trim();
-  var isKitsi = /kitsi|ktiis|kinaadman/i.test(name) || String(row && row.theme ? row.theme : '').toLowerCase() === 'kitsi';
-  if (isKitsi) {
-    return {
-      theme: 'kitsi',
-      logo: '/assets/img/kitsi-logo.png',
-      alt: 'KITSI logo',
-      primary: '#0898c7',
-      primaryLight: '#22c7e8',
-      primaryDark: '#005b96',
-      accent: '#07a6d6',
-      accent2: '#005b96'
-    };
-  }
+  void row;
   return {
     theme: 'kvsk',
     logo: '/assets/img/kvsk-logo-switch.png',
@@ -90,7 +77,7 @@ function erpApplyBusinessEntityBrand(row) {
   document.querySelectorAll('header .brand-copy .header-logo').forEach(function (node) {
     node.textContent = row && row.company_name
       ? row.company_name
-      : (profile.theme === 'kitsi' ? 'KITSI' : 'KVSK CCTV & IT Solution');
+      : 'KVSK CCTV & IT Solution';
   });
   if (document.documentElement && document.documentElement.dataset) {
     document.documentElement.dataset.businessEntityBrandTextReady = '1';
@@ -98,7 +85,7 @@ function erpApplyBusinessEntityBrand(row) {
 
   try {
     var storedProfile = {
-      company_name: row && row.company_name ? row.company_name : (profile.theme === 'kitsi' ? 'KITSI' : 'KVSK CCTV & IT Solution'),
+      company_name: row && row.company_name ? row.company_name : 'KVSK CCTV & IT Solution',
       theme: profile.theme,
       logo: profile.logo,
       alt: profile.alt,
@@ -114,11 +101,6 @@ function erpApplyBusinessEntityBrand(row) {
 }
 
 function erpApplyStoredBusinessEntityBrand() {
-  var explicitTheme = erpGetExplicitBusinessEntityTheme();
-  if (explicitTheme) {
-    erpApplyBusinessEntityBrand({ theme: explicitTheme, company_name: explicitTheme === 'kitsi' ? 'KITSI' : 'KVSK CCTV & IT Solution' });
-    return;
-  }
   var stored = erpGetStoredBusinessEntityThemeProfile();
   if (stored && stored.theme) {
     erpApplyBusinessEntityBrand(stored);
@@ -2507,7 +2489,7 @@ function openServiceOrdersDashboard() {
   window.location.href = '/service-operations';
 }
 
-function goBackSmart(fallback = '/admin?view=dashboard', forceFallback = false) {
+function goBackSmart(fallback = '/admin', forceFallback = false) {
   if (!forceFallback && window.history.length > 1) {
     window.history.back();
     return;
@@ -5088,8 +5070,7 @@ async function updateStats() {
     const companyParam = normalizeDashboardCompanyName(currentDashboardCompany || localStorage.getItem('kinaadman_dashboardCompany') || 'all');
     const statsParams = new URLSearchParams({
       year: String(statsYear),
-      company: companyParam,
-      business_entity_id: String(localStorage.getItem('kinaadman_businessEntityContext') || '').trim()
+      company: companyParam
     });
     const projectStatsRes = await fetch(`/api/projects/stats?${statsParams.toString()}`);
     const projectStats = await projectStatsRes.json();
@@ -5843,7 +5824,7 @@ function syncSidebarActiveLinks() {
   const currentSearch = currentUrl.search || '';
   let activeLink = null;
   const routeAliases = {
-    '/admin?view=dashboard': ['/admin'],
+    '/admin': ['/admin?view=dashboard'],
     '/reports': ['/admin?panel=reports'],
     '/admin?panel=project-records': ['/admin?view=project-records'],
     '/admin?view=all': ['/admin?view=total-projects'],

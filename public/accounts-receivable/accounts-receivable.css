@@ -51,6 +51,29 @@ body.accounts-receivable-page .ar-summary-card[hidden] {
   display: none !important;
 }
 
+body.accounts-receivable-page[data-module-mode="service"] .ar-summary-card:not([data-summary-tabs="service-orders"]),
+body.accounts-receivable-page[data-module-mode="sales"] .ar-summary-card:not([data-summary-tabs="invoices"]):not([data-summary-tabs="collections"]):not([data-summary-tabs="customer-balances"]),
+body.accounts-receivable-page[data-module-mode="finance"] .ar-summary-card:not([data-summary-tabs="invoices"]):not([data-summary-tabs="collections"]):not([data-summary-tabs="customer-balances"]):not([data-summary-tabs="ar-aging"]) {
+  display: none !important;
+}
+
+body.accounts-receivable-page[data-module-mode="sales"] .module-tab:not([data-tab="invoices"]):not([data-tab="collections"]):not([data-tab="customer-balances"]),
+body.accounts-receivable-page[data-module-mode="finance"] .module-tab:not([data-tab="invoices"]):not([data-tab="collections"]):not([data-tab="customer-balances"]):not([data-tab="ar-aging"]),
+body.accounts-receivable-page[data-module-mode="service"] .module-tab:not([data-tab="service-orders"]):not([data-tab="documents"]) {
+  display: none !important;
+}
+
+body.accounts-receivable-page[data-module-mode="sales"] #service-orders,
+body.accounts-receivable-page[data-module-mode="sales"] #documents,
+body.accounts-receivable-page[data-module-mode="finance"] #service-orders,
+body.accounts-receivable-page[data-module-mode="finance"] #documents,
+body.accounts-receivable-page[data-module-mode="service"] #invoices,
+body.accounts-receivable-page[data-module-mode="service"] #collections,
+body.accounts-receivable-page[data-module-mode="service"] #customer-balances,
+body.accounts-receivable-page[data-module-mode="service"] #ar-aging {
+  display: none !important;
+}
+
 body.accounts-receivable-page .ar-tab-summary-grid {
   align-items: stretch;
 }
@@ -224,14 +247,6 @@ body.accounts-receivable-page[data-business-entity-theme="kvsk"] .sidebar {
     linear-gradient(180deg, #b42318 0%, #4b1210 100%) !important;
   border-right-color: rgba(239, 91, 79, 0.26) !important;
   box-shadow: 24px 0 54px rgba(75, 18, 16, 0.26) !important;
-}
-
-body.accounts-receivable-page[data-business-entity-theme="kitsi"] .sidebar {
-  background:
-    radial-gradient(circle at top right, rgba(34, 199, 232, 0.24), transparent 28%),
-    linear-gradient(180deg, #0898c7 0%, #005b96 100%) !important;
-  border-right-color: rgba(34, 199, 232, 0.26) !important;
-  box-shadow: 24px 0 54px rgba(0, 91, 150, 0.24) !important;
 }
 
 body.accounts-receivable-page[data-business-entity-theme] .sidebar-link.active,

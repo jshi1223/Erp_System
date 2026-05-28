@@ -2,6 +2,8 @@
 
 'use strict';
 
+const USER_BADGE_CACHE_KEY = 'kinaadman_currentUserBadge';
+
 function normalizeAccessRole(role) {
   const safeRole = String(role || 'user').trim().toLowerCase();
   return ['super_admin', 'admin', 'staff', 'user'].includes(safeRole) ? safeRole : 'user';
@@ -22,6 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem('kinaadman_dashboardPanel', 'home');
   }
   applyStoredBusinessEntityBrand();
+  applyCachedRoleBadge();
   loadNotificationReadState();
   const initialParams = new URLSearchParams(window.location.search);
   pendingTransactionProjectId = null;
@@ -431,6 +434,24 @@ function updateRoleBadge(userOrRole) {
   badge.title = name ? `Logged in as ${name} (${roleLabel})` : `Logged in as ${roleLabel}`;
   badge.dataset.role = safeRole;
   badge.dataset.userReady = '1';
+  try {
+    localStorage.setItem(USER_BADGE_CACHE_KEY, JSON.stringify({
+      fullname: user?.fullname || '',
+      username: user?.username || '',
+      role: safeRole
+    }));
+  } catch (_) {}
+}
+
+function applyCachedRoleBadge() {
+  const badge = document.getElementById('role-badge');
+  if (!badge) return;
+  try {
+    const raw = localStorage.getItem(USER_BADGE_CACHE_KEY);
+    const cached = raw ? JSON.parse(raw) : null;
+    if (!cached?.role) return;
+    updateRoleBadge(cached);
+  } catch (_) {}
 }
 
 function openDashboardPanel(panel = 'home', opts = {}) {
@@ -3558,6 +3579,7 @@ async function doLogout() {
   if (!confirmed) return;
   localStorage.removeItem('kinaadman_activeTab');
   localStorage.removeItem('kinaadman_dashboardPanel');
+  localStorage.removeItem(USER_BADGE_CACHE_KEY);
   fetch('/logout', { method: 'POST' })
     .then(() => window.location.href = '/')
     .catch(() => window.location.href = '/');
@@ -3757,13 +3779,12 @@ function renderBusinessEntityProfilePanel(current = getCurrentBusinessEntityId()
 }
 
 function renderCurrentWorkspaceBadge(row = findBusinessEntityById(getCurrentBusinessEntityId())) {
+  void row;
   const badge = document.getElementById('current-workspace-badge');
   if (!badge) return;
-  const label = businessEntityShortLabel(row || {});
-  const title = String(row?.company_name || label || 'Workspace').trim();
-  badge.textContent = `${label || 'ERP'} Workspace`;
-  badge.title = title;
-  badge.setAttribute('aria-label', `Current workspace: ${title}`);
+  badge.textContent = 'All Companies';
+  badge.title = 'Showing records from all business entities';
+  badge.setAttribute('aria-label', 'Showing all business entities');
 }
 
 function syncModalBusinessContext(row = findBusinessEntityById(getCurrentBusinessEntityId())) {
@@ -3788,28 +3809,12 @@ function syncModalBusinessContext(row = findBusinessEntityById(getCurrentBusines
 }
 
 function businessEntityMatches(row) {
-  const selected = getCurrentBusinessEntityId();
-  if (!selected) return true;
-  const rowId = String(row?.business_entity_id || '').trim();
-  return !rowId || rowId === selected;
+  void row;
+  return true;
 }
 
 function getBusinessEntityBrandProfile(row) {
-  const name = String(row?.company_name || '').trim();
-  const theme = String(row?.theme || '').trim().toLowerCase();
-  const isKitsi = theme === 'kitsi' || /kitsi|ktiis|kinaadman/i.test(name);
-  if (isKitsi) {
-    return {
-      theme: 'kitsi',
-      logo: '/assets/img/kitsi-logo.png',
-      alt: 'KITSI logo',
-      primary: '#0898c7',
-      primaryLight: '#22c7e8',
-      primaryDark: '#005b96',
-      accent: '#07a6d6',
-      accent2: '#005b96'
-    };
-  }
+  void row;
   return {
     theme: 'kvsk',
     logo: '/assets/img/kvsk-logo-switch.png',
@@ -3822,16 +3827,24 @@ function getBusinessEntityBrandProfile(row) {
   };
 }
 
+function sanitizeStoredBusinessEntityThemeProfile(profile) {
+  return {
+    ...profile,
+    ...getBusinessEntityBrandProfile({ theme: 'kvsk' }),
+    company_name: profile.company_name || 'KVSK CCTV & IT Solution'
+  };
+}
+
 function getStoredBusinessEntityThemeProfile() {
   try {
     const urlTheme = String(new URLSearchParams(window.location.search || '').get('theme') || '').trim().toLowerCase();
     if (urlTheme === 'kitsi' || urlTheme === 'kvsk') {
       const profile = getBusinessEntityBrandProfile({
-        theme: urlTheme,
-        company_name: urlTheme === 'kitsi' ? 'KITSI' : 'KVSK CCTV & IT Solution'
+        theme: 'kvsk',
+        company_name: 'KVSK CCTV & IT Solution'
       });
       const storedProfile = {
-        company_name: profile.theme === 'kitsi' ? 'KITSI' : 'KVSK CCTV & IT Solution',
+        company_name: 'KVSK CCTV & IT Solution',
         theme: profile.theme,
         logo: profile.logo,
         alt: profile.alt,
@@ -3848,13 +3861,21 @@ function getStoredBusinessEntityThemeProfile() {
   } catch (_) {}
   try {
     const raw = localStorage.getItem(BUSINESS_ENTITY_THEME_KEY);
-    const stored = raw ? JSON.parse(raw) : null;
-    if (stored?.theme) return stored;
+    let stored = raw ? JSON.parse(raw) : null;
+    if (stored?.theme) {
+      stored = sanitizeStoredBusinessEntityThemeProfile(stored);
+      localStorage.setItem(BUSINESS_ENTITY_THEME_KEY, JSON.stringify(stored));
+      return stored;
+    }
   } catch (_) {}
   try {
     const pendingRaw = sessionStorage.getItem('kinaadman_pendingBusinessEntityTheme');
-    const pending = pendingRaw ? JSON.parse(pendingRaw) : null;
-    if (pending?.theme) return pending;
+    let pending = pendingRaw ? JSON.parse(pendingRaw) : null;
+    if (pending?.theme) {
+      pending = sanitizeStoredBusinessEntityThemeProfile(pending);
+      sessionStorage.setItem('kinaadman_pendingBusinessEntityTheme', JSON.stringify(pending));
+      return pending;
+    }
   } catch (_) {}
   return null;
 }
@@ -3892,17 +3913,17 @@ function applyBusinessEntityBrand(row) {
     img.alt = profile.alt;
   });
   document.querySelectorAll('.sidebar-header .header-logo').forEach((node) => {
-    node.textContent = profile.theme === 'kitsi' ? 'KITSI' : 'KVSK CCTV';
+    node.textContent = 'KVSK CCTV';
   });
   document.querySelectorAll('.user-modal-kicker').forEach((node) => {
     const currentText = String(node.textContent || '').trim();
     if (/^(KVSK|KITSI)\s+Access Control$/i.test(currentText)) {
-      node.textContent = `${profile.theme === 'kitsi' ? 'KITSI' : 'KVSK'} Access Control`;
+      node.textContent = 'KVSK Access Control';
     }
   });
   try {
     const storedProfile = {
-      company_name: row?.company_name || (profile.theme === 'kitsi' ? 'KITSI' : 'KVSK CCTV & IT Solution'),
+      company_name: row?.company_name || 'KVSK CCTV & IT Solution',
       theme: profile.theme,
       logo: profile.logo,
       alt: profile.alt,
@@ -3963,7 +3984,7 @@ function populateBusinessEntitySelect(selectId, selectedValue = '') {
   const select = document.getElementById(selectId);
   if (!select) return;
   const rows = Array.isArray(businessEntitiesDb) ? businessEntitiesDb : [];
-  const selected = String(selectedValue || getCurrentBusinessEntityId() || getDefaultBusinessEntityId() || '').trim();
+  const selected = String(selectedValue || select.value || getDefaultBusinessEntityId() || '').trim();
 
   if (String(select.tagName || '').toLowerCase() !== 'select') {
     select.value = selected || getDefaultBusinessEntityId() || '';
@@ -3998,7 +4019,6 @@ async function loadBusinessEntities() {
   renderTable();
   renderOngoingProjects();
   renderProjectRecordsTable();
-  updateStats().catch((err) => console.error('Business entity stats refresh error:', err));
 }
 
 function isAdminUser() {
@@ -4184,7 +4204,6 @@ function loadRecords() {
       if (requestSeq !== recordsLoadSeq) return;
       db = data;
       allTransactionsDb = Array.isArray(data) ? data : [];
-      updateStats();
       renderTable();
       return loadProjectsDashboardData();
     })
@@ -4211,7 +4230,6 @@ function loadArchivedRecords() {
         archived: 1,
         archived_auto: 0
       }));
-      updateStats();
       renderTable();
       return loadProjectsDashboardData();
     })
@@ -4610,7 +4628,7 @@ function openServiceOrdersDashboard() {
   navigateDashboardCard('/service-operations');
 }
 
-function goBackSmart(fallback = '/admin?view=dashboard', forceFallback = false) {
+function goBackSmart(fallback = '/admin', forceFallback = false) {
   if (!forceFallback && window.history.length > 1) {
     window.history.back();
     return;
@@ -5309,8 +5327,8 @@ async function saveProject() {
     ? (projectsDashboardDb || []).find(entry => Number(entry.id) === Number(editingProjectId))
     : null;
   const projectDocNoValue = String(document.getElementById('p-project-docno')?.value || '').trim() || String(existingProject?.project_docno || '').trim();
-  const businessEntityId = getCurrentBusinessEntityId() || getDefaultBusinessEntityId() || '';
   const businessEntitySelect = document.getElementById('p-business-entity-id');
+  const businessEntityId = businessEntitySelect?.value || getDefaultBusinessEntityId() || '';
   if (businessEntitySelect) businessEntitySelect.value = businessEntityId;
   const companyId = Number(getProjectCompanyInputValue() || existingProject?.company_id || 0) || 0;
   const companyRecord = findRegistryCompanyById(companyId);
@@ -7617,8 +7635,7 @@ async function updateStats() {
     const companyParam = normalizeDashboardCompanyName(currentDashboardCompany || localStorage.getItem('kinaadman_dashboardCompany') || 'all');
     const statsParams = new URLSearchParams({
       year: String(statsYear),
-      company: companyParam,
-      business_entity_id: getCurrentBusinessEntityId() || getDefaultBusinessEntityId() || ''
+      company: companyParam
     });
     const projectStatsRes = await fetch(`/api/projects/stats?${statsParams.toString()}`);
     const projectStats = await projectStatsRes.json();
@@ -7749,9 +7766,7 @@ async function updateStats() {
   }
 
   try {
-    const inventoryParams = new URLSearchParams({
-      business_entity_id: getCurrentBusinessEntityId() || getDefaultBusinessEntityId() || ''
-    });
+    const inventoryParams = new URLSearchParams();
     const inventoryRes = await fetch(`/api/inventory/summary?${inventoryParams.toString()}`);
     const inventory = await inventoryRes.json().catch(() => ({}));
     if (statsSeq !== dashboardStatsSeq) return;
@@ -8218,8 +8233,8 @@ async function saveRecord() {
   const isEdit = !!editingId;
   const projectId = Number(document.getElementById('f-project-id')?.value || 0) || 0;
   const selectedProject = projectId ? findProjectForRecord({ project_id: projectId }) || (Array.isArray(projectsDashboardDb) ? projectsDashboardDb.find(entry => Number(entry.id || 0) === projectId) : null) : null;
-  const businessEntityId = selectedProject?.business_entity_id || getCurrentBusinessEntityId() || getDefaultBusinessEntityId() || '';
   const businessEntitySelect = document.getElementById('f-business-entity-id');
+  const businessEntityId = businessEntitySelect?.value || selectedProject?.business_entity_id || getDefaultBusinessEntityId() || '';
   if (businessEntitySelect) businessEntitySelect.value = businessEntityId;
   const hasProject = projectId > 0;
 
@@ -8577,7 +8592,7 @@ function syncSidebarActiveLinks() {
   const currentSearch = currentUrl.search || '';
   let activeLink = null;
   const routeAliases = {
-    '/admin?view=dashboard': ['/admin'],
+    '/admin': ['/admin?view=dashboard'],
     '/reports': ['/admin?panel=reports'],
     '/admin?panel=project-records': ['/admin?view=project-records'],
     '/admin?panel=project-records': ['/admin?view=total-projects'],
@@ -10321,8 +10336,8 @@ async function saveServiceOrder() {
   const selectedProject = projectId
     ? (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : []).find((entry) => Number(entry.id || 0) === projectId)
     : null;
-  const businessEntityId = selectedProject?.business_entity_id || getCurrentBusinessEntityId() || getDefaultBusinessEntityId() || '';
   const businessEntitySelect = document.getElementById('so-business-entity-id');
+  const businessEntityId = businessEntitySelect?.value || selectedProject?.business_entity_id || getDefaultBusinessEntityId() || '';
   if (businessEntitySelect) businessEntitySelect.value = businessEntityId;
   const projectCompanyId = Number(selectedProject?.company_id || selectedProject?.registry_company_id || 0) || 0;
   const companyRecord = getServiceOrderCompanyRecordById(companyId);

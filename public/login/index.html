@@ -7,21 +7,14 @@
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <script>
     (function () {
-      try {
-        var raw = localStorage.getItem('kinaadman_businessEntityTheme');
-        var stored = raw ? JSON.parse(raw) : null;
-        var theme = stored && String(stored.theme || '').toLowerCase() === 'kitsi' ? 'kitsi' : 'kvsk';
-        document.documentElement.dataset.loginWorkspace = theme;
-      } catch (_) {
-        document.documentElement.dataset.loginWorkspace = 'kvsk';
-      }
+      document.documentElement.dataset.loginWorkspace = 'kvsk';
     })();
   </script>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/assets/css/login.css?v=20260521p" />
   <link rel="stylesheet" href="/assets/css/erp-clean.css?v=20260521p" />
   <link rel="stylesheet" href="/assets/css/white-green.css?v=20260521p" />
-  <link rel="stylesheet" href="/login/login.css?v=20260521x" />
+  <link rel="stylesheet" href="/login/login.css?v=20260528b" />
 
 </head>
 <body class="erp-clean-page login-page">
@@ -44,7 +37,7 @@
           </div>
 
           <div class="login-brand-column login-brand-column-kitsi login-brand-chip" data-entity-code="KITSI" data-entity-fallback-id="2" data-entity-name="KITSI" data-entity-theme="kitsi">
-            <img class="login-brand-mark" src="/assets/img/kitsi-logo.png" alt="KITSI logo" />
+            <img class="login-brand-mark" src="/assets/img/kvsk-logo-switch.png" alt="Operating company logo" />
             <div class="login-brand-column-copy">
               <div class="login-logo">KITSI</div>
               <div class="login-company">Kinaadman Integrator</div>
@@ -169,7 +162,8 @@
   </div>
 </div>
 
-<script src="/login/login.js?v=20260521x"></script>
+<script src="/login/login.js?v=20260528b"></script>
 </body>
 </html>
+
 

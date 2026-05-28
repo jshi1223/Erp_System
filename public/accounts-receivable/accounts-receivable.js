@@ -151,11 +151,13 @@ function isInCurrentMonth(value) {
 document.addEventListener('DOMContentLoaded', () => {
   applyArModuleModeChrome();
   restoreArUiState();
+  setupArModuleSidebarTabLinks();
   const params = new URLSearchParams(window.location.search);
   activeArTab = params.has('tab') ? normalizeArTab(params.get('tab')) : activeArTab;
   const initialButton = document.querySelector(`.module-tab[data-tab="${activeArTab}"]`)
     || document.querySelector('.module-tab.active');
   switchTab(activeArTab, initialButton, { captureState: false, persistState: false });
+  syncArModuleSidebarActiveLink(activeArTab);
   if (!params.has('tab')) {
     syncArTabUrl(activeArTab);
   }
@@ -167,6 +169,37 @@ document.addEventListener('DOMContentLoaded', () => {
   loadTransactions();
   if (typeof loadNotifications === 'function') loadNotifications();
 });
+
+function setupArModuleSidebarTabLinks() {
+  const modulePathByMode = {
+    sales: '/sales-management',
+    service: '/service-operations',
+    finance: '/accounts-receivable'
+  };
+  const modulePath = modulePathByMode[AR_MODULE_MODE] || '/accounts-receivable';
+  document.querySelectorAll('.sidebar-link[href^="/"]').forEach((link) => {
+    if (link.dataset.arTabBound === '1') return;
+    let url;
+    try {
+      url = new URL(link.getAttribute('href') || '', window.location.origin);
+    } catch (_) {
+      return;
+    }
+    const path = url.pathname.replace(/\/+$/, '') || '/';
+    if (path !== modulePath) return;
+    const requestedTab = normalizeArTab(url.searchParams.get('tab') || getDefaultArTabForMode());
+    if (!isArTabAllowedForMode(requestedTab)) return;
+    link.dataset.arTabBound = '1';
+    link.addEventListener('click', (event) => {
+      if (event.defaultPrevented) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      switchTab(requestedTab, document.querySelector(`.module-tab[data-tab="${requestedTab}"]`));
+      syncArModuleSidebarActiveLink(requestedTab);
+    }, true);
+  });
+}
 
 function applyArModuleModeChrome() {
   document.body.dataset.moduleMode = AR_MODULE_MODE;
@@ -239,10 +272,8 @@ function getCurrentBusinessEntityId() {
 }
 
 function businessEntityMatches(row) {
-  const selected = getCurrentBusinessEntityId();
-  if (!selected) return true;
-  const rowId = String(row?.business_entity_id || '').trim();
-  return rowId === selected;
+  void row;
+  return true;
 }
 
 function renderArchivedProjectBadge(row = {}) {
@@ -286,21 +317,7 @@ function businessEntityProfileValue(value, fallback = 'Not set') {
 }
 
 function getBusinessEntityBrandProfile(row) {
-  const name = String(row?.company_name || '').trim();
-  const theme = String(row?.theme || '').trim().toLowerCase();
-  const isKitsi = theme === 'kitsi' || /kitsi|ktiis|kinaadman/i.test(name);
-  if (isKitsi) {
-    return {
-      theme: 'kitsi',
-      logo: '/assets/img/kitsi-logo.png',
-      alt: 'KITSI logo',
-      primary: '#0898c7',
-      primaryLight: '#22c7e8',
-      primaryDark: '#005b96',
-      accent: '#07a6d6',
-      accent2: '#005b96'
-    };
-  }
+  void row;
   return {
     theme: 'kvsk',
     logo: '/assets/img/kvsk-logo-switch.png',
@@ -327,7 +344,7 @@ function applyBusinessEntityBrand(row) {
   });
   try {
     localStorage.setItem(BUSINESS_ENTITY_THEME_KEY, JSON.stringify({
-      company_name: row?.company_name || (profile.theme === 'kitsi' ? 'KITSI' : 'KVSK CCTV & IT Solution'),
+      company_name: row?.company_name || 'KVSK CCTV & IT Solution',
       theme: profile.theme,
       logo: profile.logo,
       alt: profile.alt,
@@ -389,6 +406,7 @@ function renderBusinessEntityContext() {
   const current = getCurrentBusinessEntityId();
   const activeEntity = findBusinessEntityById(current);
   applyBusinessEntityBrand(activeEntity);
+  populateArBusinessEntitySelect('f-so-business-entity');
   renderBusinessEntityProfilePanel(current);
   renderCurrentWorkspaceBadge(activeEntity);
   syncModalBusinessContext(activeEntity);
@@ -397,14 +415,26 @@ function renderBusinessEntityContext() {
   });
 }
 
+function populateArBusinessEntitySelect(selectId, selectedValue = '') {
+  const select = document.getElementById(selectId);
+  if (!select) return;
+  const rows = Array.isArray(businessEntitiesDb) ? businessEntitiesDb : [];
+  const selected = String(selectedValue || select.value || getDefaultArBusinessEntityId() || '').trim();
+  select.innerHTML = rows.length
+    ? rows.map(row => `<option value="${escHtml(row.id)}">${escHtml(row.company_name || row.entity_code || 'Operating Company')}</option>`).join('')
+    : '<option value="">Operating company</option>';
+  if (selected && Array.from(select.options || []).some(option => String(option.value) === selected)) {
+    select.value = selected;
+  }
+}
+
 function renderCurrentWorkspaceBadge(row = findBusinessEntityById(getCurrentBusinessEntityId())) {
+  void row;
   const badge = document.getElementById('current-workspace-badge');
   if (!badge) return;
-  const label = businessEntityShortLabel(row || {});
-  const title = String(row?.company_name || label || 'Workspace').trim();
-  badge.textContent = `${label || 'ERP'} Workspace`;
-  badge.title = title;
-  badge.setAttribute('aria-label', `Current workspace: ${title}`);
+  badge.textContent = 'All Companies';
+  badge.title = 'Showing records from all business entities';
+  badge.setAttribute('aria-label', 'Showing all business entities');
 }
 
 function setBusinessEntityContext(id) {
@@ -542,8 +572,43 @@ function syncArTabUrl(tab) {
   const url = new URL(window.location.href);
   url.searchParams.set('tab', normalizeArTab(tab));
   window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+  syncArModuleSidebarActiveLink(tab);
   if (typeof syncSidebarActiveLinks === 'function') {
     syncSidebarActiveLinks();
+  }
+}
+
+function syncArModuleSidebarActiveLink(tab = activeArTab) {
+  const activeTab = normalizeArTab(tab);
+  const modulePathByMode = {
+    sales: '/sales-management',
+    service: '/service-operations',
+    finance: '/accounts-receivable'
+  };
+  const modulePath = modulePathByMode[AR_MODULE_MODE] || '/accounts-receivable';
+  const defaultTab = getDefaultArTabForMode();
+  let activeLink = null;
+
+  document.querySelectorAll('.sidebar-link[href^="/"]').forEach((link) => {
+    let url;
+    try {
+      url = new URL(link.dataset.navHref || link.getAttribute('href') || '', window.location.origin);
+    } catch (_) {
+      return;
+    }
+    const path = url.pathname.replace(/\/+$/, '') || '/';
+    if (path !== modulePath) return;
+    const linkTab = normalizeArTab(url.searchParams.get('tab') || defaultTab);
+    const isActive = linkTab === activeTab;
+    link.classList.toggle('active', isActive);
+    if (isActive) activeLink = link;
+  });
+
+  const activeGroup = activeLink?.closest('.sidebar-group');
+  const toggle = activeGroup?.querySelector('.sidebar-group-toggle');
+  if (activeGroup && toggle) {
+    activeGroup.classList.remove('is-collapsed');
+    toggle.setAttribute('aria-expanded', 'true');
   }
 }
 
@@ -1966,6 +2031,7 @@ async function openServiceOrderCreateModal() {
   document.getElementById('service-order-save-btn').textContent = 'Save Service Order';
   document.getElementById('f-so-number').value = '';
   await prefillServiceOrderNumber();
+  populateArBusinessEntitySelect('f-so-business-entity');
   document.getElementById('f-so-date').value = new Date().toISOString().slice(0, 10);
   document.getElementById('f-so-project').value = '';
   setServiceOrderCompanySelection('', '', { lockToProject: false });
@@ -2004,6 +2070,7 @@ async function openServiceOrderEditModal(serviceOrderId) {
     syncServiceOrderCompanyFromProject();
   }
   document.getElementById('f-so-number').value = row.so_number || '';
+  populateArBusinessEntitySelect('f-so-business-entity', row.business_entity_id || '');
   document.getElementById('f-so-date').value = String(row.service_date || '').slice(0, 10);
   document.getElementById('f-so-type').value = String(row.service_type || 'installation').toLowerCase();
   document.getElementById('f-so-status').value = String(row.status || 'issued').toLowerCase();
@@ -2129,7 +2196,7 @@ async function saveServiceOrderEdit() {
   }
 
   const payload = {
-    business_entity_id: getCurrentBusinessEntityId() || getDefaultArBusinessEntityId() || '',
+    business_entity_id: document.getElementById('f-so-business-entity')?.value || getDefaultArBusinessEntityId() || '',
     so_number: document.getElementById('f-so-number').value.trim(),
     company_id: Number(document.getElementById('f-so-company').value || 0) || null,
     project_id: Number(document.getElementById('f-so-project').value || 0) || null,

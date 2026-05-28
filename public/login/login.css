@@ -3,9 +3,9 @@ body.login-page {
   --login-kvsk-red: #b42318;
   --login-kvsk-deep: #4b1210;
   --login-kvsk-ink: #1d1617;
-  --login-kitsi-blue: #0898c7;
-  --login-kitsi-deep: #005b96;
-  --login-kitsi-ink: #063a63;
+  --login-company-accent: #b42318;
+  --login-company-deep: #4b1210;
+  --login-kitsi-ink: #4b1210;
 }
 
 body.login-page #login-screen {
@@ -63,7 +63,7 @@ body.login-page #login-screen::before {
 html[data-login-workspace="kitsi"] body.login-page #login-screen::before,
 body.login-page[data-login-workspace="kitsi"] #login-screen::before {
   background-image:
-    url('/assets/img/kitsi-logo.png'),
+    url('/assets/img/kvsk-logo-switch.png'),
     linear-gradient(rgba(0, 91, 150, 0.075) 1px, transparent 1px),
     linear-gradient(90deg, rgba(8, 152, 199, 0.075) 1px, transparent 1px);
   background-position:
@@ -127,7 +127,7 @@ body.login-page[data-login-workspace="kitsi"] .login-shell {
 
 html[data-login-workspace="kitsi"] body.login-page .login-shell::before,
 body.login-page[data-login-workspace="kitsi"] .login-shell::before {
-  background: linear-gradient(90deg, var(--login-kitsi-deep), var(--login-kitsi-blue), rgba(255, 255, 255, 0.8));
+  background: linear-gradient(90deg, var(--login-company-deep), var(--login-company-accent), rgba(255, 255, 255, 0.8));
 }
 
 body.login-page .login-panel {
@@ -163,7 +163,7 @@ body.login-page .login-panel-form > * {
 }
 
 body.login-page .login-panel-brand {
-  background: linear-gradient(135deg, #4b1210 0%, #7a1b14 34%, #005b96 72%, #063a63 100%);
+  background: linear-gradient(135deg, #4b1210 0%, #7a1b14 34%, #4b1210 72%, #4b1210 100%);
   color: #fff;
   display: flex;
   flex-direction: column;
@@ -302,11 +302,11 @@ body.login-page .login-brand-column-kvsk::before {
 body.login-page .login-brand-column-kitsi {
   background:
     linear-gradient(245deg, rgba(255, 255, 255, 0.12), transparent 42%),
-    linear-gradient(160deg, #0898c7 0%, #0076a8 52%, #005b96 100%);
+    linear-gradient(160deg, #b42318 0%, #7a1b14 52%, #4b1210 100%);
 }
 
 body.login-page .login-brand-column-kitsi::before {
-  background: url('/assets/img/kitsi-logo.png') center 42% / min(270px, 96%) auto no-repeat;
+  background: url('/assets/img/kvsk-logo-switch.png') center 42% / min(270px, 96%) auto no-repeat;
   opacity: 0.15;
   transform: rotate(4deg) scale(1.05);
 }
@@ -323,7 +323,7 @@ html[data-login-workspace="kitsi"] body.login-page .login-panel-brand,
 body.login-page[data-login-workspace="kitsi"] .login-panel-brand {
   background:
     radial-gradient(circle at top left, rgba(255, 255, 255, 0.16), transparent 30%),
-    linear-gradient(145deg, var(--login-kitsi-blue) 0%, #0076a8 54%, var(--login-kitsi-deep) 100%);
+    linear-gradient(145deg, var(--login-company-accent) 0%, #7a1b14 54%, var(--login-company-deep) 100%);
 }
 
 body.login-page .login-brand-column-kvsk,
@@ -357,7 +357,7 @@ body.login-page .login-shell::before {
 
 html[data-login-workspace="kitsi"] body.login-page .login-shell::before,
 body.login-page[data-login-workspace="kitsi"] .login-shell::before {
-  background: linear-gradient(90deg, var(--login-kitsi-deep), var(--login-kitsi-blue), var(--login-kitsi-deep));
+  background: linear-gradient(90deg, var(--login-company-deep), var(--login-company-accent), var(--login-company-deep));
 }
 
 body.login-page .login-shell::before {
@@ -373,7 +373,7 @@ body.login-page .login-brand-column.login-brand-column-kvsk {
 body.login-page .login-brand-column.login-brand-column-kitsi {
   background:
     linear-gradient(245deg, rgba(255, 255, 255, 0.12), transparent 42%),
-    linear-gradient(160deg, var(--login-kitsi-blue) 0%, #0076a8 52%, var(--login-kitsi-deep) 100%) !important;
+    linear-gradient(160deg, var(--login-company-accent) 0%, #7a1b14 52%, var(--login-company-deep) 100%) !important;
 }
 
 body.login-page .login-brand-column.login-brand-column-kvsk:hover {
@@ -385,7 +385,7 @@ body.login-page .login-brand-column.login-brand-column-kvsk:hover {
 body.login-page .login-brand-column.login-brand-column-kitsi:hover {
   background:
     linear-gradient(245deg, rgba(255, 255, 255, 0.18), transparent 42%),
-    linear-gradient(160deg, #22c7e8 0%, #0076a8 52%, var(--login-kitsi-deep) 100%) !important;
+    linear-gradient(160deg, #ef5b4f 0%, #7a1b14 52%, var(--login-company-deep) 100%) !important;
 }
 
 body.login-page .login-brand-columns-static .login-brand-column {
@@ -598,7 +598,7 @@ body.login-page[data-login-workspace="kitsi"] .login-panel-form {
 
 html[data-login-workspace="kitsi"] body.login-page .login-panel-form::before,
 body.login-page[data-login-workspace="kitsi"] .login-panel-form::before {
-  background-image: url('/assets/img/kitsi-logo.png');
+  background-image: url('/assets/img/kvsk-logo-switch.png');
   background-position: right 26px bottom 28px;
   background-size: min(232px, 48%) auto;
   opacity: 0.05;
@@ -608,12 +608,12 @@ html[data-login-workspace="kitsi"] body.login-page .login-badge,
 body.login-page[data-login-workspace="kitsi"] .login-badge {
   background: rgba(207, 250, 254, 0.92);
   border-color: rgba(8, 152, 199, 0.22);
-  color: #005b96;
+  color: #4b1210;
 }
 
 html[data-login-workspace="kitsi"] body.login-page .login-heading,
 body.login-page[data-login-workspace="kitsi"] .login-heading {
-  color: #005b96;
+  color: #4b1210;
 }
 
 html[data-login-workspace="kitsi"] body.login-page .field input:focus,
@@ -628,18 +628,18 @@ html[data-login-workspace="kitsi"] body.login-page .inline-link,
 body.login-page[data-login-workspace="kitsi"] .password-toggle,
 body.login-page[data-login-workspace="kitsi"] .forgot-link,
 body.login-page[data-login-workspace="kitsi"] .inline-link {
-  color: #0076a8;
+  color: #7a1b14;
 }
 
 html[data-login-workspace="kitsi"] body.login-page .btn-primary,
 body.login-page[data-login-workspace="kitsi"] .btn-primary {
-  background: linear-gradient(135deg, #0898c7 0%, #005b96 100%);
+  background: linear-gradient(135deg, #b42318 0%, #4b1210 100%);
   box-shadow: 0 16px 26px rgba(0, 91, 150, 0.24);
 }
 
 html[data-login-workspace="kitsi"] body.login-page .btn-primary:hover,
 body.login-page[data-login-workspace="kitsi"] .btn-primary:hover {
-  background: linear-gradient(135deg, #22c7e8 0%, #0076a8 100%);
+  background: linear-gradient(135deg, #ef5b4f 0%, #7a1b14 100%);
 }
 
 html[data-login-workspace="kvsk"] body.login-page .login-panel-form,
@@ -985,8 +985,8 @@ body.login-page .login-brand-column-copy p {
   html[data-login-workspace="kitsi"] body.login-page #login-screen::before,
   body.login-page[data-login-workspace="kitsi"] #login-screen::before {
     background: linear-gradient(135deg, rgba(8, 152, 199, 0.62), rgba(0, 91, 150, 0.36));
-    -webkit-mask-image: url('/assets/img/kitsi-logo.png');
-    mask-image: url('/assets/img/kitsi-logo.png');
+    -webkit-mask-image: url('/assets/img/kvsk-logo-switch.png');
+    mask-image: url('/assets/img/kvsk-logo-switch.png');
     -webkit-mask-position: center clamp(70px, 12vh, 130px);
     mask-position: center clamp(70px, 12vh, 130px);
     -webkit-mask-size: min(450px, 82vw) auto;
@@ -1012,8 +1012,8 @@ body.login-page .login-brand-column-copy p {
   body.login-page[data-login-workspace="kitsi"] .login-panel-form::before {
     background: linear-gradient(135deg, rgba(8, 152, 199, 0.54), rgba(0, 91, 150, 0.30));
     background-image: none;
-    -webkit-mask-image: url('/assets/img/kitsi-logo.png');
-    mask-image: url('/assets/img/kitsi-logo.png');
+    -webkit-mask-image: url('/assets/img/kvsk-logo-switch.png');
+    mask-image: url('/assets/img/kvsk-logo-switch.png');
     -webkit-mask-position: right 26px bottom 28px;
     mask-position: right 26px bottom 28px;
     -webkit-mask-size: min(232px, 48%) auto;
@@ -1602,3 +1602,4 @@ body.login-page .login-product-panel .login-brand-bottom strong {
     margin-top: 22px;
   }
 }
+

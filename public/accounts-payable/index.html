@@ -5,7 +5,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KVSK CCTV & IT Solution - Accounts Payable</title>
-  <script src="/assets/js/auth-guard.js?v=20260522a"></script>
+  <script src="/assets/js/auth-guard.js?v=20260528b"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260521v" />
   <link rel="stylesheet" href="/accounts-payable/accounts-payable.css?v=20260522d" />
@@ -1307,6 +1307,10 @@
         </select>
       </div>
       <div class="form-group">
+        <label>Business Entity *</label>
+        <select id="f-bill-business-entity" required aria-required="true"></select>
+      </div>
+      <div class="form-group">
         <label>Bill Number *</label>
         <input id="f-bill-number" type="text" placeholder="Auto-generated" readonly required aria-required="true" style="background:var(--surface2);cursor:default;color:var(--muted);" />
       </div>
@@ -1444,7 +1448,6 @@
   </div>
   <nav class="sidebar-nav">
     <a href="/admin?view=dashboard" class="sidebar-link" id="menu-dashboard">Dashboard</a>
-    <a href="/reports" class="sidebar-link" id="menu-reports">Reports</a>
 
     <div class="sidebar-group" data-sidebar-group="projects">
       <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
@@ -1540,11 +1543,12 @@
   </div>
 </div>
 
-  <script src="/assets/js/erp-core.js?v=20260521v"></script>
+  <script src="/assets/js/erp-core.js?v=20260528b"></script>
   <script src="/accounts-payable/ap-purchasing.js?v=20260522a"></script>
-  <script src="/accounts-payable/accounts-payable.js?v=20260522c"></script>
+  <script src="/accounts-payable/accounts-payable.js?v=20260528b"></script>
 </body>
 </html>
+
 
 
 

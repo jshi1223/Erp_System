@@ -66,21 +66,7 @@ function businessEntityProfileValue(value, fallback = 'Not set') {
 }
 
 function getBusinessEntityBrandProfile(row) {
-  const name = String(row?.company_name || '').trim();
-  const theme = String(row?.theme || '').trim().toLowerCase();
-  const isKitsi = theme === 'kitsi' || /kitsi|ktiis|kinaadman/i.test(name);
-  if (isKitsi) {
-    return {
-      theme: 'kitsi',
-      logo: '/assets/img/kitsi-logo.png',
-      alt: 'KITSI logo',
-      primary: '#0898c7',
-      primaryLight: '#22c7e8',
-      primaryDark: '#005b96',
-      accent: '#07a6d6',
-      accent2: '#005b96'
-    };
-  }
+  void row;
   return {
     theme: 'kvsk',
     logo: '/assets/img/kvsk-logo-switch.png',
@@ -107,7 +93,7 @@ function applyBusinessEntityBrand(row) {
   });
   try {
     localStorage.setItem(BUSINESS_ENTITY_THEME_KEY, JSON.stringify({
-      company_name: row?.company_name || (profile.theme === 'kitsi' ? 'KITSI' : 'KVSK CCTV & IT Solution'),
+      company_name: row?.company_name || 'KVSK CCTV & IT Solution',
       theme: profile.theme,
       logo: profile.logo,
       alt: profile.alt,
@@ -186,13 +172,12 @@ function renderBusinessEntitySwitcher() {
 }
 
 function renderCurrentWorkspaceBadge(row = findBusinessEntityById(getCurrentBusinessEntityId())) {
+  void row;
   const badge = $('current-workspace-badge');
   if (!badge) return;
-  const label = businessEntityShortLabel(row || {});
-  const title = String(row?.company_name || label || 'Workspace').trim();
-  badge.textContent = `${label || 'ERP'} Workspace`;
-  badge.title = title;
-  badge.setAttribute('aria-label', `Current workspace: ${title}`);
+  badge.textContent = 'All Companies';
+  badge.title = 'Showing records from all business entities';
+  badge.setAttribute('aria-label', 'Showing all business entities');
 }
 
 async function setBusinessEntityContext(id) {

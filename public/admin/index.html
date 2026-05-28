@@ -7,7 +7,7 @@
   <meta http-equiv="Expires" content="0">
   <title>KVSK CCTV &amp; IT Solutions - Admin Panel</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<script src="/assets/js/auth-guard.js?v=20260522b"></script>
+<script src="/assets/js/auth-guard.js?v=20260528b"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Orbitron:wght@500;700;800&amp;family=Playfair+Display:wght@600;700&amp;family=IBM+Plex+Mono:wght@300;400;500&amp;display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260522a">
   <link rel="stylesheet" href="/admin/admin.css?v=20260522e">
@@ -93,13 +93,12 @@
       } catch (_) {}
       if (!stored || !stored.theme) return;
       var name = String(stored && stored.company_name ? stored.company_name : 'KVSK CCTV & IT Solution').trim();
-      var theme = String(stored && stored.theme ? stored.theme : '').trim().toLowerCase();
-      var label = theme === 'kitsi' || /kitsi|ktiis|kinaadman/i.test(name) ? 'KITSI' : 'KVSK';
+      var label = /kitsi|ktiis/i.test(name) ? 'KITSI' : 'KVSK';
       var badge = document.getElementById('current-workspace-badge');
       if (badge) {
-        badge.textContent = label + ' Workspace';
-        badge.title = name;
-        badge.setAttribute('aria-label', 'Current workspace: ' + name);
+        badge.textContent = 'All Companies';
+        badge.title = 'Showing records from all business entities';
+        badge.setAttribute('aria-label', 'Showing all business entities');
       }
       var brand = document.querySelector('header .brand-copy .header-logo');
       if (brand) brand.textContent = name;
@@ -274,7 +273,7 @@
 
     <div class="dashboard-section is-hidden" id="project-records-section">
       <div class="module-page-toolbar">
-        <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-smart-back="1" data-back-force-fallback="1" data-back-fallback="/admin?view=dashboard" onclick="goBackSmart('/admin?view=dashboard', true)" aria-label="Go back to Dashboard">Back to Dashboard</button>
+        <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-smart-back="1" data-back-force-fallback="1" data-back-fallback="/admin" onclick="goBackSmart('/admin', true)" aria-label="Go back to Dashboard">Back to Dashboard</button>
         <div class="module-page-toolbar-actions">
           <div class="search-wrap top-search-bar module-toolbar-search">
             <input id="project-records-search-input" type="text" placeholder="Search project title, number, company, or linked record..." oninput="renderProjectWorkspace()">
@@ -513,7 +512,7 @@
     <div class="dashboard-section is-hidden" id="system-logs-section">
       <div class="section-divider">System Logs</div>
       <div class="module-page-toolbar">
-        <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-smart-back="1" data-back-force-fallback="1" data-back-fallback="/admin?view=dashboard" onclick="goBackSmart('/admin?view=dashboard', true)" aria-label="Go back to Dashboard">Back to Dashboard</button>
+        <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-smart-back="1" data-back-force-fallback="1" data-back-fallback="/admin" onclick="goBackSmart('/admin', true)" aria-label="Go back to Dashboard">Back to Dashboard</button>
         <div class="module-page-toolbar-actions" id="export-logs-actions">
           <button class="btn btn-cancel btn-sm" type="button" onclick="exportLogs('xls')">Export Excel</button>
           <button class="btn btn-cancel btn-sm" type="button" onclick="exportLogs('pdf')">Export PDF</button>
@@ -572,7 +571,7 @@
 
     <div class="dashboard-section is-hidden" id="archive-center-section">
       <div class="module-page-toolbar">
-        <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-smart-back="1" data-back-force-fallback="1" data-back-fallback="/admin?view=dashboard" onclick="goBackSmart('/admin?view=dashboard', true)" aria-label="Go back to Dashboard">Back to Dashboard</button>
+        <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-smart-back="1" data-back-force-fallback="1" data-back-fallback="/admin" onclick="goBackSmart('/admin', true)" aria-label="Go back to Dashboard">Back to Dashboard</button>
         <div class="module-page-toolbar-actions">
           <div class="search-wrap top-search-bar module-toolbar-search">
             <input id="archive-center-search" type="text" placeholder="Search archived records..." oninput="renderArchiveCenter()">
@@ -702,8 +701,18 @@
     <button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()" aria-label="Close menu">&times;</button>
   </div>
   <nav class="sidebar-nav">
-    <a href="/admin?view=dashboard" class="sidebar-link active" id="menu-dashboard">Dashboard</a>
-    <a href="/reports" class="sidebar-link" id="menu-reports">Reports</a>
+    <a href="/admin" class="sidebar-link active" id="menu-dashboard">Dashboard</a>
+    <div class="sidebar-group" data-sidebar-group="master-data">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Master Data</span>
+        <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/master-data?tab=companies" class="sidebar-link is-subitem" id="menu-company-registry">Company Registry</a>
+        <a href="/master-data?tab=vendors" class="sidebar-link is-subitem">Vendors</a>
+      </div>
+    </div>
+
     <div class="sidebar-group" data-sidebar-group="projects">
       <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
         <span>Projects</span>
@@ -736,17 +745,6 @@
         <a href="/service-operations" class="sidebar-link is-subitem" id="menu-service-operations">Service Orders</a>
         <a href="/service-operations?tab=documents" class="sidebar-link is-subitem">Service Documents</a>
         <a href="/admin?panel=project-records&tab=transactions" class="sidebar-link is-subitem">Project Transactions</a>
-      </div>
-    </div>
-
-    <div class="sidebar-group" data-sidebar-group="master-data">
-      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
-        <span>Master Data</span>
-        <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
-      </button>
-      <div class="sidebar-group-items">
-        <a href="/master-data?tab=companies" class="sidebar-link is-subitem" id="menu-company-registry">Company Registry</a>
-        <a href="/master-data?tab=vendors" class="sidebar-link is-subitem">Vendors</a>
       </div>
     </div>
 
@@ -810,6 +808,56 @@
     </div>
   </nav>
 </div>
+<script>
+  (function () {
+    var sidebar = document.getElementById('sidebar');
+    if (!sidebar) return;
+    sidebar.querySelectorAll('.sidebar-group[data-sidebar-group]').forEach(function (group) {
+      var key = String(group.getAttribute('data-sidebar-group') || '').trim();
+      var toggle = group.querySelector('.sidebar-group-toggle');
+      if (!toggle) return;
+      var stored = null;
+      try {
+        stored = key ? localStorage.getItem('kinaadman_sidebarGroup_' + key) : null;
+      } catch (_) {}
+      var defaultCollapsed = group.getAttribute('data-sidebar-default-collapsed') === '1';
+      var shouldCollapse = stored === null ? defaultCollapsed : stored === '1';
+      group.classList.toggle('is-collapsed', shouldCollapse);
+      toggle.setAttribute('aria-expanded', String(!shouldCollapse));
+    });
+
+    var currentUrl = new URL(window.location.href);
+    var currentPath = currentUrl.pathname.replace(/\/+$/, '') || '/';
+    var currentSearch = currentUrl.search || '';
+    var activeLink = null;
+    sidebar.querySelectorAll('.sidebar-link').forEach(function (link) {
+      link.classList.remove('active');
+      try {
+        var linkUrl = new URL(link.getAttribute('href') || '', window.location.origin);
+        var linkPath = linkUrl.pathname.replace(/\/+$/, '') || '/';
+        var linkSearch = linkUrl.search || '';
+        if (!activeLink && linkPath === currentPath && (linkSearch === currentSearch || !linkSearch)) {
+          activeLink = link;
+        }
+      } catch (_) {}
+    });
+    if (!activeLink && currentPath === '/admin') {
+      activeLink = sidebar.querySelector('#menu-dashboard');
+    }
+    if (activeLink) {
+      activeLink.classList.add('active');
+      var activeGroup = activeLink.closest('.sidebar-group');
+      var activeToggle = activeGroup && activeGroup.querySelector('.sidebar-group-toggle');
+      if (activeGroup && activeToggle) {
+        activeGroup.classList.remove('is-collapsed');
+        activeToggle.setAttribute('aria-expanded', 'true');
+      }
+    }
+    if (document.documentElement && document.documentElement.dataset) {
+      document.documentElement.dataset.sidebarReady = '1';
+    }
+  })();
+</script>
 <!-- ADD / EDIT MODAL -->
 <div class="modal-backdrop" id="modal-backdrop">
   <div class="modal modal-transaction">
@@ -828,6 +876,10 @@
         <input id="f-docno" type="text" placeholder="Auto-generated" readonly="" required aria-required="true" style="background:var(--surface2);cursor:default;color:var(--muted);" data-transaction-validation-bound="1">
         <div class="modal-inline-message is-hidden" data-transaction-field-message="docno" aria-live="polite"></div>
       </div>
+        <div class="field">
+          <label data-label-base="Business Entity">Business Entity<span class="field-label-status is-required">Required</span></label>
+          <select id="f-business-entity-id" required aria-required="true"></select>
+        </div>
         <div class="field full">
           <label data-label-base="Project">Project<span class="field-label-status is-optional">Optional</span></label>
           <select id="f-project-id" data-transaction-validation-bound="1">
@@ -961,8 +1013,12 @@
           <div class="field full">
             <label data-label-base="Project No.">Project No.<span class="field-label-status is-required">Required</span></label>
             <input id="p-project-docno" type="text" placeholder="Generated automatically" readonly="" required aria-required="true" style="background:var(--surface2);cursor:default;">
-            <input id="p-business-entity-id" type="hidden">
             <div class="project-field-message is-hidden" data-project-field-message="project_docno" aria-live="polite"></div>
+          </div>
+          <div class="field full">
+            <label data-label-base="Business Entity">Business Entity<span class="field-label-status is-required">Required</span></label>
+            <select id="p-business-entity-id" required aria-required="true"></select>
+            <div class="project-field-message is-hidden" data-project-field-message="business_entity_id" aria-live="polite"></div>
           </div>
           <div class="field full">
             <label data-label-base="Company">Company<span class="field-label-status is-required">Required</span></label>
@@ -1475,6 +1531,10 @@
           <label data-label-base="Date">Date<span class="field-label-status is-optional">Optional</span></label>
           <input id="so-date" type="date">
         </div>
+        <div class="field">
+          <label data-label-base="Business Entity">Business Entity<span class="field-label-status is-required">Required</span></label>
+          <select id="so-business-entity-id" required aria-required="true"></select>
+        </div>
         <div class="field full">
           <label data-label-base="Project">Project<span class="field-label-status is-optional">Optional</span></label>
           <select id="so-project-id" onchange="syncServiceOrderCompanyFromProject()">
@@ -1587,11 +1647,12 @@
 </div>
 
 <!-- Scripts -->
-<script src="admin.js?v=20260522e"></script>
+<script src="admin.js?v=20260528b"></script>
 
 
 
 </body></html>
+
 
 
 

@@ -328,10 +328,8 @@ function syncModalBusinessContext(row = findBusinessEntityById(getCurrentBusines
 }
 
 function businessEntityMatches(row) {
-  const selected = getCurrentBusinessEntityId();
-  if (!selected) return true;
-  const rowId = String(row?.business_entity_id || '').trim();
-  return !rowId || rowId === selected;
+  void row;
+  return true;
 }
 
 function renderArchivedProjectBadge(row = {}) {
@@ -341,21 +339,7 @@ function renderArchivedProjectBadge(row = {}) {
 }
 
 function getBusinessEntityBrandProfile(row) {
-  const name = String(row?.company_name || '').trim();
-  const theme = String(row?.theme || '').trim().toLowerCase();
-  const isKitsi = theme === 'kitsi' || /kitsi|ktiis|kinaadman/i.test(name);
-  if (isKitsi) {
-    return {
-      theme: 'kitsi',
-      logo: '/assets/img/kitsi-logo.png',
-      alt: 'KITSI logo',
-      primary: '#0898c7',
-      primaryLight: '#22c7e8',
-      primaryDark: '#005b96',
-      accent: '#07a6d6',
-      accent2: '#005b96'
-    };
-  }
+  void row;
   return {
     theme: 'kvsk',
     logo: '/assets/img/kvsk-logo-switch.png',
@@ -383,7 +367,7 @@ function applyBusinessEntityBrand(row) {
   });
   try {
     localStorage.setItem(BUSINESS_ENTITY_THEME_KEY, JSON.stringify({
-      company_name: row?.company_name || (profile.theme === 'kitsi' ? 'KITSI' : 'KVSK CCTV & IT Solution'),
+      company_name: row?.company_name || 'KVSK CCTV & IT Solution',
       theme: profile.theme,
       logo: profile.logo,
       alt: profile.alt,
@@ -417,13 +401,12 @@ function renderBusinessEntitySwitcher() {
 }
 
 function renderCurrentWorkspaceBadge(row = findBusinessEntityById(getCurrentBusinessEntityId())) {
+  void row;
   const badge = document.getElementById('current-workspace-badge');
   if (!badge) return;
-  const label = businessEntityShortLabel(row || {});
-  const title = String(row?.company_name || label || 'Workspace').trim();
-  badge.textContent = `${label || 'ERP'} Workspace`;
-  badge.title = title;
-  badge.setAttribute('aria-label', `Current workspace: ${title}`);
+  badge.textContent = 'All Companies';
+  badge.title = 'Showing records from all business entities';
+  badge.setAttribute('aria-label', 'Showing all business entities');
 }
 
 function setBusinessEntityContext(id) {
@@ -449,7 +432,7 @@ function renderBillBusinessEntityOptions(selectedValue = '') {
   const select = document.getElementById('f-bill-business-entity');
   if (!select) return;
   const rows = Array.isArray(businessEntitiesDb) ? businessEntitiesDb : [];
-  const selected = String(selectedValue || getCurrentBusinessEntityId() || getDefaultBillBusinessEntityId() || '').trim();
+  const selected = String(selectedValue || select.value || getDefaultBillBusinessEntityId() || '').trim();
   select.innerHTML = rows.length
     ? rows.map(row => `<option value="${escHtml(row.id)}">${escHtml(row.company_name || row.entity_code || 'Operating Company')}</option>`).join('')
     : '<option value="">Default company</option>';
@@ -1430,7 +1413,7 @@ async function loadBillNumberPreview() {
   input.value = '';
   try {
     const params = new URLSearchParams();
-    const businessEntityId = getCurrentBusinessEntityId() || getDefaultBillBusinessEntityId() || '';
+    const businessEntityId = document.getElementById('f-bill-business-entity')?.value || getDefaultBillBusinessEntityId() || '';
     if (businessEntityId) params.set('business_entity_id', businessEntityId);
     const response = await fetch(`/api/bills/next-number?${params.toString()}`, {
       credentials: 'same-origin',
@@ -1527,8 +1510,8 @@ async function saveBill() {
   
   const formData = new FormData();
   formData.append('vendor_id', vendorId);
-  const businessEntityId = getCurrentBusinessEntityId() || getDefaultBillBusinessEntityId() || '';
   const businessEntitySelect = document.getElementById('f-bill-business-entity');
+  const businessEntityId = businessEntitySelect?.value || getDefaultBillBusinessEntityId() || '';
   if (businessEntitySelect) businessEntitySelect.value = businessEntityId;
   formData.append('business_entity_id', businessEntityId);
   formData.append('bill_number', billNumber);
