@@ -1969,6 +1969,14 @@ function handleMasterDataPage(req, res) {
 app.get(['/accounts-payable', '/accounts-payable/'], protectAdmin, handleAccountsPayablePage);
 app.get(['/procurement', '/procurement/'], protectAdmin, handleProcurementPage);
 app.get(['/master-data', '/master-data/'], protectAdmin, handleMasterDataPage);
+app.get(['/sales-management', '/sales-management/'], protectAdmin, (req, res) => {
+  noCache(res);
+  res.sendFile(path.join(__dirname, 'public', 'accounts-receivable', 'index.html'));
+});
+app.get(['/service-operations', '/service-operations/'], protectAdmin, (req, res) => {
+  noCache(res);
+  res.sendFile(path.join(__dirname, 'public', 'accounts-receivable', 'index.html'));
+});
 
 app.use(express.static('public', {
   index: false,

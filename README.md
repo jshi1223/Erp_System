@@ -8,7 +8,7 @@ Kinaadman ERP is a project-based ERP web application for managing company record
 
 - ERP command center with KPI cards, charts, counters, and project alerts
 - Business entity/workspace context for operating-company-specific records
-- Sidebar navigation for Projects, AP, AR, Reports, Admin, and Archives
+- Sidebar navigation aligned to ERP flow: Master Data, Sales Management, Service Operations, Projects, Procurement, Inventory, Financial Management, Reports, Admin, and Archives
 - Notifications for project status, due dates, upcoming work, and completed records
 - Dashboard company filtering and project status summaries
 
@@ -37,16 +37,23 @@ Kinaadman ERP is a project-based ERP web application for managing company record
 - Project resource and cost tracking
 - Gantt chart/planner workspace and import support
 
-### Service Orders
+### Sales Management
+
+- Sales invoice workspace for customer billing and project/service billing references
+- Customer collections and customer balance monitoring
+- Sales Management links operational service/project records into Accounts Receivable
+
+### Service Operations
 
 - Service Order creation with generated service order numbers
 - Link service orders to business entities, vendors, companies, and projects
 - Service type, service date, title, description, amount, status, and notes tracking
 - Service Order PDF support
+- Service document workspace for service order attachments
 - Archive and restore service orders
 - Service Orders can feed receivable and transaction workflows
 
-### Transactions And Receivables
+### Financial Management - Accounts Receivable
 
 - Invoice and receipt transaction records with generated document numbers
 - Company, project, service order, client, address, TIN, phone, and business style fields
@@ -119,19 +126,19 @@ Kinaadman ERP is a project-based ERP web application for managing company record
 - Database/index audit documentation
 - ERD, screenshots, documentation scripts, and PostgreSQL/Supabase migration plan
 
-## Core Workflows
+## Core ERP Workflows
 
 ```text
-Business Entity -> Company Registry -> Projects -> Service Orders -> Transactions -> Accounts Receivable -> Payments
-Company/Project -> Purchase Requisition -> Approval -> Purchase Order -> Approval -> Goods Receipt -> Accounts Payable -> Payments
-Projects -> Tasks -> Project Costs -> Reports
-Users -> Role Permissions -> System Logs -> Audit Review
+Business Entity -> Master Data -> Sales Management -> Service Operations -> Projects -> Accounts Receivable -> Collections
+Project Requirement -> Procurement -> RFQ/Quotation -> Purchase Order -> Goods Receipt -> Inventory -> Accounts Payable -> Payments
+Projects -> Tasks -> Costs -> Project Ledger -> Reports
+Users -> Role Permissions -> Transactions -> System Logs -> Audit Review
 ```
 
 ## Main Modules
 
 - `public/admin/index.html` - dashboard, projects, transactions, archived records, logs, and admin workspace
-- `public/accounts-receivable/index.html` - service orders, transactions, receivables, and collections
+- `public/accounts-receivable/index.html` - Accounts Receivable screen reused by the Sales Management and Service Operations module modes
 - `public/accounts-payable/index.html` - vendors, requisitions, purchase orders, goods receipts, bills, and payments
 - `public/company/index.html` - company registry and company overview
 - `public/business-entities/index.html` - operating company and workspace management

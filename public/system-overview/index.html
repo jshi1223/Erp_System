@@ -56,8 +56,8 @@
             </tr>
             <tr>
               <td>Sales Management</td>
-              <td>Partially Implemented</td>
-              <td>Customer transactions, project sales records, service billing, invoices, and receivable tracking through Projects, Service Orders, and AR.</td>
+              <td>Implemented</td>
+              <td>Customer billing, sales invoices, project sales records, collections, customer balances, and receivable tracking through the Sales Management module and AR finance views.</td>
             </tr>
             <tr>
               <td>Service Operations</td>
@@ -90,13 +90,14 @@
         <h3>Module Relationships</h3>
         <ul class="relationship-list">
           <li><strong>Security to All Modules:</strong> user role and approval status control access to admin, finance, procurement, reports, and user pages.</li>
-          <li><strong>Company Registry to Projects:</strong> customer/company records become the master reference for project, service, sales, and billing documents.</li>
-          <li><strong>Projects to Service Operations:</strong> approved projects can create service orders for installation, maintenance, and support work.</li>
-          <li><strong>Projects to AR:</strong> project transactions and service orders create customer billing, receivables, collections, and balances.</li>
+          <li><strong>Master Data to All Operations:</strong> company, customer, vendor, and business entity records become the source reference for sales, service, project, procurement, inventory, and finance documents.</li>
+          <li><strong>Sales to Service Operations:</strong> customer sales and billing requirements can be linked to service orders for installation, maintenance, and support delivery.</li>
+          <li><strong>Service Operations to Projects:</strong> service orders can be tied to project records so work scope, schedules, responsible teams, and project ledgers stay traceable.</li>
+          <li><strong>Sales/Service to AR:</strong> sales invoices, project transactions, and service orders create customer receivables, collections, balances, and aging views.</li>
           <li><strong>Projects to Procurement/AP:</strong> project requirements create PR, RFQ, quotation, PO, receiving, supplier bills, and supplier payments.</li>
           <li><strong>Procurement to Inventory:</strong> received goods can be reflected as stock movements for product and warehouse tracking.</li>
           <li><strong>Procurement to Financial Management:</strong> received goods/services and supplier documents flow into Accounts Payable.</li>
-          <li><strong>Sales/Service to Financial Management:</strong> customer invoices and collections flow into Accounts Receivable.</li>
+          <li><strong>Financial Management to Reports:</strong> AP, AR, payments, net position, and ledger data feed the dashboard and management reports.</li>
           <li><strong>Reports to All Modules:</strong> reports summarize project, procurement, AP, AR, payment, and audit information for management review.</li>
         </ul>
       </div>

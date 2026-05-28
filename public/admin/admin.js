@@ -198,7 +198,7 @@ function applyInitialAdminView(user) {
   }
 
   if (requestedPanel === 'service-orders' || requestedView === 'service-orders') {
-    window.location.replace('/accounts-receivable?tab=service-orders');
+    window.location.replace('/service-operations');
     return;
   }
 
@@ -4607,7 +4607,7 @@ function openProjectsDashboard() {
 }
 
 function openServiceOrdersDashboard() {
-  navigateDashboardCard('/accounts-receivable?tab=service-orders');
+  navigateDashboardCard('/service-operations');
 }
 
 function goBackSmart(fallback = '/admin?view=dashboard', forceFallback = false) {
@@ -7565,6 +7565,10 @@ async function updateStats() {
   const statAp = document.getElementById('stat-ap');
   const statApMini = document.getElementById('stat-ap-mini');
   const statAr = document.getElementById('stat-ar');
+  const statSales = document.getElementById('stat-sales');
+  const statSalesMini = document.getElementById('stat-sales-mini');
+  const statServiceOperations = document.getElementById('stat-service-operations');
+  const statServiceOperationsMini = document.getElementById('stat-service-operations-mini');
   const statsYear = new Date().getFullYear();
   let dashboardReceivableBalance = 0;
   let dashboardPayableBalance = 0;
@@ -7668,11 +7672,31 @@ async function updateStats() {
       const paidAmount = getTransactionPaidAmountValue(r);
       return sum + Math.max(0, amount - paidAmount);
     }, 0);
+    const salesTotal = invoiceRows.reduce((sum, row) => sum + (parseFloat(row.amount) || 0), 0);
     dashboardReceivableBalance = totalReceivable;
 
     if (statAr) statAr.textContent = 'PHP ' + totalReceivable.toLocaleString('en-PH', { minimumFractionDigits: 2 });
     if (statArMini) {
       statArMini.textContent = `${getCurrentDashboardCompanyLabel()} • ${invoiceRows.length} invoice${invoiceRows.length === 1 ? '' : 's'}`;
+    }
+    if (statSales) statSales.textContent = String(invoiceRows.length);
+    if (statSalesMini) {
+      statSalesMini.textContent = `${getCurrentDashboardCompanyLabel()} • ${formatPhpCurrency(salesTotal)} sales • ${formatPhpCurrency(totalReceivable)} open`;
+    }
+
+    const serviceRows = (Array.isArray(serviceOrdersDb) ? serviceOrdersDb : [])
+      .filter(row => businessEntityMatches(row))
+      .filter(row => companyMatchesDashboardFilter(getServiceOrderCompanyName(row)));
+    const activeServiceRows = serviceRows.filter((row) => {
+      if (Number(row.is_archived || 0) === 1 || row.is_archived === true) return false;
+      const status = String(row.status || '').toLowerCase();
+      return !['completed', 'cancelled', 'archived'].includes(status);
+    });
+    const completedServiceRows = serviceRows.filter((row) => String(row.status || '').toLowerCase() === 'completed');
+    const serviceTotal = serviceRows.reduce((sum, row) => sum + (parseFloat(row.total_amount || row.amount) || 0), 0);
+    if (statServiceOperations) statServiceOperations.textContent = String(activeServiceRows.length);
+    if (statServiceOperationsMini) {
+      statServiceOperationsMini.textContent = `${getCurrentDashboardCompanyLabel()} • ${serviceRows.length} SO • ${completedServiceRows.length} completed • ${formatPhpCurrency(serviceTotal)}`;
     }
     updateProjectWorkspaceSummary();
 
@@ -7685,6 +7709,10 @@ async function updateStats() {
     updateCompanyRegistryStatCard();
     if (statAr) statAr.textContent = 'PHP 0.00';
     if (statArMini) statArMini.textContent = `${getCurrentDashboardCompanyLabel()} • 0 invoices`;
+    if (statSales) statSales.textContent = '0';
+    if (statSalesMini) statSalesMini.textContent = `${getCurrentDashboardCompanyLabel()} • 0 invoices • PHP 0.00 open`;
+    if (statServiceOperations) statServiceOperations.textContent = '0';
+    if (statServiceOperationsMini) statServiceOperationsMini.textContent = `${getCurrentDashboardCompanyLabel()} • 0 active service orders`;
     dashboardReceivableBalance = 0;
     renderInvoiceStatusQuickView([]);
     renderProjectLedgerStats([]);
@@ -8557,7 +8585,8 @@ function syncSidebarActiveLinks() {
     '/admin?view=logs': ['/admin?panel=logs'],
     '/admin?panel=archive-center': ['/admin?view=archive-center', '/admin?view=archived', '/admin?panel=archived'],
     '/master-data?tab=vendors': ['/accounts-payable?tab=vendors', '/accounts-payable'],
-    '/accounts-receivable?tab=service-orders': ['/accounts-receivable']
+    '/sales-management': ['/accounts-receivable', '/accounts-receivable?tab=invoices'],
+    '/service-operations': ['/accounts-receivable?tab=service-orders']
   };
 
   function sameRoute(candidateHref) {

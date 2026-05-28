@@ -31,7 +31,7 @@
   </div>
   <div class="header-right">
     <span class="workspace-badge" id="current-workspace-badge">Workspace</span>
-    <span class="admin-badge">Receivables Module</span>
+    <span class="admin-badge">Financial Management - AR</span>
     <div class="notification-wrap">
       <button class="btn-icon notification-btn" type="button" onclick="toggleNotificationsPanel()" aria-label="Notifications" title="Notifications">
         <svg viewBox="0 0 24 24" aria-hidden="true" class="notification-icon">
@@ -62,7 +62,7 @@
 <main>
   <div class="page-hero">
     <div class="page-hero-copy" style="max-width:none;">
-      <div class="page-title">Accounts Receivable Management</div>
+      <div class="page-title">Accounts Receivable</div>
     </div>
   </div>
 
@@ -470,32 +470,53 @@
       </div>
     </div>
 
-    <div class="sidebar-group" data-sidebar-group="accounts-payable">
+    <div class="sidebar-group" data-sidebar-group="procurement">
       <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
-        <span>AP</span>
+        <span>Procurement Management</span>
         <span class="sidebar-group-caret">?</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/accounts-payable?tab=requisitions" class="sidebar-link is-subitem">Purchase Requisitions</a>
-        <a href="/accounts-payable?tab=purchase-orders" class="sidebar-link is-subitem">Purchase Orders</a>
-        <a href="/accounts-payable?tab=goods-receipts" class="sidebar-link is-subitem">Goods Receipts</a>
-        <a href="/accounts-payable?tab=bills" class="sidebar-link is-subitem">Bills</a>
-        <a href="/accounts-payable?tab=payments" class="sidebar-link is-subitem">Payments</a>
+        <a href="/procurement?tab=requisitions" class="sidebar-link is-subitem">Purchase Requisitions</a>
+        <a href="/procurement?tab=rfq" class="sidebar-link is-subitem">RFQ</a>
+        <a href="/procurement?tab=quotations" class="sidebar-link is-subitem">Quotations &amp; Evaluation</a>
+        <a href="/procurement?tab=purchase-orders" class="sidebar-link is-subitem">Purchase Orders</a>
+        <a href="/procurement?tab=goods-receipts" class="sidebar-link is-subitem">Goods Receipts</a>
       </div>
     </div>
 
-    <div class="sidebar-group" data-sidebar-group="accounts-receivable">
+    <div class="sidebar-group" data-sidebar-group="sales-management">
       <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
-        <span>AR</span>
+        <span>Sales Management</span>
         <span class="sidebar-group-caret">?</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/accounts-receivable?tab=service-orders" class="sidebar-link is-subitem active">Service Orders</a>
-        <a href="/accounts-receivable?tab=invoices" class="sidebar-link is-subitem">Invoices</a>
-        <a href="/accounts-receivable?tab=collections" class="sidebar-link is-subitem">Collections</a>
-        <a href="/accounts-receivable?tab=customer-balances" class="sidebar-link is-subitem">Customer Balances</a>
-        <a href="/accounts-receivable?tab=ar-aging" class="sidebar-link is-subitem">AR Aging</a>
-        <a href="/accounts-receivable?tab=documents" class="sidebar-link is-subitem">Documents</a>
+        <a href="/sales-management" class="sidebar-link is-subitem" id="menu-sales-management">Sales Invoices</a>
+        <a href="/sales-management?tab=collections" class="sidebar-link is-subitem">Collections</a>
+        <a href="/sales-management?tab=customer-balances" class="sidebar-link is-subitem">Customer Balances</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="service-operations">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Service Operations</span>
+        <span class="sidebar-group-caret">?</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/service-operations" class="sidebar-link is-subitem" id="menu-service-operations">Service Orders</a>
+        <a href="/service-operations?tab=documents" class="sidebar-link is-subitem">Service Documents</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="finance">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Financial Management</span>
+        <span class="sidebar-group-caret">?</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/accounts-payable?tab=bills" class="sidebar-link is-subitem">AP Bills</a>
+        <a href="/accounts-payable?tab=payments" class="sidebar-link is-subitem">AP Payments</a>
+        <a href="/accounts-receivable?tab=invoices" class="sidebar-link is-subitem">AR Invoices</a>
+        <a href="/accounts-receivable?tab=collections" class="sidebar-link is-subitem">AR Collections</a>
       </div>
     </div>
 

@@ -164,6 +164,37 @@
         <div class="stat-mini" id="stat-projects-mini">All Companies &bull; 0 ongoing &bull; 0 overdue</div>
       </div>
 
+      <!-- Sales Management -->
+      <div class="stat-card stat-card-accent stat-card-link" id="stat-card-sales" onclick="navigateDashboardCard('/sales-management')">
+        <div class="stat-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M5.5 19.5V5A1.5 1.5 0 0 1 7 3.5h8l3.5 3.5v12.5"></path>
+            <path d="M15 3.5V7h3.5"></path>
+            <path d="M8.5 11h7"></path>
+            <path d="M8.5 14h4"></path>
+            <path d="M6 19.5h12"></path>
+          </svg>
+        </div>
+        <div class="stat-label">Sales Management</div>
+        <div class="stat-val gold" id="stat-sales">0</div>
+        <div class="stat-mini" id="stat-sales-mini">All Companies &bull; 0 invoices &bull; PHP 0.00 open</div>
+      </div>
+
+      <!-- Service Operations -->
+      <div class="stat-card stat-card-company stat-card-link" id="stat-card-service-operations" onclick="navigateDashboardCard('/service-operations')">
+        <div class="stat-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M6.5 4.5h11A1.5 1.5 0 0 1 19 6v12a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 18V6a1.5 1.5 0 0 1 1.5-1.5z"></path>
+            <path d="M8 8.5h8"></path>
+            <path d="M8 12h5"></path>
+            <path d="m9 16 1.4 1.4L15.5 12"></path>
+          </svg>
+        </div>
+        <div class="stat-label">Service Operations</div>
+        <div class="stat-val" id="stat-service-operations">0</div>
+        <div class="stat-mini" id="stat-service-operations-mini">All Companies &bull; 0 active service orders</div>
+      </div>
+
       <!-- Procurement -->
       <div class="stat-card stat-card-warning stat-card-link" id="stat-card-procurement" onclick="navigateDashboardCard('/procurement?tab=requisitions')">
         <div class="stat-icon" aria-hidden="true">
@@ -181,7 +212,7 @@
       </div>
 
       <!-- Inventory -->
-      <div class="stat-card stat-card-primary stat-card-link" id="stat-card-inventory" onclick="navigateDashboardCard('/inventory')">
+      <div class="stat-card stat-card-primary stat-card-link" id="stat-card-inventory" onclick="navigateDashboardCard('/inventory?tab=stock')">
         <div class="stat-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24">
             <path d="M4.5 7.5 12 3.8l7.5 3.7-7.5 3.7-7.5-3.7z"></path>
@@ -684,6 +715,30 @@
       </div>
     </div>
 
+    <div class="sidebar-group" data-sidebar-group="sales-management">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Sales Management</span>
+        <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/sales-management" class="sidebar-link is-subitem" id="menu-sales-management">Sales Invoices</a>
+        <a href="/sales-management?tab=collections" class="sidebar-link is-subitem">Collections</a>
+        <a href="/sales-management?tab=customer-balances" class="sidebar-link is-subitem">Customer Balances</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="service-operations">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Service Operations</span>
+        <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/service-operations" class="sidebar-link is-subitem" id="menu-service-operations">Service Orders</a>
+        <a href="/service-operations?tab=documents" class="sidebar-link is-subitem">Service Documents</a>
+        <a href="/admin?panel=project-records&tab=transactions" class="sidebar-link is-subitem">Project Transactions</a>
+      </div>
+    </div>
+
     <div class="sidebar-group" data-sidebar-group="master-data">
       <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
         <span>Master Data</span>
@@ -715,7 +770,10 @@
         <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/inventory" class="sidebar-link is-subitem" id="menu-inventory">Products, Warehouses &amp; Stock</a>
+        <a href="/inventory?tab=stock" class="sidebar-link is-subitem" id="menu-inventory">Stock Levels</a>
+        <a href="/inventory?tab=products" class="sidebar-link is-subitem">Products</a>
+        <a href="/inventory?tab=warehouses" class="sidebar-link is-subitem">Warehouses</a>
+        <a href="/inventory?tab=movements" class="sidebar-link is-subitem">Stock Movements</a>
       </div>
     </div>
 

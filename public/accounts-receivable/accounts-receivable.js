@@ -15,6 +15,7 @@ let currentBusinessEntityContextId = '';
 const BUSINESS_ENTITY_CONTEXT_KEY = 'kinaadman_businessEntityContext';
 const BUSINESS_ENTITY_THEME_KEY = 'kinaadman_businessEntityTheme';
 const AR_UI_STATE_KEY = 'accounts-receivable.uiState';
+const AR_MODULE_MODE = getArModuleMode();
 const arToolbarState = {
   serviceOrders: { search: '' },
   transactions: { search: '' },
@@ -23,11 +24,32 @@ const arToolbarState = {
   summary: {}
 };
 const AR_TABS = new Set(['service-orders', 'invoices', 'collections', 'customer-balances', 'ar-aging', 'documents']);
-let activeArTab = 'service-orders';
+let activeArTab = getDefaultArTabForMode();
+
+function getArModuleMode() {
+  const path = String(window.location.pathname || '').replace(/\/+$/, '').toLowerCase();
+  if (path === '/service-operations') return 'service';
+  if (path === '/sales-management') return 'sales';
+  return 'finance';
+}
+
+function getAllowedArTabsForMode(mode = AR_MODULE_MODE) {
+  if (mode === 'service') return new Set(['service-orders', 'documents']);
+  if (mode === 'sales') return new Set(['invoices', 'collections', 'customer-balances']);
+  return new Set(['invoices', 'collections', 'customer-balances', 'ar-aging']);
+}
+
+function getDefaultArTabForMode(mode = AR_MODULE_MODE) {
+  return mode === 'service' ? 'service-orders' : 'invoices';
+}
+
+function isArTabAllowedForMode(tab, mode = AR_MODULE_MODE) {
+  return getAllowedArTabsForMode(mode).has(String(tab || '').trim().toLowerCase());
+}
 
 function getDefaultArUiState() {
   return {
-    activeTab: 'service-orders',
+    activeTab: getDefaultArTabForMode(),
     toolbarState: {
       serviceOrders: { search: '' },
       transactions: { search: '' },
@@ -83,13 +105,14 @@ function restoreArUiState() {
 function normalizeArTab(value) {
   const tab = String(value || '').trim().toLowerCase();
   const aliases = {
-    overview: 'service-orders',
+    overview: getDefaultArTabForMode(),
     transactions: 'service-orders',
     receivables: 'invoices',
     payments: 'collections'
   };
   const normalized = aliases[tab] || tab;
-  return AR_TABS.has(normalized) ? normalized : 'service-orders';
+  if (!AR_TABS.has(normalized)) return getDefaultArTabForMode();
+  return isArTabAllowedForMode(normalized) ? normalized : getDefaultArTabForMode();
 }
 
 function syncArSummaryCards(tab = activeArTab) {
@@ -126,6 +149,7 @@ function isInCurrentMonth(value) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  applyArModuleModeChrome();
   restoreArUiState();
   const params = new URLSearchParams(window.location.search);
   activeArTab = params.has('tab') ? normalizeArTab(params.get('tab')) : activeArTab;
@@ -143,6 +167,56 @@ document.addEventListener('DOMContentLoaded', () => {
   loadTransactions();
   if (typeof loadNotifications === 'function') loadNotifications();
 });
+
+function applyArModuleModeChrome() {
+  document.body.dataset.moduleMode = AR_MODULE_MODE;
+
+  const titleMap = {
+    service: 'Service Operations',
+    sales: 'Sales Management',
+    finance: 'Accounts Receivable'
+  };
+  const badgeMap = {
+    service: 'Service Operations Module',
+    sales: 'Sales Management Module',
+    finance: 'Financial Management - AR'
+  };
+  const title = titleMap[AR_MODULE_MODE] || titleMap.finance;
+  const pageTitle = document.querySelector('.page-title');
+  const headerSub = document.querySelector('header .brand-copy .header-sub');
+  const badge = document.querySelector('.admin-badge');
+
+  if (pageTitle) pageTitle.textContent = title;
+  if (headerSub) headerSub.textContent = title;
+  if (badge) badge.textContent = badgeMap[AR_MODULE_MODE] || badgeMap.finance;
+  document.title = `KVSK CCTV & IT Solution - ${title}`;
+
+  const allowedTabs = getAllowedArTabsForMode();
+  const tabLabelsByMode = {
+    service: {
+      'service-orders': 'Service Orders',
+      documents: 'Service Documents'
+    },
+    sales: {
+      invoices: 'Sales Invoices',
+      collections: 'Collections',
+      'customer-balances': 'Customer Balances'
+    },
+    finance: {
+      invoices: 'AR Invoices',
+      collections: 'AR Collections',
+      'customer-balances': 'Customer Balances',
+      'ar-aging': 'AR Aging'
+    }
+  };
+  const labels = tabLabelsByMode[AR_MODULE_MODE] || tabLabelsByMode.finance;
+  document.querySelectorAll('.module-tab[data-tab]').forEach((tabNode) => {
+    const tab = String(tabNode.getAttribute('data-tab') || '').trim().toLowerCase();
+    const isAllowed = allowedTabs.has(tab);
+    tabNode.hidden = !isAllowed;
+    if (isAllowed && labels[tab]) tabNode.textContent = labels[tab];
+  });
+}
 
 function getDefaultArBusinessEntityId() {
   const rows = Array.isArray(businessEntitiesDb) ? businessEntitiesDb : [];
@@ -1147,7 +1221,7 @@ function updateMetrics() {
   setMetricText('metric-documents-count', docs.length);
   setMetricText('metric-documents-transactions', docs.filter(row => row.type === 'Transaction').length);
   setMetricText('metric-documents-service-orders', docs.filter(row => row.type === 'Service Order').length);
-  setMetricText('metric-documents-invoices', receivables.length);
+  setMetricText('metric-documents-invoices', docs.filter(row => row.type === 'Invoice').length);
   setMetricText('metric-documents-missing', docs.filter(row => !String(row.file || '').trim()).length);
   renderCustomerBalances();
   renderArAging();
@@ -1243,7 +1317,9 @@ function getDocumentRows() {
     status: getReceivableStatus(row),
     file: ''
   }));
-  return [...transactionDocs, ...serviceOrderDocs, ...invoiceDocs];
+  if (AR_MODULE_MODE === 'service') return serviceOrderDocs;
+  if (AR_MODULE_MODE === 'sales') return [...transactionDocs, ...invoiceDocs];
+  return [...transactionDocs, ...invoiceDocs];
 }
 
 function renderServiceOrders() {

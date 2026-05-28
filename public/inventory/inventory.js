@@ -9,10 +9,21 @@ let movementsDb = [];
 
 document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('movement-date').value = new Date().toISOString().slice(0, 10);
-  syncInventoryToolbarActions('stock');
+  switchInventoryTab(getInitialInventoryTab(), { syncUrl: false });
   await loadBusinessEntities();
   await loadInventory();
 });
+
+function getInitialInventoryTab() {
+  const params = new URLSearchParams(window.location.search || '');
+  return normalizeInventoryTab(params.get('tab') || 'stock');
+}
+
+function normalizeInventoryTab(tab) {
+  return ['stock', 'products', 'warehouses', 'movements'].includes(String(tab || '').trim().toLowerCase())
+    ? String(tab || '').trim().toLowerCase()
+    : 'stock';
+}
 
 function escHtml(value) {
   return String(value ?? '')
@@ -154,8 +165,8 @@ function renderInventory() {
   `).join('') : '<tr><td colspan="5">No stock movements yet.</td></tr>';
 }
 
-function switchInventoryTab(tab) {
-  const safeTab = ['stock', 'products', 'warehouses', 'movements'].includes(tab) ? tab : 'stock';
+function switchInventoryTab(tab, options = {}) {
+  const safeTab = normalizeInventoryTab(tab);
   document.querySelectorAll('.inventory-tab').forEach(button => {
     button.classList.toggle('active', button.dataset.tab === safeTab);
   });
@@ -163,10 +174,16 @@ function switchInventoryTab(tab) {
     section.classList.toggle('active', section.id === `inventory-tab-${safeTab}`);
   });
   syncInventoryToolbarActions(safeTab);
+  if (options.syncUrl !== false && window.history?.replaceState) {
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', safeTab);
+    window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash || ''}`);
+    if (typeof syncSidebarActiveLinks === 'function') syncSidebarActiveLinks();
+  }
 }
 
 function syncInventoryToolbarActions(tab = 'stock') {
-  const safeTab = ['stock', 'products', 'warehouses', 'movements'].includes(tab) ? tab : 'stock';
+  const safeTab = normalizeInventoryTab(tab);
   document.querySelectorAll('[data-inventory-action]').forEach(button => {
     const tabs = String(button.dataset.inventoryAction || '')
       .split(/\s+/)

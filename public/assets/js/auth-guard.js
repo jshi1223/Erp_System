@@ -185,8 +185,23 @@
       buildLink('/procurement?tab=goods-receipts', 'Goods Receipts')
     ]);
 
+    var salesHtml = buildGroup('sales-management', 'Sales Management', [
+      buildLink('/sales-management', 'Sales Invoices', 'menu-sales-management'),
+      buildLink('/sales-management?tab=collections', 'Collections'),
+      buildLink('/sales-management?tab=customer-balances', 'Customer Balances')
+    ]);
+
+    var serviceHtml = buildGroup('service-operations', 'Service Operations', [
+      buildLink('/service-operations', 'Service Orders', 'menu-service-operations'),
+      buildLink('/service-operations?tab=documents', 'Service Documents'),
+      buildLink('/admin?panel=project-records&tab=transactions', 'Project Transactions')
+    ]);
+
     var inventoryHtml = buildGroup('inventory', 'Inventory Management', [
-      buildLink('/inventory', 'Products, Warehouses & Stock', 'menu-inventory')
+      buildLink('/inventory?tab=stock', 'Stock Levels', 'menu-inventory'),
+      buildLink('/inventory?tab=products', 'Products'),
+      buildLink('/inventory?tab=warehouses', 'Warehouses'),
+      buildLink('/inventory?tab=movements', 'Stock Movements')
     ]);
 
     var financeHtml = buildGroup('finance', 'Financial Management', [
@@ -221,6 +236,10 @@
     if (oldCompanyRegistry) oldCompanyRegistry.remove();
     var existingMasterData = nav.querySelector('.sidebar-group[data-sidebar-group="master-data"]');
     if (existingMasterData) existingMasterData.remove();
+    var existingSales = nav.querySelector('.sidebar-group[data-sidebar-group="sales-management"]');
+    if (existingSales) existingSales.remove();
+    var existingService = nav.querySelector('.sidebar-group[data-sidebar-group="service-operations"]');
+    if (existingService) existingService.remove();
     var existingInventory = nav.querySelector('.sidebar-group[data-sidebar-group="inventory"]');
     if (existingInventory) existingInventory.remove();
     var existingFinance = nav.querySelector('.sidebar-group[data-sidebar-group="finance"]');
@@ -234,9 +253,9 @@
     }
     var masterAnchor = oldProjects || nav.querySelector('.sidebar-group[data-sidebar-group="projects"]') || nav.querySelector('#menu-dashboard') || nav.firstElementChild;
     if (masterAnchor && masterAnchor.insertAdjacentHTML) {
-      masterAnchor.insertAdjacentHTML('afterend', masterDataHtml);
+      masterAnchor.insertAdjacentHTML('afterend', masterDataHtml + salesHtml + serviceHtml);
     } else {
-      nav.insertAdjacentHTML('afterbegin', masterDataHtml);
+      nav.insertAdjacentHTML('afterbegin', masterDataHtml + salesHtml + serviceHtml);
     }
     nav.dataset.financeNormalized = '1';
   }
@@ -727,6 +746,8 @@
           { prefixes: ['/erp'], roles: ['super_admin', 'admin', 'staff'] },
           { prefixes: ['/accounts-payable'], roles: ['super_admin', 'admin', 'staff'] },
           { prefixes: ['/accounts-receivable'], roles: ['super_admin', 'admin', 'staff'] },
+          { prefixes: ['/sales-management'], roles: ['super_admin', 'admin', 'staff'] },
+          { prefixes: ['/service-operations'], roles: ['super_admin', 'admin', 'staff'] },
           { prefixes: ['/inventory'], roles: ['super_admin', 'admin', 'staff'] },
           { prefixes: ['/reports'], roles: ['super_admin', 'admin'] },
           { prefixes: ['/gantt-chart'], roles: ['super_admin', 'admin'] },
@@ -892,6 +913,35 @@
             aliases: ['/accounts-payable?tab=vendors']
           })
         ]),
+        group('sales-management', 'Sales Management', false, [
+          link('/sales-management', 'Sales Invoices', {
+            id: 'menu-sales-management',
+            subitem: true,
+            aliases: ['/accounts-receivable', '/accounts-receivable?tab=invoices', '/accounts-receivable?tab=overview', '/accounts-receivable?tab=receivables']
+          }),
+          link('/sales-management?tab=collections', 'Collections', {
+            subitem: true,
+            aliases: ['/accounts-receivable?tab=payments']
+          }),
+          link('/sales-management?tab=customer-balances', 'Customer Balances', {
+            subitem: true,
+            aliases: ['/accounts-receivable?tab=customer-balances']
+          })
+        ]),
+        group('service-operations', 'Service Operations', false, [
+          link('/service-operations', 'Service Orders', {
+            id: 'menu-service-operations',
+            subitem: true,
+            aliases: ['/accounts-receivable?tab=service-orders', '/accounts-receivable?tab=transactions']
+          }),
+          link('/service-operations?tab=documents', 'Service Documents', {
+            subitem: true
+          }),
+          link('/admin?panel=project-records&tab=transactions', 'Project Transactions', {
+            subitem: true,
+            aliases: ['/admin?view=all']
+          })
+        ]),
         group('procurement', 'Procurement Management', false, [
           link('/procurement?tab=requisitions', 'Purchase Requisitions', {
             subitem: true,
@@ -912,8 +962,18 @@
           })
         ]),
         group('inventory', 'Inventory Management', false, [
-          link('/inventory', 'Products, Warehouses & Stock', {
+          link('/inventory?tab=stock', 'Stock Levels', {
             id: 'menu-inventory',
+            subitem: true,
+            aliases: ['/inventory']
+          }),
+          link('/inventory?tab=products', 'Products', {
+            subitem: true
+          }),
+          link('/inventory?tab=warehouses', 'Warehouses', {
+            subitem: true
+          }),
+          link('/inventory?tab=movements', 'Stock Movements', {
             subitem: true
           })
         ]),
@@ -928,7 +988,7 @@
           link('/accounts-payable?tab=disbursements', 'Disbursements', { subitem: true }),
           link('/accounts-receivable?tab=invoices', 'AR Invoices', {
             subitem: true,
-            aliases: ['/accounts-receivable', '/accounts-receivable?tab=overview', '/accounts-receivable?tab=transactions', '/accounts-receivable?tab=receivables']
+            aliases: ['/accounts-receivable?tab=receivables']
           }),
           link('/accounts-receivable?tab=collections', 'AR Collections', {
             subitem: true,
@@ -988,7 +1048,8 @@
       '/accounts-payable?tab=disbursements',
       '/accounts-receivable?tab=customer-balances',
       '/accounts-receivable?tab=ar-aging',
-      '/accounts-receivable?tab=documents'
+      '/sales-management?tab=customer-balances',
+      '/service-operations?tab=documents'
     ];
     var adminOnlySelectors = [
       '.sidebar-group[data-sidebar-group="admin"]',

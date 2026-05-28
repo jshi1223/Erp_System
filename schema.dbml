@@ -5,9 +5,10 @@
 // ERP ERD guide:
 // business_entities stores your own operating companies.
 // Company Registry is the external customer/client/company master record.
-// AR flow: company_registry -> projects -> service_orders -> transactions -> accounts_receivable -> payments.
-// AP flow: company_registry/projects -> vendors / purchase_requisitions / purchase_orders -> accounts_payable -> payments.
-// Project flow connects AR and operations: projects can have service orders, transactions, AR invoices, tasks, costs, and resources.
+// Core ERP flow: business_entities -> master data -> sales/service operations -> projects -> finance -> reports.
+// Sales/AR flow: company_registry -> sales/service documents -> service_orders/projects -> transactions -> accounts_receivable -> payments.
+// AP flow: company_registry/projects -> vendors / purchase_requisitions / purchase_orders -> goods_receipts -> accounts_payable -> payments.
+// Project flow connects operations and finance: projects can have service orders, transactions, AR invoices, procurement documents, tasks, costs, and resources.
 
 Table company_registry {
   id integer [primary key, increment]
