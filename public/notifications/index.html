@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>Notifications - KVSK ERP</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <script src="/assets/js/auth-guard.js?v=20260529d"></script>
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260529m">
+  <style>
+    body {
+      min-height: 100vh;
+      margin: 0;
+      background:
+        radial-gradient(circle at top left, rgba(180, 35, 24, 0.05), transparent 28%),
+        radial-gradient(circle at top right, rgba(239, 91, 79, 0.04), transparent 24%),
+        linear-gradient(180deg, #fff8f7 0%, #fff3f2 100%);
+      color: #1a1a14;
+      font-family: Inter, Arial, sans-serif;
+    }
+
+    .history-shell {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 28px 18px 48px;
+    }
+
+    .history-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .history-title {
+      margin: 0;
+      color: #921b12;
+      font-size: 1.55rem;
+      line-height: 1.2;
+    }
+
+    .history-sub {
+      margin: 5px 0 0;
+      color: #64748b;
+      font-size: 0.84rem;
+    }
+
+    .history-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .history-btn {
+      border: 1px solid rgba(146, 27, 18, 0.18);
+      border-radius: 8px;
+      background: #fff;
+      color: #921b12;
+      cursor: pointer;
+      font-weight: 800;
+      padding: 9px 12px;
+      text-decoration: none;
+    }
+
+    .history-btn.primary {
+      background: #b42318;
+      color: #fff;
+    }
+
+    .history-panel {
+      overflow: hidden;
+      border: 1px solid rgba(15, 23, 42, 0.08);
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 18px 42px rgba(15, 23, 42, 0.08);
+    }
+
+    .history-list {
+      min-height: 220px;
+    }
+
+    .history-empty {
+      padding: 28px;
+      color: #64748b;
+      font-weight: 700;
+    }
+
+    @media (max-width: 720px) {
+      .history-topbar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .history-actions {
+        justify-content: flex-start;
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body class="admin-page">
+  <main class="history-shell">
+    <div class="history-topbar">
+      <div>
+        <h1 class="history-title">Notification History</h1>
+        <p class="history-sub" id="history-summary">Loading ERP alerts...</p>
+      </div>
+      <div class="history-actions">
+        <a class="history-btn" href="/admin">Dashboard</a>
+        <button class="history-btn" type="button" onclick="loadNotificationHistory()">Refresh</button>
+        <button class="history-btn primary" type="button" onclick="markAllHistoryRead()">Mark all as read</button>
+      </div>
+    </div>
+    <section class="history-panel">
+      <div class="notifications-list history-list" id="notifications-list">
+        <div class="history-empty">Loading notifications...</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const NOTIFICATION_GROUP_ORDER = ['Approvals', 'Due Dates', 'Inventory', 'Service', 'System'];
+    let notificationsDb = [];
+    let notificationReadIds = new Set();
+
+    function escHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      }[char]));
+    }
+
+    function getNotificationReadStorageKey() {
+      return 'kinaadman_notification_reads';
+    }
+
+    function loadNotificationReadState() {
+      try {
+        const raw = localStorage.getItem(getNotificationReadStorageKey());
+        const parsed = raw ? JSON.parse(raw) : [];
+        notificationReadIds = new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+      } catch (_) {
+        notificationReadIds = new Set();
+      }
+    }
+
+    function saveNotificationReadState() {
+      try {
+        localStorage.setItem(getNotificationReadStorageKey(), JSON.stringify(Array.from(notificationReadIds).slice(-500)));
+      } catch (_) {}
+    }
+
+    function getUnreadNotifications(items = notificationsDb) {
+      return (Array.isArray(items) ? items : []).filter(item => !notificationReadIds.has(String(item?.id || '')));
+    }
+
+    function getNotificationCategory(item = {}) {
+      const category = String(item.category || '').trim();
+      if (category) return category;
+      const type = String(item.type || '').trim().toLowerCase();
+      if (type === 'approval') return 'Approvals';
+      if (['due', 'deadline', 'overdue'].includes(type)) return 'Due Dates';
+      if (type === 'inventory') return 'Inventory';
+      if (type === 'service') return 'Service';
+      return 'System';
+    }
+
+    function formatNotificationDisplayDate(value) {
+      if (!value) return '';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return String(value);
+      return date.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    function markAllHistoryRead() {
+      notificationsDb.forEach((item) => {
+        const id = String(item?.id || '').trim();
+        if (id) notificationReadIds.add(id);
+      });
+      saveNotificationReadState();
+      renderNotificationHistory();
+    }
+
+    function openNotificationItem(notificationId) {
+      const item = notificationsDb.find(entry => String(entry?.id || '') === String(notificationId || ''));
+      if (!item) return;
+      const id = String(item.id || '').trim();
+      if (id) notificationReadIds.add(id);
+      saveNotificationReadState();
+      renderNotificationHistory();
+      const href = String(item.href || '').trim();
+      if (href) window.location.href = href;
+    }
+
+    function renderNotificationHistory() {
+      const list = document.getElementById('notifications-list');
+      const summary = document.getElementById('history-summary');
+      if (!list) return;
+      const unread = getUnreadNotifications(notificationsDb).length;
+      if (summary) {
+        summary.textContent = `${notificationsDb.length} notifications • ${unread} unread`;
+      }
+      if (!notificationsDb.length) {
+        list.innerHTML = '<div class="history-empty">No notifications right now.</div>';
+        return;
+      }
+
+      const grouped = new Map();
+      notificationsDb.forEach((item) => {
+        const category = getNotificationCategory(item);
+        if (!grouped.has(category)) grouped.set(category, []);
+        grouped.get(category).push(item);
+      });
+      const groups = [
+        ...NOTIFICATION_GROUP_ORDER.filter((category) => grouped.has(category)),
+        ...Array.from(grouped.keys()).filter((category) => !NOTIFICATION_GROUP_ORDER.includes(category)).sort()
+      ];
+
+      list.innerHTML = groups.map((category) => {
+        const rows = grouped.get(category) || [];
+        const unreadCount = getUnreadNotifications(rows).length;
+        return `
+          <section class="notification-group">
+            <div class="notification-group-head">
+              <span>${escHtml(category)}</span>
+              <small>${unreadCount ? `${unreadCount} unread` : `${rows.length} item${rows.length === 1 ? '' : 's'}`}</small>
+            </div>
+            ${rows.map((item) => {
+              const level = String(item.level || 'info').toLowerCase();
+              const isUnread = !notificationReadIds.has(String(item?.id || ''));
+              const safeTitle = escHtml(item.title || 'Notification');
+              const safeMessage = escHtml(item.message || '');
+              const safeMeta = escHtml(item.meta || '');
+              const safeDate = escHtml(formatNotificationDisplayDate(item.date));
+              return `
+                <button type="button" class="notification-item ${level} ${isUnread ? 'is-unread' : ''}" onclick="openNotificationItem(${JSON.stringify(String(item.id || ''))})">
+                  <span class="notification-mark" aria-hidden="true"></span>
+                  <div class="notification-copy">
+                    <strong>${safeTitle}</strong>
+                    <p>${safeMessage}</p>
+                    <div class="notification-meta">${safeMeta}${safeMeta && safeDate ? ' • ' : ''}${safeDate}</div>
+                  </div>
+                </button>
+              `;
+            }).join('')}
+          </section>
+        `;
+      }).join('');
+    }
+
+    async function loadNotificationHistory() {
+      const list = document.getElementById('notifications-list');
+      if (list) list.innerHTML = '<div class="history-empty">Loading notifications...</div>';
+      try {
+        const res = await fetch('/api/notifications', { cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+        notificationsDb = Array.isArray(data.items) ? data.items : [];
+        renderNotificationHistory();
+      } catch (err) {
+        if (list) list.innerHTML = '<div class="history-empty">Unable to load notifications.</div>';
+      }
+    }
+
+    loadNotificationReadState();
+    loadNotificationHistory();
+  </script>
+</body>
+</html>
