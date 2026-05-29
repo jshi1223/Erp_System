@@ -12253,10 +12253,19 @@ app.post('/api/procurement/purchase-orders/:id/generate-bills', protectAdmin, as
 app.get('/api/procurement/goods-receipts', protectAdmin, async (req, res) => {
   try {
     const rows = await queryAsync(`
-      SELECT gr.*, po.po_number, po.business_entity_id, v.vendor_name
+      SELECT
+        gr.*,
+        po.po_number,
+        po.business_entity_id,
+        v.vendor_name,
+        MIN(gri.warehouse_id) AS warehouse_id,
+        MIN(w.warehouse_name) AS warehouse_name
       FROM goods_receipts gr
       JOIN purchase_orders po ON po.id = gr.po_id
       LEFT JOIN vendors v ON v.id = po.vendor_id
+      LEFT JOIN goods_receipt_items gri ON gri.receipt_id = gr.id
+      LEFT JOIN warehouses w ON w.id = gri.warehouse_id
+      GROUP BY gr.id, po.po_number, po.business_entity_id, v.vendor_name
       ORDER BY gr.received_date DESC, gr.id DESC
     `);
     res.json(rows);
@@ -12269,12 +12278,16 @@ app.get('/api/procurement/goods-receipts', protectAdmin, async (req, res) => {
 app.post('/api/procurement/goods-receipts', protectAdmin, async (req, res) => {
   let grnNumber = String(req.body.grn_number || '').trim();
   const poId = Number(req.body.po_id || 0);
+  const warehouseId = Number(req.body.warehouse_id || req.body.receiving_warehouse_id || 0) || 0;
   const receivedDate = req.body.received_date || new Date().toISOString().slice(0, 10);
   const receivedBy = String(req.body.received_by || '').trim() || null;
   const notes = String(req.body.notes || '').trim() || null;
 
   if (!poId) {
     return res.status(400).json({ error: 'Purchase order is required.' });
+  }
+  if (!warehouseId) {
+    return res.status(400).json({ error: 'Receiving warehouse is required.' });
   }
 
   try {
@@ -12300,6 +12313,16 @@ app.post('/api/procurement/goods-receipts', protectAdmin, async (req, res) => {
       'INSERT INTO goods_receipts (grn_number, po_id, received_date, received_by, status, notes) VALUES (?, ?, ?, ?, ?, ?)',
       [grnNumber, poId, receivedDate, receivedBy, 'received', notes]
     );
+    await postInventoryReceiptForPurchaseOrder({
+      poId,
+      receiptId: result.insertId,
+      grnNumber,
+      businessEntityId,
+      warehouseId,
+      receivedDate,
+      receivedBy,
+      notes
+    });
     await claimEntityDocumentNo({
       businessEntityId,
       documentType: 'goods-receipt',
@@ -12309,7 +12332,7 @@ app.post('/api/procurement/goods-receipts', protectAdmin, async (req, res) => {
     await markPurchaseOrderReceived(poId);
 
     logAction(req, 'CREATE_GOODS_RECEIPT', `Created goods receipt ${grnNumber}`);
-    res.json({ id: result.insertId, grn_number: grnNumber });
+    res.json({ id: result.insertId, grn_number: grnNumber, inventory_synced: true });
   } catch (err) {
     if (isPostgresUniqueViolation(err)) {
       return res.status(409).json({ error: 'GRN number already exists.' });
@@ -13211,6 +13234,7 @@ app.put('/api/procurement/goods-receipts/:id', protectAdmin, async (req, res) =>
   const receiptId = Number(req.params.id || 0);
   let grnNumber = String(req.body.grn_number || '').trim();
   const poId = Number(req.body.po_id || 0);
+  const warehouseId = Number(req.body.warehouse_id || req.body.receiving_warehouse_id || 0) || 0;
   const receivedDate = req.body.received_date || new Date().toISOString().slice(0, 10);
   const receivedBy = String(req.body.received_by || '').trim() || null;
   let status = 'received';
@@ -13221,6 +13245,9 @@ app.put('/api/procurement/goods-receipts/:id', protectAdmin, async (req, res) =>
   }
   if (!poId) {
     return res.status(400).json({ error: 'Purchase order is required.' });
+  }
+  if (status === 'received' && !warehouseId) {
+    return res.status(400).json({ error: 'Receiving warehouse is required.' });
   }
 
   try {
@@ -13248,6 +13275,19 @@ app.put('/api/procurement/goods-receipts/:id', protectAdmin, async (req, res) =>
       'UPDATE goods_receipts SET grn_number = ?, po_id = ?, received_date = ?, received_by = ?, status = ?, notes = ? WHERE id = ?',
       [grnNumber, poId, receivedDate, receivedBy, status, notes, receiptId]
     );
+    const receiptItemRows = await queryAsync('SELECT COUNT(*)::int AS count FROM goods_receipt_items WHERE receipt_id = ?', [receiptId]);
+    if (status === 'received' && Number(receiptItemRows?.[0]?.count || 0) === 0) {
+      await postInventoryReceiptForPurchaseOrder({
+        poId,
+        receiptId,
+        grnNumber,
+        businessEntityId,
+        warehouseId,
+        receivedDate,
+        receivedBy,
+        notes
+      });
+    }
     if (status === 'received') {
       await markPurchaseOrderReceived(poId);
     }
@@ -13259,7 +13299,7 @@ app.put('/api/procurement/goods-receipts/:id', protectAdmin, async (req, res) =>
     });
 
     logAction(req, 'UPDATE_GOODS_RECEIPT', `Updated goods receipt ${grnNumber}`);
-    res.json({ success: true, grn_number: grnNumber });
+    res.json({ success: true, grn_number: grnNumber, inventory_synced: status === 'received' });
   } catch (err) {
     if (isPostgresUniqueViolation(err)) {
       return res.status(409).json({ error: 'GRN number already exists.' });

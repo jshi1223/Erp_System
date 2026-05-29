@@ -1528,6 +1528,8 @@ function renderProjectRecordsTable() {
     const contractAmountText = formatPhpCurrency(project.budget || 0);
     const isArchived = Number(project.is_archived || 0) === 1;
     const isDraft = isProjectDraft(project);
+    const isSubmitted = isProjectSubmitted(project);
+    const isPendingApproval = isProjectPendingApproval(project);
 
     return `
       <tr>
@@ -4488,6 +4490,11 @@ async function approveApprovalItem(index) {
     }
     showToast('Approved successfully.', 'success');
     await renderApprovalCenter(true);
+    if (item.category === 'projects') {
+      await loadProjectsDashboardData();
+    } else if (typeof updateStats === 'function') {
+      await updateStats();
+    }
   } catch (err) {
     showToast(err.message || 'Unable to approve.', 'error');
   }
@@ -4508,6 +4515,11 @@ async function rejectApprovalItem(index) {
     await postApprovalCenterAction(item.rejectUrl, { reason: safeReason, method });
     showToast('Rejected and returned for revision.', 'success');
     await renderApprovalCenter(true);
+    if (item.category === 'projects') {
+      await loadProjectsDashboardData();
+    } else if (typeof updateStats === 'function') {
+      await updateStats();
+    }
   } catch (err) {
     showToast(err.message || 'Unable to reject.', 'error');
   }

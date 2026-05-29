@@ -8,7 +8,9 @@ const procurementState = {
   quotations: [],
   purchaseOrders: [],
   goodsReceipts: [],
-  vendors: []
+  vendors: [],
+  products: [],
+  warehouses: []
 };
 
 let procurementTab = 'vendors';
@@ -509,6 +511,7 @@ function focusFirstInvalidPurchaseOrderLineItem() {
   const rows = Array.from(getPurchaseOrderLineItemsContainer()?.querySelectorAll('[data-po-line-item]') || []);
   const firstIncomplete = rows.find((row) => {
     return Boolean(
+      !Number(row.querySelector('.po-line-product')?.value || 0) ||
       !String(row.querySelector('.po-line-description')?.value || '').trim() ||
       Number(row.querySelector('.po-line-qty')?.value || 0) <= 0 ||
       Number(row.querySelector('.po-line-unit-price')?.value || 0) <= 0
@@ -518,6 +521,7 @@ function focusFirstInvalidPurchaseOrderLineItem() {
     return focusProcurementElement(document.querySelector('#po-modal-backdrop .po-line-toolbar .btn-add'));
   }
   return focusProcurementElement(
+    firstIncomplete.querySelector('.po-line-product') ||
     firstIncomplete.querySelector('.po-line-description') ||
     firstIncomplete.querySelector('.po-line-qty') ||
     firstIncomplete.querySelector('.po-line-unit-price') ||
@@ -850,7 +854,7 @@ async function loadProcurementData() {
   const loadVersion = ++procurementLoadVersion;
   try {
     const companyQuery = new URLSearchParams({ include_archived: '1' });
-    const [businessEntities, companies, projects, vendors, requisitions, quotations, purchaseOrders, goodsReceipts] = await Promise.all([
+    const [businessEntities, companies, projects, vendors, requisitions, quotations, purchaseOrders, goodsReceipts, products, warehouses] = await Promise.all([
       loadProcurementRows('/api/business-entities', 'business entities'),
       loadProcurementRows(`/api/company-registry?${companyQuery.toString()}`, 'companies'),
       loadProcurementRows('/api/projects?include_archived=1', 'projects'),
@@ -858,7 +862,9 @@ async function loadProcurementData() {
       loadProcurementRows('/api/procurement/requisitions', 'requisitions'),
       loadProcurementRows('/api/procurement/quotations', 'quotations'),
       loadProcurementRows('/api/procurement/purchase-orders', 'purchase orders'),
-      loadProcurementRows('/api/procurement/goods-receipts', 'goods receipts')
+      loadProcurementRows('/api/procurement/goods-receipts', 'goods receipts'),
+      loadProcurementRows('/api/inventory/products', 'products'),
+      loadProcurementRows('/api/inventory/warehouses', 'warehouses')
     ]);
 
     if (loadVersion !== procurementLoadVersion) {
@@ -877,6 +883,8 @@ async function loadProcurementData() {
     procurementState.quotations = Array.isArray(quotations) ? quotations : [];
     procurementState.purchaseOrders = Array.isArray(purchaseOrders) ? purchaseOrders : [];
     procurementState.goodsReceipts = Array.isArray(goodsReceipts) ? goodsReceipts : [];
+    procurementState.products = Array.isArray(products) ? products : [];
+    procurementState.warehouses = Array.isArray(warehouses) ? warehouses : [];
 
     renderSummary();
     renderBusinessEntityOptions('po-business-entity');
@@ -1675,6 +1683,48 @@ function renderBusinessEntityOptions(selectId = 'po-business-entity', selectedVa
   }
 }
 
+function getPurchaseOrderProductById(productId) {
+  const id = Number(productId || 0) || 0;
+  if (!id) return null;
+  return (Array.isArray(procurementState.products) ? procurementState.products : [])
+    .find((product) => Number(product.id || 0) === id) || null;
+}
+
+function getPurchaseOrderProductChoices(selectedProductId = 0) {
+  const activeEntityId = Number($('po-business-entity')?.value || getActiveProcurementBusinessEntityId() || 0) || 0;
+  const selectedId = Number(selectedProductId || 0) || 0;
+  return (Array.isArray(procurementState.products) ? procurementState.products : []).filter((product) => {
+    const productId = Number(product.id || 0) || 0;
+    const productEntityId = Number(product.business_entity_id || 0) || 0;
+    return productId === selectedId || !activeEntityId || !productEntityId || productEntityId === activeEntityId;
+  });
+}
+
+function renderPurchaseOrderProductOptions(selectedProductId = 0) {
+  const selectedId = Number(selectedProductId || 0) || 0;
+  const products = getPurchaseOrderProductChoices(selectedId);
+  const options = ['<option value="">Select inventory product</option>'];
+  products.forEach((product) => {
+    const name = String(product.product_name || product.name || '').trim() || `Product #${product.id}`;
+    const sku = String(product.sku || '').trim();
+    const unit = String(product.unit || '').trim();
+    const category = String(product.category || '').trim();
+    const meta = [sku, category, unit].filter(Boolean).join(' / ');
+    options.push(`<option value="${escHtml(product.id)}"${Number(product.id) === selectedId ? ' selected' : ''}>${escHtml(meta ? `${name} (${meta})` : name)}</option>`);
+  });
+  return options.join('');
+}
+
+function refreshPurchaseOrderProductSelectors() {
+  document.querySelectorAll('#po-line-items .po-line-product').forEach((select) => {
+    const current = Number(select.value || 0) || 0;
+    select.innerHTML = renderPurchaseOrderProductOptions(current);
+    if (current && [...select.options].some((option) => Number(option.value || 0) === current)) {
+      select.value = String(current);
+    }
+  });
+}
+
 function getCompanyIdFromRequisition(requisition) {
   if (!requisition) return 0;
   return Number(requisition.company_id || 0) || 0;
@@ -1910,6 +1960,19 @@ function renderPurchaseOrderOptions() {
     ...approvedRows.map((row) => `<option value="${escHtml(row.id)}">${escHtml(row.po_number)} - ${escHtml(row.vendor_name || '-')}</option>`)
   ].join('');
   if (current) select.value = current;
+}
+
+function renderGoodsReceiptWarehouseOptions() {
+  const select = $('grn-warehouse');
+  if (!select) return;
+  const current = select.value;
+  const rows = Array.isArray(procurementState.warehouses) ? procurementState.warehouses : [];
+  select.innerHTML = [
+    '<option value="">Select receiving warehouse</option>',
+    ...rows.map((row) => `<option value="${escHtml(row.id)}">${escHtml([row.warehouse_code, row.warehouse_name].filter(Boolean).join(' - ') || row.warehouse_name || row.warehouse_code || `Warehouse ${row.id}`)}</option>`)
+  ].join('');
+  if (current) select.value = current;
+  if (!select.value && rows.length === 1) select.value = String(rows[0].id || '');
 }
 
 function getPurchaseOrderById(poId) {
@@ -2233,12 +2296,19 @@ function renderPurchaseOrderPaymentTermsPreview() {
 
 function renderPurchaseOrderLineItemRow(item = {}, index = 0) {
   const description = String(item.description || item.item_description || item.item_name || '').trim();
+  const productId = Number(item.product_id || item.productId || 0) || 0;
   const quantity = Number(item.quantity || item.qty || 1) > 0 ? Number(item.quantity || item.qty || 1) : 1;
   const unitPrice = Number(item.unit_price || item.price || 0) || 0;
   const lineTotal = quantity * unitPrice;
 
   return `
     <div class="po-line-item" data-po-line-item data-line-index="${index}">
+      <div class="field full">
+        <label>Line ${index + 1} Inventory Product</label>
+        <select class="po-line-product" onchange="syncPurchaseOrderProductSelection(this)">
+          ${renderPurchaseOrderProductOptions(productId)}
+        </select>
+      </div>
       <div class="field full">
         <label>Line ${index + 1} Description</label>
         <input type="text" class="po-line-description" placeholder="Enter description" value="${escHtml(description)}" oninput="syncPurchaseOrderLineItem(this)" />
@@ -2331,6 +2401,8 @@ function removePurchaseOrderLineItem(button) {
       input.value = input.classList.contains('po-line-qty') ? '1' : '';
       if (input.classList.contains('po-line-unit-price')) input.value = '';
     });
+    const productSelect = row.querySelector('.po-line-product');
+    if (productSelect) productSelect.value = '';
     recalculatePurchaseOrderLineTotals();
     return;
   }
@@ -2353,9 +2425,32 @@ function renumberPurchaseOrderLineItems() {
   const rows = Array.from(getPurchaseOrderLineItemsContainer()?.querySelectorAll('[data-po-line-item]') || []);
   rows.forEach((row, index) => {
     row.setAttribute('data-line-index', String(index));
-    const label = row.querySelector('.field.full label');
-    if (label) label.textContent = `Line ${index + 1} Description`;
+    const productLabel = row.querySelector('.po-line-product')?.closest('.field')?.querySelector('label');
+    const descriptionLabel = row.querySelector('.po-line-description')?.closest('.field')?.querySelector('label');
+    if (productLabel) productLabel.textContent = `Line ${index + 1} Inventory Product`;
+    if (descriptionLabel) descriptionLabel.textContent = `Line ${index + 1} Description`;
   });
+}
+
+function syncPurchaseOrderProductSelection(source) {
+  const row = source?.closest('[data-po-line-item]');
+  if (!row) return;
+  setPurchaseOrderLineItemMessage(row, '');
+  const product = getPurchaseOrderProductById(source.value);
+  if (!product) return;
+
+  const descriptionInput = row.querySelector('.po-line-description');
+  const unitPriceInput = row.querySelector('.po-line-unit-price');
+  const description = String(product.product_name || product.name || '').trim();
+  const unitCost = Number(product.unit_cost || product.cost || 0) || 0;
+
+  if (!purchaseOrderLineItemsLocked && descriptionInput && !String(descriptionInput.value || '').trim()) {
+    descriptionInput.value = description;
+  }
+  if (!purchaseOrderLineItemsLocked && unitPriceInput && !Number(unitPriceInput.value || 0) && unitCost > 0) {
+    unitPriceInput.value = unitCost.toFixed(2);
+  }
+  syncPurchaseOrderLineItem(source);
 }
 
 function syncPurchaseOrderLineItem(source) {
@@ -2478,18 +2573,20 @@ function collectPurchaseOrderLineItems() {
   const incompleteRows = [];
 
   rows.forEach((row, index) => {
+    const productId = Number(row.querySelector('.po-line-product')?.value || 0) || 0;
     const description = String(row.querySelector('.po-line-description')?.value || '').trim();
     const quantity = Number(row.querySelector('.po-line-qty')?.value || 0);
     const unitPrice = Number(row.querySelector('.po-line-unit-price')?.value || 0);
-    const hasAnyValue = description || quantity > 0 || unitPrice > 0;
+    const hasAnyValue = productId || description || quantity > 0 || unitPrice > 0;
     if (!hasAnyValue) return;
 
-    if (!description || quantity <= 0 || unitPrice <= 0) {
+    if (!productId || !description || quantity <= 0 || unitPrice <= 0) {
       incompleteRows.push(index + 1);
       return;
     }
 
     items.push({
+      product_id: productId,
       description,
       quantity,
       unit_price: unitPrice
@@ -3871,8 +3968,7 @@ async function savePurchaseOrder() {
   clearProcurementFieldMessages();
   clearPurchaseOrderLineItemMessages();
   const collected = collectPurchaseOrderLineItems();
-  const lockedLineItems = getLockedPurchaseOrderLineItems();
-  const payloadItems = lockedLineItems.length ? lockedLineItems : collected.items;
+  const payloadItems = collected.items;
   const lineRows = Array.from(getPurchaseOrderLineItemsContainer()?.querySelectorAll('[data-po-line-item]') || []);
   const requisitionId = Number($('po-requisition').value || 0) || 0;
   const requisitionRow = requisitionId
@@ -3937,20 +4033,20 @@ async function savePurchaseOrder() {
     markError('company_id', 'Selected project belongs to a different company.');
   }
 
-  if (!lockedLineItems.length && collected.incompleteRows.length) {
+  if (collected.incompleteRows.length) {
     collected.incompleteRows.forEach((lineNo) => {
       const row = lineRows[lineNo - 1];
       if (row) {
-        setPurchaseOrderLineItemMessage(row, 'Description, Qty, and Unit Price are required for this line item.');
+        setPurchaseOrderLineItemMessage(row, 'Inventory Product, Description, Qty, and Unit Price are required for this line item.');
       }
     });
     markError('line_items', 'Complete the highlighted line item(s).');
   } else if (!payloadItems.length) {
     const firstRow = lineRows[0];
     if (firstRow) {
-      setPurchaseOrderLineItemMessage(firstRow, 'Add at least one complete description line item.');
+      setPurchaseOrderLineItemMessage(firstRow, 'Add at least one inventory product line item.');
     }
-    markError('line_items', 'Add at least one complete description line item.');
+    markError('line_items', 'Add at least one inventory product line item.');
   }
 
   if (hasValidationError) {
@@ -4149,6 +4245,7 @@ function resetGoodsReceiptForm() {
     if (el) el.value = '';
   });
   if ($('grn-po')) $('grn-po').value = '';
+  if ($('grn-warehouse')) $('grn-warehouse').value = '';
   ['grn-po-vendor-context', 'grn-po-company-context', 'grn-po-project-context', 'grn-po-amount-context'].forEach((id) => {
     const el = $(id);
     if (el) el.value = '';
@@ -4170,6 +4267,7 @@ function openGoodsReceiptModal(id = null) {
   resetGoodsReceiptForm();
   clearProcurementFieldMessages();
   renderPurchaseOrderOptions();
+  renderGoodsReceiptWarehouseOptions();
 
   if (editingGoodsReceiptId) {
     const row = procurementState.goodsReceipts.find((entry) => Number(entry.id) === editingGoodsReceiptId);
@@ -4183,6 +4281,7 @@ function openGoodsReceiptModal(id = null) {
     $('grn-received-date').value = dateInputValue(row.received_date);
     $('grn-received-by').value = row.received_by || '';
     $('grn-status').value = row.status || 'received';
+    if ($('grn-warehouse')) $('grn-warehouse').value = row.warehouse_id || row.receiving_warehouse_id || '';
     $('grn-notes').value = row.notes || '';
     syncGoodsReceiptFromPurchaseOrder();
   } else {
@@ -4205,6 +4304,7 @@ async function saveGoodsReceipt() {
   const payload = {
     grn_number: $('grn-number').value.trim(),
     po_id: $('grn-po').value,
+    warehouse_id: $('grn-warehouse')?.value || '',
     received_date: $('grn-received-date').value,
     received_by: $('grn-received-by').value.trim(),
     status: $('grn-status')?.value || 'received',
@@ -4220,12 +4320,14 @@ async function saveGoodsReceipt() {
   };
 
   if (!payload.po_id) markError('po_id', 'PO No. is required.');
+  if (!payload.warehouse_id) markError('warehouse_id', 'Receiving Warehouse is required.');
   if (!payload.grn_number) markError('grn_number', 'GRN No. is required.');
   if (!payload.received_date) markError('received_date', 'Received Date is required.');
 
   if (hasValidationError) {
     focusFirstProcurementField(firstInvalidField, {
       po_id: ['grn-po'],
+      warehouse_id: ['grn-warehouse'],
       received_date: ['grn-received-date']
     });
     return;
@@ -4262,6 +4364,11 @@ async function saveGoodsReceipt() {
     if (errorText.includes('po')) {
       setProcurementFieldMessage('po_id', err.message || 'PO No. is required.');
       focusFirstProcurementControl(['grn-po']);
+      return;
+    }
+    if (errorText.includes('warehouse')) {
+      setProcurementFieldMessage('warehouse_id', err.message || 'Receiving Warehouse is required.');
+      focusFirstProcurementControl(['grn-warehouse']);
       return;
     }
     if (errorText.includes('date')) {
