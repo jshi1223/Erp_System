@@ -265,6 +265,10 @@ body.erp-clean-page.accounts-payable-page .module-page-toolbar .module-toolbar-s
   align-items: end;
 }
 
+.pr-line-inventory-grid {
+  grid-template-columns: minmax(150px, 0.9fr) minmax(220px, 1.4fr) minmax(180px, 1fr);
+}
+
 .po-line-action-field {
   display: flex;
   flex-direction: column;

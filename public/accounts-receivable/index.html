@@ -607,10 +607,36 @@
         </select>
       </div>
       <div class="form-group" style="grid-column: 1 / -1;">
+        <label>Project</label>
+        <select id="f-ar-transaction-project" onchange="applyTransactionProjectSelection()">
+          <option value="">No linked project</option>
+        </select>
+      </div>
+      <div class="form-group" style="grid-column: 1 / -1;">
         <label>Service Order</label>
         <select id="f-ar-transaction-service-order" onchange="applyTransactionServiceOrderSelection()">
           <option value="">No linked service order</option>
         </select>
+      </div>
+      <div class="form-group" style="grid-column: 1 / -1;">
+        <label>Inventory Product</label>
+        <select id="f-ar-transaction-product" onchange="applyTransactionProductSelection()">
+          <option value="">Service / no stock item</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Source Warehouse</label>
+        <select id="f-ar-transaction-warehouse">
+          <option value="">Select warehouse</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Qty</label>
+        <input id="f-ar-transaction-qty" type="number" min="1" step="1" value="1" oninput="recalculateTransactionInventoryAmount()" />
+      </div>
+      <div class="form-group">
+        <label>Unit Price</label>
+        <input id="f-ar-transaction-unit-price" type="number" min="0" step="0.01" placeholder="0.00" oninput="recalculateTransactionInventoryAmount()" />
       </div>
       <div class="form-group">
         <label>Customer / Company *</label>
@@ -852,7 +878,7 @@
 <div id="toast"></div>
 
 <script src="/assets/js/erp-core.js?v=20260529c"></script>
-<script src="/accounts-receivable/accounts-receivable.js?v=20260529d"></script>
+<script src="/accounts-receivable/accounts-receivable.js?v=20260530a"></script>
 </body>
 </html>
 

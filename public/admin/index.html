@@ -243,7 +243,7 @@
       </div>
 
       <!-- Inventory -->
-      <div class="stat-card stat-card-primary stat-card-link" id="stat-card-inventory" onclick="navigateDashboardCard('/inventory?tab=stock')">
+      <div class="stat-card stat-card-primary stat-card-link" id="stat-card-inventory" onclick="navigateDashboardCard('/inventory?tab=products')">
         <div class="stat-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24">
             <path d="M4.5 7.5 12 3.8l7.5 3.7-7.5 3.7-7.5-3.7z"></path>
@@ -579,6 +579,7 @@
         <button class="project-submodule-tab active" type="button" data-project-ledger-tab="overview" onclick="switchProjectLedgerSubmodule('overview')">Overview</button>
         <button class="project-submodule-tab" type="button" data-project-ledger-tab="ar" onclick="switchProjectLedgerSubmodule('ar')">Project to AR</button>
         <button class="project-submodule-tab" type="button" data-project-ledger-tab="ap" onclick="switchProjectLedgerSubmodule('ap')">Procurement/AP</button>
+        <button class="project-submodule-tab" type="button" data-project-ledger-tab="inventory" onclick="switchProjectLedgerSubmodule('inventory')">Inventory</button>
         <button class="project-submodule-tab" type="button" data-project-ledger-tab="payments" onclick="switchProjectLedgerSubmodule('payments')">Payments</button>
         <button class="project-submodule-tab" type="button" data-project-ledger-tab="service-orders" onclick="switchProjectLedgerSubmodule('service-orders')">Service Orders</button>
         <button class="project-submodule-tab" type="button" data-project-ledger-tab="documents" onclick="switchProjectLedgerSubmodule('documents')">Documents</button>
@@ -881,13 +882,13 @@
 <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
 <div class="sidebar" id="sidebar" data-shared-sidebar-rendered="1">
   <div class="sidebar-header">
-    <div class="sidebar-brand">
+    <a class="sidebar-brand" href="/admin?view=dashboard" onclick="openSidebarDashboard(this); return false;" aria-label="Go to dashboard">
       <img class="sidebar-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV &amp; IT Solution logo">
       <div>
         <div class="header-logo" style="font-size: 1rem;">KVSK CCTV</div>
         <div class="header-sub">Operations Control Panel</div>
       </div>
-    </div>
+    </a>
     <button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()" aria-label="Close menu">&times;</button>
   </div>
   <nav class="sidebar-nav">
@@ -910,6 +911,7 @@
       </button>
       <div class="sidebar-group-items">
         <a href="/admin?panel=project-records" class="sidebar-link is-subitem" id="menu-projects">Project Records</a>
+        <a href="/admin?panel=project-records&amp;tab=ledger" class="sidebar-link is-subitem" id="menu-project-ledger">Project Overview</a>
         <a href="/gantt-chart" class="sidebar-link is-subitem" id="menu-gantt-chart">Gantt Chart</a>
       </div>
     </div>
@@ -958,9 +960,9 @@
         <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/inventory?tab=stock" class="sidebar-link is-subitem" id="menu-inventory">Stock Levels</a>
-        <a href="/inventory?tab=products" class="sidebar-link is-subitem">Products</a>
+        <a href="/inventory?tab=products" class="sidebar-link is-subitem" id="menu-inventory">Products</a>
         <a href="/inventory?tab=warehouses" class="sidebar-link is-subitem">Warehouses</a>
+        <a href="/inventory?tab=stock" class="sidebar-link is-subitem">Stock Levels</a>
         <a href="/inventory?tab=movements" class="sidebar-link is-subitem">Stock Movements</a>
       </div>
     </div>

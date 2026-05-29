@@ -6,6 +6,7 @@ let productsDb = [];
 let warehousesDb = [];
 let stockDb = [];
 let movementsDb = [];
+let projectsDb = [];
 
 document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('movement-date').value = new Date().toISOString().slice(0, 10);
@@ -17,13 +18,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 function getInitialInventoryTab() {
   const params = new URLSearchParams(window.location.search || '');
-  return normalizeInventoryTab(params.get('tab') || 'stock');
+  return normalizeInventoryTab(params.get('tab') || 'products');
 }
 
 function normalizeInventoryTab(tab) {
   return ['stock', 'products', 'warehouses', 'movements'].includes(String(tab || '').trim().toLowerCase())
     ? String(tab || '').trim().toLowerCase()
-    : 'stock';
+    : 'products';
 }
 
 function escHtml(value) {
@@ -83,17 +84,19 @@ function inventoryQuery() {
 
 async function loadInventory() {
   const query = inventoryQuery();
-  const [summary, products, warehouses, stock, movements] = await Promise.all([
+  const [summary, products, warehouses, stock, movements, projects] = await Promise.all([
     fetchJson(`/api/inventory/summary?${query}`),
     fetchJson(`/api/inventory/products?${query}`),
     fetchJson(`/api/inventory/warehouses?${query}`),
     fetchJson(`/api/inventory/stock?${query}`),
-    fetchJson(`/api/inventory/movements?${query}`)
+    fetchJson(`/api/inventory/movements?${query}`),
+    fetchJson('/api/projects?include_archived=1')
   ]);
   productsDb = Array.isArray(products) ? products : [];
   warehousesDb = Array.isArray(warehouses) ? warehouses : [];
   stockDb = Array.isArray(stock) ? stock : [];
   movementsDb = Array.isArray(movements) ? movements : [];
+  projectsDb = (Array.isArray(projects) ? projects : []).filter(row => String(row.business_entity_id || '') === String(getCurrentBusinessEntityId() || ''));
   renderSummary(summary || {});
   renderInventory();
   populateMovementSelects();
@@ -138,10 +141,11 @@ function renderInventory() {
         <td>${escHtml(row.category || '-')}</td>
         <td>${escHtml(row.unit || 'pcs')}</td>
         <td class="text-right">${Number(row.unit_cost || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</td>
+        <td class="text-right">${Number(row.selling_price || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</td>
         <td class="text-right">${Number(row.reorder_level || 0).toLocaleString('en-PH')}</td>
         <td class="text-right">${Number(row.quantity_on_hand || 0).toLocaleString('en-PH')}</td>
       </tr>
-    `).join('') : '<tr><td colspan="7">No products yet.</td></tr>';
+    `).join('') : '<tr><td colspan="8">No products yet.</td></tr>';
   }
 
   const warehousesBody = document.getElementById('warehouses-tbody');
@@ -163,9 +167,10 @@ function renderInventory() {
       <td>${escHtml(String(row.movement_type || '').toUpperCase())}</td>
       <td>${escHtml([row.sku, row.product_name].filter(Boolean).join(' - ') || '-')}</td>
       <td class="text-right">${Number(row.quantity || 0).toLocaleString('en-PH')}</td>
+      <td>${escHtml([row.project_docno, row.project_name].filter(Boolean).join(' - ') || '-')}</td>
       <td>${escHtml([row.reference_type, row.reference_no].filter(Boolean).join(' - ') || '-')}</td>
     </tr>
-  `).join('') : '<tr><td colspan="5">No stock movements yet.</td></tr>';
+  `).join('') : '<tr><td colspan="6">No stock movements yet.</td></tr>';
 }
 
 function switchInventoryTab(tab, options = {}) {
@@ -199,8 +204,12 @@ function syncInventoryToolbarActions(tab = 'stock') {
 function populateMovementSelects() {
   const productSelect = document.getElementById('movement-product');
   const warehouseSelect = document.getElementById('movement-warehouse');
+  const projectSelect = document.getElementById('movement-project');
   productSelect.innerHTML = '<option value="">Select product</option>' + productsDb.map(row => `<option value="${Number(row.id)}">${escHtml([row.sku, row.product_name].filter(Boolean).join(' - '))}</option>`).join('');
   warehouseSelect.innerHTML = '<option value="">Select warehouse</option>' + warehousesDb.map(row => `<option value="${Number(row.id)}">${escHtml([row.warehouse_code, row.warehouse_name].filter(Boolean).join(' - '))}</option>`).join('');
+  if (projectSelect) {
+    projectSelect.innerHTML = '<option value="">No project link</option>' + projectsDb.map(row => `<option value="${Number(row.id)}">${escHtml([row.project_docno, row.project_name].filter(Boolean).join(' - '))}</option>`).join('');
+  }
 }
 
 function setStatus(message = '') {
@@ -251,6 +260,7 @@ async function saveProduct(event) {
         category: document.getElementById('product-category').value,
         unit: document.getElementById('product-unit').value,
         unit_cost: document.getElementById('product-cost').value,
+        selling_price: document.getElementById('product-selling-price').value,
         reorder_level: document.getElementById('product-reorder').value
       })
     });
@@ -296,6 +306,7 @@ async function saveMovement(event) {
         warehouse_id: document.getElementById('movement-warehouse').value,
         movement_type: document.getElementById('movement-type').value,
         quantity: document.getElementById('movement-qty').value,
+        project_id: document.getElementById('movement-project')?.value || '',
         movement_date: document.getElementById('movement-date').value,
         reference_type: document.getElementById('movement-ref-type').value,
         reference_no: document.getElementById('movement-ref-no').value,

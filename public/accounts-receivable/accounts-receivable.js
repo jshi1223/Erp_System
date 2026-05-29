@@ -7,6 +7,8 @@ let serviceOrdersDb = [];
 let serviceOrderProjectsDb = [];
 let serviceOrderCompaniesDb = [];
 let businessEntitiesDb = [];
+let inventoryProductsDb = [];
+let inventoryWarehousesDb = [];
 let editingCollectionId = null;
 let editingReceivableId = null;
 let editingServiceOrderId = null;
@@ -172,10 +174,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     setTodayDefaults();
     loadBusinessEntitiesForAr();
+    loadServiceOrderReferences();
     loadServiceOrders();
     loadReceivables();
     loadCollections();
     loadTransactions();
+    loadSalesInventory();
     if (typeof loadNotifications === 'function') loadNotifications();
   } finally {
     delete document.body.dataset.initialArTab;
@@ -460,6 +464,7 @@ function setBusinessEntityContext(id) {
   renderTransactions();
   renderReceivables();
   renderCollections();
+  loadSalesInventory();
   updateMetrics();
 }
 
@@ -473,6 +478,7 @@ function loadBusinessEntitiesForAr() {
     .then((rows) => {
       businessEntitiesDb = Array.isArray(rows) ? rows : [];
       renderBusinessEntityContext();
+      loadSalesInventory();
     })
     .catch((err) => {
       console.error('Load AR operating companies error:', err);
@@ -812,6 +818,7 @@ async function loadServiceOrderReferences() {
   serviceOrderProjectsDb = (Array.isArray(projects) ? projects : []).filter(businessEntityMatches);
   serviceOrderCompaniesDb = (Array.isArray(companies) ? companies : []).filter(businessEntityMatches);
   populateServiceOrderReferenceSelects();
+  populateTransactionProjectSelect(document.getElementById('f-ar-transaction-project')?.value || '');
 }
 
 function getCurrentServiceOrderSelection() {
@@ -1018,6 +1025,29 @@ async function loadTransactions() {
     renderTransactions();
     renderReceivables();
     updateMetrics();
+  }
+}
+
+async function loadSalesInventory() {
+  try {
+    const businessEntityId = getCurrentBusinessEntityId() || getDefaultArBusinessEntityId() || '';
+    const query = businessEntityId ? `business_entity_id=${encodeURIComponent(businessEntityId)}` : '';
+    const [productsRes, warehousesRes] = await Promise.all([
+      fetch(`/api/inventory/products?${query}`, { cache: 'no-store' }),
+      fetch(`/api/inventory/warehouses?${query}`, { cache: 'no-store' })
+    ]);
+    const [products, warehouses] = await Promise.all([
+      productsRes.json().catch(() => []),
+      warehousesRes.json().catch(() => [])
+    ]);
+    inventoryProductsDb = Array.isArray(products) ? products : [];
+    inventoryWarehousesDb = Array.isArray(warehouses) ? warehouses : [];
+    populateTransactionInventorySelects();
+  } catch (err) {
+    console.error(err);
+    inventoryProductsDb = [];
+    inventoryWarehousesDb = [];
+    populateTransactionInventorySelects();
   }
 }
 
@@ -1476,6 +1506,9 @@ function renderTransactions() {
       row.company_name,
       row.service_order_no,
       row.service_order_title,
+      row.product_sku,
+      row.inventory_product_name,
+      row.warehouse_name,
       row.description,
       row.status
     ].join(' ').toLowerCase();
@@ -1515,8 +1548,10 @@ function populateTransactionServiceOrderSelect(selectedId = '') {
   const select = document.getElementById('f-ar-transaction-service-order');
   if (!select) return;
   const selectedValue = String(selectedId || '');
+  const selectedProjectId = String(document.getElementById('f-ar-transaction-project')?.value || '');
   const rows = (Array.isArray(serviceOrdersDb) ? serviceOrdersDb : [])
     .filter(businessEntityMatches)
+    .filter((row) => !selectedProjectId || String(row.project_id || '') === selectedProjectId || String(row.id) === selectedValue)
     .filter((row) => Number(row.is_archived || 0) !== 1 || String(row.id) === selectedValue);
   select.innerHTML = '<option value="">No linked service order</option>' + rows.map((row) => {
     const label = [
@@ -1529,6 +1564,106 @@ function populateTransactionServiceOrderSelect(selectedId = '') {
   select.value = selectedValue;
 }
 
+function populateTransactionProjectSelect(selectedId = '') {
+  const select = document.getElementById('f-ar-transaction-project');
+  if (!select) return;
+  const selectedValue = String(selectedId || '');
+  const rows = (Array.isArray(serviceOrderProjectsDb) ? serviceOrderProjectsDb : [])
+    .filter((row) => Number(row.is_archived || 0) !== 1 || String(row.id) === selectedValue)
+    .filter((row) => !['draft', 'submitted'].includes(String(row.status || '').toLowerCase()) || String(row.id) === selectedValue);
+  select.innerHTML = '<option value="">No linked project</option>' + rows.map((row) => {
+    const label = [row.project_docno || row.source_docno, row.project_name, row.company_name].filter(Boolean).join(' - ');
+    return `<option value="${Number(row.id || 0)}">${escHtml(label || `Project #${row.id}`)}</option>`;
+  }).join('');
+  select.value = selectedValue;
+}
+
+function getSelectedTransactionProject() {
+  const projectId = Number(document.getElementById('f-ar-transaction-project')?.value || 0);
+  return projectId
+    ? serviceOrderProjectsDb.find((row) => Number(row.id || 0) === projectId) || null
+    : null;
+}
+
+function applyTransactionProjectSelection() {
+  const project = getSelectedTransactionProject();
+  if (!project) return;
+  const customerInput = document.getElementById('f-ar-transaction-client');
+  const descriptionInput = document.getElementById('f-ar-transaction-description');
+  const amountInput = document.getElementById('f-ar-transaction-amount');
+  if (customerInput && !customerInput.value.trim()) {
+    customerInput.value = project.company_name || project.client_name || '';
+  }
+  if (descriptionInput && !descriptionInput.value.trim()) {
+    descriptionInput.value = project.project_name || '';
+  }
+  if (amountInput && !Number(amountInput.value || 0) && Number(project.budget || 0) > 0) {
+    amountInput.value = String(Number(project.budget || 0));
+  }
+  const serviceOrderSelect = document.getElementById('f-ar-transaction-service-order');
+  if (serviceOrderSelect) {
+    populateTransactionServiceOrderSelect(serviceOrderSelect.value || '');
+  }
+}
+
+function populateTransactionInventorySelects(selectedProductId = '', selectedWarehouseId = '') {
+  const productSelect = document.getElementById('f-ar-transaction-product');
+  const warehouseSelect = document.getElementById('f-ar-transaction-warehouse');
+  if (productSelect) {
+    const selected = String(selectedProductId || productSelect.value || '');
+    productSelect.innerHTML = '<option value="">Service / no stock item</option>' + inventoryProductsDb.map((row) => {
+      const price = Number(row.selling_price || row.unit_cost || 0);
+      const label = [row.sku, row.product_name].filter(Boolean).join(' - ') || `Product #${row.id}`;
+      return `<option value="${Number(row.id || 0)}" data-price="${price}" data-name="${escHtml(row.product_name || '')}" data-unit="${escHtml(row.unit || 'pcs')}">${escHtml(label)}</option>`;
+    }).join('');
+    productSelect.value = selected;
+  }
+  if (warehouseSelect) {
+    const selected = String(selectedWarehouseId || warehouseSelect.value || '');
+    warehouseSelect.innerHTML = '<option value="">Select warehouse</option>' + inventoryWarehousesDb.map((row) => {
+      const label = [row.warehouse_code, row.warehouse_name].filter(Boolean).join(' - ') || `Warehouse #${row.id}`;
+      return `<option value="${Number(row.id || 0)}">${escHtml(label)}</option>`;
+    }).join('');
+    warehouseSelect.value = selected;
+  }
+}
+
+function getSelectedTransactionProduct() {
+  const productId = Number(document.getElementById('f-ar-transaction-product')?.value || 0);
+  return productId
+    ? inventoryProductsDb.find((row) => Number(row.id || 0) === productId) || null
+    : null;
+}
+
+function applyTransactionProductSelection() {
+  const product = getSelectedTransactionProduct();
+  if (!product) return;
+  const descriptionInput = document.getElementById('f-ar-transaction-description');
+  const qtyInput = document.getElementById('f-ar-transaction-qty');
+  const unitPriceInput = document.getElementById('f-ar-transaction-unit-price');
+  if (descriptionInput && !descriptionInput.value.trim()) {
+    descriptionInput.value = product.product_name || '';
+  }
+  if (qtyInput && !(Number(qtyInput.value || 0) > 0)) {
+    qtyInput.value = '1';
+  }
+  if (unitPriceInput) {
+    unitPriceInput.value = String(Number(product.selling_price || product.unit_cost || 0));
+  }
+  recalculateTransactionInventoryAmount();
+}
+
+function recalculateTransactionInventoryAmount() {
+  const productId = Number(document.getElementById('f-ar-transaction-product')?.value || 0);
+  if (!productId) return;
+  const qty = Number(document.getElementById('f-ar-transaction-qty')?.value || 0);
+  const unitPrice = Number(document.getElementById('f-ar-transaction-unit-price')?.value || 0);
+  const amountInput = document.getElementById('f-ar-transaction-amount');
+  if (amountInput && qty > 0 && unitPrice >= 0) {
+    amountInput.value = String((qty * unitPrice).toFixed(2));
+  }
+}
+
 function getSelectedTransactionServiceOrder() {
   const serviceOrderId = Number(document.getElementById('f-ar-transaction-service-order')?.value || 0);
   return serviceOrderId
@@ -1539,6 +1674,10 @@ function getSelectedTransactionServiceOrder() {
 function applyTransactionServiceOrderSelection() {
   const row = getSelectedTransactionServiceOrder();
   if (!row) return;
+  const projectSelect = document.getElementById('f-ar-transaction-project');
+  if (projectSelect && row.project_id) {
+    projectSelect.value = row.project_id;
+  }
   const customerInput = document.getElementById('f-ar-transaction-client');
   const descriptionInput = document.getElementById('f-ar-transaction-description');
   const amountInput = document.getElementById('f-ar-transaction-amount');
@@ -1594,6 +1733,7 @@ function resetTransactionForm() {
     'f-ar-transaction-description',
     'f-ar-transaction-amount',
     'f-ar-transaction-paid',
+    'f-ar-transaction-unit-price',
     'f-ar-transaction-checkno',
     'f-ar-transaction-pono'
   ].forEach((id) => {
@@ -1604,10 +1744,14 @@ function resetTransactionForm() {
   const type = document.getElementById('f-ar-transaction-type');
   const status = document.getElementById('f-ar-transaction-status');
   const date = document.getElementById('f-ar-transaction-date');
+  const qty = document.getElementById('f-ar-transaction-qty');
   if (type) type.value = 'invoice';
   if (status) status.value = 'unpaid';
   if (date) date.value = today;
+  if (qty) qty.value = '1';
+  populateTransactionProjectSelect('');
   populateTransactionServiceOrderSelect('');
+  populateTransactionInventorySelects('', '');
 }
 
 async function openTransactionModal(id = null) {
@@ -1622,7 +1766,9 @@ async function openTransactionModal(id = null) {
   }
 
   resetTransactionForm();
+  populateTransactionProjectSelect(row?.project_id || '');
   populateTransactionServiceOrderSelect(row?.service_order_id || '');
+  populateTransactionInventorySelects(row?.product_id || '', row?.warehouse_id || '');
 
   const title = document.getElementById('ar-transaction-modal-title');
   const saveBtn = document.getElementById('ar-transaction-save-btn');
@@ -1632,9 +1778,14 @@ async function openTransactionModal(id = null) {
   if (row) {
     document.getElementById('f-ar-transaction-docno').value = row.docno || '';
     document.getElementById('f-ar-transaction-type').value = row.type || 'invoice';
+    document.getElementById('f-ar-transaction-project').value = row.project_id || '';
     document.getElementById('f-ar-transaction-service-order').value = row.service_order_id || '';
     document.getElementById('f-ar-transaction-client').value = row.company_name || row.client || '';
     document.getElementById('f-ar-transaction-description').value = row.description || '';
+    document.getElementById('f-ar-transaction-product').value = row.product_id || '';
+    document.getElementById('f-ar-transaction-warehouse').value = row.warehouse_id || '';
+    document.getElementById('f-ar-transaction-qty').value = Number(row.qty || 1) || 1;
+    document.getElementById('f-ar-transaction-unit-price').value = Number(row.unitprice || 0) || '';
     document.getElementById('f-ar-transaction-amount').value = Number(row.amount || 0) || '';
     document.getElementById('f-ar-transaction-paid').value = Number(row.downpayment || row.receivable_paid_amount || 0) || '';
     document.getElementById('f-ar-transaction-date').value = toDateInputValue(row.date);
@@ -1662,7 +1813,12 @@ async function saveTransaction() {
   const type = String(document.getElementById('f-ar-transaction-type')?.value || 'invoice').trim();
   const client = String(document.getElementById('f-ar-transaction-client')?.value || '').trim();
   const description = String(document.getElementById('f-ar-transaction-description')?.value || '').trim();
+  const productId = String(document.getElementById('f-ar-transaction-product')?.value || '').trim();
+  const warehouseId = String(document.getElementById('f-ar-transaction-warehouse')?.value || '').trim();
+  const projectId = String(document.getElementById('f-ar-transaction-project')?.value || '').trim();
+  const qty = Number(document.getElementById('f-ar-transaction-qty')?.value || 1);
   const amount = Number(document.getElementById('f-ar-transaction-amount')?.value || 0);
+  const unitPrice = Number(document.getElementById('f-ar-transaction-unit-price')?.value || amount || 0);
   const downpayment = Number(document.getElementById('f-ar-transaction-paid')?.value || 0);
   const date = String(document.getElementById('f-ar-transaction-date')?.value || '').trim();
   const currentRow = editingTransactionId
@@ -1680,22 +1836,27 @@ async function saveTransaction() {
     return;
   }
 
+  if (type === 'invoice' && productId && (!warehouseId || !(qty > 0))) {
+    showToast('Select warehouse and valid qty for inventory sale.', 'error');
+    return;
+  }
+
   const formData = new FormData();
   formData.append('docno', docno);
   formData.append('type', type);
   formData.append('client', client);
   formData.append('description', description);
-  formData.append('qty', '1');
-  formData.append('unitprice', String(amount));
+  formData.append('qty', String(qty > 0 ? qty : 1));
+  formData.append('unitprice', String(unitPrice || amount));
+  formData.append('product_id', productId);
+  formData.append('warehouse_id', warehouseId);
   formData.append('amount', String(amount));
   formData.append('downpayment', String(Math.min(Math.max(0, downpayment), amount)));
   formData.append('date', date);
   formData.append('status', document.getElementById('f-ar-transaction-status')?.value || '');
   formData.append('business_entity_id', currentRow?.business_entity_id || getCurrentBusinessEntityId() || getDefaultArBusinessEntityId() || '');
+  formData.append('project_id', projectId || currentRow?.project_id || '');
   formData.append('service_order_id', document.getElementById('f-ar-transaction-service-order')?.value || '');
-  if (currentRow?.project_id) {
-    formData.append('project_id', currentRow.project_id);
-  }
   formData.append('checkno', document.getElementById('f-ar-transaction-checkno')?.value || '');
   formData.append('pono', document.getElementById('f-ar-transaction-pono')?.value || '');
   if (currentRow?.pdfFilename) {

@@ -1715,6 +1715,83 @@ function renderPurchaseOrderProductOptions(selectedProductId = 0) {
   return options.join('');
 }
 
+function getProcurementInventoryProductChoices({ selectedProductId = 0, category = '' } = {}) {
+  const activeEntityId = Number(getActiveProcurementBusinessEntityId() || 0) || 0;
+  const selectedId = Number(selectedProductId || 0) || 0;
+  const safeCategory = String(category || '').trim().toLowerCase();
+  return (Array.isArray(procurementState.products) ? procurementState.products : []).filter((product) => {
+    const productId = Number(product.id || 0) || 0;
+    const productEntityId = Number(product.business_entity_id || 0) || 0;
+    const productCategory = String(product.category || '').trim().toLowerCase();
+    if (productId === selectedId) return true;
+    if (activeEntityId && productEntityId && productEntityId !== activeEntityId) return false;
+    return !safeCategory || productCategory === safeCategory;
+  });
+}
+
+function getProcurementProductCategories() {
+  const activeEntityId = Number(getActiveProcurementBusinessEntityId() || 0) || 0;
+  const categories = new Set();
+  (Array.isArray(procurementState.products) ? procurementState.products : []).forEach((product) => {
+    const productEntityId = Number(product.business_entity_id || 0) || 0;
+    if (activeEntityId && productEntityId && productEntityId !== activeEntityId) return;
+    const category = String(product.category || '').trim();
+    if (category) categories.add(category);
+  });
+  return Array.from(categories).sort((a, b) => a.localeCompare(b));
+}
+
+function renderRequisitionCategoryOptions(selectedCategory = '') {
+  const current = String(selectedCategory || '').trim();
+  const categories = getProcurementProductCategories();
+  const options = ['<option value="">No category</option>'];
+  categories.forEach((category) => {
+    options.push(`<option value="${escHtml(category)}"${category === current ? ' selected' : ''}>${escHtml(category)}</option>`);
+  });
+  if (current && !categories.includes(current)) {
+    options.push(`<option value="${escHtml(current)}" selected>${escHtml(current)}</option>`);
+  }
+  return options.join('');
+}
+
+function renderRequisitionProductOptions(selectedProductId = 0, category = '') {
+  const selectedId = Number(selectedProductId || 0) || 0;
+  const products = getProcurementInventoryProductChoices({ selectedProductId: selectedId, category });
+  const options = ['<option value="">Manual item</option>'];
+  products.forEach((product) => {
+    const name = String(product.product_name || product.name || '').trim() || `Product #${product.id}`;
+    const sku = String(product.sku || '').trim();
+    const productCategory = String(product.category || '').trim();
+    const unit = String(product.unit || '').trim();
+    const meta = [sku, productCategory, unit].filter(Boolean).join(' / ');
+    options.push(`<option value="${escHtml(product.id)}"${Number(product.id) === selectedId ? ' selected' : ''}>${escHtml(meta ? `${name} (${meta})` : name)}</option>`);
+  });
+  return options.join('');
+}
+
+function getProcurementWarehouseById(warehouseId) {
+  const id = Number(warehouseId || 0) || 0;
+  if (!id) return null;
+  return (Array.isArray(procurementState.warehouses) ? procurementState.warehouses : [])
+    .find((warehouse) => Number(warehouse.id || 0) === id) || null;
+}
+
+function renderRequisitionWarehouseOptions(selectedWarehouseId = 0) {
+  const selectedId = Number(selectedWarehouseId || 0) || 0;
+  const activeEntityId = Number(getActiveProcurementBusinessEntityId() || 0) || 0;
+  const warehouses = (Array.isArray(procurementState.warehouses) ? procurementState.warehouses : []).filter((warehouse) => {
+    const warehouseId = Number(warehouse.id || 0) || 0;
+    const warehouseEntityId = Number(warehouse.business_entity_id || 0) || 0;
+    return warehouseId === selectedId || !activeEntityId || !warehouseEntityId || warehouseEntityId === activeEntityId;
+  });
+  const options = [warehouses.length ? '<option value="">Optional</option>' : '<option value="">No warehouse yet</option>'];
+  warehouses.forEach((warehouse) => {
+    const label = [warehouse.warehouse_code, warehouse.warehouse_name].filter(Boolean).join(' - ') || warehouse.warehouse_name || warehouse.warehouse_code || `Warehouse ${warehouse.id}`;
+    options.push(`<option value="${escHtml(warehouse.id)}"${Number(warehouse.id) === selectedId ? ' selected' : ''}>${escHtml(label)}</option>`);
+  });
+  return options.join('');
+}
+
 function refreshPurchaseOrderProductSelectors() {
   document.querySelectorAll('#po-line-items .po-line-product').forEach((select) => {
     const current = Number(select.value || 0) || 0;
@@ -1872,6 +1949,9 @@ function getRequisitionLineItems(requisition) {
   const items = Array.isArray(requisition?.line_items) ? requisition.line_items : [];
   if (items.length) {
     return items.map((item) => ({
+      product_id: Number(item.product_id || 0) || null,
+      category: String(item.category || item.item_category || '').trim(),
+      warehouse_id: Number(item.warehouse_id || 0) || null,
       item_name: String(item.item_name || item.description || '').trim(),
       description: String(item.description || '').trim(),
       quantity: Number(item.quantity || 0),
@@ -1882,6 +1962,9 @@ function getRequisitionLineItems(requisition) {
 
   if (requisition?.item_name || requisition?.item_description) {
     return [{
+      product_id: Number(requisition.product_id || 0) || null,
+      category: requisition.category || requisition.item_category || '',
+      warehouse_id: Number(requisition.warehouse_id || 0) || null,
       item_name: requisition.item_name || requisition.item_description || '',
       description: requisition.item_description || '',
       quantity: Number(requisition.quantity || 1) || 1,
@@ -1942,6 +2025,7 @@ function applyPurchaseOrderRequisitionSelection(requisitionId = null) {
 
   if (!hasMeaningfulLine) {
     const requisitionItems = getRequisitionLineItems(requisition).map((item) => ({
+      product_id: Number(item.product_id || 0) || null,
       description: [item.item_name, item.description].filter(Boolean).join(' - '),
       quantity: Number(item.quantity || 1) || 1,
       unit_price: Number(item.estimated_unit_price || 0) || 0
@@ -2023,15 +2107,39 @@ function formatRequisitionLineAmount(value) {
 }
 
 function renderRequisitionLineItemRow(item = {}, index = 0) {
+  const productId = Number(item.product_id || item.productId || 0) || 0;
+  const product = getPurchaseOrderProductById(productId);
+  const category = String(item.category || item.item_category || product?.category || '').trim();
+  const warehouseId = Number(item.warehouse_id || item.warehouseId || 0) || 0;
   const itemName = String(item.item_name || item.name || '').trim();
   const description = String(item.description || item.item_description || '').trim();
   const quantity = Number(item.quantity || item.qty || 1) > 0 ? Number(item.quantity || item.qty || 1) : 1;
-  const unit = String(item.unit || '').trim();
-  const unitPrice = Number(item.estimated_unit_price ?? item.unit_price ?? item.price ?? 0) || 0;
+  const unit = String(item.unit || product?.unit || '').trim();
+  const unitPrice = Number(item.estimated_unit_price ?? item.unit_price ?? item.price ?? product?.unit_cost ?? 0) || 0;
   const lineTotal = quantity * unitPrice;
 
   return `
     <div class="po-line-item" data-pr-line-item data-line-index="${index}">
+      <div class="po-line-meta-grid pr-line-inventory-grid">
+        <div class="field">
+          <label>Category</label>
+          <select class="pr-line-category" onchange="syncRequisitionCategorySelection(this)">
+            ${renderRequisitionCategoryOptions(category)}
+          </select>
+        </div>
+        <div class="field">
+          <label>Inventory Product</label>
+          <select class="pr-line-product" onchange="syncRequisitionProductSelection(this)">
+            ${renderRequisitionProductOptions(productId, category)}
+          </select>
+        </div>
+        <div class="field">
+          <label>Warehouse</label>
+          <select class="pr-line-warehouse" onchange="syncRequisitionLineItem(this)">
+            ${renderRequisitionWarehouseOptions(warehouseId)}
+          </select>
+        </div>
+      </div>
       <div class="field full">
         <label>Item ${index + 1} Name <span class="req-star">*</span></label>
         <input type="text" class="pr-line-item-name" placeholder="CCTV cameras" value="${escHtml(itemName)}" required aria-required="true" oninput="syncRequisitionLineItem(this)" />
@@ -2095,7 +2203,7 @@ function removeRequisitionLineItem(button) {
 
   const rows = container.querySelectorAll('[data-pr-line-item]');
   if (rows.length <= 1) {
-    row.querySelectorAll('input, textarea').forEach((input) => {
+    row.querySelectorAll('input, textarea, select').forEach((input) => {
       input.value = input.classList.contains('pr-line-qty') ? '1' : '';
     });
     recalculateRequisitionLineTotals();
@@ -2116,6 +2224,52 @@ function renumberRequisitionLineItems() {
     if (nameLabel) nameLabel.innerHTML = `Item ${index + 1} Name <span class="req-star">*</span>`;
     if (descriptionLabel) descriptionLabel.textContent = `Item ${index + 1} Description`;
   });
+}
+
+function syncRequisitionCategorySelection(source) {
+  const row = source?.closest('[data-pr-line-item]');
+  if (!row) return;
+  const category = String(source.value || '').trim();
+  const productSelect = row.querySelector('.pr-line-product');
+  if (productSelect) {
+    productSelect.innerHTML = renderRequisitionProductOptions(0, category);
+    productSelect.value = '';
+  }
+  syncRequisitionLineItem(source);
+}
+
+function syncRequisitionProductSelection(source) {
+  const row = source?.closest('[data-pr-line-item]');
+  if (!row) return;
+  const product = getPurchaseOrderProductById(source.value);
+  if (!product) {
+    syncRequisitionLineItem(source);
+    return;
+  }
+
+  const categorySelect = row.querySelector('.pr-line-category');
+  const productCategory = String(product.category || '').trim();
+  if (categorySelect && productCategory) {
+    if (![...categorySelect.options].some((option) => option.value === productCategory)) {
+      categorySelect.insertAdjacentHTML('beforeend', `<option value="${escHtml(productCategory)}">${escHtml(productCategory)}</option>`);
+    }
+    categorySelect.value = productCategory;
+  }
+
+  const nameInput = row.querySelector('.pr-line-item-name');
+  const unitInput = row.querySelector('.pr-line-unit');
+  const unitPriceInput = row.querySelector('.pr-line-unit-price');
+  const productName = String(product.product_name || product.name || '').trim();
+  const productUnit = String(product.unit || '').trim();
+  const unitCost = Number(product.unit_cost || product.cost || 0) || 0;
+
+  if (nameInput) nameInput.value = productName || nameInput.value;
+  if (unitInput && productUnit) unitInput.value = productUnit;
+  if (unitPriceInput && unitCost > 0 && !Number(unitPriceInput.value || 0)) {
+    unitPriceInput.value = unitCost.toFixed(2);
+  }
+
+  syncRequisitionLineItem(source);
 }
 
 function syncRequisitionLineItem(source) {
@@ -2153,12 +2307,15 @@ function collectRequisitionLineItems() {
   const incompleteRows = [];
 
   rows.forEach((row, index) => {
+    const productId = Number(row.querySelector('.pr-line-product')?.value || 0) || 0;
+    const category = String(row.querySelector('.pr-line-category')?.value || '').trim();
+    const warehouseId = Number(row.querySelector('.pr-line-warehouse')?.value || 0) || 0;
     const itemName = String(row.querySelector('.pr-line-item-name')?.value || '').trim();
     const description = String(row.querySelector('.pr-line-description')?.value || '').trim();
     const quantity = Number(row.querySelector('.pr-line-qty')?.value || 0);
     const unit = String(row.querySelector('.pr-line-unit')?.value || '').trim();
     const unitPrice = Number(row.querySelector('.pr-line-unit-price')?.value || 0);
-    const hasAnyValue = itemName || description || quantity > 0 || unit || unitPrice > 0;
+    const hasAnyValue = productId || category || warehouseId || itemName || description || quantity > 0 || unit || unitPrice > 0;
     if (!hasAnyValue) return;
 
     if (!itemName || quantity <= 0) {
@@ -2167,6 +2324,9 @@ function collectRequisitionLineItems() {
     }
 
     items.push({
+      product_id: productId || null,
+      category,
+      warehouse_id: warehouseId || null,
       item_name: itemName,
       description,
       quantity,
@@ -2191,12 +2351,20 @@ function renderRequisitionItemsCell(row) {
         const unit = String(item.unit || '').trim();
         const unitPrice = Number(item.estimated_unit_price || 0);
         const lineTotal = qty * unitPrice;
+        const warehouse = getProcurementWarehouseById(item.warehouse_id);
+        const warehouseLabel = warehouse
+          ? [warehouse.warehouse_code, warehouse.warehouse_name].filter(Boolean).join(' - ')
+          : '';
+        const inventoryMeta = [
+          item.category ? `Category: ${item.category}` : '',
+          warehouseLabel ? `Warehouse: ${warehouseLabel}` : ''
+        ].filter(Boolean).join(' | ');
         return `
           <div class="po-item-line">
             <div class="po-item-index">${index + 1}</div>
             <div class="po-item-copy">
               <div class="po-item-desc">${escHtml(itemName)}</div>
-              <div class="po-item-meta">${escHtml([description, `${qty}${unit ? ` ${unit}` : ''} x ${money(unitPrice)} = ${money(lineTotal)}`].filter(Boolean).join(' | '))}</div>
+              <div class="po-item-meta">${escHtml([inventoryMeta, description, `${qty}${unit ? ` ${unit}` : ''} x ${money(unitPrice)} = ${money(lineTotal)}`].filter(Boolean).join(' | '))}</div>
             </div>
           </div>
         `;

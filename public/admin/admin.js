@@ -1993,7 +1993,7 @@ function setProjectLedgerMetric(id, value) {
 }
 
 async function fetchProjectLedgerData() {
-  const [transactionsRes, receivablesRes, billsRes, requisitionsRes, quotationsRes, purchaseOrdersRes, goodsReceiptsRes, apPaymentsRes, arPaymentsRes, serviceOrdersRes] = await Promise.all([
+  const [transactionsRes, receivablesRes, billsRes, requisitionsRes, quotationsRes, purchaseOrdersRes, goodsReceiptsRes, apPaymentsRes, arPaymentsRes, serviceOrdersRes, inventoryMovementsRes] = await Promise.all([
     fetch('/api/transactions', { cache: 'no-store' }),
     fetch('/api/receivables?include_archived=1', { cache: 'no-store' }),
     fetch('/api/bills', { cache: 'no-store' }),
@@ -2003,14 +2003,15 @@ async function fetchProjectLedgerData() {
     fetch('/api/procurement/goods-receipts', { cache: 'no-store' }),
     fetch('/api/payments?type=ap', { cache: 'no-store' }),
     fetch('/api/payments?type=ar', { cache: 'no-store' }),
-    fetch('/api/service-orders?include_archived=1', { cache: 'no-store' })
+    fetch('/api/service-orders?include_archived=1', { cache: 'no-store' }),
+    fetch('/api/inventory/movements?include_all=1', { cache: 'no-store' })
   ]);
 
-  const responses = [transactionsRes, receivablesRes, billsRes, requisitionsRes, quotationsRes, purchaseOrdersRes, goodsReceiptsRes, apPaymentsRes, arPaymentsRes, serviceOrdersRes];
+  const responses = [transactionsRes, receivablesRes, billsRes, requisitionsRes, quotationsRes, purchaseOrdersRes, goodsReceiptsRes, apPaymentsRes, arPaymentsRes, serviceOrdersRes, inventoryMovementsRes];
   const failed = responses.find((response) => !response.ok);
   if (failed) throw new Error(`Unable to load project ledger data (${failed.status}).`);
 
-  const [transactions, receivables, bills, requisitions, quotations, purchaseOrders, goodsReceipts, apPayments, arPayments, serviceOrders] = await Promise.all(
+  const [transactions, receivables, bills, requisitions, quotations, purchaseOrders, goodsReceipts, apPayments, arPayments, serviceOrders, inventoryMovements] = await Promise.all(
     responses.map((response) => response.json().catch(() => []))
   );
 
@@ -2024,7 +2025,8 @@ async function fetchProjectLedgerData() {
     goodsReceipts: Array.isArray(goodsReceipts) ? goodsReceipts : [],
     apPayments: Array.isArray(apPayments) ? apPayments : [],
     arPayments: Array.isArray(arPayments) ? arPayments : [],
-    serviceOrders: Array.isArray(serviceOrders) ? serviceOrders : []
+    serviceOrders: Array.isArray(serviceOrders) ? serviceOrders : [],
+    inventoryMovements: Array.isArray(inventoryMovements) ? inventoryMovements : []
   };
 }
 
@@ -2045,6 +2047,7 @@ function buildProjectLedgerSnapshot(project, data) {
   const apPayments = data.apPayments.filter((row) => billIds.has(Number(row.ap_id || 0)));
   const arPayments = data.arPayments.filter((row) => receivableIds.has(Number(row.ar_id || 0)));
   const serviceOrders = data.serviceOrders.filter((row) => Number(row.project_id || 0) === id);
+  const inventoryMovements = data.inventoryMovements.filter((row) => Number(row.project_id || 0) === id);
 
   const arTotal = receivables.reduce((sum, row) => sum + Number(row.total_amount || 0), 0);
   const collectedFromPayments = arPayments.reduce((sum, row) => sum + Number(row.amount || 0), 0);
@@ -2054,9 +2057,12 @@ function buildProjectLedgerSnapshot(project, data) {
   const apPaidFromPayments = apPayments.reduce((sum, row) => sum + Number(row.amount || 0), 0);
   const apPaidFromRows = bills.reduce((sum, row) => sum + Number(row.paid_amount || 0), 0);
   const apPaidTotal = Math.max(apPaidFromPayments, apPaidFromRows);
+  const inventoryCostTotal = inventoryMovements
+    .filter((row) => ['out', 'adjustment'].includes(String(row.movement_type || '').toLowerCase()))
+    .reduce((sum, row) => sum + (Number(row.quantity || 0) * Number(row.unit_cost || 0)), 0);
   const contractAmount = Number(project?.budget || 0) || 0;
   const revenueBase = arTotal || contractAmount;
-  const grossProfit = revenueBase - apTotal;
+  const grossProfit = revenueBase - apTotal - inventoryCostTotal;
   const marginPercent = revenueBase > 0 ? Math.round((grossProfit / revenueBase) * 100) : 0;
 
   return {
@@ -2071,16 +2077,18 @@ function buildProjectLedgerSnapshot(project, data) {
     apPayments,
     arPayments,
     serviceOrders,
+    inventoryMovements,
     totals: {
       arTotal,
       collectedTotal,
       apTotal,
       apPaidTotal,
+      inventoryCostTotal,
       contractAmount,
       grossProfit,
       marginPercent,
-      netTotal: arTotal - apTotal,
-      recordCount: transactions.length + receivables.length + bills.length + requisitions.length + quotations.length + purchaseOrders.length + goodsReceipts.length + apPayments.length + arPayments.length + serviceOrders.length
+      netTotal: arTotal - apTotal - inventoryCostTotal,
+      recordCount: transactions.length + receivables.length + bills.length + requisitions.length + quotations.length + purchaseOrders.length + goodsReceipts.length + apPayments.length + arPayments.length + serviceOrders.length + inventoryMovements.length
     }
   };
 }
@@ -2092,7 +2100,7 @@ function projectLedgerMatchesSearch(values, query) {
 
 function normalizeProjectLedgerSubmodule(value) {
   const tab = String(value || '').trim().toLowerCase();
-  return ['overview', 'ar', 'ap', 'payments', 'service-orders', 'documents'].includes(tab) ? tab : 'overview';
+  return ['overview', 'ar', 'ap', 'inventory', 'payments', 'service-orders', 'documents'].includes(tab) ? tab : 'overview';
 }
 
 function syncProjectLedgerSubmoduleTabs() {
@@ -2227,6 +2235,7 @@ function renderProjectOverview(snapshot) {
   const quotationCount = (snapshot.quotations || []).length;
   const purchaseOrderCount = (snapshot.purchaseOrders || []).length;
   const goodsReceiptCount = (snapshot.goodsReceipts || []).length;
+  const inventoryMovementCount = (snapshot.inventoryMovements || []).length;
   const billCount = (snapshot.bills || []).length;
   const documentCount = project.pdfFilename ? 1 : 0;
   const arPaymentCount = (snapshot.arPayments || []).length;
@@ -2292,12 +2301,14 @@ function renderProjectOverview(snapshot) {
     renderProjectRelationshipItem('Quotations', quotationCount, 'Vendor offers', quotationCount ? 'positive' : 'muted'),
     renderProjectRelationshipItem('PO', purchaseOrderCount, 'Approved buying', purchaseOrderCount ? 'positive' : 'muted'),
     renderProjectRelationshipItem('GRN', goodsReceiptCount, 'Received goods/services', goodsReceiptCount ? 'positive' : 'muted'),
+    renderProjectRelationshipItem('Inventory', inventoryMovementCount, formatPhpCurrency(totals.inventoryCostTotal || 0), inventoryMovementCount ? 'warning' : 'muted'),
     renderProjectRelationshipItem('AP Bills', billCount, formatPhpCurrency(totals.apTotal || 0), billCount ? 'positive' : 'muted'),
     renderProjectRelationshipItem('AP Payments', apPaymentCount, formatPhpCurrency(totals.apPaidTotal || 0), apPaymentCount ? 'positive' : 'warning')
   ]);
   const keySignals = [
     renderProjectOverviewSignal('Collection', healthLabel, `${formatPhpCurrency(arBalance)} remaining`, arBalance > 0 ? 'warning' : 'positive'),
     renderProjectOverviewSignal('Supplier Cost', costLabel, `${formatPhpCurrency(apBalance)} unpaid`, apBalance > 0 ? 'warning' : 'positive'),
+    renderProjectOverviewSignal('Inventory Cost', formatPhpCurrency(totals.inventoryCostTotal || 0), `${inventoryMovementCount} movement${inventoryMovementCount === 1 ? '' : 's'}`, inventoryMovementCount ? 'warning' : 'muted'),
     renderProjectOverviewSignal('Margin', `${marginPercent}%`, formatPhpCurrency(grossProfit), profitTone),
     renderProjectOverviewSignal('Linked Records', linkedRecordCount, 'Across AR, AP, payments, and documents', linkedRecordCount ? 'positive' : 'muted')
   ].join('');
@@ -2314,6 +2325,7 @@ function renderProjectOverview(snapshot) {
     renderProjectOverviewDetail('Receivables', receivableCount),
     renderProjectOverviewDetail('Purchase Requests', requisitionCount),
     renderProjectOverviewDetail('Purchase Orders', purchaseOrderCount),
+    renderProjectOverviewDetail('Inventory Moves', inventoryMovementCount),
     renderProjectOverviewDetail('Bills', billCount),
     renderProjectOverviewDetail('Documents', documentCount)
   ].join('');
@@ -2406,7 +2418,7 @@ function renderProjectLedgerPage() {
   const type = normalizeProjectLedgerSubmodule(currentProjectLedgerSubmodule);
   syncProjectLedgerSubmoduleTabs();
   const showSection = (key) => type === 'overview' || type === key;
-  const { transactions, receivables, bills, requisitions, quotations, purchaseOrders, goodsReceipts, apPayments, arPayments, serviceOrders } = snapshot;
+  const { transactions, receivables, bills, requisitions, quotations, purchaseOrders, goodsReceipts, apPayments, arPayments, serviceOrders, inventoryMovements } = snapshot;
 
   const filteredReceivables = receivables.filter((row) => projectLedgerMatchesSearch([row.invoice_number, row.due_date, row.payment_terms, row.status, row.total_amount], query));
   const filteredBills = bills.filter((row) => projectLedgerMatchesSearch([row.bill_number, row.vendor_name, row.vendor_id, row.due_date, row.status, row.total_amount], query));
@@ -2419,6 +2431,7 @@ function renderProjectLedgerPage() {
     ...apPayments.map((row) => ({ ...row, ledgerType: 'AP' }))
   ].filter((row) => projectLedgerMatchesSearch([row.ledgerType, row.payment_date, row.reference_number, row.payment_method, row.amount], query));
   const filteredServiceOrders = serviceOrders.filter((row) => projectLedgerMatchesSearch([row.so_number, row.service_date, row.service_title, row.status, row.total_amount], query));
+  const filteredInventoryMovements = inventoryMovements.filter((row) => projectLedgerMatchesSearch([row.movement_date, row.movement_type, row.sku, row.product_name, row.warehouse_name, row.reference_type, row.reference_no], query));
 
   const sections = [];
   if (type === 'overview') {
@@ -2590,6 +2603,36 @@ function renderProjectLedgerPage() {
     ));
   }
 
+  if (showSection('inventory')) {
+    sections.push(renderProjectLedgerTable(
+      'Inventory Movements',
+      [
+        { label: 'Date' },
+        { label: 'Type' },
+        { label: 'Product' },
+        { label: 'Warehouse' },
+        { label: 'Qty', className: 'text-right' },
+        { label: 'Cost', className: 'text-right' },
+        { label: 'Reference' }
+      ],
+      filteredInventoryMovements.map((row) => {
+        const cost = Number(row.quantity || 0) * Number(row.unit_cost || 0);
+        return `
+          <tr>
+            <td>${escHtml(row.movement_date || '-')}</td>
+            <td>${escHtml(String(row.movement_type || '-').toUpperCase())}</td>
+            <td>${escHtml([row.sku, row.product_name].filter(Boolean).join(' - ') || '-')}</td>
+            <td>${escHtml([row.warehouse_code, row.warehouse_name].filter(Boolean).join(' - ') || '-')}</td>
+            <td class="text-right">${Number(row.quantity || 0).toLocaleString('en-PH')}</td>
+            <td class="text-right">${formatPhpCurrency(cost)}</td>
+            <td>${escHtml([row.reference_type, row.reference_no].filter(Boolean).join(' - ') || '-')}</td>
+          </tr>
+        `;
+      }),
+      'No linked inventory movements yet.'
+    ));
+  }
+
   if (showSection('service-orders')) {
     sections.push(renderProjectLedgerTable(
       'Service Orders',
@@ -2655,14 +2698,14 @@ async function loadProjectLedgerPage(projectId) {
   try {
     const data = await fetchProjectLedgerData();
     currentProjectLedgerSnapshot = buildProjectLedgerSnapshot(project, data);
-    const { totals, receivables, bills, requisitions, quotations, purchaseOrders, goodsReceipts } = currentProjectLedgerSnapshot;
+    const { totals, receivables, bills, requisitions, quotations, purchaseOrders, goodsReceipts, inventoryMovements } = currentProjectLedgerSnapshot;
     setProjectLedgerMetric('project-ledger-page-ar-total', formatPhpCurrency(totals.arTotal));
     setProjectLedgerMetric('project-ledger-page-collected-total', formatPhpCurrency(totals.collectedTotal));
     setProjectLedgerMetric('project-ledger-page-ap-total', formatPhpCurrency(totals.apTotal));
     setProjectLedgerMetric('project-ledger-page-net-total', formatPhpCurrency(totals.netTotal));
     setProjectLedgerMetric('project-ledger-page-ar-mini', `${receivables.length} receivable${receivables.length === 1 ? '' : 's'}`);
     setProjectLedgerMetric('project-ledger-page-collected-mini', `${formatPhpCurrency(Math.max(0, totals.arTotal - totals.collectedTotal))} AR balance`);
-    setProjectLedgerMetric('project-ledger-page-ap-mini', `${requisitions.length} PR | ${quotations.length} quote | ${purchaseOrders.length} PO | ${goodsReceipts.length} GRN | ${bills.length} bill | ${formatPhpCurrency(Math.max(0, totals.apTotal - totals.apPaidTotal))} balance`);
+    setProjectLedgerMetric('project-ledger-page-ap-mini', `${requisitions.length} PR | ${quotations.length} quote | ${purchaseOrders.length} PO | ${goodsReceipts.length} GRN | ${inventoryMovements.length} inventory | ${bills.length} bill | ${formatPhpCurrency(Math.max(0, totals.apTotal - totals.apPaidTotal))} balance`);
     setProjectLedgerMetric('project-ledger-page-count-mini', `${totals.recordCount} linked record${totals.recordCount === 1 ? '' : 's'}`);
     renderProjectLedgerPage();
   } catch (err) {
@@ -2681,13 +2724,13 @@ async function openProjectLedger(projectId) {
     return;
   }
 
-  currentProjectLedgerId = id;
-  currentProjectLedgerSnapshot = null;
-  currentProjectLedgerSubmodule = 'overview';
-  const searchInput = document.getElementById('project-ledger-page-search');
-  if (searchInput) searchInput.value = '';
-  syncProjectLedgerSubmoduleTabs();
-  openDashboardPanel('project-ledger');
+  const url = new URL('/admin', window.location.origin);
+  url.searchParams.set('panel', 'project-ledger');
+  url.searchParams.set('project_id', String(id));
+  const opened = window.open(url.toString(), '_blank', 'noopener');
+  if (!opened) {
+    window.location.href = url.toString();
+  }
   return;
 
   const backdrop = document.getElementById('project-ledger-modal-backdrop');
@@ -5532,11 +5575,11 @@ function switchTab(tab, btn) {
 function openSidebarDashboard(btn) {
   activeTab = 'all';
   localStorage.setItem('kinaadman_activeTab', 'all');
-  if (btn && btn.classList) {
-    updateSidebarMenuState('dashboard');
-  }
-  openDashboardPanel('home');
+  localStorage.setItem('kinaadman_dashboardPanel', 'home');
+  localStorage.setItem('kinaadman_dashboardCompany', 'all');
+  void btn;
   setSidebarOpen(false);
+  window.location.href = '/admin?view=dashboard';
 }
 
 function navigateDashboardCard(href) {
@@ -5943,7 +5986,11 @@ function openProjectModal(projectId = null) {
   if (title) title.textContent = project ? 'Edit Project' : 'Create Project';
   const projectStatus = String(projectData.status || '').trim().toLowerCase();
   const canSubmitProject = !project || projectStatus === 'draft' || projectStatus === 'submitted';
-  if (saveBtn) saveBtn.textContent = project && !canSubmitProject ? 'Update Project' : 'Save Draft';
+  if (saveBtn) {
+    saveBtn.textContent = isStaffUser()
+      ? (project && !canSubmitProject ? 'Update Project' : 'Save Draft')
+      : (project ? 'Update Project' : 'Create Project');
+  }
   switchProjectFormTab('details');
   clearProjectFieldMessages();
   setProjectModalNotice('');

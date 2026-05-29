@@ -224,9 +224,9 @@
     ]);
 
     var inventoryHtml = buildGroup('inventory', 'Inventory Management', [
-      buildLink('/inventory?tab=stock', 'Stock Levels', 'menu-inventory'),
-      buildLink('/inventory?tab=products', 'Products'),
+      buildLink('/inventory?tab=products', 'Products', 'menu-inventory'),
       buildLink('/inventory?tab=warehouses', 'Warehouses'),
+      buildLink('/inventory?tab=stock', 'Stock Levels'),
       buildLink('/inventory?tab=movements', 'Stock Movements')
     ]);
 
@@ -914,13 +914,13 @@
 
     sidebar.innerHTML = [
       '<div class="sidebar-header">',
-        '<div class="sidebar-brand">',
+        '<a class="sidebar-brand" href="/admin?view=dashboard" onclick="if (typeof openSidebarDashboard === &quot;function&quot;) { openSidebarDashboard(this); return false; }">',
           '<img class="sidebar-brand-mark" src="' + escapeAttr(storedProfile && storedProfile.logo ? storedProfile.logo : sidebarProfile.logo) + '" alt="' + escapeAttr(storedProfile && storedProfile.alt ? storedProfile.alt : sidebarProfile.alt) + '" />',
           '<div>',
             '<div class="header-logo" style="font-size: 1rem;">' + escapeAttr(sidebarTitle) + '</div>',
             '<div class="header-sub">' + escapeAttr(sidebarSub) + '</div>',
           '</div>',
-        '</div>',
+        '</a>',
         '<button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()" aria-label="Close menu">×</button>',
       '</div>',
       '<nav class="sidebar-nav">',
@@ -943,6 +943,11 @@
             id: 'menu-projects',
             subitem: true,
             aliases: ['/admin?view=project-records']
+          }),
+          link('/admin?panel=project-records&tab=ledger', 'Project Overview', {
+            id: 'menu-project-ledger',
+            subitem: true,
+            aliases: ['/admin?panel=project-ledger']
           }),
           link('/gantt-chart', 'Gantt Chart', {
             id: 'menu-gantt-chart',
@@ -998,15 +1003,15 @@
           })
         ]),
         group('inventory', 'Inventory Management', false, [
-          link('/inventory?tab=stock', 'Stock Levels', {
+          link('/inventory?tab=products', 'Products', {
             id: 'menu-inventory',
             subitem: true,
             aliases: ['/inventory']
           }),
-          link('/inventory?tab=products', 'Products', {
+          link('/inventory?tab=warehouses', 'Warehouses', {
             subitem: true
           }),
-          link('/inventory?tab=warehouses', 'Warehouses', {
+          link('/inventory?tab=stock', 'Stock Levels', {
             subitem: true
           }),
           link('/inventory?tab=movements', 'Stock Movements', {
@@ -1160,9 +1165,9 @@
       '/service-operations',
       '/procurement?tab=requisitions',
       '/inventory',
-      '/inventory?tab=stock',
       '/inventory?tab=products',
       '/inventory?tab=warehouses',
+      '/inventory?tab=stock',
       '/inventory?tab=movements',
       '/notifications'
     ];
