@@ -143,6 +143,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupServiceOrderPickerListeners();
   setupGanttPlannerPanel();
   setupPasswordToggleListeners();
+  setupNotificationButtonListeners();
   setupSidebarLinkNavigation();
   syncSidebarGroupStates();
   syncSidebarActiveLinks();
@@ -165,6 +166,26 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 });
+
+function setupNotificationButtonListeners() {
+  document.querySelectorAll('.notification-btn').forEach((button) => {
+    if (button.dataset.notificationBound === '1') return;
+    button.dataset.notificationBound = '1';
+    button.addEventListener('click', (event) => {
+      toggleNotificationsPanel(event);
+    });
+  });
+
+  document.querySelectorAll('.notifications-close').forEach((button) => {
+    if (button.dataset.notificationCloseBound === '1') return;
+    button.dataset.notificationCloseBound = '1';
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleNotificationsPanel(event, false);
+    });
+  });
+}
 
 function applyInitialAdminView(user) {
   const params = new URLSearchParams(window.location.search);
@@ -4144,6 +4165,27 @@ function getUnreadNotifications(items = notificationsDb) {
   return (Array.isArray(items) ? items : []).filter(item => !notificationReadIds.has(String(item?.id || '')));
 }
 
+function updateNotificationBadge(items = notificationsDb) {
+  const countBadge = document.getElementById('notification-count');
+  if (!countBadge) return;
+  const unreadItems = getUnreadNotifications(items);
+  countBadge.textContent = String(unreadItems.length);
+  countBadge.style.display = unreadItems.length ? 'inline-flex' : 'none';
+}
+
+const NOTIFICATION_GROUP_ORDER = ['Approvals', 'Due Dates', 'Inventory', 'Service', 'System'];
+
+function getNotificationCategory(item = {}) {
+  const category = String(item.category || '').trim();
+  if (category) return category;
+  const type = String(item.type || '').trim().toLowerCase();
+  if (type === 'approval') return 'Approvals';
+  if (['due', 'deadline', 'overdue'].includes(type)) return 'Due Dates';
+  if (type === 'inventory') return 'Inventory';
+  if (type === 'service') return 'Service';
+  return 'System';
+}
+
 function syncProjectSearchFromUrl() {
   try {
     const params = new URLSearchParams(window.location.search);
@@ -4169,8 +4211,15 @@ function openNotificationItem(notificationId) {
   if (!item) return;
 
   markNotificationsAsRead([item.id]);
-  loadNotifications();
+  updateNotificationBadge();
+  renderNotifications(notificationsDb);
   closeNotificationsPanel();
+
+  const href = String(item.href || '').trim();
+  if (href) {
+    window.location.href = href;
+    return;
+  }
 
   if (String(item.type || '') === 'audit') {
     if (typeof openDashboardPanel === 'function') {
@@ -5393,8 +5442,6 @@ async function saveProject() {
   requireProjectField('description', !description, 'Scope / Description is required.', 'Scope / Description');
   requireProjectField('planned_start_date', !plannedStartDate, 'Start date is required.', 'Planned Start Date');
   requireProjectField('planned_end_date', !plannedEndDate, 'End date is required.', 'Planned End Date');
-  requireProjectField('actual_start_date', !actualStartDate, 'Actual start date is required.', 'Actual Start');
-  requireProjectField('actual_end_date', !actualEndDate, 'Actual end date is required.', 'Actual End');
   requireProjectField('budget', !rawBudgetValue || budgetValue <= 0, 'Contract amount is required and must be greater than zero.', 'Contract Amount');
   requireProjectField('downpayment', !rawDownpaymentValue || downpaymentValue < 0, 'Downpayment is required and cannot be negative.', 'Downpayment');
   requireProjectField('checkno', !checkNo, 'Check No. is required.', 'Check No.');
@@ -7841,12 +7888,7 @@ async function loadNotifications() {
     const res = await fetch('/api/notifications');
     const data = await res.json().catch(() => ({}));
     notificationsDb = Array.isArray(data.items) ? data.items : [];
-    const unreadItems = getUnreadNotifications(notificationsDb);
-
-    if (countBadge) {
-      countBadge.textContent = String(unreadItems.length);
-      countBadge.style.display = unreadItems.length ? 'inline-flex' : 'none';
-    }
+    updateNotificationBadge(notificationsDb);
 
     renderNotifications(notificationsDb);
   } catch (err) {
@@ -7867,14 +7909,35 @@ function renderNotifications(items = notificationsDb) {
   if (!list) return;
 
   if (!items.length) {
-    list.innerHTML = '<div class="notifications-empty">No notifications right now.</div>';
+    list.innerHTML = '<div class="notifications-empty">No notifications right now.</div><div class="notifications-footer"><a href="/notifications">View history</a></div>';
     return;
   }
 
-  list.innerHTML = items.map(item => {
+  const grouped = new Map();
+  (Array.isArray(items) ? items : []).forEach((item) => {
+    const category = getNotificationCategory(item);
+    if (!grouped.has(category)) grouped.set(category, []);
+    grouped.get(category).push(item);
+  });
+
+  const groups = [
+    ...NOTIFICATION_GROUP_ORDER.filter((category) => grouped.has(category)),
+    ...Array.from(grouped.keys()).filter((category) => !NOTIFICATION_GROUP_ORDER.includes(category)).sort()
+  ];
+
+  list.innerHTML = groups.map((category) => {
+    const rows = grouped.get(category) || [];
+    const unreadCount = getUnreadNotifications(rows).length;
+    return `
+      <section class="notification-group">
+        <div class="notification-group-head">
+          <span>${escHtml(category)}</span>
+          <small>${unreadCount ? `${unreadCount} unread` : `${rows.length} item${rows.length === 1 ? '' : 's'}`}</small>
+        </div>
+        ${rows.map(item => {
     const level = String(item.level || 'info').toLowerCase();
     const isUnread = !notificationReadIds.has(String(item?.id || ''));
-    const safeTitle = escHtml(item.title || 'Project');
+          const safeTitle = escHtml(item.title || 'Notification');
     const safeMessage = escHtml(item.message || '');
     const safeMeta = escHtml(item.meta || '');
     const safeDate = escHtml(formatNotificationDisplayDate(item.date));
@@ -7889,7 +7952,10 @@ function renderNotifications(items = notificationsDb) {
         </div>
       </button>
     `;
-  }).join('');
+        }).join('')}
+      </section>
+    `;
+  }).join('') + '<div class="notifications-footer"><a href="/notifications">View notification history</a></div>';
 }
 
 function formatNotificationDisplayDate(value) {

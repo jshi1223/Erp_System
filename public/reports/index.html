@@ -6,7 +6,7 @@
   <title>KVSK CCTV & IT Solution - Reports</title>
   <script src="/assets/js/auth-guard.js?v=20260528b"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/css/shared.css?v=20260521p" />
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260529b" />
   <link rel="stylesheet" href="/reports/reports.css?v=20260521p" />
 </head>
 <body class="erp-clean-page reports-page">
@@ -32,7 +32,7 @@
   <div class="header-right">
     <span class="admin-badge">Reports Module</span>
     <div class="notification-wrap">
-      <button class="btn-icon notification-btn" type="button" onclick="toggleNotificationsPanel()" aria-label="Notifications" title="Notifications">
+      <button class="btn-icon notification-btn" type="button" aria-label="Notifications" title="Notifications">
         <svg viewBox="0 0 24 24" aria-hidden="true" class="notification-icon">
           <path d="M12 22a2.3 2.3 0 0 0 2.2-1.6h-4.4A2.3 2.3 0 0 0 12 22zm7-5.5V11a7 7 0 0 0-5-6.7V3.5a2 2 0 1 0-4 0v.8A7 7 0 0 0 5 11v5.5l-1.7 1.7a1 1 0 0 0 .7 1.7h15a1 1 0 0 0 .7-1.7L19 16.5z"></path>
         </svg>
@@ -46,7 +46,7 @@
           </div>
           <div class="notifications-panel-actions">
             <button class="notifications-mark" type="button" onclick="markNotificationsAsRead(); loadNotifications();">Mark as read</button>
-            <button class="notifications-close" type="button" onclick="toggleNotificationsPanel(false)">×</button>
+            <button class="notifications-close" type="button">×</button>
           </div>
         </div>
         <div class="notifications-list" id="notifications-list">
@@ -325,7 +325,7 @@
 </div>
 
 <!-- Scripts -->
-<script src="/assets/js/erp-core.js?v=20260528b"></script>
+<script src="/assets/js/erp-core.js?v=20260529b"></script>
 <script src="/reports/reports.js?v=20260521p"></script>
 </body>
 </html>

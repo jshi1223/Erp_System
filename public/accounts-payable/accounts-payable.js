@@ -675,6 +675,19 @@ function bindMasterDataCompanyModal() {
     tinInput.addEventListener('blur', applyMask);
   }
 
+  const phoneInput = document.getElementById('f-master-company-phone');
+  if (phoneInput && phoneInput.dataset.phoneDigitsBound !== '1') {
+    const applyPhoneMask = () => {
+      const normalized = normalizeMasterDataCompanyPhone(phoneInput.value).slice(0, 11);
+      if (phoneInput.value !== normalized) phoneInput.value = normalized;
+    };
+    phoneInput.dataset.phoneDigitsBound = '1';
+    phoneInput.setAttribute('maxlength', '11');
+    phoneInput.setAttribute('inputmode', 'numeric');
+    phoneInput.addEventListener('input', applyPhoneMask);
+    phoneInput.addEventListener('blur', applyPhoneMask);
+  }
+
   ['f-master-company-name', 'f-master-company-contact', 'f-master-company-email', 'f-master-company-phone', 'f-master-company-tin', 'f-master-company-address'].forEach((id) => {
     const input = document.getElementById(id);
     if (!input || input.dataset.companyValidationBound === '1') return;
@@ -856,7 +869,7 @@ function validateMasterDataCompanyForm(payload) {
   }
 
   if (payload.phone && typeof isValidPhoneForField === 'function' && !isValidPhoneForField('f-master-company-phone', payload.phone)) {
-    setMasterDataCompanyFieldMessage('phone', getPhoneValidationMessage('f-master-company-phone', 'Phone'));
+    setMasterDataCompanyFieldMessage('phone', 'Phone must be exactly 11 digits and numbers only.');
     if (!firstInvalid) firstInvalid = 'phone';
   }
 

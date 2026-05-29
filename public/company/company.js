@@ -313,6 +313,21 @@ function bindCompanyTinMask() {
   applyMask();
 }
 
+function bindCompanyPhoneMask() {
+  const input = $('erp-company-phone');
+  if (!input || input.dataset.companyPhoneBound === '1') return;
+  const applyMask = () => {
+    const digits = normalizeCompanyPhoneForCompare(input.value).slice(0, 11);
+    if (input.value !== digits) input.value = digits;
+  };
+  input.dataset.companyPhoneBound = '1';
+  input.setAttribute('maxlength', '11');
+  input.setAttribute('inputmode', 'numeric');
+  input.addEventListener('input', applyMask);
+  input.addEventListener('blur', applyMask);
+  applyMask();
+}
+
 function findDuplicateCompanyEntry(companyName, phone, tin, excludeId = null) {
   const normalizedName = normalizeCompanyNameForCompare(companyName);
   const normalizedPhone = normalizeCompanyPhoneForCompare(phone);
@@ -413,8 +428,8 @@ function validateCompanyForm() {
       }
     }
 
-    if (item.field === 'phone' && typeof isValidPhoneForField === 'function' && !isValidPhoneForField(item.selector, value)) {
-      setCompanyFieldMessage(item.field, getPhoneValidationMessage(item.selector, item.label));
+    if (item.field === 'phone' && !/^\d{11}$/.test(String(value || '').trim())) {
+      setCompanyFieldMessage(item.field, 'Phone must be exactly 11 digits and numbers only.');
       if (!firstInvalid) firstInvalid = input;
     }
   });
@@ -898,6 +913,7 @@ async function createVendorProfileFromCompany(id) {
 async function bootstrapCompanyRegistry() {
   await hydrateCsrfToken();
   bindCompanyTinMask();
+  bindCompanyPhoneMask();
   bindCompanyValidationListeners();
 
   $('company-form')?.addEventListener('submit', async (event) => {

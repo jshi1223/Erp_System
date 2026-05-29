@@ -9,7 +9,7 @@
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <script src="/assets/js/auth-guard.js?v=20260528b"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Orbitron:wght@500;700;800&amp;family=Playfair+Display:wght@600;700&amp;family=IBM+Plex+Mono:wght@300;400;500&amp;display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/shared.css?v=20260522a">
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260529b">
   <link rel="stylesheet" href="/admin/admin.css?v=20260522e">
 </head>
 <body class="admin-page">
@@ -62,7 +62,7 @@
       </div>
       <span class="admin-badge" id="role-badge" data-user-ready="0" aria-live="polite"></span>
       <div class="notification-wrap">
-        <button class="btn-icon notification-btn" type="button" onclick="toggleNotificationsPanel()" aria-label="Notifications" title="Notifications">
+        <button class="btn-icon notification-btn" type="button" aria-label="Notifications" title="Notifications">
           <svg viewBox="0 0 24 24" aria-hidden="true" class="notification-icon">
             <path d="M12 22a2.3 2.3 0 0 0 2.2-1.6h-4.4A2.3 2.3 0 0 0 12 22zm7-5.5V11a7 7 0 0 0-5-6.7V3.5a2 2 0 1 0-4 0v.8A7 7 0 0 0 5 11v5.5l-1.7 1.7a1 1 0 0 0 .7 1.7h15a1 1 0 0 0 .7-1.7L19 16.5z"></path>
           </svg>
@@ -75,7 +75,7 @@
             </div>
             <div class="notifications-panel-actions">
               <button class="notifications-mark" type="button" onclick="markNotificationsAsRead(); loadNotifications();">Mark as read</button>
-              <button class="notifications-close" type="button" onclick="toggleNotificationsPanel(false)">&times;</button>
+              <button class="notifications-close" type="button">&times;</button>
             </div>
           </div>
           <div class="notifications-list" id="notifications-list"><div class="notifications-empty">No project alerts right now.</div></div>
@@ -1077,12 +1077,12 @@
             <div class="project-field-message is-hidden" data-project-field-message="planned_end_date" aria-live="polite"></div>
           </div>
           <div class="field">
-            <label data-label-base="Actual Start">Actual Start<span class="field-label-status is-required">Required</span></label>
-            <input id="p-actual-start-date" type="date" required aria-required="true">
+            <label data-label-base="Actual Start">Actual Start<span class="field-label-status is-optional">Optional</span></label>
+            <input id="p-actual-start-date" type="date" aria-required="false">
           </div>
           <div class="field">
-            <label data-label-base="Actual End">Actual End<span class="field-label-status is-required">Required</span></label>
-            <input id="p-actual-end-date" type="date" required aria-required="true">
+            <label data-label-base="Actual End">Actual End<span class="field-label-status is-optional">Optional</span></label>
+            <input id="p-actual-end-date" type="date" aria-required="false">
             <div class="project-field-message is-hidden" data-project-field-message="actual_end_date" aria-live="polite"></div>
           </div>
           <div class="field full" hidden>
@@ -1647,7 +1647,7 @@
 </div>
 
 <!-- Scripts -->
-<script src="admin.js?v=20260528b"></script>
+<script src="admin.js?v=20260529c"></script>
 
 
 

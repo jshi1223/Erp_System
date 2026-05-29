@@ -1881,6 +1881,7 @@ const protectedStaticHtmlPaths = new Map([
   ['/accounts-payable/index.html', protectAdmin],
   ['/accounts-receivable/index.html', protectAdmin],
   ['/inventory/index.html', protectAdmin],
+  ['/notifications/index.html', protectAdmin],
   ['/reports/index.html', protectAdminOnly],
   ['/gantt-chart/index.html', protectAdminOnly],
   ['/business-entities/index.html', protectSuperAdmin],
@@ -1976,6 +1977,10 @@ app.get(['/sales-management', '/sales-management/'], protectAdmin, (req, res) =>
 app.get(['/service-operations', '/service-operations/'], protectAdmin, (req, res) => {
   noCache(res);
   res.sendFile(path.join(__dirname, 'public', 'accounts-receivable', 'index.html'));
+});
+app.get(['/notifications', '/notifications/'], protectAdmin, (req, res) => {
+  noCache(res);
+  res.sendFile(path.join(__dirname, 'public', 'notifications', 'index.html'));
 });
 
 app.use(express.static('public', {
@@ -2487,6 +2492,9 @@ function initApp() {
   });
   db.query(`ALTER TABLE company_registry ADD COLUMN IF NOT EXISTS business_entity_id integer NULL`, (err) => {
     if (err) console.error('Company registry business_entity_id migration error:', err);
+  });
+  db.query(`ALTER TABLE company_registry ADD COLUMN IF NOT EXISTS branch_code VARCHAR(10) NOT NULL DEFAULT '000'`, (err) => {
+    if (err) console.error('Company registry branch_code migration error:', err);
   });
 
   db.query(`
@@ -3662,6 +3670,7 @@ function initApp() {
     INSERT INTO chart_of_accounts (account_code, account_name, account_type)
     VALUES
       ('1000', 'Cash and Cash Equivalents', 'asset'),
+      ('1100', 'Accounts Receivable', 'asset'),
       ('2000', 'Accounts Payable', 'liability'),
       ('3000', 'Owner''s Equity', 'equity'),
       ('4000', 'Service Revenue', 'revenue'),
@@ -4461,6 +4470,117 @@ function queryDbAsync(dbClient, sql, params = []) {
     return connectionQueryAsync(dbClient, sql, params);
   }
   return queryAsync(sql, params);
+}
+
+const AUTO_GL_ACCOUNTS = {
+  cash: { code: '1000', name: 'Cash and Cash Equivalents', type: 'asset' },
+  accountsReceivable: { code: '1100', name: 'Accounts Receivable', type: 'asset' },
+  accountsPayable: { code: '2000', name: 'Accounts Payable', type: 'liability' },
+  serviceRevenue: { code: '4000', name: 'Service Revenue', type: 'revenue' },
+  operatingExpenses: { code: '5000', name: 'Operating Expenses', type: 'expense' }
+};
+
+function getAutoJournalPrefix(referenceType) {
+  const safe = String(referenceType || '').trim().toLowerCase();
+  const map = {
+    transaction_invoice: 'TRX',
+    ap_bill: 'APB',
+    ar_payment: 'ARPAY',
+    ap_payment: 'APPAY'
+  };
+  return map[safe] || 'AUTO';
+}
+
+async function ensureChartAccount(account, dbClient = null) {
+  const code = String(account?.code || '').trim();
+  const name = String(account?.name || '').trim();
+  const type = String(account?.type || '').trim().toLowerCase();
+  if (!code || !name || !type) {
+    throw new Error('Auto journal account setup is incomplete.');
+  }
+
+  const existingRows = await queryDbAsync(
+    dbClient,
+    'SELECT id FROM chart_of_accounts WHERE account_code = ? LIMIT 1',
+    [code]
+  );
+  if (existingRows.length) return Number(existingRows[0].id || 0);
+
+  await queryDbAsync(
+    dbClient,
+    `INSERT INTO chart_of_accounts (account_code, account_name, account_type)
+     VALUES (?, ?, ?)
+     ON CONFLICT DO NOTHING`,
+    [code, name, type]
+  );
+  const rows = await queryDbAsync(
+    dbClient,
+    'SELECT id FROM chart_of_accounts WHERE account_code = ? LIMIT 1',
+    [code]
+  );
+  const id = Number(rows[0]?.id || 0);
+  if (!id) throw new Error(`Unable to prepare GL account ${code}.`);
+  return id;
+}
+
+async function deleteAutoJournalEntries(referenceType, referenceId, dbClient = null) {
+  const refType = String(referenceType || '').trim();
+  const refId = String(referenceId || '').trim();
+  if (!refType || !refId) return;
+  await queryDbAsync(
+    dbClient,
+    "DELETE FROM journal_entries WHERE reference_type = ? AND reference_id = ? AND entry_number LIKE 'AUTO-%'",
+    [refType, refId]
+  );
+}
+
+async function postAutoJournalEntry({
+  referenceType,
+  referenceId,
+  entryDate,
+  memo,
+  debitAccount,
+  creditAccount,
+  amount,
+  createdBy = null,
+  dbClient = null
+}) {
+  const refType = String(referenceType || '').trim();
+  const refId = String(referenceId || '').trim();
+  const finalAmount = Number(amount || 0);
+  if (!refType || !refId) return null;
+
+  await deleteAutoJournalEntries(refType, refId, dbClient);
+  if (!(finalAmount > 0)) return null;
+
+  const debitAccountId = await ensureChartAccount(debitAccount, dbClient);
+  const creditAccountId = await ensureChartAccount(creditAccount, dbClient);
+  if (!debitAccountId || !creditAccountId || debitAccountId === creditAccountId) {
+    throw new Error('Auto journal debit and credit accounts must be valid and different.');
+  }
+
+  const entryNumber = `AUTO-${getAutoJournalPrefix(refType)}-${refId}`.slice(0, 50);
+  const finalDate = String(entryDate || getManilaYmd()).slice(0, 10);
+  const finalMemo = String(memo || '').trim() || `Auto-posted ${refType} ${refId}`;
+  const entryResult = await queryDbAsync(
+    dbClient,
+    'INSERT INTO journal_entries (entry_number, entry_date, reference_type, reference_id, memo, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [entryNumber, finalDate, refType, refId, finalMemo, 'posted', createdBy || null]
+  );
+  const journalEntryId = Number(entryResult?.insertId || 0);
+  if (!journalEntryId) throw new Error('Unable to create auto journal entry.');
+
+  await queryDbAsync(
+    dbClient,
+    'INSERT INTO journal_lines (journal_entry_id, account_id, line_memo, debit, credit) VALUES (?, ?, ?, ?, ?)',
+    [journalEntryId, debitAccountId, finalMemo, finalAmount, 0]
+  );
+  await queryDbAsync(
+    dbClient,
+    'INSERT INTO journal_lines (journal_entry_id, account_id, line_memo, debit, credit) VALUES (?, ?, ?, ?, ?)',
+    [journalEntryId, creditAccountId, finalMemo, 0, finalAmount]
+  );
+  return { id: journalEntryId, entry_number: entryNumber };
 }
 
 function beginTransactionAsync(connection) {
@@ -6088,6 +6208,98 @@ async function syncLinkedTransactionForServiceOrder({
   };
 }
 
+async function syncReceivableForTransactionAsync(transaction, dbClient = null) {
+  return new Promise((resolve, reject) => {
+    syncReceivableForTransaction(transaction, (syncErr) => {
+      if (syncErr) return reject(syncErr);
+      return resolve(null);
+    }, dbClient);
+  });
+}
+
+async function postSalesInvoiceJournal(transaction, dbClient = null) {
+  const transactionId = Number(transaction?.id || 0) || 0;
+  if (!transactionId) return null;
+  const amount = Number(transaction?.amount || 0);
+  return postAutoJournalEntry({
+    referenceType: 'transaction_invoice',
+    referenceId: transactionId,
+    entryDate: transaction?.date || getManilaYmd(),
+    memo: `Sales invoice ${transaction?.docno || transactionId} - ${transaction?.client || 'Customer'}`,
+    debitAccount: AUTO_GL_ACCOUNTS.accountsReceivable,
+    creditAccount: AUTO_GL_ACCOUNTS.serviceRevenue,
+    amount,
+    dbClient
+  });
+}
+
+async function setServiceOrderArchiveState(serviceOrderId, archived, dbClient = null) {
+  const id = Number(serviceOrderId || 0) || 0;
+  if (!id) {
+    throw new Error('Invalid service order id.');
+  }
+
+  const serviceRows = await queryDbAsync(
+    dbClient,
+    'SELECT id, so_number FROM service_orders WHERE id = ? LIMIT 1 FOR UPDATE',
+    [id]
+  );
+  if (!serviceRows.length) {
+    const err = new Error('Service order not found.');
+    err.statusCode = 404;
+    throw err;
+  }
+
+  if (archived) {
+    await queryDbAsync(
+      dbClient,
+      'UPDATE service_orders SET is_archived = TRUE, archived_at = NOW() WHERE id = ?',
+      [id]
+    );
+  } else {
+    await queryDbAsync(
+      dbClient,
+      'UPDATE service_orders SET is_archived = FALSE, archived_at = NULL WHERE id = ?',
+      [id]
+    );
+  }
+
+  const transactionWhere = archived
+    ? 'service_order_id = ? AND COALESCE(archived, FALSE) = FALSE'
+    : 'service_order_id = ? AND COALESCE(archived, FALSE) = TRUE AND COALESCE(archived_auto, FALSE) = TRUE';
+  const transactionRows = await queryDbAsync(
+    dbClient,
+    `SELECT id, type, client, docno, date, amount, downpayment, status, description,
+            business_entity_id, project_id, company_id, service_order_id, project_tx_no,
+            pdfFilename, archived
+       FROM transactions
+      WHERE ${transactionWhere}
+      ORDER BY id ASC
+      FOR UPDATE`,
+    [id]
+  );
+
+  for (const transaction of transactionRows) {
+    await queryDbAsync(
+      dbClient,
+      archived
+        ? 'UPDATE transactions SET archived = TRUE, archived_at = CURRENT_TIMESTAMP, archived_auto = TRUE WHERE id = ?'
+        : 'UPDATE transactions SET archived = FALSE, archived_at = NULL, archived_auto = FALSE WHERE id = ?',
+      [transaction.id]
+    );
+    await syncReceivableForTransactionAsync({
+      ...transaction,
+      archived: archived ? 1 : 0,
+      service_order_no: serviceRows[0].so_number || null
+    }, dbClient);
+  }
+
+  return {
+    serviceOrder: serviceRows[0],
+    affectedTransactions: transactionRows.length
+  };
+}
+
 app.post('/api/service-orders', protectAdmin, async (req, res) => {
   let soNumber = String(req.body.so_number || req.body.doc_no || '').trim();
   const projectId = Number(req.body.project_id || 0) || null;
@@ -6417,6 +6629,10 @@ function isValidPhone(value) {
   return /^\d+$/.test(phone) && phone.length >= PHONE_MIN_DIGITS && phone.length <= PHONE_MAX_DIGITS;
 }
 
+function isValidCompanyRegistryPhone(value) {
+  return /^\d{11}$/.test(String(value || '').trim());
+}
+
 function isValidEmail(value) {
   const email = String(value || '').trim();
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -6671,6 +6887,7 @@ async function syncReceivableForTransaction(transaction, callback, dbClient = nu
 
     if (transaction.type !== 'invoice' || transaction.archived) {
       await queryDbAsync(dbClient, 'DELETE FROM accounts_receivable WHERE transaction_id = ?', [transaction.id]);
+      await deleteAutoJournalEntries('transaction_invoice', transaction.id, dbClient);
       return done(null);
     }
 
@@ -6778,6 +6995,7 @@ async function syncReceivableForTransaction(transaction, callback, dbClient = nu
     }
 
     await queryDbAsync(dbClient, 'UPDATE transactions SET status = ? WHERE id = ?', [mapReceivableToTransactionStatus(amount, paidAmount), transaction.id]);
+    await postSalesInvoiceJournal(transaction, dbClient);
     return done(null);
   } catch (err) {
     return done(err);
@@ -9218,8 +9436,8 @@ app.post('/api/company-registry', protectAdmin, async (req, res) => {
     const businessEntityId = null;
 
     if (!companyName) return res.status(400).json({ error: 'Company name is required' });
-    if (companyPhone && !isValidPhone(companyPhone)) {
-      return res.status(400).json({ error: 'Company phone number must be digits only, 7 to 15 digits.' });
+    if (!isValidCompanyRegistryPhone(companyPhone)) {
+      return res.status(400).json({ error: 'Company phone number must be exactly 11 digits and numbers only.', field: 'phone' });
     }
     if (companyTinDigits.length !== 12) {
       return res.status(400).json({ error: 'TIN must follow 000-000-000-000 format.', field: 'tin' });
@@ -9318,8 +9536,8 @@ app.put('/api/company-registry/:id', protectAdmin, async (req, res) => {
       return res.status(400).json({ error: 'Company name is required' });
     }
 
-    if (companyPhone && !isValidPhone(companyPhone)) {
-      return res.status(400).json({ error: 'Company phone number must be digits only, 7 to 15 digits.' });
+    if (!isValidCompanyRegistryPhone(companyPhone)) {
+      return res.status(400).json({ error: 'Company phone number must be exactly 11 digits and numbers only.', field: 'phone' });
     }
     if (companyTinDigits.length !== 12) {
       return res.status(400).json({ error: 'TIN must follow 000-000-000-000 format.', field: 'tin' });
@@ -9917,6 +10135,118 @@ async function syncPayableBalance(payableId) {
   );
 }
 
+async function assertPaymentWithinOpenBalance(payment, { excludePaymentId = 0 } = {}) {
+  const paymentType = String(payment?.payment_type || '').trim().toLowerCase();
+  const amount = Number(payment?.amount || 0);
+  const excludedId = Number(excludePaymentId || 0) || 0;
+  if (!paymentType || !(amount > 0)) return;
+
+  const targetId = paymentType === 'ap'
+    ? Number(payment?.ap_id || 0)
+    : Number(payment?.ar_id || 0);
+  if (!targetId) return;
+
+  const tableName = paymentType === 'ap' ? 'accounts_payable' : 'accounts_receivable';
+  const paymentColumn = paymentType === 'ap' ? 'ap_id' : 'ar_id';
+  const label = paymentType === 'ap' ? 'AP bill' : 'AR invoice';
+  const targetRows = await queryAsync(
+    `SELECT id, total_amount FROM ${tableName} WHERE id = ? LIMIT 1`,
+    [targetId]
+  );
+  if (!targetRows.length) {
+    throw new Error(`Selected ${label} was not found.`);
+  }
+
+  const params = [targetId];
+  let excludeClause = '';
+  if (excludedId) {
+    excludeClause = 'AND id <> ?';
+    params.push(excludedId);
+  }
+
+  const committedRows = await queryAsync(
+    `SELECT COALESCE(SUM(amount), 0) AS committed_amount
+       FROM payments
+      WHERE payment_type = ?
+        AND ${paymentColumn} = ?
+        AND COALESCE(approval_status, 'approved') IN ('approved', 'pending')
+        ${excludeClause}`,
+    [paymentType, ...params]
+  );
+
+  const totalAmount = Number(targetRows[0]?.total_amount || 0);
+  const committedAmount = Number(committedRows[0]?.committed_amount || 0);
+  const remainingAmount = Math.max(0, Number((totalAmount - committedAmount).toFixed(2)));
+
+  if (amount - remainingAmount > 0.005) {
+    throw new Error(`Payment amount exceeds the remaining ${label} balance of ${remainingAmount.toFixed(2)}.`);
+  }
+}
+
+async function postApprovedBillJournal(billId, dbClient = null) {
+  const id = Number(billId || 0) || 0;
+  if (!id) return null;
+  const rows = await queryDbAsync(
+    dbClient,
+    `SELECT id, bill_number, bill_date, total_amount, approval_status
+       FROM accounts_payable
+      WHERE id = ? LIMIT 1`,
+    [id]
+  );
+  if (!rows.length) return null;
+  const bill = rows[0];
+  if (normalizeProcurementWorkflowStatus(bill.approval_status || 'pending') !== 'approved') {
+    await deleteAutoJournalEntries('ap_bill', id, dbClient);
+    return null;
+  }
+  return postAutoJournalEntry({
+    referenceType: 'ap_bill',
+    referenceId: id,
+    entryDate: bill.bill_date || getManilaYmd(),
+    memo: `AP bill ${bill.bill_number || id}`,
+    debitAccount: AUTO_GL_ACCOUNTS.operatingExpenses,
+    creditAccount: AUTO_GL_ACCOUNTS.accountsPayable,
+    amount: Number(bill.total_amount || 0),
+    dbClient
+  });
+}
+
+async function postApprovedPaymentJournal(paymentId, dbClient = null) {
+  const id = Number(paymentId || 0) || 0;
+  if (!id) return null;
+  const rows = await queryDbAsync(
+    dbClient,
+    `SELECT p.*, ap.bill_number, ar.invoice_number
+       FROM payments p
+       LEFT JOIN accounts_payable ap ON ap.id = p.ap_id
+       LEFT JOIN accounts_receivable ar ON ar.id = p.ar_id
+      WHERE p.id = ? LIMIT 1`,
+    [id]
+  );
+  if (!rows.length) return null;
+
+  const payment = rows[0];
+  const paymentType = String(payment.payment_type || '').trim().toLowerCase();
+  const referenceType = paymentType === 'ap' ? 'ap_payment' : 'ar_payment';
+  if (!['ap', 'ar'].includes(paymentType) || normalizeProcurementWorkflowStatus(payment.approval_status || 'approved') !== 'approved') {
+    await deleteAutoJournalEntries(referenceType, id, dbClient);
+    return null;
+  }
+
+  return postAutoJournalEntry({
+    referenceType,
+    referenceId: id,
+    entryDate: payment.payment_date || getManilaYmd(),
+    memo: paymentType === 'ap'
+      ? `AP payment ${payment.reference_number || id} for ${payment.bill_number || 'bill'}`
+      : `AR collection ${payment.reference_number || id} for ${payment.invoice_number || 'invoice'}`,
+    debitAccount: paymentType === 'ap' ? AUTO_GL_ACCOUNTS.accountsPayable : AUTO_GL_ACCOUNTS.cash,
+    creditAccount: paymentType === 'ap' ? AUTO_GL_ACCOUNTS.cash : AUTO_GL_ACCOUNTS.accountsReceivable,
+    amount: Number(payment.amount || 0),
+    dbClient
+  });
+}
+
 app.get('/api/receivables', protectAdmin, (req, res) => {
   const includeArchived = String(req.query.include_archived || '0') === '1';
   const whereClause = includeArchived ? '' : 'WHERE COALESCE(ar.archived, FALSE) = FALSE';
@@ -10318,6 +10648,7 @@ app.put('/api/bills/:id', protectAdmin, upload.single('pdf_file'), async (req, r
       [businessEntityId, vendorId, bill_number, bill_date, due_date || null, projectId, poId, totalAmount, notes || null, nextPdf, billId]
     );
     await syncPayableBalance(billId);
+    await postApprovedBillJournal(billId);
 
     if (currentPdf && currentPdf !== nextPdf && (uploadedPdf || removePdf)) {
       const oldPath = path.join(UPLOAD_DIR, path.basename(currentPdf));
@@ -10359,6 +10690,7 @@ app.post('/api/bills/:id/approve', protectAdminOnly, async (req, res) => {
       [approvedBy, billId]
     );
     await syncPayableBalance(billId);
+    await postApprovedBillJournal(billId);
     logAction(req, 'APPROVE_AP_BILL', `Approved AP bill ${rows[0].bill_number || billId}`);
     sendBackgroundNotification(() => notifyFinanceApproval(req, 'bill', billId, {
       approvedBy: getApprovalActorLabel(req)
@@ -12445,36 +12777,34 @@ app.get('/api/service-orders/:id/pdf', protectAdmin, (req, res) => {
   sendServiceOrderPdf(req, res, req.params.id);
 });
 
-app.put('/api/service-orders/:id/archive', protectAdminOnly, (req, res) => {
+app.put('/api/service-orders/:id/archive', protectAdminOnly, async (req, res) => {
   const serviceOrderId = Number(req.params.id || 0);
   if (!serviceOrderId) return res.status(400).json({ error: 'Invalid service order id' });
 
-  db.query(
-    'UPDATE service_orders SET is_archived = TRUE, archived_at = NOW() WHERE id = ?',
-    [serviceOrderId],
-    (err, result) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (result.affectedRows === 0) return res.status(404).json({ error: 'Service order not found' });
-      logAction(req, 'ARCHIVE_SERVICE_ORDER', `Archived service order ID: ${serviceOrderId}`);
-      res.json({ success: true });
-    }
-  );
+  try {
+    const result = await withDbTransaction((connection) => setServiceOrderArchiveState(serviceOrderId, true, connection));
+    logAction(req, 'ARCHIVE_SERVICE_ORDER', `Archived service order ${result.serviceOrder.so_number || serviceOrderId} and ${result.affectedTransactions} linked transaction(s)`);
+    res.json({ success: true, archived_transactions: result.affectedTransactions });
+  } catch (err) {
+    if (err.statusCode === 404) return res.status(404).json({ error: err.message || 'Service order not found' });
+    console.error('Archive service order error:', err);
+    res.status(500).json({ error: err.message || 'Unable to archive service order.' });
+  }
 });
 
-app.put('/api/service-orders/:id/restore', protectAdminOnly, (req, res) => {
+app.put('/api/service-orders/:id/restore', protectAdminOnly, async (req, res) => {
   const serviceOrderId = Number(req.params.id || 0);
   if (!serviceOrderId) return res.status(400).json({ error: 'Invalid service order id' });
 
-  db.query(
-    'UPDATE service_orders SET is_archived = FALSE, archived_at = NULL WHERE id = ?',
-    [serviceOrderId],
-    (err, result) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (result.affectedRows === 0) return res.status(404).json({ error: 'Service order not found' });
-      logAction(req, 'RESTORE_SERVICE_ORDER', `Restored service order ID: ${serviceOrderId}`);
-      res.json({ success: true });
-    }
-  );
+  try {
+    const result = await withDbTransaction((connection) => setServiceOrderArchiveState(serviceOrderId, false, connection));
+    logAction(req, 'RESTORE_SERVICE_ORDER', `Restored service order ${result.serviceOrder.so_number || serviceOrderId} and ${result.affectedTransactions} linked transaction(s)`);
+    res.json({ success: true, restored_transactions: result.affectedTransactions });
+  } catch (err) {
+    if (err.statusCode === 404) return res.status(404).json({ error: err.message || 'Service order not found' });
+    console.error('Restore service order error:', err);
+    res.status(500).json({ error: err.message || 'Unable to restore service order.' });
+  }
 });
 
 app.put('/api/procurement/goods-receipts/:id', protectAdmin, async (req, res) => {
@@ -12855,6 +13185,7 @@ app.get('/api/payments', protectAdmin, (req, res) => {
 app.post('/api/payments', protectAdmin, async (req, res) => {
   try {
     const payment = await normalizePaymentPayload(req.body);
+    await assertPaymentWithinOpenBalance(payment);
     const approvalStatus = payment.payment_type === 'ap' ? 'pending' : 'approved';
     const result = await queryAsync(
       'INSERT INTO payments (payment_type, ap_id, ar_id, payment_date, amount, payment_method, reference_number, approval_status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
@@ -12863,15 +13194,17 @@ app.post('/api/payments', protectAdmin, async (req, res) => {
 
     if (payment.payment_type === 'ap' && payment.ap_id) {
       await syncPayableBalance(payment.ap_id);
+      await postApprovedPaymentJournal(result.insertId);
       sendBackgroundNotification(() => notifyPaymentApprovalRequest(req, result.insertId), 'ap payment approval request email');
     } else if (payment.payment_type === 'ar' && payment.ar_id) {
       await syncReceivableBalance(payment.ar_id);
+      await postApprovedPaymentJournal(result.insertId);
     }
 
     res.json({ id: result.insertId });
   } catch (err) {
     const validationMessage = String(err?.message || '').toLowerCase();
-    if (validationMessage.includes('required') || validationMessage.includes('must') || validationMessage.includes('not found') || validationMessage.includes('approve')) {
+    if (validationMessage.includes('required') || validationMessage.includes('must') || validationMessage.includes('not found') || validationMessage.includes('approve') || validationMessage.includes('exceeds')) {
       return res.status(400).json({ error: err.message || 'Unable to save payment.' });
     }
     res.status(500).json({ error: err.message });
@@ -12890,6 +13223,7 @@ app.put('/api/payments/:id', protectAdmin, async (req, res) => {
     }
     const existing = existingRows[0];
 
+    await assertPaymentWithinOpenBalance(payment, { excludePaymentId: paymentId });
     await queryAsync(
       'UPDATE payments SET payment_type = ?, ap_id = ?, ar_id = ?, payment_date = ?, amount = ?, payment_method = ?, reference_number = ?, notes = ? WHERE id = ?',
       [payment.payment_type, payment.ap_id, payment.ar_id, payment.payment_date, payment.amount, payment.payment_method, payment.reference_number, payment.notes, paymentId]
@@ -12906,11 +13240,12 @@ app.put('/api/payments/:id', protectAdmin, async (req, res) => {
       ...Array.from(affectedApIds).map((id) => syncPayableBalance(id)),
       ...Array.from(affectedArIds).map((id) => syncReceivableBalance(id))
     ]);
+    await postApprovedPaymentJournal(paymentId);
 
     res.json({ success: true });
   } catch (err) {
     const validationMessage = String(err?.message || '').toLowerCase();
-    if (validationMessage.includes('required') || validationMessage.includes('must') || validationMessage.includes('not found') || validationMessage.includes('approve')) {
+    if (validationMessage.includes('required') || validationMessage.includes('must') || validationMessage.includes('not found') || validationMessage.includes('approve') || validationMessage.includes('exceeds')) {
       return res.status(400).json({ error: err.message || 'Unable to update payment.' });
     }
     console.error('Update payment error:', err);
@@ -12929,6 +13264,12 @@ app.post('/api/payments/:id/approve', protectAdminOnly, async (req, res) => {
     }
 
     const payment = rows[0];
+    await assertPaymentWithinOpenBalance({
+      payment_type: payment.payment_type,
+      ap_id: payment.ap_id,
+      ar_id: payment.ar_id,
+      amount: payment.amount
+    }, { excludePaymentId: paymentId });
     const approvedBy = getApprovalActorName(req);
     await queryAsync(
       "UPDATE payments SET approval_status = 'approved', approved_by = ?, approved_at = COALESCE(approved_at, NOW()) WHERE id = ?",
@@ -12941,6 +13282,7 @@ app.post('/api/payments/:id/approve', protectAdminOnly, async (req, res) => {
     if (Number(payment.ar_id || 0)) {
       await syncReceivableBalance(payment.ar_id);
     }
+    await postApprovedPaymentJournal(paymentId);
 
     logAction(req, 'APPROVE_PAYMENT', `Approved ${payment.payment_type || 'payment'} payment ID ${paymentId}`);
     sendBackgroundNotification(() => notifyFinanceApproval(req, 'payment', paymentId, {
@@ -12948,6 +13290,10 @@ app.post('/api/payments/:id/approve', protectAdminOnly, async (req, res) => {
     }), 'payment approved email');
     res.json({ success: true, approval_status: 'approved', approved_by: approvedBy });
   } catch (err) {
+    const validationMessage = String(err?.message || '').toLowerCase();
+    if (validationMessage.includes('exceeds') || validationMessage.includes('not found')) {
+      return res.status(400).json({ error: err.message || 'Unable to approve payment.' });
+    }
     console.error('Approve payment error:', err);
     res.status(500).json({ error: err.message || 'Unable to approve payment.' });
   }
@@ -12965,6 +13311,10 @@ app.delete('/api/payments/:id', protectAdminOnly, async (req, res) => {
     const existing = existingRows[0];
 
     await queryAsync('DELETE FROM payments WHERE id = ?', [paymentId]);
+    await deleteAutoJournalEntries(
+      String(existing.payment_type || '').trim().toLowerCase() === 'ap' ? 'ap_payment' : 'ar_payment',
+      paymentId
+    );
 
     if (Number(existing.ap_id || 0)) {
       await syncPayableBalance(existing.ap_id);
@@ -12988,7 +13338,18 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
   });
 
   try {
-    const [projectRows, auditRows] = await Promise.all([
+    const [
+      projectRows,
+      auditRows,
+      requisitionRows,
+      purchaseOrderRows,
+      billRows,
+      paymentRows,
+      receivableRows,
+      payableDueRows,
+      inventoryRows,
+      serviceRows
+    ] = await Promise.all([
       queryAsync(
         `SELECT id, project_docno, source_docno, transaction_id, project_name, project_manager, start_date, end_date, status, COALESCE(is_archived, FALSE) AS is_archived
          FROM projects
@@ -13008,12 +13369,89 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
          LEFT JOIN users u ON u.id = l.user_id
          ORDER BY l.created_at DESC, l.id DESC
          LIMIT 10`
-      )
+      ),
+      queryAsync(
+        `SELECT id, pr_number, request_date, needed_by, requested_by, status
+         FROM purchase_requisitions
+         WHERE status IN ('submitted', 'pending')
+         ORDER BY COALESCE(needed_by, request_date, created_at) ASC
+         LIMIT 8`
+      ).catch(() => []),
+      queryAsync(
+        `SELECT id, po_number, po_date, delivery_date, total_amount, status
+         FROM purchase_orders
+         WHERE status = 'pending'
+         ORDER BY COALESCE(delivery_date, po_date, created_at) ASC
+         LIMIT 8`
+      ).catch(() => []),
+      queryAsync(
+        `SELECT id, bill_number, bill_date, due_date, total_amount, approval_status
+         FROM accounts_payable
+         WHERE COALESCE(approval_status, 'approved') = 'pending'
+         ORDER BY COALESCE(due_date, bill_date, created_at) ASC
+         LIMIT 8`
+      ).catch(() => []),
+      queryAsync(
+        `SELECT id, payment_type, payment_date, amount, approval_status
+         FROM payments
+         WHERE COALESCE(approval_status, 'approved') = 'pending'
+         ORDER BY payment_date ASC, id ASC
+         LIMIT 8`
+      ).catch(() => []),
+      queryAsync(
+        `SELECT id, invoice_number, customer_name, due_date, total_amount, paid_amount, status
+         FROM accounts_receivable
+         WHERE COALESCE(archived, FALSE) = FALSE
+           AND status IN ('sent', 'partial', 'overdue')
+           AND due_date IS NOT NULL
+           AND due_date <= CURRENT_DATE + INTERVAL '7 days'
+         ORDER BY due_date ASC, id ASC
+         LIMIT 12`
+      ).catch(() => []),
+      queryAsync(
+        `SELECT id, bill_number, due_date, total_amount, paid_amount, status, approval_status
+         FROM accounts_payable
+         WHERE COALESCE(approval_status, 'approved') = 'approved'
+           AND status IN ('pending', 'partially_paid')
+           AND due_date IS NOT NULL
+           AND due_date <= CURRENT_DATE + INTERVAL '7 days'
+         ORDER BY due_date ASC, id ASC
+         LIMIT 12`
+      ).catch(() => []),
+      queryAsync(
+        `SELECT s.id, p.product_name, p.sku, p.reorder_level, s.quantity_on_hand, w.warehouse_name
+         FROM stock s
+         JOIN products p ON p.id = s.product_id
+         JOIN warehouses w ON w.id = s.warehouse_id
+         WHERE p.is_active = TRUE
+           AND p.reorder_level > 0
+           AND s.quantity_on_hand <= p.reorder_level
+         ORDER BY (s.quantity_on_hand - p.reorder_level) ASC, p.product_name ASC
+         LIMIT 10`
+      ).catch(() => []),
+      queryAsync(
+        `SELECT id, so_number, service_title, service_date, service_type, status
+         FROM service_orders
+         WHERE COALESCE(is_archived, FALSE) = FALSE
+           AND service_date <= CURRENT_DATE + INTERVAL '3 days'
+           AND status NOT IN ('completed', 'cancelled')
+         ORDER BY service_date ASC, id ASC
+         LIMIT 10`
+      ).catch(() => [])
     ]);
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const soonMs = 7 * 24 * 60 * 60 * 1000;
+    const dateLevel = (value) => {
+      if (!value) return 'info';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return 'info';
+      date.setHours(0, 0, 0, 0);
+      if (date < today) return 'danger';
+      if (date.getTime() === today.getTime()) return 'warning';
+      return 'info';
+    };
 
     const projectItems = (projectRows || [])
       .filter((project) => Number(project.is_archived || 0) === 0)
@@ -13029,6 +13467,8 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
             id: `project-${project.id}-completed`,
             level: 'success',
             type: 'completed',
+            category: 'System',
+            href: `/admin?panel=project-records&search=${encodeURIComponent(project.project_docno || project.source_docno || project.project_name || '')}`,
             project_id: project.id,
             title: project.project_name || 'Untitled Project',
             message: 'Project completed successfully.',
@@ -13044,6 +13484,8 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
             id: `project-${project.id}-overdue`,
             level: 'danger',
             type: 'overdue',
+            category: 'Due Dates',
+            href: `/admin?panel=project-records&search=${encodeURIComponent(project.project_docno || project.source_docno || project.project_name || '')}`,
             project_id: project.id,
             title: project.project_name || 'Untitled Project',
             message: 'Project is overdue and still open.',
@@ -13059,6 +13501,8 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
             id: `project-${project.id}-deadline`,
             level: 'warning',
             type: 'deadline',
+            category: 'Due Dates',
+            href: `/admin?panel=project-records&search=${encodeURIComponent(project.project_docno || project.source_docno || project.project_name || '')}`,
             project_id: project.id,
             title: project.project_name || 'Untitled Project',
             message: 'Deadline is coming soon.',
@@ -13074,6 +13518,8 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
             id: `project-${project.id}-pending`,
             level: 'info',
             type: 'pending',
+            category: 'System',
+            href: `/admin?panel=project-records&search=${encodeURIComponent(project.project_docno || project.source_docno || project.project_name || '')}`,
             project_id: project.id,
             title: project.project_name || 'Untitled Project',
             message: 'Project is pending action or start confirmation.',
@@ -13089,6 +13535,8 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
             id: `project-${project.id}-upcoming`,
             level: 'info',
             type: 'pending',
+            category: 'System',
+            href: `/admin?panel=project-records&search=${encodeURIComponent(project.project_docno || project.source_docno || project.project_name || '')}`,
             project_id: project.id,
             title: project.project_name || 'Untitled Project',
             message: 'Project is starting soon.',
@@ -13104,12 +13552,110 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
       .filter(Boolean)
       .slice(0, 12);
 
+    const approvalItems = [
+      ...(requisitionRows || []).map((row) => ({
+        id: `approval-pr-${row.id}`,
+        level: 'warning',
+        type: 'approval',
+        category: 'Approvals',
+        href: '/procurement?tab=requisitions',
+        title: row.pr_number || 'Purchase Requisition',
+        message: 'Purchase requisition is waiting for approval.',
+        meta: `Requested by ${row.requested_by || 'Unknown'}`,
+        date: row.needed_by || row.request_date || null
+      })),
+      ...(purchaseOrderRows || []).map((row) => ({
+        id: `approval-po-${row.id}`,
+        level: 'warning',
+        type: 'approval',
+        category: 'Approvals',
+        href: '/procurement?tab=purchase-orders',
+        title: row.po_number || 'Purchase Order',
+        message: 'Purchase order is waiting for approval.',
+        meta: `Amount PHP ${Number(row.total_amount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`,
+        date: row.delivery_date || row.po_date || null
+      })),
+      ...(billRows || []).map((row) => ({
+        id: `approval-ap-bill-${row.id}`,
+        level: 'warning',
+        type: 'approval',
+        category: 'Approvals',
+        href: '/accounts-payable?tab=bills',
+        title: row.bill_number || 'AP Bill',
+        message: 'AP bill needs review and approval.',
+        meta: `Amount PHP ${Number(row.total_amount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`,
+        date: row.due_date || row.bill_date || null
+      })),
+      ...(paymentRows || []).map((row) => ({
+        id: `approval-payment-${row.id}`,
+        level: 'warning',
+        type: 'approval',
+        category: 'Approvals',
+        href: '/accounts-payable?tab=payments',
+        title: `${String(row.payment_type || '').toUpperCase()} Payment`,
+        message: 'Payment is waiting for approval.',
+        meta: `Amount PHP ${Number(row.amount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`,
+        date: row.payment_date || null
+      }))
+    ];
+
+    const dueItems = [
+      ...(receivableRows || []).map((row) => ({
+        id: `due-ar-${row.id}`,
+        level: dateLevel(row.due_date),
+        type: 'due',
+        category: 'Due Dates',
+        href: '/accounts-receivable?tab=customer-balances',
+        title: row.invoice_number || 'Customer Invoice',
+        message: `${row.customer_name || 'Customer'} invoice is ${dateLevel(row.due_date) === 'danger' ? 'overdue' : 'due soon'}.`,
+        meta: `Balance PHP ${Math.max(0, Number(row.total_amount || 0) - Number(row.paid_amount || 0)).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`,
+        date: row.due_date || null
+      })),
+      ...(payableDueRows || []).map((row) => ({
+        id: `due-ap-${row.id}`,
+        level: dateLevel(row.due_date),
+        type: 'due',
+        category: 'Due Dates',
+        href: '/accounts-payable?tab=bills',
+        title: row.bill_number || 'Vendor Bill',
+        message: `Vendor bill is ${dateLevel(row.due_date) === 'danger' ? 'overdue' : 'due soon'}.`,
+        meta: `Balance PHP ${Math.max(0, Number(row.total_amount || 0) - Number(row.paid_amount || 0)).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`,
+        date: row.due_date || null
+      }))
+    ];
+
+    const inventoryItems = (inventoryRows || []).map((row) => ({
+      id: `inventory-low-${row.id}`,
+      level: 'danger',
+      type: 'inventory',
+      category: 'Inventory',
+      href: '/inventory',
+      title: row.product_name || row.sku || 'Low Stock Item',
+      message: 'Stock is at or below reorder level.',
+      meta: `${row.warehouse_name || 'Warehouse'} | On hand ${Number(row.quantity_on_hand || 0)} / Reorder ${Number(row.reorder_level || 0)}`,
+      date: new Date().toISOString()
+    }));
+
+    const serviceItems = (serviceRows || []).map((row) => ({
+      id: `service-due-${row.id}`,
+      level: dateLevel(row.service_date),
+      type: 'service',
+      category: 'Service',
+      href: '/service-operations?tab=service-orders',
+      title: row.so_number || 'Service Order',
+      message: row.service_title || 'Service schedule needs attention.',
+      meta: `${capitalizeProjectStatus(row.service_type || 'service')} | ${capitalizeProjectStatus(row.status || 'issued')}`,
+      date: row.service_date || null
+    }));
+
     const auditItems = (auditRows || []).map((row) => {
       const actorRole = formatAccessRoleLabel(row.actor_role);
       return {
         id: `audit-${row.id}`,
         level: ['DELETE', 'REJECT', 'CANCEL', 'ARCHIVE', 'BLOCKED'].some((word) => String(row.action || '').includes(word)) ? 'warning' : 'info',
         type: 'audit',
+        category: 'System',
+        href: '/admin?panel=system-logs',
         title: 'Audit Activity',
         message: `${row.actor_name || 'System'} (${actorRole}) - ${String(row.action || '').replace(/_/g, ' ')}`,
         meta: `${row.module || 'system'}${row.ip_address ? ` | IP ${row.ip_address}` : ''}`,
@@ -13121,9 +13667,16 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
       };
     });
 
-    const items = [...auditItems, ...projectItems]
+    const items = [
+      ...approvalItems,
+      ...dueItems,
+      ...inventoryItems,
+      ...serviceItems,
+      ...projectItems,
+      ...auditItems
+    ]
       .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
-      .slice(0, 20);
+      .slice(0, 80);
 
     res.json({
       count: items.length,
@@ -13218,8 +13771,6 @@ function getMissingProjectRequiredFields(input = {}) {
     ['member_phone', 'Phone 1'],
     ['start_date', 'Planned start date'],
     ['end_date', 'Planned end date'],
-    ['actual_start_date', 'Actual start date'],
-    ['actual_end_date', 'Actual end date'],
     ['budget', 'Contract amount'],
     ['downpayment', 'Downpayment']
   ];
