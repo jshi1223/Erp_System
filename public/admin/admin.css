@@ -559,10 +559,9 @@ body.admin-page[data-business-entity-theme="kvsk"] #dashboard .dashboard-stats .
 body.admin-page[data-business-entity-theme="kvsk"] #dashboard .dashboard-stats .stat-card-warning,
 body.admin-page[data-business-entity-theme="kvsk"] #dashboard .dashboard-stats .stat-card-danger,
 body.admin-page[data-business-entity-theme="kvsk"] #dashboard .dashboard-stats .stat-card-accent {
-  color: #fff !important;
+  color: #281716 !important;
   background:
-    radial-gradient(circle at top right, rgba(239, 91, 79, 0.28), transparent 34%),
-    linear-gradient(145deg, rgba(180, 35, 24, 0.98), rgba(75, 18, 16, 0.98)) !important;
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(255, 248, 247, 0.95)) !important;
 }
 
 html[data-business-entity-theme="kitsi"] body.admin-page #dashboard .dashboard-stats .stat-card-company,
@@ -575,10 +574,9 @@ body.admin-page[data-business-entity-theme="kitsi"] #dashboard .dashboard-stats 
 body.admin-page[data-business-entity-theme="kitsi"] #dashboard .dashboard-stats .stat-card-warning,
 body.admin-page[data-business-entity-theme="kitsi"] #dashboard .dashboard-stats .stat-card-danger,
 body.admin-page[data-business-entity-theme="kitsi"] #dashboard .dashboard-stats .stat-card-accent {
-  color: #fff !important;
+  color: #281716 !important;
   background:
-    radial-gradient(circle at top right, rgba(34, 199, 232, 0.30), transparent 34%),
-    linear-gradient(145deg, rgba(8, 152, 199, 0.98), rgba(0, 91, 150, 0.98)) !important;
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(255, 248, 247, 0.95)) !important;
 }
 
 html[data-business-entity-theme] body.admin-page #dashboard .dashboard-stats .stat-card .stat-label,
@@ -587,14 +585,14 @@ html[data-business-entity-theme] body.admin-page #dashboard .dashboard-stats .st
 body.admin-page[data-business-entity-theme] #dashboard .dashboard-stats .stat-card .stat-label,
 body.admin-page[data-business-entity-theme] #dashboard .dashboard-stats .stat-card .stat-val,
 body.admin-page[data-business-entity-theme] #dashboard .dashboard-stats .stat-card .stat-val.gold {
-  color: #fff !important;
+  color: var(--primary-dark) !important;
 }
 
 html[data-business-entity-theme] body.admin-page #dashboard .dashboard-stats .stat-card .stat-icon,
 body.admin-page[data-business-entity-theme] #dashboard .dashboard-stats .stat-card .stat-icon {
-  color: #fff !important;
-  background: rgba(255, 255, 255, 0.14) !important;
-  border-color: rgba(255, 255, 255, 0.22) !important;
+  color: var(--primary) !important;
+  background: rgba(180, 35, 24, 0.07) !important;
+  border-color: rgba(180, 35, 24, 0.18) !important;
 }
 
 body.admin-page .project-ledger-page-subtitle {
@@ -1429,5 +1427,176 @@ body.admin-page .archive-center-tab.active .archive-tab-count {
     min-height: 42px !important;
     border-radius: 12px !important;
     padding: 0 14px !important;
+  }
+}
+
+/* Premium dashboard summary cards */
+body.admin-page #dashboard .stats.dashboard-stats {
+  gap: 14px !important;
+  align-items: stretch !important;
+  grid-template-columns: repeat(auto-fit, minmax(245px, 1fr)) !important;
+}
+
+body.admin-page #dashboard .dashboard-stats .stat-card,
+html[data-business-entity-theme] body.admin-page #dashboard .dashboard-stats .stat-card,
+body.admin-page[data-business-entity-theme] #dashboard .dashboard-stats .stat-card {
+  position: relative !important;
+  isolation: isolate !important;
+  display: grid !important;
+  grid-template-rows: 24px minmax(44px, 1fr) 24px !important;
+  min-height: 132px !important;
+  overflow: hidden !important;
+  padding: 18px 18px 16px !important;
+  border: 1px solid rgba(180, 35, 24, 0.16) !important;
+  border-left: 1px solid rgba(180, 35, 24, 0.16) !important;
+  border-radius: 14px !important;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(255, 248, 247, 0.95)) !important;
+  box-shadow:
+    0 18px 42px rgba(75, 18, 16, 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92) !important;
+  color: #281716 !important;
+  transform: translateY(0) !important;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease !important;
+}
+
+body.admin-page #dashboard .dashboard-stats .stat-card::before,
+html[data-business-entity-theme] body.admin-page #dashboard .dashboard-stats .stat-card::before,
+body.admin-page[data-business-entity-theme] #dashboard .dashboard-stats .stat-card::before {
+  content: "" !important;
+  position: absolute !important;
+  inset: 0 auto 0 0 !important;
+  z-index: -1 !important;
+  width: 5px !important;
+  background: linear-gradient(180deg, #d8493d, #7a1d16) !important;
+}
+
+body.admin-page #dashboard .dashboard-stats .stat-card::after,
+html[data-business-entity-theme] body.admin-page #dashboard .dashboard-stats .stat-card::after,
+body.admin-page[data-business-entity-theme] #dashboard .dashboard-stats .stat-card::after {
+  content: "" !important;
+  position: absolute !important;
+  right: -54px !important;
+  bottom: -66px !important;
+  z-index: -1 !important;
+  width: 150px !important;
+  height: 150px !important;
+  border-radius: 999px !important;
+  background:
+    radial-gradient(circle, rgba(180, 35, 24, 0.15), rgba(180, 35, 24, 0.04) 54%, transparent 68%) !important;
+  pointer-events: none !important;
+}
+
+body.admin-page #dashboard .dashboard-stats .stat-card-link:hover,
+body.admin-page #dashboard .dashboard-stats .stat-card-link:focus-visible {
+  border-color: rgba(180, 35, 24, 0.28) !important;
+  box-shadow:
+    0 22px 50px rgba(75, 18, 16, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.96) !important;
+  transform: translateY(-2px) !important;
+}
+
+body.admin-page #dashboard .dashboard-stats .stat-card .stat-icon,
+html[data-business-entity-theme] body.admin-page #dashboard .dashboard-stats .stat-card .stat-icon,
+body.admin-page[data-business-entity-theme] #dashboard .dashboard-stats .stat-card .stat-icon {
+  position: absolute !important;
+  top: 14px !important;
+  right: 14px !important;
+  display: inline-flex !important;
+  width: 44px !important;
+  height: 30px !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border: 1px solid rgba(180, 35, 24, 0.18) !important;
+  border-radius: 999px !important;
+  background: rgba(180, 35, 24, 0.07) !important;
+  color: #8f2119 !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86) !important;
+}
+
+body.admin-page #dashboard .dashboard-stats .stat-card .stat-icon svg {
+  width: 18px !important;
+  height: 18px !important;
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-width: 1.8 !important;
+}
+
+body.admin-page #dashboard .dashboard-stats .stat-card .stat-icon svg path,
+body.admin-page #dashboard .dashboard-stats .stat-card .stat-icon svg circle,
+body.admin-page #dashboard .dashboard-stats .stat-card .stat-icon svg rect,
+body.admin-page #dashboard .dashboard-stats .stat-card .stat-icon svg line,
+body.admin-page #dashboard .dashboard-stats .stat-card .stat-icon svg polyline,
+body.admin-page #dashboard .dashboard-stats .stat-card .stat-icon svg polygon {
+  fill: none !important;
+  stroke: currentColor !important;
+}
+
+body.admin-page #dashboard .dashboard-stats .stat-card .stat-label,
+html[data-business-entity-theme] body.admin-page #dashboard .dashboard-stats .stat-card .stat-label,
+body.admin-page[data-business-entity-theme] #dashboard .dashboard-stats .stat-card .stat-label {
+  max-width: calc(100% - 58px) !important;
+  color: #6f322d !important;
+  font-size: 0.66rem !important;
+  font-weight: 900 !important;
+  letter-spacing: 0.08em !important;
+  line-height: 1.2 !important;
+  text-transform: uppercase !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+body.admin-page #dashboard .dashboard-stats .stat-card .stat-val,
+body.admin-page #dashboard .dashboard-stats .stat-card .stat-val.gold,
+html[data-business-entity-theme] body.admin-page #dashboard .dashboard-stats .stat-card .stat-val,
+html[data-business-entity-theme] body.admin-page #dashboard .dashboard-stats .stat-card .stat-val.gold,
+body.admin-page[data-business-entity-theme] #dashboard .dashboard-stats .stat-card .stat-val,
+body.admin-page[data-business-entity-theme] #dashboard .dashboard-stats .stat-card .stat-val.gold {
+  align-self: center !important;
+  color: #7a1d16 !important;
+  font-family: "Playfair Display", Georgia, serif !important;
+  font-size: clamp(1.55rem, 1.9vw, 2.05rem) !important;
+  font-weight: 800 !important;
+  letter-spacing: 0 !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+}
+
+body.admin-page #dashboard .dashboard-stats .stat-card .stat-mini,
+html[data-business-entity-theme] body.admin-page #dashboard .dashboard-stats .stat-card .stat-mini,
+body.admin-page[data-business-entity-theme] #dashboard .dashboard-stats .stat-card .stat-mini {
+  align-self: end !important;
+  width: 100% !important;
+  color: #7d6963 !important;
+  font-size: 0.66rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.08em !important;
+  line-height: 1.25 !important;
+  text-transform: uppercase !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+body.admin-page #dashboard .dashboard-stats .stat-card.stat-card-warning::before {
+  background: linear-gradient(180deg, #c95d32, #8f2119) !important;
+}
+
+body.admin-page #dashboard .dashboard-stats .stat-card.stat-card-danger::before {
+  background: linear-gradient(180deg, #b42318, #5f1711) !important;
+}
+
+body.admin-page #dashboard .dashboard-stats .stat-card.stat-card-accent::before {
+  background: linear-gradient(180deg, #ef5b4f, #8f2119) !important;
+}
+
+@media (max-width: 720px) {
+  body.admin-page #dashboard .stats.dashboard-stats {
+    grid-template-columns: 1fr !important;
+  }
+
+  body.admin-page #dashboard .dashboard-stats .stat-card {
+    min-height: 124px !important;
   }
 }
