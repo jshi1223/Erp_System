@@ -105,6 +105,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     applyPermissionMatrix();
+    renderStaffDashboard();
 
     if (document.querySelector('.stats')) {
       loadRecords();
@@ -457,8 +458,10 @@ function updateRoleBadge(userOrRole) {
   badge.dataset.userReady = '1';
   try {
     localStorage.setItem(USER_BADGE_CACHE_KEY, JSON.stringify({
+      id: user?.id || '',
       fullname: user?.fullname || '',
       username: user?.username || '',
+      email: user?.email || '',
       role: safeRole
     }));
   } catch (_) {}
@@ -510,8 +513,18 @@ function openDashboardPanel(panel = 'home', opts = {}) {
   if (statsRow) {
     statsRow.style.display = panel === 'home' ? 'grid' : 'none';
   }
+  const staffWorkspace = document.getElementById('staff-workspace');
+  if (staffWorkspace) {
+    staffWorkspace.classList.toggle('is-hidden', panel !== 'home' || !isStaffUser());
+  }
+  const approvalCenter = document.getElementById('approval-center');
+  if (approvalCenter) {
+    approvalCenter.classList.toggle('is-hidden', panel !== 'home' || !isAdminUser());
+  }
   if (panel === 'home') {
     updateSidebarMenuState('dashboard');
+    if (isAdminUser()) renderApprovalCenter();
+    if (isStaffUser()) renderStaffDashboard();
   } else if (panel === 'reports') {
     updateSidebarMenuState('reports');
   } else if (panel === 'project-records') {
@@ -570,6 +583,7 @@ function loadProjectsDashboardData() {
           console.error('Dashboard stats refresh error:', err);
         });
       }
+      renderStaffDashboard();
       if (currentDashboardPanel === 'project-records') {
         renderProjectWorkspace();
       }
@@ -1351,6 +1365,7 @@ function renderProjectMasterTable() {
   const list = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
     .map(project => ({ ...project, lifecycle: getProjectLifecycleLabel(project) }))
     .filter(project => businessEntityMatches(project))
+    .filter(project => !projectHiddenFromAdmin(project))
     .filter(project => {
       const isArchived = Number(project.is_archived || 0) === 1;
       if (lifecycleFilter === 'archived') return isArchived;
@@ -1565,7 +1580,13 @@ function getProjectWorkspaceProjects({ includeArchived = false } = {}) {
   return (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
     .filter((project) => includeArchived || Number(project.is_archived || 0) === 0)
     .filter((project) => businessEntityMatches(project))
-    .filter((project) => companyMatchesDashboardFilter(getProjectCompanyName(project)));
+    .filter((project) => !projectHiddenFromAdmin(project))
+    .filter((project) => !isStaffUser() || projectVisibleToCurrentStaff(project))
+    .filter((project) => {
+      if (!isStaffUser()) return companyMatchesDashboardFilter(getProjectCompanyName(project));
+      const status = String(project.status || '').trim().toLowerCase();
+      return status === 'draft' || status === 'submitted' || companyMatchesDashboardFilter(getProjectCompanyName(project));
+    });
 }
 
 function projectWorkspaceMatchesSearch(values, query = getProjectWorkspaceQuery()) {
@@ -3682,6 +3703,11 @@ let currentDashboardCompany = normalizeDashboardCompanyName(localStorage.getItem
 let logsDb = [];
 let notificationsDb = [];
 let archiveCenterDb = [];
+let currentStaffWorkFilter = 'all';
+let staffProjectsLazyLoadAttempted = false;
+let staffPendingProjectRequestsDb = [];
+let currentApprovalFilter = 'all';
+let approvalCenterItems = [];
 let archiveCenterActiveTab = 'project';
 let notificationReadIds = new Set();
 let invoiceStatusView = 'paid';
@@ -4114,6 +4140,874 @@ function applyPermissionMatrix() {
   document.querySelectorAll('[data-staff-draft-note]').forEach((node) => {
     node.style.display = role === 'staff' ? '' : 'none';
   });
+
+  document.querySelectorAll('#stat-card-company-registry, #stat-card-projects, #stat-card-service-operations, #stat-card-procurement, #stat-card-inventory').forEach((node) => {
+    if (!node) return;
+    if (role === 'staff') {
+      node.style.display = '';
+      node.setAttribute('aria-hidden', 'false');
+    }
+  });
+
+  document.querySelectorAll('#stat-card-ap, #stat-card-ar, #stat-card-reports').forEach((node) => {
+    if (!node) return;
+    const hideForStaff = role === 'staff';
+    node.style.display = hideForStaff ? 'none' : '';
+    node.setAttribute('aria-hidden', hideForStaff ? 'true' : 'false');
+  });
+
+  document.querySelectorAll('#stat-card-sales').forEach((node) => {
+    if (!node) return;
+    const hideForStaff = role === 'staff';
+    node.style.display = hideForStaff ? 'none' : '';
+    node.setAttribute('aria-hidden', hideForStaff ? 'true' : 'false');
+  });
+
+  const staffWorkspace = document.getElementById('staff-workspace');
+  if (staffWorkspace) {
+    staffWorkspace.classList.toggle('is-hidden', role !== 'staff' || currentDashboardPanel !== 'home');
+  }
+  const approvalCenter = document.getElementById('approval-center');
+  if (approvalCenter) {
+    approvalCenter.classList.toggle('is-hidden', !isAdminRoleValue(role) || currentDashboardPanel !== 'home');
+  }
+
+  syncDashboardRoleLabels(role);
+  renderRoleAccessPanel(role);
+}
+
+function syncDashboardRoleLabels(roleValue = normalizeAccessRole(currentUser?.role)) {
+  const role = normalizeAccessRole(roleValue);
+  const projectLabel = document.querySelector('#stat-card-projects .stat-label');
+  if (projectLabel) projectLabel.textContent = role === 'staff' ? 'Approved Projects' : 'Projects';
+
+  const requestCardLabel = document.querySelector('.staff-summary-card[onclick*="requests"] span');
+  const requestCardMini = document.querySelector('.staff-summary-card[onclick*="requests"] small');
+  if (requestCardLabel) requestCardLabel.textContent = 'Drafts / For Approval';
+  if (requestCardMini) requestCardMini.textContent = 'Not yet in module count';
+}
+
+function renderRoleAccessPanel(roleValue = normalizeAccessRole(currentUser?.role)) {
+  const panel = document.getElementById('role-access-panel');
+  if (!panel) return;
+
+  const role = normalizeAccessRole(roleValue);
+  const title = document.getElementById('role-access-title');
+  const summary = document.getElementById('role-access-summary');
+  const chips = document.getElementById('role-access-chips');
+  const kicker = document.getElementById('role-access-kicker');
+  const config = {
+    super_admin: {
+      kicker: 'Owner Access',
+      title: 'Super Admin - Full System Control',
+      summary: 'Can manage operating companies, users, roles, approvals, audit logs, archive, finance, reports, and all ERP modules.',
+      chips: ['Company Setup', 'User Roles', 'Approvals', 'Finance', 'Audit Logs', 'Archive']
+    },
+    admin: {
+      kicker: 'Admin Access',
+      title: 'Admin - Operations and Approval Control',
+      summary: 'Can manage operational records, approvals, reports, logs, and archive. Company setup and owner-level role changes remain Super Admin only.',
+      chips: ['Operations', 'Approvals', 'Reports', 'Logs', 'Archive']
+    },
+    staff: {
+      kicker: 'Staff Access',
+      title: 'Staff - Daily Operations Workspace',
+      summary: 'Can work on assigned records, drafts, service orders, purchase requests, inventory, sales invoices, and collections. Finance totals and system settings are hidden.',
+      chips: ['My Work Queue', 'Drafts', 'Service Orders', 'Purchase Requests', 'Inventory']
+    },
+    user: {
+      kicker: 'Limited Access',
+      title: 'User - Account Status',
+      summary: 'Limited account access only. An admin must approve operational access before ERP modules are available.',
+      chips: ['Status Only']
+    }
+  };
+  const selected = config[role] || config.user;
+
+  panel.dataset.roleAccess = role;
+  if (kicker) kicker.textContent = selected.kicker;
+  if (title) title.textContent = selected.title;
+  if (summary) summary.textContent = selected.summary;
+  if (chips) {
+    chips.innerHTML = selected.chips.map((chip) => `<span class="role-access-chip">${escHtml(chip)}</span>`).join('');
+  }
+}
+
+function approvalStatusPending(value) {
+  const status = String(value || '').trim().toLowerCase();
+  return ['pending', 'submitted', 'for_approval', 'for approval'].includes(status);
+}
+
+function getApprovalDate(row, fields = []) {
+  const keys = fields.length ? fields : ['submitted_at', 'updated_at', 'created_at', 'request_date', 'date'];
+  for (const key of keys) {
+    const value = row?.[key];
+    if (value) return formatDateYmd(value);
+  }
+  return '-';
+}
+
+function makeApprovalItem({ category, type, title, requestedBy, date, status, url, approveUrl, rejectUrl, timeline = [], checklist = [] }) {
+  return {
+    category,
+    type,
+    title: String(title || '-').trim() || '-',
+    requestedBy: String(requestedBy || '-').trim() || '-',
+    date: String(date || '-').trim() || '-',
+    status: String(status || 'pending').trim() || 'pending',
+    url: String(url || '/admin').trim(),
+    approveUrl: String(approveUrl || '').trim(),
+    rejectUrl: String(rejectUrl || '').trim(),
+    timeline: Array.isArray(timeline) ? timeline : [],
+    checklist: Array.isArray(checklist) ? checklist : []
+  };
+}
+
+function buildApprovalTimeline(row = {}, labels = {}) {
+  const rows = [
+    { label: labels.created || 'Created', value: row.created_at || row.request_date || row.bill_date || row.payment_date || row.po_date },
+    { label: labels.submitted || 'Submitted', value: row.submitted_at },
+    { label: labels.approved || 'Approved', value: row.approved_at }
+  ];
+  return rows
+    .filter(item => item.value)
+    .map(item => `${item.label}: ${formatDateYmd(item.value)}`);
+}
+
+function buildApprovalChecklist(items = []) {
+  return items.filter(Boolean).map(item => String(item));
+}
+
+async function fetchJsonOrEmpty(url) {
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    const data = await res.json().catch(() => []);
+    if (!res.ok) return [];
+    return Array.isArray(data) ? data : (Array.isArray(data.items) ? data.items : []);
+  } catch (err) {
+    console.error(`Unable to load ${url}:`, err);
+    return [];
+  }
+}
+
+async function loadApprovalCenterItems() {
+  if (!isAdminUser()) return [];
+  const [
+    projects,
+    requisitions,
+    purchaseOrders,
+    bills,
+    payments,
+    users
+  ] = await Promise.all([
+    fetchJsonOrEmpty('/api/projects?include_archived=1'),
+    fetchJsonOrEmpty('/api/procurement/requisitions'),
+    fetchJsonOrEmpty('/api/procurement/purchase-orders'),
+    fetchJsonOrEmpty('/api/bills'),
+    fetchJsonOrEmpty('/api/payments'),
+    fetchJsonOrEmpty('/api/admin/users')
+  ]);
+
+  const items = [];
+
+  projects
+    .filter(row => Number(row.is_archived || 0) === 0)
+    .filter(row => String(row.status || '').toLowerCase() === 'submitted')
+    .forEach(row => {
+      items.push(makeApprovalItem({
+        category: 'projects',
+        type: 'Project',
+        title: getProjectLinkLabel(row) || row.project_name,
+        requestedBy: row.created_by_name || row.project_manager || row.project_members || '-',
+        date: getApprovalDate(row, ['submitted_at', 'updated_at', 'created_at', 'planned_start_date']),
+        status: 'submitted',
+        url: '/admin?panel=project-records&tab=projects',
+        approveUrl: `/api/projects/${Number(row.id || 0)}/approve`,
+        rejectUrl: `/api/projects/${Number(row.id || 0)}/reject`,
+        timeline: buildApprovalTimeline(row),
+        checklist: buildApprovalChecklist([
+          row.company_name || row.registry_company_name ? 'Company selected' : 'Company missing',
+          row.project_name ? 'Project title ready' : 'Project title missing',
+          row.planned_start_date && row.planned_end_date ? 'Planned dates complete' : 'Planned dates incomplete',
+          row.project_manager ? 'Project manager assigned' : 'Project manager missing'
+        ])
+      }));
+    });
+
+  requisitions
+    .filter(row => approvalStatusPending(row.status))
+    .forEach(row => {
+      items.push(makeApprovalItem({
+        category: 'procurement',
+        type: 'Purchase Request',
+        title: row.pr_number || row.item_summary || 'Purchase Requisition',
+        requestedBy: row.requested_by || row.submitted_by || '-',
+        date: getApprovalDate(row, ['submitted_at', 'request_date', 'needed_by']),
+        status: row.status || 'pending',
+        url: '/procurement?tab=requisitions',
+        approveUrl: `/api/procurement/requisitions/${Number(row.id || 0)}/approve`,
+        rejectUrl: `/api/procurement/requisitions/${Number(row.id || 0)}/reject`,
+        timeline: buildApprovalTimeline(row, { created: 'Requested' }),
+        checklist: buildApprovalChecklist([
+          row.company_name ? 'Company selected' : 'Company missing',
+          row.requested_by ? 'Requester set' : 'Requester missing',
+          row.needed_by ? 'Needed-by date set' : 'Needed-by date missing',
+          row.item_summary ? 'Items summarized' : 'Item summary missing'
+        ])
+      }));
+    });
+
+  purchaseOrders
+    .filter(row => approvalStatusPending(row.status))
+    .forEach(row => {
+      items.push(makeApprovalItem({
+        category: 'procurement',
+        type: 'Purchase Order',
+        title: row.po_number || 'Purchase Order',
+        requestedBy: row.prepared_by || row.submitted_by || '-',
+        date: getApprovalDate(row, ['submitted_at', 'po_date', 'delivery_date']),
+        status: row.status || 'pending',
+        url: '/procurement?tab=purchase-orders',
+        approveUrl: `/api/procurement/purchase-orders/${Number(row.id || 0)}/approve`,
+        rejectUrl: `/api/procurement/purchase-orders/${Number(row.id || 0)}/reject`,
+        timeline: buildApprovalTimeline(row, { created: 'Prepared' }),
+        checklist: buildApprovalChecklist([
+          row.vendor_name ? 'Vendor selected' : 'Vendor missing',
+          row.po_number ? 'PO number ready' : 'PO number missing',
+          row.delivery_date ? 'Delivery date set' : 'Delivery date missing',
+          Number(row.total_amount || 0) > 0 ? 'Amount valid' : 'Amount missing'
+        ])
+      }));
+    });
+
+  bills
+    .filter(row => approvalStatusPending(row.approval_status))
+    .forEach(row => {
+      items.push(makeApprovalItem({
+        category: 'finance',
+        type: 'AP Bill',
+        title: row.bill_number || 'Bill',
+        requestedBy: row.vendor_name || row.notes || '-',
+        date: getApprovalDate(row, ['bill_date', 'due_date', 'created_at']),
+        status: row.approval_status || 'pending',
+        url: '/accounts-payable?tab=bills',
+        approveUrl: `/api/bills/${Number(row.id || 0)}/approve`,
+        rejectUrl: `/api/bills/${Number(row.id || 0)}/reject`,
+        timeline: buildApprovalTimeline(row, { created: 'Bill date' }),
+        checklist: buildApprovalChecklist([
+          row.vendor_name ? 'Vendor linked' : 'Vendor missing',
+          row.bill_number ? 'Bill number ready' : 'Bill number missing',
+          row.due_date ? 'Due date set' : 'Due date missing',
+          Number(row.total_amount || 0) > 0 ? 'Amount valid' : 'Amount missing'
+        ])
+      }));
+    });
+
+  payments
+    .filter(row => approvalStatusPending(row.approval_status))
+    .forEach(row => {
+      items.push(makeApprovalItem({
+        category: 'finance',
+        type: 'Payment',
+        title: [row.payment_type, row.reference_number].filter(Boolean).join(' - ') || 'Payment',
+        requestedBy: row.payment_method || '-',
+        date: getApprovalDate(row, ['payment_date', 'created_at']),
+        status: row.approval_status || 'pending',
+        url: row.payment_type === 'ar' ? '/accounts-receivable?tab=collections' : '/accounts-payable?tab=payments',
+        approveUrl: `/api/payments/${Number(row.id || 0)}/approve`,
+        rejectUrl: `/api/payments/${Number(row.id || 0)}/reject`,
+        timeline: buildApprovalTimeline(row, { created: 'Payment date' }),
+        checklist: buildApprovalChecklist([
+          row.payment_type ? 'Payment type set' : 'Payment type missing',
+          row.payment_method ? 'Payment method set' : 'Payment method missing',
+          row.reference_number ? 'Reference number set' : 'Reference number missing',
+          Number(row.amount || 0) > 0 ? 'Amount valid' : 'Amount missing'
+        ])
+      }));
+    });
+
+  users
+    .filter(row => approvalStatusPending(row.approval_status))
+    .forEach(row => {
+      items.push(makeApprovalItem({
+        category: 'users',
+        type: 'User Account',
+        title: row.fullname || row.username || row.email || 'User',
+        requestedBy: row.email || row.username || '-',
+        date: getApprovalDate(row, ['created_at']),
+        status: row.approval_status || 'pending',
+        url: '/user-management',
+        approveUrl: `/api/admin/users/${Number(row.id || 0)}/approve`,
+        rejectUrl: `/api/admin/users/${Number(row.id || 0)}/reject`,
+        timeline: buildApprovalTimeline(row, { created: 'Registered' }),
+        checklist: buildApprovalChecklist([
+          row.email ? 'Email provided' : 'Email missing',
+          row.username ? 'Username provided' : 'Username missing',
+          row.role ? 'Requested role set' : 'Role missing'
+        ])
+      }));
+    });
+
+  approvalCenterItems = items;
+  return items;
+}
+
+function setApprovalMetric(id, value) {
+  const node = document.getElementById(id);
+  if (node) node.textContent = String(value || 0);
+}
+
+function filterApprovalCenter(filter = 'all') {
+  currentApprovalFilter = ['all', 'projects', 'procurement', 'finance', 'users'].includes(String(filter)) ? String(filter) : 'all';
+  renderApprovalCenter(false, true);
+}
+
+async function postApprovalCenterAction(url, { reason = '', method = 'POST' } = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (window.__CSRF_TOKEN__) headers['X-CSRF-Token'] = window.__CSRF_TOKEN__;
+  const res = await fetch(url, {
+    method,
+    credentials: 'same-origin',
+    headers,
+    body: JSON.stringify(reason ? { reason } : {})
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Action failed.');
+  return data;
+}
+
+async function approveApprovalItem(index) {
+  const item = approvalCenterItems[Number(index || 0)];
+  if (!item?.approveUrl) return;
+  try {
+    if (!window.confirm(`Approve ${item.type}: ${item.title}?`)) return;
+    if (item.category === 'users') {
+      await postApprovalCenterAction(item.approveUrl, { method: 'PATCH' });
+    } else {
+      await postApprovalCenterAction(item.approveUrl);
+    }
+    showToast('Approved successfully.', 'success');
+    await renderApprovalCenter(true);
+  } catch (err) {
+    showToast(err.message || 'Unable to approve.', 'error');
+  }
+}
+
+async function rejectApprovalItem(index) {
+  const item = approvalCenterItems[Number(index || 0)];
+  if (!item?.rejectUrl) return;
+  const reason = window.prompt(`Reason for rejecting ${item.type}: ${item.title}`);
+  if (reason === null) return;
+  const safeReason = String(reason || '').trim();
+  if (!safeReason) {
+    showToast('Rejection reason is required.', 'error');
+    return;
+  }
+  try {
+    const method = item.category === 'users' ? 'PATCH' : 'POST';
+    await postApprovalCenterAction(item.rejectUrl, { reason: safeReason, method });
+    showToast('Rejected and returned for revision.', 'success');
+    await renderApprovalCenter(true);
+  } catch (err) {
+    showToast(err.message || 'Unable to reject.', 'error');
+  }
+}
+
+function showApprovalItemTimeline(index) {
+  const item = approvalCenterItems[Number(index || 0)];
+  if (!item) return;
+  const timeline = item.timeline.length ? item.timeline.join('\n') : 'No timeline yet.';
+  const checklist = item.checklist.length ? item.checklist.map(row => `- ${row}`).join('\n') : '- No checklist items.';
+  window.alert(`${item.type}: ${item.title}\n\nTimeline\n${timeline}\n\nDocument / Data Checklist\n${checklist}`);
+}
+
+function getApprovalSlaState(dateValue) {
+  const date = toDateOnly(dateValue);
+  if (!date) return { label: 'No SLA date', className: 'status-muted' };
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((date.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+  if (diffDays < -3) return { label: 'Critical overdue', className: 'status-cancelled' };
+  if (diffDays < 0) return { label: 'Overdue', className: 'status-overdue' };
+  if (diffDays === 0) return { label: 'Due today', className: 'status-pending' };
+  return { label: 'Within SLA', className: 'status-approved' };
+}
+
+async function renderApprovalCenter(force = false, useCache = false) {
+  const panel = document.getElementById('approval-center');
+  if (!panel) return;
+  const showPanel = isAdminUser() && currentDashboardPanel === 'home';
+  panel.classList.toggle('is-hidden', !showPanel);
+  if (!showPanel) return;
+
+  const items = useCache && approvalCenterItems.length ? approvalCenterItems : await loadApprovalCenterItems(force);
+  const counts = {
+    all: items.length,
+    projects: items.filter(item => item.category === 'projects').length,
+    procurement: items.filter(item => item.category === 'procurement').length,
+    finance: items.filter(item => item.category === 'finance').length,
+    users: items.filter(item => item.category === 'users').length
+  };
+  setApprovalMetric('approval-count-all', counts.all);
+  setApprovalMetric('approval-count-projects', counts.projects);
+  setApprovalMetric('approval-count-procurement', counts.procurement);
+  setApprovalMetric('approval-count-finance', counts.finance);
+  setApprovalMetric('approval-count-users', counts.users);
+
+  document.querySelectorAll('.approval-summary-card').forEach((card) => {
+    const onclick = String(card.getAttribute('onclick') || '');
+    card.classList.toggle('is-active', onclick.includes(`'${currentApprovalFilter}'`));
+  });
+
+  const subtitle = document.getElementById('approval-center-subtitle');
+  const subtitleMap = {
+    all: 'Showing all pending approvals',
+    projects: 'Showing submitted project drafts',
+    procurement: 'Showing purchase requests and orders',
+    finance: 'Showing bills and payments',
+    users: 'Showing pending user accounts'
+  };
+  if (subtitle) subtitle.textContent = subtitleMap[currentApprovalFilter] || subtitleMap.all;
+
+  const visibleItems = items
+    .map((item, index) => ({ ...item, index }))
+    .filter(item => currentApprovalFilter === 'all' || item.category === currentApprovalFilter);
+  const tbody = document.getElementById('approval-center-body');
+  if (!tbody) return;
+  if (!visibleItems.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No pending approvals for this view.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = visibleItems.map((item) => {
+    const sla = getApprovalSlaState(item.date);
+    return `
+      <tr>
+        <td>${escHtml(item.type)}</td>
+        <td>${escHtml(item.title)}</td>
+        <td>${escHtml(item.requestedBy)}</td>
+        <td>${escHtml(item.date)}<div style="margin-top:4px;"><span class="status-pill ${escHtml(sla.className)}">${escHtml(sla.label)}</span></div></td>
+        <td><span class="status-pill status-submitted">${escHtml(String(item.status || 'pending').replace(/_/g, ' '))}</span></td>
+        <td class="text-center">
+          <button class="btn btn-add btn-sm" type="button" onclick="approveApprovalItem(${Number(item.index)})">Approve</button>
+          <button class="btn btn-delete btn-sm" type="button" onclick="rejectApprovalItem(${Number(item.index)})">Reject</button>
+          <button class="btn btn-cancel btn-sm" type="button" onclick="showApprovalItemTimeline(${Number(item.index)})">Timeline</button>
+          <button class="btn btn-cancel btn-sm" type="button" onclick="navigateDashboardCard('${escHtml(item.url)}')">Open</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function getStaffIdentityTerms() {
+  const user = currentUser || {};
+  return [
+    user.fullname,
+    user.name,
+    user.username,
+    user.email
+  ]
+    .map(value => String(value || '').trim().toLowerCase())
+    .filter(value => value.length >= 3);
+}
+
+function textContainsStaffTerm(value, terms = getStaffIdentityTerms()) {
+  const text = String(value || '').trim().toLowerCase();
+  if (!text || !terms.length) return false;
+  return terms.some(term => text.includes(term));
+}
+
+function isRecordOwnedByCurrentStaff(record) {
+  const userId = Number(currentUser?.id || 0) || 0;
+  if (!record) return false;
+  const ownerIds = [
+    record.created_by,
+    record.user_id,
+    record.owner_id,
+    record.assigned_to,
+    record.assigned_to_id
+  ].map(value => Number(value || 0)).filter(Boolean);
+  if (userId && ownerIds.includes(userId)) return true;
+
+  const terms = getStaffIdentityTerms();
+  return [
+    record.created_by,
+    record.user_id,
+    record.owner_id,
+    record.assigned_to,
+    record.assigned_to_id,
+    record.created_by_name,
+    record.created_by_username,
+    record.created_by_email,
+    record.assigned_to_name,
+    record.assigned_to_username,
+    record.assigned_to_email,
+    record.created_by_label,
+    record.owner_name,
+    record.assignee_name
+  ].some(value => textContainsStaffTerm(value, terms));
+}
+
+function projectAssignedToCurrentStaff(project) {
+  if (!project) return false;
+  if (isRecordOwnedByCurrentStaff(project)) return true;
+
+  const terms = getStaffIdentityTerms();
+  const fields = [
+    project.created_by,
+    project.assigned_to,
+    project.assigned_to_id,
+    project.created_by_name,
+    project.created_by_username,
+    project.created_by_email,
+    project.assigned_to_name,
+    project.assigned_to_username,
+    project.assigned_to_email,
+    project.project_manager,
+    project.manager,
+    project.members,
+    project.project_members,
+    project.member_role,
+    project.project_members_2,
+    project.member_role_2,
+    project.project_members_3,
+    project.member_role_3,
+    project.source_member_name,
+    project.source_member_name_2,
+    project.source_member_name_3
+  ];
+  return fields.some(value => textContainsStaffTerm(value, terms));
+}
+
+function projectVisibleToCurrentStaff(project) {
+  if (!project) return false;
+  const status = String(project.status || '').trim().toLowerCase();
+  if (status === 'draft' || status === 'submitted') return true;
+  return projectAssignedToCurrentStaff(project);
+}
+
+function projectHiddenFromAdmin(project) {
+  return isAdminUser() && String(project?.status || '').trim().toLowerCase() === 'draft';
+}
+
+function serviceOrderAssignedToCurrentStaff(row) {
+  if (!row) return false;
+  if (isRecordOwnedByCurrentStaff(row)) return true;
+
+  const terms = getStaffIdentityTerms();
+  const fields = [
+    row.assigned_to,
+    row.assignee,
+    row.technician,
+    row.technician_name,
+    row.prepared_by,
+    row.requested_by,
+    row.service_team,
+    row.service_title
+  ];
+  if (fields.some(value => textContainsStaffTerm(value, terms))) return true;
+
+  const projectId = Number(row.project_id || 0) || 0;
+  if (!projectId) return false;
+  const linkedProject = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
+    .find(project => Number(project.id || 0) === projectId);
+  return projectAssignedToCurrentStaff(linkedProject);
+}
+
+function getStaffRecordDate(record, type = 'project') {
+  if (type === 'service') {
+    return toDateOnly(record?.service_date || record?.scheduled_date || record?.date || record?.created_at);
+  }
+  return getProjectEffectiveEndDate(record) || toDateOnly(record?.created_at || record?.updated_at);
+}
+
+function getStaffWorkDueState(dateValue, status = '') {
+  const due = toDateOnly(dateValue);
+  if (!due) return 'none';
+  const closed = ['completed', 'cancelled', 'archived', 'paid', 'approved'].includes(String(status || '').toLowerCase());
+  if (closed) return 'none';
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (due < today) return 'overdue';
+  if (due.getTime() === today.getTime()) return 'due';
+  return 'upcoming';
+}
+
+function buildStaffWorkItems() {
+  if (!isStaffUser()) return [];
+
+  const projectItems = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
+    .filter(project => Number(project.is_archived || 0) === 0)
+    .filter(project => businessEntityMatches(project))
+    .filter(projectVisibleToCurrentStaff)
+    .map(project => {
+      const status = String(project.status || getProjectLifecycleLabel(project) || 'planning').toLowerCase();
+      const dueDate = getStaffRecordDate(project, 'project');
+      const dueState = getStaffWorkDueState(dueDate, status);
+      const requestState = ['draft', 'submitted'].includes(status);
+      return {
+        id: `project-${project.id}`,
+        recordId: Number(project.id || 0) || 0,
+        type: requestState ? 'Request' : 'Project',
+        module: 'Projects',
+        title: getProjectLinkLabel(project) || String(project.project_name || 'Untitled Project'),
+        status,
+        dueDate,
+        dueState,
+        category: requestState ? 'requests' : (dueState === 'overdue' ? 'overdue' : (dueState === 'due' ? 'due' : 'all')),
+        url: `/admin?panel=project-records&tab=projects`
+      };
+    });
+
+  const serviceItems = (Array.isArray(serviceOrdersDb) ? serviceOrdersDb : [])
+    .filter(row => Number(row.is_archived || 0) !== 1)
+    .filter(row => businessEntityMatches(row))
+    .filter(serviceOrderAssignedToCurrentStaff)
+    .map(row => {
+      const status = String(row.status || 'draft').toLowerCase();
+      const dueDate = getStaffRecordDate(row, 'service');
+      const dueState = getStaffWorkDueState(dueDate, status);
+      return {
+        id: `service-${row.id}`,
+        recordId: Number(row.id || 0) || 0,
+        type: 'Service',
+        module: 'Service Operations',
+        title: getTransactionServiceOrderLabel(row) || String(row.service_title || 'Service Order'),
+        status,
+        dueDate,
+        dueState,
+        category: 'service',
+        url: '/service-operations'
+      };
+    });
+
+  return [...projectItems, ...serviceItems]
+    .filter(item => !['completed', 'cancelled', 'archived'].includes(String(item.status || '').toLowerCase()))
+    .sort((a, b) => {
+      const rank = { overdue: 0, due: 1, requests: 2, service: 3, all: 4, upcoming: 5, none: 6 };
+      const rankA = rank[a.dueState] ?? rank[a.category] ?? 9;
+      const rankB = rank[b.dueState] ?? rank[b.category] ?? 9;
+      if (rankA !== rankB) return rankA - rankB;
+      const dateA = a.dueDate ? a.dueDate.getTime() : Number.MAX_SAFE_INTEGER;
+      const dateB = b.dueDate ? b.dueDate.getTime() : Number.MAX_SAFE_INTEGER;
+      return dateA - dateB;
+    });
+}
+
+function setStaffMetric(id, value) {
+  const node = document.getElementById(id);
+  if (node) node.textContent = String(value || 0);
+}
+
+async function loadStaffPendingProjectRequests() {
+  if (!isStaffUser()) return [];
+  try {
+    const res = await fetch('/api/projects?include_archived=1', { cache: 'no-store' });
+    const data = await res.json().catch(() => []);
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    staffPendingProjectRequestsDb = (Array.isArray(data) ? data : [])
+      .filter(project => Number(project.is_archived || 0) === 0)
+      .filter(project => ['draft', 'submitted'].includes(String(project.status || '').trim().toLowerCase()));
+  } catch (err) {
+    console.error('Staff pending projects load error:', err);
+    staffPendingProjectRequestsDb = [];
+  }
+  return staffPendingProjectRequestsDb;
+}
+
+function filterStaffWorkQueue(filter = 'all') {
+  currentStaffWorkFilter = ['all', 'due', 'overdue', 'requests', 'service'].includes(String(filter)) ? String(filter) : 'all';
+  renderStaffDashboard();
+}
+
+function openStaffWorkItem(type, id) {
+  const safeType = String(type || '').toLowerCase();
+  const safeId = Number(id || 0) || 0;
+  if (safeType === 'service') {
+    navigateDashboardCard('/service-operations');
+    return;
+  }
+  if (safeType === 'request' || safeType === 'project') {
+    if (safeId) {
+      currentProjectWorkspaceTab = 'projects';
+      localStorage.setItem('kinaadman_projectWorkspaceTab', 'projects');
+    }
+    openDashboardPanel('project-records');
+  }
+}
+
+function renderStaffRequestAction(row) {
+  const type = String(row?.type || '').toLowerCase();
+  const status = String(row?.status || '').toLowerCase();
+  const id = Number(row?.id || 0);
+
+  if (type === 'project' && id && (status === 'draft' || status === 'rejected')) {
+    return `
+      <div class="project-master-actions">
+        <button class="btn btn-edit btn-sm" type="button" onclick="openProjectModal(${id})">Edit</button>
+        <button class="btn btn-add btn-sm" type="button" onclick="submitProject(${id})">${status === 'rejected' ? 'Resubmit' : 'Submit'}</button>
+      </div>
+    `;
+  }
+
+  if (['submitted', 'pending'].includes(status)) {
+    return '<span class="status-pill status-submitted">Waiting for Admin</span>';
+  }
+
+  return `<button class="btn btn-cancel btn-sm" type="button" onclick="navigateDashboardCard('${escHtml(row?.url || '/admin')}')">Open</button>`;
+}
+
+function renderStaffDashboard() {
+  const workspace = document.getElementById('staff-workspace');
+  if (!workspace) return;
+
+  const showWorkspace = isStaffUser() && currentDashboardPanel === 'home';
+  workspace.classList.toggle('is-hidden', !showWorkspace);
+  if (!showWorkspace) return;
+
+  refreshCompanyRegistryStatCard();
+
+  if (!staffProjectsLazyLoadAttempted && (!Array.isArray(projectsDashboardDb) || projectsDashboardDb.length === 0)) {
+    staffProjectsLazyLoadAttempted = true;
+    loadProjectsDashboardData().catch((err) => {
+      console.error('Staff project lazy load error:', err);
+    });
+  }
+
+  const items = buildStaffWorkItems();
+  const dueItems = items.filter(item => item.dueState === 'due');
+  const overdueItems = items.filter(item => item.dueState === 'overdue');
+  const requestItems = items.filter(item => item.category === 'requests');
+  const serviceItems = items.filter(item => item.category === 'service');
+
+  setStaffMetric('staff-work-total', items.length);
+  setStaffMetric('staff-work-due', dueItems.length);
+  setStaffMetric('staff-work-overdue', overdueItems.length);
+  setStaffMetric('staff-work-requests', requestItems.length);
+  setStaffMetric('staff-work-service', serviceItems.length);
+
+  document.querySelectorAll('.staff-summary-card').forEach((card) => {
+    const onclick = String(card.getAttribute('onclick') || '');
+    card.classList.toggle('is-active', onclick.includes(`'${currentStaffWorkFilter}'`));
+  });
+
+  const subtitle = document.getElementById('staff-work-subtitle');
+  const subtitleMap = {
+    all: 'Showing all assigned work',
+    due: 'Showing records due today',
+    overdue: 'Showing overdue records',
+    requests: 'Showing draft and submitted requests',
+    service: 'Showing active service orders'
+  };
+  if (subtitle) subtitle.textContent = subtitleMap[currentStaffWorkFilter] || subtitleMap.all;
+
+  const visibleItems = items.filter(item => {
+    if (currentStaffWorkFilter === 'all') return true;
+    if (currentStaffWorkFilter === 'due') return item.dueState === 'due';
+    if (currentStaffWorkFilter === 'overdue') return item.dueState === 'overdue';
+    return item.category === currentStaffWorkFilter;
+  }).slice(0, 10);
+
+  const tbody = document.getElementById('staff-work-body');
+  if (!tbody) return;
+  if (!visibleItems.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No work items for this view.</td></tr>';
+    renderStaffRequestTracker();
+    return;
+  }
+
+  tbody.innerHTML = visibleItems.map((item) => {
+    const dueText = item.dueDate ? formatDateYmd(item.dueDate) : '-';
+    const statusText = String(item.status || 'open').replace(/_/g, ' ');
+    const statusClass = `status-${String(item.status || 'open').replace(/_/g, '-')}`;
+    const actionType = item.type === 'Service' ? 'service' : (item.type === 'Request' ? 'request' : 'project');
+    return `
+      <tr>
+        <td>${escHtml(item.type)}</td>
+        <td>${escHtml(item.title)}</td>
+        <td>${escHtml(item.module)}</td>
+        <td>${escHtml(dueText)}</td>
+        <td><span class="status-pill ${escHtml(statusClass)}">${escHtml(statusText)}</span></td>
+        <td class="text-center">
+          <button class="btn btn-cancel btn-sm staff-work-open-btn" type="button" onclick="openStaffWorkItem('${actionType}', ${Number(item.recordId || 0)})">Open</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  renderStaffRequestTracker();
+}
+
+async function renderStaffRequestTracker() {
+  const tbody = document.getElementById('staff-request-body');
+  if (!tbody || !isStaffUser()) return;
+
+  const terms = getStaffIdentityTerms();
+  const pendingProjects = await loadStaffPendingProjectRequests();
+  setStaffMetric('staff-work-requests', pendingProjects.length);
+  const totalMetric = document.getElementById('staff-work-total');
+  if (totalMetric && Number(totalMetric.textContent || 0) < pendingProjects.length) {
+    totalMetric.textContent = String(pendingProjects.length);
+  }
+  const projectRequests = pendingProjects
+    .filter(project => Number(project.is_archived || 0) === 0)
+    .map(project => ({
+      type: 'Project',
+      id: Number(project.id || 0),
+      title: getProjectLinkLabel(project) || project.project_name || 'Project Draft',
+      module: 'Projects',
+      status: String(project.status || 'draft').toLowerCase(),
+      url: '/admin?panel=project-records&tab=projects'
+    }));
+
+  const requisitions = await fetchJsonOrEmpty('/api/procurement/requisitions');
+  const prRequests = requisitions
+    .filter(row => {
+      if (isRecordOwnedByCurrentStaff(row)) return true;
+      return [
+        row.requested_by,
+        row.requested_by_email,
+        row.submitted_by,
+        row.department
+      ].some(value => textContainsStaffTerm(value, terms));
+    })
+    .map(row => ({
+      type: 'Purchase Request',
+      title: row.pr_number || row.item_summary || 'Purchase Requisition',
+      module: 'Procurement',
+      status: String(row.status || 'draft').toLowerCase(),
+      url: '/procurement?tab=requisitions'
+    }));
+
+  const rows = [...projectRequests, ...prRequests]
+    .filter(row => ['draft', 'submitted', 'pending', 'approved', 'rejected', 'planning'].includes(row.status))
+    .sort((a, b) => {
+      const rank = { rejected: 0, submitted: 1, pending: 2, draft: 3, planning: 4, approved: 5 };
+      return (rank[a.status] ?? 9) - (rank[b.status] ?? 9);
+    })
+    .slice(0, 12);
+
+  setStaffMetric('staff-work-requests', rows.length);
+  const currentItems = buildStaffWorkItems();
+  const nonRequestItems = currentItems.filter(item => item.category !== 'requests').length;
+  setStaffMetric('staff-work-total', nonRequestItems + rows.length);
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No drafts or submitted requests yet.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = rows.map(row => `
+    <tr>
+      <td>${escHtml(row.type)}</td>
+      <td>${escHtml(row.title)}</td>
+      <td>${escHtml(row.module)}</td>
+      <td><span class="status-pill status-${escHtml(row.status.replace(/_/g, '-'))}">${escHtml(row.status.replace(/_/g, ' '))}</span></td>
+      <td class="text-center">
+        ${renderStaffRequestAction(row)}
+      </td>
+    </tr>
+  `).join('');
 }
 
 function isProjectDraft(project) {
@@ -4695,7 +5589,8 @@ function openProjectRecordsFromStats() {
 
 function updateProjectStatsModal() {
   const projects = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
-    .filter((p) => Number(p.is_archived || 0) === 0);
+    .filter((p) => Number(p.is_archived || 0) === 0)
+    .filter((p) => !projectHiddenFromAdmin(p));
 
   const totalEl = document.getElementById('proj-stats-total');
   const ongoingEl = document.getElementById('proj-stats-ongoing');
@@ -5020,7 +5915,6 @@ function openProjectModal(projectId = null) {
   const modal = document.getElementById('project-modal-backdrop');
   const title = document.getElementById('project-modal-title');
   const saveBtn = document.getElementById('project-save-btn');
-  const submitBtn = document.getElementById('project-submit-btn');
   const today = new Date().toISOString().slice(0, 10);
   const nextMonth = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
@@ -5038,10 +5932,6 @@ function openProjectModal(projectId = null) {
   const projectStatus = String(projectData.status || '').trim().toLowerCase();
   const canSubmitProject = !project || projectStatus === 'draft' || projectStatus === 'submitted';
   if (saveBtn) saveBtn.textContent = project && !canSubmitProject ? 'Update Project' : 'Save Draft';
-  if (submitBtn) {
-    submitBtn.style.display = canSubmitProject ? '' : 'none';
-    submitBtn.textContent = projectStatus === 'submitted' ? 'Resubmit for Approval' : 'Submit for Approval';
-  }
   switchProjectFormTab('details');
   clearProjectFieldMessages();
   setProjectModalNotice('');
@@ -5563,9 +6453,7 @@ async function saveProject(submitAction = 'draft') {
   const url = isEdit ? `/api/projects/${editingProjectId}` : '/api/projects';
   const method = isEdit ? 'PUT' : 'POST';
   const saveBtn = document.getElementById('project-save-btn');
-  const submitBtn = document.getElementById('project-submit-btn');
   if (saveBtn) saveBtn.disabled = true;
-  if (submitBtn) submitBtn.disabled = true;
 
   const formData = new FormData();
   formData.append('project_name', projectName);
@@ -5663,7 +6551,6 @@ async function saveProject(submitAction = 'draft') {
     return null;
   } finally {
     if (saveBtn) saveBtn.disabled = false;
-    if (submitBtn) submitBtn.disabled = false;
   }
 }
 
@@ -7658,6 +8545,18 @@ function updateCompanyRegistryStatCard() {
   }
 }
 
+async function refreshCompanyRegistryStatCard() {
+  try {
+    const res = await fetch('/api/company-registry', { cache: 'no-store' });
+    const data = await res.json().catch(() => []);
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    companyRegistryDb = Array.isArray(data) ? data : [];
+    updateCompanyRegistryStatCard();
+  } catch (err) {
+    console.error('Company registry stat refresh error:', err);
+  }
+}
+
 function updateNetPositionSummaryCard(receivableBalance = 0, payableBalance = 0) {
   const statCardReports = document.getElementById('stat-card-reports');
   if (!isAdminUser()) {
@@ -7730,6 +8629,8 @@ async function updateStats() {
   const visibleProjects = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
     .filter(project => Number(project.is_archived || 0) === 0)
     .filter(project => businessEntityMatches(project))
+    .filter(project => String(project.status || '').trim().toLowerCase() !== 'draft')
+    .filter(project => !isStaffUser() || String(project.status || '').trim().toLowerCase() !== 'submitted')
     .filter(project => companyMatchesDashboardFilter(getProjectCompanyName(project)));
   const totalProjectsCount = visibleProjects.filter(project => String(project.status || '').toLowerCase() !== 'cancelled').length;
   const ongoingProjectsCount = visibleProjects.filter(project => {
@@ -7760,8 +8661,8 @@ async function updateStats() {
     const projectStatsRes = await fetch(`/api/projects/stats?${statsParams.toString()}`);
     const projectStats = await projectStatsRes.json();
     if (projectStatsRes.ok) {
-      if (statProjects) statProjects.textContent = Number(projectStats.total_projects ?? totalProjectsCount);
-      if (statOngoing) statOngoing.textContent = Number(projectStats.ongoing_projects ?? ongoingProjectsCount);
+      if (statProjects) statProjects.textContent = String(totalProjectsCount);
+      if (statOngoing) statOngoing.textContent = String(ongoingProjectsCount);
     }
   } catch (err) {
     console.error('Error fetching project stats:', err);
@@ -7872,8 +8773,18 @@ async function updateStats() {
     const requisitionRows = (Array.isArray(requisitions) ? requisitions : []).filter(row => businessEntityMatches(row));
     const purchaseOrderRows = (Array.isArray(purchaseOrders) ? purchaseOrders : []).filter(row => businessEntityMatches(row));
     const goodsReceiptRows = (Array.isArray(goodsReceipts) ? goodsReceipts : []).filter(row => businessEntityMatches(row));
-    const pendingRequisitions = requisitionRows.filter(row => !['ordered', 'cancelled'].includes(String(row.status || 'draft').toLowerCase())).length;
-    const pendingPurchaseOrders = purchaseOrderRows.filter(row => !['received', 'cancelled'].includes(String(row.status || 'draft').toLowerCase())).length;
+    const pendingRequisitions = requisitionRows.filter(row => {
+      const status = String(row.status || 'draft').toLowerCase();
+      return isStaffUser()
+        ? status === 'approved'
+        : !['draft', 'ordered', 'cancelled'].includes(status);
+    }).length;
+    const pendingPurchaseOrders = purchaseOrderRows.filter(row => {
+      const status = String(row.status || 'draft').toLowerCase();
+      return isStaffUser()
+        ? status === 'approved'
+        : !['draft', 'received', 'cancelled'].includes(status);
+    }).length;
     const pendingProcurement = pendingRequisitions + pendingPurchaseOrders;
     if (statProcurement) statProcurement.textContent = String(pendingProcurement);
     if (statProcurementMini) {
@@ -7925,6 +8836,10 @@ async function updateStats() {
   }
 
   updateNetPositionSummaryCard(dashboardReceivableBalance, dashboardPayableBalance);
+  if (isAdminUser()) {
+    renderApprovalCenter();
+  }
+  renderStaffDashboard();
   await loadNotifications();
 }
 

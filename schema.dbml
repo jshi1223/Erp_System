@@ -138,6 +138,8 @@ Table projects {
   archived_auto boolean [not null, default: false]
   budget decimal(15,2) [not null]
   members varchar(255)
+  created_by integer
+  assigned_to integer
   created_at timestamp
   project_docno varchar(20)
   pdfFilename varchar(255)
@@ -560,6 +562,8 @@ Ref: accounts_receivable.business_entity_id > business_entities.id // Own operat
 Ref: vendors.company_id > company_registry.id // Company can also be a vendor/supplier profile.
 Ref: vendors.business_entity_id > business_entities.id // Own operating company can also be a vendor/supplier profile.
 Ref: projects.company_id > company_registry.id // Customer/company owns project records.
+Ref: projects.created_by > users.id // User who created the project draft/request.
+Ref: projects.assigned_to > users.id // User currently assigned to handle the project.
 Ref: service_orders.company_id > company_registry.id // Service orders are issued for a registered company.
 Ref: transactions.company_id > company_registry.id // Invoices/receipts keep the customer company link.
 

@@ -316,6 +316,208 @@ body.admin-page .page-hero::after {
   display: none !important;
 }
 
+body.admin-page .role-access-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 82px;
+  margin: -4px 0 16px;
+  padding: 16px 18px;
+  border: 1px solid rgba(180, 35, 24, 0.14);
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(255, 248, 247, 0.95));
+  box-shadow: 0 16px 38px rgba(75, 18, 16, 0.08);
+}
+
+body.admin-page .role-access-copy {
+  min-width: 0;
+}
+
+body.admin-page .role-access-copy span {
+  display: block;
+  color: #7a1d16;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+body.admin-page .role-access-copy strong {
+  display: block;
+  margin-top: 4px;
+  color: #281716;
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 1.28rem;
+  letter-spacing: 0;
+  line-height: 1.1;
+}
+
+body.admin-page .role-access-copy p {
+  max-width: 760px;
+  margin: 5px 0 0;
+  color: #71615c;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+body.admin-page .role-access-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+body.admin-page .role-access-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 11px;
+  border: 1px solid rgba(180, 35, 24, 0.14);
+  border-radius: 999px;
+  background: rgba(180, 35, 24, 0.06);
+  color: #6f322d;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+body.admin-page .approval-center {
+  display: none;
+  margin: 0 0 18px;
+}
+
+body.admin-page.is-admin-role .approval-center:not(.is-hidden),
+body.admin-page[data-access-role="admin"] .approval-center:not(.is-hidden),
+body.admin-page[data-access-role="super_admin"] .approval-center:not(.is-hidden) {
+  display: block;
+}
+
+body.admin-page .approval-center-head,
+body.admin-page .approval-table-card {
+  border: 1px solid rgba(180, 35, 24, 0.14);
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(255, 249, 248, 0.94));
+  box-shadow: 0 18px 42px rgba(75, 18, 16, 0.08);
+}
+
+body.admin-page .approval-center-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 78px;
+  padding: 16px 18px;
+}
+
+body.admin-page .approval-center-kicker {
+  color: #7a1d16;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+body.admin-page .approval-center-head h2 {
+  margin: 4px 0 0;
+  color: #281716;
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 1.42rem;
+  letter-spacing: 0;
+}
+
+body.admin-page .approval-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin: 14px 0;
+}
+
+body.admin-page .approval-summary-card {
+  display: grid;
+  grid-template-rows: 20px minmax(40px, 1fr) 20px;
+  min-height: 106px;
+  padding: 15px;
+  border: 1px solid rgba(180, 35, 24, 0.14);
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 14px 32px rgba(75, 18, 16, 0.07);
+  color: #281716;
+  cursor: pointer;
+  text-align: left;
+}
+
+body.admin-page .approval-summary-card:hover,
+body.admin-page .approval-summary-card.is-active {
+  border-color: rgba(180, 35, 24, 0.3);
+  box-shadow: 0 18px 40px rgba(75, 18, 16, 0.12);
+}
+
+body.admin-page .approval-summary-card span,
+body.admin-page .approval-summary-card small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.admin-page .approval-summary-card span {
+  color: #6f322d;
+  font-size: 0.65rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+body.admin-page .approval-summary-card strong {
+  align-self: center;
+  color: #7a1d16;
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 1.78rem;
+  line-height: 1;
+}
+
+body.admin-page .approval-summary-card small {
+  color: #786762;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+body.admin-page .approval-table-card {
+  padding: 16px;
+}
+
+body.admin-page .approval-table-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+body.admin-page .approval-table-head strong {
+  display: block;
+  color: #281716;
+  font-size: 0.92rem;
+  font-weight: 900;
+}
+
+body.admin-page .approval-table-head span {
+  display: block;
+  margin-top: 2px;
+  color: #786762;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+body.admin-page .approval-table-wrap {
+  box-shadow: none !important;
+}
+
 body.admin-page .archive-center-wrap {
   max-height: none;
   overflow-x: auto;
@@ -1408,6 +1610,25 @@ body.admin-page .archive-center-tab.active .archive-tab-count {
 }
 
 @media (max-width: 720px) {
+  body.admin-page .role-access-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  body.admin-page .role-access-chips {
+    justify-content: flex-start;
+  }
+
+  body.admin-page .approval-center-head,
+  body.admin-page .approval-table-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  body.admin-page .approval-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
   body.admin-page .archive-center-tabs,
   body.admin-page .project-submodule-tabs,
   body.admin-page .project-workspace-tabs,
@@ -1599,4 +1820,227 @@ body.admin-page #dashboard .dashboard-stats .stat-card.stat-card-accent::before 
   body.admin-page #dashboard .dashboard-stats .stat-card {
     min-height: 124px !important;
   }
+}
+
+/* Staff ERP workspace */
+body.admin-page .staff-workspace {
+  display: none;
+  margin-top: 18px;
+}
+
+body.admin-page.is-staff-role .staff-workspace:not(.is-hidden),
+body.admin-page[data-access-role="staff"] .staff-workspace:not(.is-hidden) {
+  display: block;
+}
+
+body.admin-page.is-staff-role #stat-card-ap,
+body.admin-page.is-staff-role #stat-card-ar,
+body.admin-page.is-staff-role #stat-card-reports,
+body.admin-page.is-staff-role #stat-card-sales,
+body.admin-page[data-access-role="staff"] #stat-card-ap,
+body.admin-page[data-access-role="staff"] #stat-card-ar,
+body.admin-page[data-access-role="staff"] #stat-card-reports,
+body.admin-page[data-access-role="staff"] #stat-card-sales {
+  display: none !important;
+}
+
+body.admin-page .staff-workspace-head,
+body.admin-page .staff-work-table-card {
+  border: 1px solid rgba(180, 35, 24, 0.14);
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(255, 249, 248, 0.94));
+  box-shadow: 0 18px 42px rgba(75, 18, 16, 0.08);
+}
+
+body.admin-page .staff-workspace-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 86px;
+  padding: 18px;
+}
+
+body.admin-page .staff-workspace-kicker {
+  color: #7a1d16;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+body.admin-page .staff-workspace-head h2 {
+  margin: 4px 0 0;
+  color: #281716;
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 1.55rem;
+  letter-spacing: 0;
+}
+
+body.admin-page .staff-workspace-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+body.admin-page .staff-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin: 14px 0;
+}
+
+body.admin-page .staff-summary-card {
+  display: grid;
+  grid-template-rows: 20px minmax(42px, 1fr) 20px;
+  min-height: 112px;
+  padding: 16px;
+  border: 1px solid rgba(180, 35, 24, 0.14);
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 14px 32px rgba(75, 18, 16, 0.07);
+  color: #281716;
+  cursor: pointer;
+  text-align: left;
+}
+
+body.admin-page .staff-summary-card:hover,
+body.admin-page .staff-summary-card.is-active {
+  border-color: rgba(180, 35, 24, 0.3);
+  box-shadow: 0 18px 40px rgba(75, 18, 16, 0.12);
+}
+
+body.admin-page .staff-summary-card span {
+  color: #6f322d;
+  font-size: 0.65rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+body.admin-page .staff-summary-card strong {
+  align-self: center;
+  color: #7a1d16;
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 1.85rem;
+  line-height: 1;
+}
+
+body.admin-page .staff-summary-card small {
+  color: #786762;
+  font-size: 0.68rem;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.admin-page .staff-work-table-card {
+  padding: 16px;
+}
+
+body.admin-page .staff-request-tracker {
+  margin-bottom: 14px;
+}
+
+body.admin-page .staff-work-table-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+body.admin-page .staff-work-table-head strong {
+  display: block;
+  color: #281716;
+  font-size: 0.92rem;
+  font-weight: 900;
+}
+
+body.admin-page .staff-work-table-head span {
+  display: block;
+  margin-top: 2px;
+  color: #786762;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+body.admin-page .staff-work-table-wrap {
+  box-shadow: none !important;
+}
+
+body.admin-page .staff-work-open-btn {
+  min-height: 32px;
+  padding: 0 12px;
+}
+
+@media (max-width: 1180px) {
+  body.admin-page .approval-summary-grid,
+  body.admin-page .staff-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  body.admin-page .staff-workspace-head,
+  body.admin-page .staff-work-table-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  body.admin-page .staff-workspace-actions {
+    justify-content: stretch;
+  }
+
+  body.admin-page .staff-workspace-actions .btn {
+    width: 100%;
+  }
+
+  body.admin-page .staff-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+body.admin-page.is-staff-role #dashboard .dashboard-stats #stat-card-sales,
+body.admin-page.is-staff-role #dashboard .dashboard-stats #stat-card-ap,
+body.admin-page.is-staff-role #dashboard .dashboard-stats #stat-card-ar,
+body.admin-page.is-staff-role #dashboard .dashboard-stats #stat-card-reports,
+body.admin-page[data-access-role="staff"] #dashboard .dashboard-stats #stat-card-sales,
+body.admin-page[data-access-role="staff"] #dashboard .dashboard-stats #stat-card-ap,
+body.admin-page[data-access-role="staff"] #dashboard .dashboard-stats #stat-card-ar,
+body.admin-page[data-access-role="staff"] #dashboard .dashboard-stats #stat-card-reports,
+html[data-access-role="staff"] body.admin-page #dashboard .dashboard-stats #stat-card-sales,
+html[data-access-role="staff"] body.admin-page #dashboard .dashboard-stats #stat-card-ap,
+html[data-access-role="staff"] body.admin-page #dashboard .dashboard-stats #stat-card-ar,
+html[data-access-role="staff"] body.admin-page #dashboard .dashboard-stats #stat-card-reports {
+  display: none !important;
+  visibility: hidden !important;
+}
+
+body.admin-page.is-staff-role #dashboard .dashboard-stats #stat-card-company-registry,
+body.admin-page.is-staff-role #dashboard .dashboard-stats #stat-card-projects,
+body.admin-page.is-staff-role #dashboard .dashboard-stats #stat-card-service-operations,
+body.admin-page.is-staff-role #dashboard .dashboard-stats #stat-card-procurement,
+body.admin-page.is-staff-role #dashboard .dashboard-stats #stat-card-inventory,
+body.admin-page[data-access-role="staff"] #dashboard .dashboard-stats #stat-card-company-registry,
+body.admin-page[data-access-role="staff"] #dashboard .dashboard-stats #stat-card-projects,
+body.admin-page[data-access-role="staff"] #dashboard .dashboard-stats #stat-card-service-operations,
+body.admin-page[data-access-role="staff"] #dashboard .dashboard-stats #stat-card-procurement,
+body.admin-page[data-access-role="staff"] #dashboard .dashboard-stats #stat-card-inventory,
+html[data-access-role="staff"] body.admin-page #dashboard .dashboard-stats #stat-card-company-registry,
+html[data-access-role="staff"] body.admin-page #dashboard .dashboard-stats #stat-card-projects,
+html[data-access-role="staff"] body.admin-page #dashboard .dashboard-stats #stat-card-service-operations,
+html[data-access-role="staff"] body.admin-page #dashboard .dashboard-stats #stat-card-procurement,
+html[data-access-role="staff"] body.admin-page #dashboard .dashboard-stats #stat-card-inventory {
+  display: block !important;
+  visibility: visible !important;
+}
+
+body.admin-page.is-staff-role #dashboard > main > .stats.dashboard-stats:first-of-type,
+body.admin-page[data-access-role="staff"] #dashboard > main > .stats.dashboard-stats:first-of-type,
+html[data-access-role="staff"] body.admin-page #dashboard > main > .stats.dashboard-stats:first-of-type {
+  grid-template-columns: repeat(auto-fit, minmax(245px, 1fr)) !important;
 }

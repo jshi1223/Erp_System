@@ -7,10 +7,10 @@
   <meta http-equiv="Expires" content="0">
   <title>KVSK CCTV &amp; IT Solutions - Admin Panel</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<script src="/assets/js/auth-guard.js?v=20260529a"></script>
+<script src="/assets/js/auth-guard.js?v=20260529d"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Orbitron:wght@500;700;800&amp;family=Playfair+Display:wght@600;700&amp;family=IBM+Plex+Mono:wght@300;400;500&amp;display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/shared.css?v=20260529k">
-  <link rel="stylesheet" href="/admin/admin.css?v=20260529c">
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260529m">
+  <link rel="stylesheet" href="/admin/admin.css?v=20260529h">
 </head>
 <body class="admin-page">
 <script>
@@ -140,6 +140,14 @@
         <div class="page-sub page-subtitle"></div>
       </div>
     </div>
+    <section class="role-access-panel" id="role-access-panel" aria-label="Current role access">
+      <div class="role-access-copy">
+        <span id="role-access-kicker">Current Access</span>
+        <strong id="role-access-title">Checking Access</strong>
+        <p id="role-access-summary">Loading permissions...</p>
+      </div>
+      <div class="role-access-chips" id="role-access-chips" aria-label="Allowed capabilities"></div>
+    </section>
     <script>
       (function () {
         var panel = document.body.dataset.initialDashboardPanel || 'home';
@@ -294,6 +302,164 @@
         <div class="stat-mini" id="stat-reports-mini">All Companies &bull; PHP 0.00 AR &bull; PHP 0.00 AP</div>
       </div>
     </div>
+
+    <section class="approval-center is-hidden" id="approval-center" aria-label="Approval Center">
+      <div class="approval-center-head">
+        <div>
+          <div class="approval-center-kicker">Approval Center</div>
+          <h2>Pending Decisions</h2>
+        </div>
+        <div class="approval-center-actions">
+          <button class="btn btn-cancel btn-sm" type="button" onclick="renderApprovalCenter(true)">Refresh</button>
+        </div>
+      </div>
+      <div class="approval-summary-grid">
+        <button class="approval-summary-card" type="button" onclick="filterApprovalCenter('all')">
+          <span>All Pending</span>
+          <strong id="approval-count-all">0</strong>
+          <small>Needs review</small>
+        </button>
+        <button class="approval-summary-card" type="button" onclick="filterApprovalCenter('projects')">
+          <span>Projects</span>
+          <strong id="approval-count-projects">0</strong>
+          <small>Submitted project drafts</small>
+        </button>
+        <button class="approval-summary-card" type="button" onclick="filterApprovalCenter('procurement')">
+          <span>Procurement</span>
+          <strong id="approval-count-procurement">0</strong>
+          <small>PR and PO approvals</small>
+        </button>
+        <button class="approval-summary-card" type="button" onclick="filterApprovalCenter('finance')">
+          <span>Finance</span>
+          <strong id="approval-count-finance">0</strong>
+          <small>Bills and payments</small>
+        </button>
+        <button class="approval-summary-card" type="button" onclick="filterApprovalCenter('users')">
+          <span>Users</span>
+          <strong id="approval-count-users">0</strong>
+          <small>Pending accounts</small>
+        </button>
+      </div>
+      <div class="approval-table-card">
+        <div class="approval-table-head">
+          <div>
+            <strong>Approval Queue</strong>
+            <span id="approval-center-subtitle">Showing all pending approvals</span>
+          </div>
+        </div>
+        <div class="table-wrap approval-table-wrap">
+          <table class="approval-table">
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Record</th>
+                <th>Requested By</th>
+                <th>Date</th>
+                <th>Status</th>
+                <th class="text-center">Action</th>
+              </tr>
+            </thead>
+            <tbody id="approval-center-body">
+              <tr class="empty-row"><td colspan="6">No pending approvals.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="staff-workspace is-hidden" id="staff-workspace" aria-label="Staff work queue">
+      <div class="staff-workspace-head">
+        <div>
+          <div class="staff-workspace-kicker">Staff Workspace</div>
+          <h2>My Work Queue</h2>
+        </div>
+        <div class="staff-workspace-actions">
+          <button class="btn btn-add btn-sm" type="button" onclick="openProjectModal()">New Project Draft</button>
+          <button class="btn btn-cancel btn-sm" type="button" onclick="navigateDashboardCard('/procurement?tab=requisitions')">Purchase Request</button>
+          <button class="btn btn-cancel btn-sm" type="button" onclick="navigateDashboardCard('/service-operations')">Service Orders</button>
+        </div>
+      </div>
+
+      <div class="staff-summary-grid">
+        <button class="staff-summary-card" type="button" onclick="filterStaffWorkQueue('all')">
+          <span>Assigned Work</span>
+          <strong id="staff-work-total">0</strong>
+          <small>Open records assigned to you</small>
+        </button>
+        <button class="staff-summary-card" type="button" onclick="filterStaffWorkQueue('due')">
+          <span>Due Today</span>
+          <strong id="staff-work-due">0</strong>
+          <small>Needs attention today</small>
+        </button>
+        <button class="staff-summary-card" type="button" onclick="filterStaffWorkQueue('overdue')">
+          <span>Overdue</span>
+          <strong id="staff-work-overdue">0</strong>
+          <small>Past planned due date</small>
+        </button>
+        <button class="staff-summary-card" type="button" onclick="filterStaffWorkQueue('requests')">
+          <span>Drafts / For Approval</span>
+          <strong id="staff-work-requests">0</strong>
+          <small>Not yet in module count</small>
+        </button>
+        <button class="staff-summary-card" type="button" onclick="filterStaffWorkQueue('service')">
+          <span>Service</span>
+          <strong id="staff-work-service">0</strong>
+          <small>Active service orders</small>
+        </button>
+      </div>
+
+      <div class="staff-work-table-card staff-request-tracker">
+        <div class="staff-work-table-head">
+          <div>
+            <strong>My Drafts and For Approval</strong>
+            <span>Track records before and after approval</span>
+          </div>
+        </div>
+        <div class="table-wrap staff-work-table-wrap">
+          <table class="staff-work-table">
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Record</th>
+                <th>Module</th>
+                <th>Status</th>
+                <th class="text-center">Action</th>
+              </tr>
+            </thead>
+            <tbody id="staff-request-body">
+              <tr class="empty-row"><td colspan="5">No drafts or submitted requests yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="staff-work-table-card">
+        <div class="staff-work-table-head">
+          <div>
+            <strong>Actionable Items</strong>
+            <span id="staff-work-subtitle">Showing all assigned work</span>
+          </div>
+          <button class="btn btn-cancel btn-sm" type="button" onclick="renderStaffDashboard()">Refresh</button>
+        </div>
+        <div class="table-wrap staff-work-table-wrap">
+          <table class="staff-work-table">
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Record</th>
+                <th>Module</th>
+                <th>Due / Date</th>
+                <th>Status</th>
+                <th class="text-center">Action</th>
+              </tr>
+            </thead>
+            <tbody id="staff-work-body">
+              <tr class="empty-row"><td colspan="6">No assigned work yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
 
     <div class="dashboard-section is-hidden" id="project-records-section">
       <div class="module-page-toolbar">
@@ -1234,7 +1400,6 @@
       <div class="modal-actions">
         <button class="btn btn-cancel btn-sm" onclick="closeProjectModal()">Cancel</button>
         <button id="project-save-btn" class="btn btn-save btn-sm" onclick="saveProject('draft')">Save Draft</button>
-        <button id="project-submit-btn" class="btn btn-add btn-sm" onclick="saveProject('submit')">Submit for Approval</button>
       </div>
     </div>
   </div>
@@ -1665,7 +1830,7 @@
 </div>
 
 <!-- Scripts -->
-<script src="admin.js?v=20260529g"></script>
+<script src="admin.js?v=20260529n"></script>
 
 
 

@@ -87,6 +87,8 @@ CREATE TABLE IF NOT EXISTS projects (
   archived_auto boolean NOT NULL DEFAULT false,
   budget DECIMAL(15,2) NOT NULL,
   members VARCHAR(255),
+  created_by integer NULL,
+  assigned_to integer NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_projects_transaction FOREIGN KEY (transaction_id) REFERENCES transactions (id)
 ) ;

@@ -697,6 +697,83 @@ body.is-staff-role .sidebar-group[data-sidebar-group="admin"] {
   visibility: hidden !important;
 }
 
+body[data-access-role="staff"] .sidebar-group[data-sidebar-group="finance"],
+body.is-staff-role .sidebar-group[data-sidebar-group="finance"],
+html[data-access-role="staff"] body .sidebar-group[data-sidebar-group="finance"],
+body[data-access-role="staff"] #menu-reports,
+body.is-staff-role #menu-reports,
+html[data-access-role="staff"] body #menu-reports,
+body[data-access-role="staff"] #menu-gantt-chart,
+body.is-staff-role #menu-gantt-chart,
+html[data-access-role="staff"] body #menu-gantt-chart,
+body[data-access-role="staff"] #stat-card-ap,
+body[data-access-role="staff"] #stat-card-ar,
+body[data-access-role="staff"] #stat-card-reports,
+body.is-staff-role #stat-card-ap,
+body.is-staff-role #stat-card-ar,
+body.is-staff-role #stat-card-reports,
+html[data-access-role="staff"] body #stat-card-ap,
+html[data-access-role="staff"] body #stat-card-ar,
+html[data-access-role="staff"] body #stat-card-reports,
+body[data-access-role="staff"] #stat-card-sales,
+body.is-staff-role #stat-card-sales,
+html[data-access-role="staff"] body #stat-card-sales,
+body[data-access-role="staff"] [data-admin-only="1"],
+body.is-staff-role [data-admin-only="1"],
+html[data-access-role="staff"] body [data-admin-only="1"],
+body[data-access-role="staff"] [data-tab="customer-balances"],
+body.is-staff-role [data-tab="customer-balances"],
+html[data-access-role="staff"] body [data-tab="customer-balances"],
+body[data-access-role="staff"] [data-tab="vendor-balances"],
+body.is-staff-role [data-tab="vendor-balances"],
+html[data-access-role="staff"] body [data-tab="vendor-balances"],
+body[data-access-role="staff"] [data-tab="ap-aging"],
+body.is-staff-role [data-tab="ap-aging"],
+html[data-access-role="staff"] body [data-tab="ap-aging"],
+body[data-access-role="staff"] [data-tab="ar-aging"],
+body.is-staff-role [data-tab="ar-aging"],
+html[data-access-role="staff"] body [data-tab="ar-aging"],
+body[data-access-role="staff"] [data-tab="disbursements"],
+body.is-staff-role [data-tab="disbursements"],
+html[data-access-role="staff"] body [data-tab="disbursements"],
+body[data-access-role="staff"] [data-tab="payments"],
+body.is-staff-role [data-tab="payments"],
+html[data-access-role="staff"] body [data-tab="payments"],
+body[data-access-role="staff"] [data-tab="documents"],
+body.is-staff-role [data-tab="documents"],
+html[data-access-role="staff"] body [data-tab="documents"],
+body[data-access-role="staff"] [data-workspace-tab="customer-balances"],
+body.is-staff-role [data-workspace-tab="customer-balances"],
+html[data-access-role="staff"] body [data-workspace-tab="customer-balances"],
+body[data-access-role="staff"] [data-workspace-tab="vendor-balances"],
+body.is-staff-role [data-workspace-tab="vendor-balances"],
+html[data-access-role="staff"] body [data-workspace-tab="vendor-balances"],
+body[data-access-role="staff"] [data-workspace-tab="ap-aging"],
+body.is-staff-role [data-workspace-tab="ap-aging"],
+html[data-access-role="staff"] body [data-workspace-tab="ap-aging"],
+body[data-access-role="staff"] [data-workspace-tab="disbursements"],
+body.is-staff-role [data-workspace-tab="disbursements"],
+html[data-access-role="staff"] body [data-workspace-tab="disbursements"] {
+  display: none !important;
+  visibility: hidden !important;
+}
+
+body[data-access-role="staff"] .sidebar-group[data-sidebar-group="procurement"] .sidebar-link:not([href="/procurement?tab=requisitions"]),
+body.is-staff-role .sidebar-group[data-sidebar-group="procurement"] .sidebar-link:not([href="/procurement?tab=requisitions"]),
+html[data-access-role="staff"] body .sidebar-group[data-sidebar-group="procurement"] .sidebar-link:not([href="/procurement?tab=requisitions"]),
+body[data-access-role="staff"] .sidebar-group[data-sidebar-group="sales-management"] .sidebar-link[href*="customer-balances"],
+body.is-staff-role .sidebar-group[data-sidebar-group="sales-management"] .sidebar-link[href*="customer-balances"],
+html[data-access-role="staff"] body .sidebar-group[data-sidebar-group="sales-management"] .sidebar-link[href*="customer-balances"],
+body[data-access-role="staff"] .sidebar-group[data-sidebar-group="service-operations"] .sidebar-link[href*="documents"],
+body.is-staff-role .sidebar-group[data-sidebar-group="service-operations"] .sidebar-link[href*="documents"],
+html[data-access-role="staff"] body .sidebar-group[data-sidebar-group="service-operations"] .sidebar-link[href*="documents"],
+body[data-access-role="staff"] .sidebar-group[data-sidebar-group="projects"] .sidebar-link[href="/gantt-chart"],
+body.is-staff-role .sidebar-group[data-sidebar-group="projects"] .sidebar-link[href="/gantt-chart"],
+html[data-access-role="staff"] body .sidebar-group[data-sidebar-group="projects"] .sidebar-link[href="/gantt-chart"] {
+  display: none !important;
+  visibility: hidden !important;
+}
+
 body.admin-page .modal-backdrop.open,
 body.erp-clean-page .modal-backdrop.open {
   animation: erpOverlayFade 140ms ease both;

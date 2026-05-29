@@ -45,6 +45,7 @@
   ].join(', ');
 
   applyStoredBusinessEntityThemeEarly();
+  applyCachedAccessRoleEarly();
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', onReady);
@@ -121,7 +122,27 @@
     }
   }
 
+  function applyCachedAccessRoleEarly() {
+    try {
+      var raw = localStorage.getItem('kinaadman_currentUserBadge');
+      var cached = raw ? JSON.parse(raw) : null;
+      var role = String(cached && cached.role ? cached.role : '').trim().toLowerCase();
+      if (['super_admin', 'admin', 'staff', 'user'].indexOf(role) === -1) return;
+      var isAdmin = role === 'super_admin' || role === 'admin';
+      var isStaff = role === 'staff';
+      if (document.body) {
+        document.body.setAttribute('data-access-role', role);
+        document.body.classList.toggle('is-staff-role', isStaff);
+        document.body.classList.toggle('is-admin-role', isAdmin);
+      }
+      if (document.documentElement && document.documentElement.dataset) {
+        document.documentElement.dataset.accessRole = role;
+      }
+    } catch (_) {}
+  }
+
   function onReady() {
+    applyCachedAccessRoleEarly();
     applyStoredBusinessEntityThemeEarly();
     renderSharedSidebar();
     normalizeFinanceSidebar();
@@ -738,6 +759,7 @@
         var path = String(location.pathname || '').toLowerCase();
         var role = String(data.role || 'user').toLowerCase();
         var accessMatrix = [
+          { prefixes: ['/business-entities'], roles: ['super_admin'] },
           { prefixes: ['/user-management'], roles: ['super_admin', 'admin'] },
           { prefixes: ['/master-data'], roles: ['super_admin', 'admin', 'staff'] },
           { prefixes: ['/master-data'], roles: ['super_admin', 'admin', 'staff'] },
@@ -786,10 +808,16 @@
     var tab = new URLSearchParams(location.search || '').get('tab') || '';
     tab = String(tab).toLowerCase();
     if (path === '/accounts-payable') {
-      return ['vendor-balances', 'ap-aging', 'disbursements'].indexOf(tab) !== -1;
+      return true;
     }
     if (path === '/accounts-receivable') {
+      return true;
+    }
+    if (path === '/sales-management') {
       return ['customer-balances', 'ar-aging', 'documents'].indexOf(tab) !== -1;
+    }
+    if (path === '/procurement') {
+      return ['rfq', 'quotations', 'bid-evaluation', 'purchase-orders', 'goods-receipts'].indexOf(tab) !== -1;
     }
     return false;
   }
@@ -797,11 +825,19 @@
   function redirectStaffToOperationalTab() {
     var path = String(location.pathname || '').toLowerCase();
     if (path === '/accounts-payable') {
-      location.replace('/accounts-payable?tab=bills');
+      location.replace('/procurement?tab=requisitions');
       return;
     }
     if (path === '/accounts-receivable') {
-      location.replace('/accounts-receivable?tab=invoices');
+      location.replace('/sales-management');
+      return;
+    }
+    if (path === '/sales-management') {
+      location.replace('/sales-management');
+      return;
+    }
+    if (path === '/procurement') {
+      location.replace('/procurement?tab=requisitions');
     }
   }
 
@@ -1053,42 +1089,82 @@
       document.body.classList.toggle('is-staff-role', isStaff);
       document.body.classList.toggle('is-admin-role', isAdmin);
     }
+    if (document.documentElement && document.documentElement.dataset) {
+      document.documentElement.dataset.accessRole = role;
+    }
     var adminOnlyHrefs = [
       '/user-management',
-      '/business-entities',
       '/admin?panel=archive-center',
       '/admin?view=logs',
       '/admin?view=archived'
     ];
+    var superOnlyHrefs = [
+      '/business-entities'
+    ];
     var staffHiddenHrefs = [
       '/reports',
       '/gantt-chart',
+      '/accounts-payable',
+      '/accounts-receivable',
       '/accounts-payable?tab=vendor-balances',
       '/accounts-payable?tab=ap-aging',
+      '/accounts-payable?tab=payments',
       '/accounts-payable?tab=disbursements',
+      '/accounts-receivable?tab=customer-balances',
       '/accounts-receivable?tab=ar-aging',
-      '/service-operations?tab=documents'
+      '/sales-management?tab=customer-balances',
+      '/service-operations?tab=documents',
+      '/procurement?tab=rfq',
+      '/procurement?tab=quotations',
+      '/procurement?tab=purchase-orders',
+      '/procurement?tab=goods-receipts'
     ];
     var adminOnlySelectors = [
       '.sidebar-group[data-sidebar-group="admin"]',
       '#menu-users',
-      '#menu-business-entities',
       '#menu-archive-center',
       '#menu-logs',
       '#menu-archived'
     ];
+    var superOnlySelectors = [
+      '#menu-business-entities',
+      '[data-requires-role="super_admin"]'
+    ];
     var staffHiddenSelectors = [
       '#menu-reports',
       '#menu-gantt-chart',
+      '.sidebar-group[data-sidebar-group="finance"]',
       '#stat-card-reports',
+      '#stat-card-ap',
+      '#stat-card-ar',
+      '[data-tab="payments"]',
       '[data-workspace-tab="vendor-balances"]',
       '[data-workspace-tab="ap-aging"]',
       '[data-workspace-tab="disbursements"]',
+      '[data-workspace-tab="customer-balances"]',
       '[data-tab="vendor-balances"]',
       '[data-tab="ap-aging"]',
       '[data-tab="disbursements"]',
+      '[data-tab="customer-balances"]',
       '[data-tab="ar-aging"]',
       '[data-tab="documents"]'
+    ];
+    var staffAllowedHrefs = [
+      '/admin',
+      '/admin?view=dashboard',
+      '/admin?panel=project-records',
+      '/master-data?tab=companies',
+      '/master-data?tab=vendors',
+      '/sales-management',
+      '/sales-management?tab=collections',
+      '/service-operations',
+      '/procurement?tab=requisitions',
+      '/inventory',
+      '/inventory?tab=stock',
+      '/inventory?tab=products',
+      '/inventory?tab=warehouses',
+      '/inventory?tab=movements',
+      '/notifications'
     ];
 
     adminOnlySelectors.forEach(function (selector) {
@@ -1136,6 +1212,40 @@
         }
       });
     });
+
+    superOnlySelectors.forEach(function (selector) {
+      document.querySelectorAll(selector).forEach(function (node) {
+        node.style.display = role === 'super_admin' ? '' : 'none';
+        node.setAttribute('aria-hidden', role === 'super_admin' ? 'false' : 'true');
+      });
+    });
+
+    superOnlyHrefs.forEach(function (href) {
+      document.querySelectorAll('.sidebar-link').forEach(function (node) {
+        var targetHref = String(node.dataset && node.dataset.navHref ? node.dataset.navHref : node.getAttribute('href') || '').trim();
+        if (targetHref === href) {
+          node.style.display = role === 'super_admin' ? '' : 'none';
+          node.setAttribute('aria-hidden', role === 'super_admin' ? 'false' : 'true');
+        }
+      });
+    });
+
+    if (isStaff) {
+      document.querySelectorAll('.sidebar-link').forEach(function (node) {
+        var targetHref = String(node.dataset && node.dataset.navHref ? node.dataset.navHref : node.getAttribute('href') || '').trim();
+        if (!targetHref || targetHref === '#') return;
+        var allowed = staffAllowedHrefs.indexOf(targetHref) !== -1;
+        node.style.display = allowed ? '' : 'none';
+        node.setAttribute('aria-hidden', allowed ? 'false' : 'true');
+      });
+      document.querySelectorAll('.sidebar-group[data-sidebar-group]').forEach(function (group) {
+        var visibleLinks = Array.prototype.some.call(group.querySelectorAll('.sidebar-link'), function (linkNode) {
+          return linkNode.style.display !== 'none';
+        });
+        group.style.display = visibleLinks ? '' : 'none';
+        group.setAttribute('aria-hidden', visibleLinks ? 'false' : 'true');
+      });
+    }
   }
 
   function setupSidebarLinkNavigation() {
