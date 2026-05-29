@@ -107,6 +107,7 @@ function syncApSummaryCards(tab = activeApTab) {
   if (!grid) return;
 
   let hasVisibleCard = false;
+  let visibleCount = 0;
   grid.dataset.activeTab = activeTab;
   grid.querySelectorAll('.ap-summary-card').forEach((card) => {
     const tabs = String(card.dataset.summaryTabs || '')
@@ -114,9 +115,11 @@ function syncApSummaryCards(tab = activeApTab) {
       .map((value) => String(value || '').trim().toLowerCase())
       .filter(Boolean)
       .filter((value) => AP_MASTER_DATA_TABS.has(value) || AP_PROCUREMENT_TABS.has(value) || AP_NATIVE_TABS.has(value));
-    card.hidden = !tabs.includes(activeTab);
+    const shouldShow = tabs.includes(activeTab) && visibleCount < 5;
+    card.hidden = !shouldShow;
     if (!card.hidden) {
       hasVisibleCard = true;
+      visibleCount += 1;
     }
   });
   grid.hidden = !hasVisibleCard;
@@ -974,9 +977,13 @@ function renderMasterDataCompanyMetrics(metrics = {}) {
   const totalNode = document.getElementById('metric-master-companies-total');
   const activeNode = document.getElementById('metric-master-companies-active');
   const archivedNode = document.getElementById('metric-master-companies-archived');
+  const profilesNode = document.getElementById('metric-master-companies-profiles');
+  const activeRateNode = document.getElementById('metric-master-companies-active-rate');
   if (totalNode) totalNode.textContent = String(total);
   if (activeNode) activeNode.textContent = String(active);
   if (archivedNode) archivedNode.textContent = String(archived);
+  if (profilesNode) profilesNode.textContent = String(Array.isArray(businessEntitiesDb) ? businessEntitiesDb.length : 0);
+  if (activeRateNode) activeRateNode.textContent = total > 0 ? `${Math.round((active / total) * 100)}%` : '0%';
 }
 
 async function loadMasterDataCompanyMetrics() {

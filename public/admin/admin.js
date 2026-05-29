@@ -1258,7 +1258,7 @@ async function approveProject(projectId) {
 
   const confirmed = await openConfirmDialog({
     title: 'Approve Project',
-    message: 'Approve this draft project? After approval, project activity and PR creation will be allowed.',
+    message: 'Approve this submitted project? After approval, project activity and PR creation will be allowed.',
     noText: 'Cancel',
     yesText: 'Approve'
   });
@@ -1272,6 +1272,29 @@ async function approveProject(projectId) {
     showToast(data.alreadyApproved ? 'Project is already approved.' : 'Project approved.', 'success');
   } catch (err) {
     showToast(err.message || 'Unable to approve project.', 'error');
+  }
+}
+
+async function submitProject(projectId) {
+  const id = Number(projectId || 0);
+  if (!id) return;
+
+  const confirmed = await openConfirmDialog({
+    title: 'Submit Project',
+    message: 'Submit this draft project for admin approval?',
+    noText: 'Cancel',
+    yesText: 'Submit'
+  });
+  if (!confirmed) return;
+
+  try {
+    const res = await fetch(`/api/projects/${id}/submit`, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Unable to submit project.');
+    await loadProjectsDashboardData();
+    showToast(data.alreadySubmitted ? 'Project is already submitted.' : 'Project submitted for approval.', 'success');
+  } catch (err) {
+    showToast(err.message || 'Unable to submit project.', 'error');
   }
 }
 
@@ -1399,6 +1422,8 @@ function renderProjectMasterTable() {
     const memberHtml = sourceMembers.map(formatProjectMemberSummary).filter(Boolean).join('') || '<div style="color:var(--muted); font-size:0.76rem;">-</div>';
     const isArchived = Number(project.is_archived || 0) === 1;
     const isDraft = isProjectDraft(project);
+    const isSubmitted = isProjectSubmitted(project);
+    const isPendingApproval = isProjectPendingApproval(project);
 
     return `
       <tr>
@@ -1423,11 +1448,14 @@ function renderProjectMasterTable() {
         <td class="text-center" style="padding: 15px 20px;">
           <div class="project-master-actions">
             <button class="btn btn-sm btn-edit" type="button" onclick="openProjectModal(${Number(project.id)})">Edit</button>
-            ${isDraft && isAdminUser()
+            ${isDraft
+              ? `<button class="btn btn-sm btn-add" type="button" onclick="submitProject(${Number(project.id)})">Submit</button>`
+              : ''}
+            ${isSubmitted && isAdminUser()
               ? `<button class="btn btn-sm btn-add" type="button" onclick="approveProject(${Number(project.id)})">Approve</button>`
               : ''}
-            ${isDraft
-              ? `<span class="status-pill status-draft" title="Admin approval required before PR">For Approval</span>`
+            ${isPendingApproval
+              ? `<span class="status-pill status-${isSubmitted ? 'submitted' : 'draft'}" title="${isSubmitted ? 'Waiting for admin approval' : 'Draft project, submit when ready'}">${isSubmitted ? 'For Approval' : 'Draft'}</span>`
               : `<button class="btn btn-sm btn-add" type="button" onclick="openProjectRequisition(${Number(project.id)})">Add PR</button>`}
             <button class="btn btn-sm btn-pdf" type="button" onclick="openProjectPdfViewer(${Number(project.id)})">View PDF</button>
             ${isAdminUser()
@@ -1501,11 +1529,14 @@ function renderProjectRecordsTable() {
           <div class="project-master-actions">
             <button class="btn btn-sm btn-edit" type="button" onclick="openProjectModal(${Number(project.id)})">Edit</button>
             <button class="btn btn-sm btn-pdf" type="button" onclick="openProjectLedger(${Number(project.id)})">Overview</button>
-            ${isDraft && isAdminUser()
+            ${isDraft
+              ? `<button class="btn btn-sm btn-add" type="button" onclick="submitProject(${Number(project.id)})">Submit</button>`
+              : ''}
+            ${isSubmitted && isAdminUser()
               ? `<button class="btn btn-sm btn-add" type="button" onclick="approveProject(${Number(project.id)})">Approve</button>`
               : ''}
-            ${isDraft
-              ? `<span class="status-pill status-draft" title="Admin approval required before PR">For Approval</span>`
+            ${isPendingApproval
+              ? `<span class="status-pill status-${isSubmitted ? 'submitted' : 'draft'}" title="${isSubmitted ? 'Waiting for admin approval' : 'Draft project, submit when ready'}">${isSubmitted ? 'For Approval' : 'Draft'}</span>`
               : `<button class="btn btn-sm btn-add" type="button" onclick="openProjectRequisition(${Number(project.id)})">Add PR</button>`}
             ${isAdminUser()
               ? (isArchived
@@ -4074,6 +4105,12 @@ function applyPermissionMatrix() {
     if ('disabled' in node) node.disabled = !canApproveOperations;
   });
 
+  document.querySelectorAll('[data-admin-only="1"]').forEach((node) => {
+    node.style.display = canApproveOperations ? '' : 'none';
+    node.setAttribute('aria-hidden', canApproveOperations ? 'false' : 'true');
+    if ('disabled' in node) node.disabled = !canApproveOperations;
+  });
+
   document.querySelectorAll('[data-staff-draft-note]').forEach((node) => {
     node.style.display = role === 'staff' ? '' : 'none';
   });
@@ -4083,9 +4120,17 @@ function isProjectDraft(project) {
   return String(project?.status || '').trim().toLowerCase() === 'draft';
 }
 
+function isProjectSubmitted(project) {
+  return String(project?.status || '').trim().toLowerCase() === 'submitted';
+}
+
+function isProjectPendingApproval(project) {
+  return isProjectDraft(project) || isProjectSubmitted(project);
+}
+
 function getComputedProjectPriority(project) {
   const status = String(project?.status || '').trim().toLowerCase();
-  if (status === 'draft' || status === 'completed' || status === 'cancelled' || project?.actual_end_date) return 'low';
+  if (status === 'draft' || status === 'submitted' || status === 'completed' || status === 'cancelled' || project?.actual_end_date) return 'low';
 
   const end = toDateOnly(project?.planned_end_date || project?.end_date);
   if (!end) return 'medium';
@@ -4109,7 +4154,7 @@ function computeProjectStatusFromDates({
   keepDraft = false
 } = {}) {
   const current = String(existingStatus || '').trim().toLowerCase();
-  if (keepDraft || current === 'draft') return 'draft';
+  if (keepDraft || current === 'draft' || current === 'submitted') return current === 'submitted' ? 'submitted' : 'draft';
   if (current === 'cancelled' || current === 'on_hold') return current;
   if (String(actualEndDate || '').trim()) return 'completed';
 
@@ -4975,6 +5020,7 @@ function openProjectModal(projectId = null) {
   const modal = document.getElementById('project-modal-backdrop');
   const title = document.getElementById('project-modal-title');
   const saveBtn = document.getElementById('project-save-btn');
+  const submitBtn = document.getElementById('project-submit-btn');
   const today = new Date().toISOString().slice(0, 10);
   const nextMonth = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
@@ -4989,7 +5035,13 @@ function openProjectModal(projectId = null) {
   }
 
   if (title) title.textContent = project ? 'Edit Project' : 'Create Project';
-  if (saveBtn) saveBtn.textContent = project ? 'Update Project' : 'Save Project';
+  const projectStatus = String(projectData.status || '').trim().toLowerCase();
+  const canSubmitProject = !project || projectStatus === 'draft' || projectStatus === 'submitted';
+  if (saveBtn) saveBtn.textContent = project && !canSubmitProject ? 'Update Project' : 'Save Draft';
+  if (submitBtn) {
+    submitBtn.style.display = canSubmitProject ? '' : 'none';
+    submitBtn.textContent = projectStatus === 'submitted' ? 'Resubmit for Approval' : 'Submit for Approval';
+  }
   switchProjectFormTab('details');
   clearProjectFieldMessages();
   setProjectModalNotice('');
@@ -5367,9 +5419,10 @@ function setupProjectModalValidationListeners() {
   });
 }
 
-async function saveProject() {
+async function saveProject(submitAction = 'draft') {
   clearProjectFieldMessages();
   setProjectModalNotice('');
+  const projectSubmitAction = String(submitAction || 'draft').trim().toLowerCase() === 'submit' ? 'submit' : 'draft';
 
   const projectName = document.getElementById('p-project-name').value.trim();
   const existingProject = editingProjectId
@@ -5379,7 +5432,7 @@ async function saveProject() {
   const businessEntitySelect = document.getElementById('p-business-entity-id');
   const businessEntityId = businessEntitySelect?.value || getDefaultBusinessEntityId() || '';
   if (businessEntitySelect) businessEntitySelect.value = businessEntityId;
-  const companyId = Number(getProjectCompanyInputValue() || existingProject?.company_id || 0) || 0;
+  const companyId = Number(getProjectCompanyInputValue() || 0) || 0;
   const companyRecord = findRegistryCompanyById(companyId);
   const companyNo = String(companyRecord?.company_no || existingProject?.company_no || '').trim();
   const companyName = getProjectCompanyNameFromSelection(companyId) || String(existingProject?.company_name || existingProject?.client_name || '').trim();
@@ -5387,13 +5440,17 @@ async function saveProject() {
   const plannedEndDate = document.getElementById('p-planned-end-date')?.value || currentProjectEndDate || '';
   const actualStartDate = document.getElementById('p-actual-start-date')?.value || '';
   const actualEndDate = document.getElementById('p-actual-end-date')?.value || '';
-  const status = computeProjectStatusFromDates({
+  const currentStatus = String(existingProject?.status || '').trim().toLowerCase();
+  let status = computeProjectStatusFromDates({
     existingStatus: existingProject?.status || '',
     plannedEndDate,
     actualStartDate,
     actualEndDate,
-    keepDraft: (!existingProject && isStaffUser()) || String(existingProject?.status || '').trim().toLowerCase() === 'draft'
+    keepDraft: (!existingProject && isStaffUser()) || currentStatus === 'draft' || currentStatus === 'submitted'
   });
+  if (!existingProject || currentStatus === 'draft' || currentStatus === 'submitted') {
+    status = projectSubmitAction === 'submit' ? 'submitted' : 'draft';
+  }
   const projectPriority = getComputedProjectPriority({
     ...existingProject,
     status,
@@ -5506,13 +5563,16 @@ async function saveProject() {
   const url = isEdit ? `/api/projects/${editingProjectId}` : '/api/projects';
   const method = isEdit ? 'PUT' : 'POST';
   const saveBtn = document.getElementById('project-save-btn');
+  const submitBtn = document.getElementById('project-submit-btn');
   if (saveBtn) saveBtn.disabled = true;
+  if (submitBtn) submitBtn.disabled = true;
 
   const formData = new FormData();
   formData.append('project_name', projectName);
   formData.append('project_docno', projectDocNoValue);
   formData.append('business_entity_id', businessEntityId);
   formData.append('status', status);
+  formData.append('project_submit_action', projectSubmitAction);
   formData.append('priority', projectPriority);
   formData.append('company_id', companyId || '');
   formData.append('company_no', companyNo || '');
@@ -5565,10 +5625,14 @@ async function saveProject() {
         console.error('Gantt project after-save hook error:', hookErr);
       }
     }
-    const draftSaved = String(data?.status || '').toLowerCase() === 'draft' || data?.requiresApproval;
+    const savedStatus = String(data?.status || '').toLowerCase();
+    const draftSaved = savedStatus === 'draft';
+    const submittedForApproval = savedStatus === 'submitted' || data?.requiresApproval;
     showToast(
-      draftSaved
-        ? 'Project saved as Draft. Admin approval is required.'
+      submittedForApproval
+        ? 'Project submitted for approval.'
+        : draftSaved
+        ? 'Project saved as Draft. Submit it when ready for approval.'
         : (isEdit ? 'Project record updated successfully.' : 'Project record created successfully.'),
       'success'
     );
@@ -5599,6 +5663,7 @@ async function saveProject() {
     return null;
   } finally {
     if (saveBtn) saveBtn.disabled = false;
+    if (submitBtn) submitBtn.disabled = false;
   }
 }
 
@@ -5642,16 +5707,11 @@ function setSidebarOpen(isOpen) {
 
 function syncSidebarGroupStates() {
   document.querySelectorAll('.sidebar-group[data-sidebar-group]').forEach((group) => {
-    const key = String(group.getAttribute('data-sidebar-group') || '').trim();
     const toggle = group.querySelector('.sidebar-group-toggle');
     if (!toggle) return;
 
-    const stored = key ? localStorage.getItem(`kinaadman_sidebarGroup_${key}`) : null;
-    const defaultCollapsed = group.getAttribute('data-sidebar-default-collapsed') === '1';
-    const shouldCollapse = stored === null ? defaultCollapsed : stored === '1';
-
-    group.classList.toggle('is-collapsed', shouldCollapse);
-    toggle.setAttribute('aria-expanded', String(!shouldCollapse));
+    group.classList.add('is-collapsed');
+    toggle.setAttribute('aria-expanded', 'false');
   });
 }
 
@@ -7599,6 +7659,19 @@ function updateCompanyRegistryStatCard() {
 }
 
 function updateNetPositionSummaryCard(receivableBalance = 0, payableBalance = 0) {
+  const statCardReports = document.getElementById('stat-card-reports');
+  if (!isAdminUser()) {
+    if (statCardReports) {
+      statCardReports.style.display = 'none';
+      statCardReports.setAttribute('aria-hidden', 'true');
+    }
+    return;
+  }
+  if (statCardReports) {
+    statCardReports.style.display = '';
+    statCardReports.setAttribute('aria-hidden', 'false');
+  }
+
   const statReports = document.getElementById('stat-reports');
   const statReportsMini = document.getElementById('stat-reports-mini');
   const netPosition = Number(receivableBalance || 0) - Number(payableBalance || 0);
@@ -7666,7 +7739,7 @@ async function updateStats() {
   }).length;
   const overdueProjectsCount = visibleProjects.filter(project => {
     const status = String(project.status || '').toLowerCase();
-    if (status === 'completed' || status === 'cancelled' || status === 'draft') return false;
+    if (status === 'completed' || status === 'cancelled' || status === 'draft' || status === 'submitted') return false;
     return getProjectPhase(project) === 'ended';
   }).length;
 

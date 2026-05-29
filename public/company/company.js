@@ -574,10 +574,14 @@ function updateRegistryMetrics() {
   const totalNode = $('registry-total-companies');
   const activeNode = $('registry-active-companies');
   const archivedNode = $('registry-archived-companies');
+  const profilesNode = $('registry-operating-profiles');
+  const activeRateNode = $('registry-active-rate');
 
   if (totalNode) totalNode.textContent = String(total);
   if (activeNode) activeNode.textContent = String(active);
   if (archivedNode) archivedNode.textContent = String(archived);
+  if (profilesNode) profilesNode.textContent = String(Array.isArray(state.businessEntities) ? state.businessEntities.length : 0);
+  if (activeRateNode) activeRateNode.textContent = total > 0 ? `${Math.round((active / total) * 100)}%` : '0%';
 
   if (window.parent && window.parent !== window) {
     window.parent.postMessage({

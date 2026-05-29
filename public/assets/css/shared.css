@@ -3,7 +3,6 @@
 */
 @import url("/assets/css/admin-style.css?v=20260521s");
 @import url("/assets/css/erp-clean.css?v=20260521s");
-@import url("/assets/css/white-green.css?v=20260521s");
 
 :root {
   --primary: #b42318;
@@ -13,6 +12,14 @@
   --accent2: #201313;
   --erp-accent: #b42318;
   --erp-accent-2: #4b1210;
+}
+
+html,
+body {
+  background:
+    radial-gradient(circle at top left, rgba(180, 35, 24, 0.05), transparent 28%),
+    radial-gradient(circle at top right, rgba(239, 91, 79, 0.04), transparent 24%),
+    linear-gradient(180deg, #fff8f7 0%, #fff3f2 100%) !important;
 }
 
 html:not([data-business-entity-theme-ready="1"]) body.admin-page,
@@ -1210,4 +1217,610 @@ body.erp-clean-page .notification-meta {
   body.erp-clean-page {
     padding-left: 0 !important;
   }
+}
+
+/* Final sidebar layout guard.
+   Several legacy bundles define sidebar styles; keep spacing stable even after refresh/navigation. */
+body.admin-page .sidebar,
+body.erp-clean-page .sidebar {
+  display: flex !important;
+  flex-direction: column !important;
+  overflow-y: auto !important;
+}
+
+body.admin-page .sidebar-nav,
+body.erp-clean-page .sidebar-nav {
+  display: grid !important;
+  grid-auto-flow: row !important;
+  grid-auto-rows: max-content !important;
+  align-content: start !important;
+  row-gap: 8px !important;
+  padding: 14px 12px 18px !important;
+}
+
+body.admin-page .sidebar-group,
+body.erp-clean-page .sidebar-group {
+  display: grid !important;
+  grid-auto-flow: row !important;
+  grid-auto-rows: max-content !important;
+  row-gap: 5px !important;
+  margin: 4px 0 0 !important;
+}
+
+body.admin-page .sidebar-group-items,
+body.erp-clean-page .sidebar-group-items {
+  display: grid !important;
+  grid-auto-flow: row !important;
+  grid-auto-rows: max-content !important;
+  row-gap: 5px !important;
+  padding-top: 2px !important;
+}
+
+body.admin-page .sidebar-group.is-collapsed .sidebar-group-items,
+body.erp-clean-page .sidebar-group.is-collapsed .sidebar-group-items {
+  display: none !important;
+}
+
+body.admin-page .sidebar-link,
+body.erp-clean-page .sidebar-link,
+body.admin-page .sidebar-group-toggle,
+body.erp-clean-page .sidebar-group-toggle {
+  box-sizing: border-box !important;
+  min-height: 40px !important;
+  line-height: 1.25 !important;
+  white-space: normal !important;
+}
+
+body.admin-page .sidebar-link,
+body.erp-clean-page .sidebar-link {
+  display: block !important;
+  width: 100% !important;
+  margin: 0 !important;
+  text-decoration: none !important;
+}
+
+body.admin-page .sidebar-link.is-subitem,
+body.erp-clean-page .sidebar-link.is-subitem {
+  width: calc(100% - 10px) !important;
+  margin-left: 10px !important;
+}
+
+body.is-staff-role [data-admin-only="1"],
+body[data-access-role="staff"] [data-admin-only="1"],
+body.is-staff-role #stat-card-reports,
+body[data-access-role="staff"] #stat-card-reports {
+  display: none !important;
+}
+
+/* Final legacy-blue cleanup: keep all ERP loading/page/card surfaces on the KVSK warm palette. */
+html,
+body,
+body.admin-page,
+body.erp-clean-page,
+body.accounts-receivable-page,
+body.inventory-page,
+body.company-registry-page,
+body.reports-page,
+body.business-entities-page,
+body.user-management-page {
+  background-color: #fff8f7 !important;
+  background-image:
+    radial-gradient(circle at top left, rgba(180, 35, 24, 0.05), transparent 28%),
+    radial-gradient(circle at top right, rgba(239, 91, 79, 0.04), transparent 24%),
+    linear-gradient(180deg, #fff8f7 0%, #fff3f2 100%) !important;
+}
+
+body.admin-page::before,
+body.erp-clean-page::before,
+body.accounts-receivable-page::before,
+body.inventory-page::before,
+body.company-registry-page::before,
+body.reports-page::before,
+body.business-entities-page::before,
+body.user-management-page::before {
+  background-image:
+    linear-gradient(rgba(180, 35, 24, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(180, 35, 24, 0.045) 1px, transparent 1px) !important;
+}
+
+body.admin-page #dashboard,
+body.erp-clean-page main,
+body.admin-page .dashboard-home-section,
+body.admin-page .content-section,
+body.erp-clean-page .content-section {
+  background-color: transparent !important;
+}
+
+body.admin-page .stat-card,
+body.erp-clean-page .stat-card,
+body.admin-page .module-summary-card,
+body.erp-clean-page .module-summary-card,
+body.admin-page .status-mini-card,
+body.erp-clean-page .status-mini-card,
+body.admin-page .company-switch-chip,
+body.erp-clean-page .company-switch-chip,
+body.admin-page .project-master-card,
+body.erp-clean-page .project-master-card,
+body.admin-page .archive-center-card,
+body.erp-clean-page .archive-center-card {
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--primary-light) 10%, transparent), transparent 34%),
+    linear-gradient(145deg, color-mix(in srgb, var(--primary) 7%, #ffffff), #ffffff) !important;
+  border-color: color-mix(in srgb, var(--primary) 18%, #f6d6d2) !important;
+  color: var(--text, #1a1a14) !important;
+}
+
+body.admin-page .table-wrap,
+body.erp-clean-page .table-wrap,
+body.admin-page .module-panel,
+body.erp-clean-page .module-panel,
+body.admin-page .section-panel,
+body.erp-clean-page .section-panel,
+body.admin-page .page-hero,
+body.erp-clean-page .page-hero,
+body.admin-page .business-profile-panel,
+body.erp-clean-page .business-profile-panel {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), color-mix(in srgb, var(--primary) 5%, #ffffff)) !important;
+  border-color: color-mix(in srgb, var(--primary) 14%, #f4d6d2) !important;
+}
+
+body.admin-page thead,
+body.erp-clean-page thead,
+body.admin-page .table-wrap thead,
+body.erp-clean-page .table-wrap thead {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--primary) 8%, #ffffff), #fffafa) !important;
+}
+
+body.admin-page tbody tr:hover,
+body.erp-clean-page tbody tr:hover {
+  background: color-mix(in srgb, var(--primary) 5%, #ffffff) !important;
+}
+
+/* Stable summary cards: keep label/value positions fixed while metrics load or refresh. */
+body.admin-page .stats,
+body.erp-clean-page .stats,
+body.admin-page .module-summary-grid,
+body.erp-clean-page .module-summary-grid {
+  align-items: stretch !important;
+  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+}
+
+@media (max-width: 1180px) {
+  body.admin-page .module-summary-grid,
+  body.erp-clean-page .module-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 720px) {
+  body.admin-page .module-summary-grid,
+  body.erp-clean-page .module-summary-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+body.admin-page .stat-card,
+body.erp-clean-page .stat-card,
+body.admin-page .module-summary-card,
+body.erp-clean-page .module-summary-card {
+  display: grid !important;
+  grid-template-rows: minmax(18px, auto) minmax(34px, 1fr) minmax(16px, auto) !important;
+  align-content: stretch !important;
+  align-items: start !important;
+  min-height: 128px !important;
+  height: 100% !important;
+  padding: 16px 18px !important;
+  gap: 6px !important;
+  overflow: hidden !important;
+}
+
+body.admin-page .module-summary-grid-wide .module-summary-card,
+body.erp-clean-page .module-summary-grid-wide .module-summary-card {
+  min-height: 118px !important;
+  padding: 14px 15px !important;
+}
+
+body.admin-page .stat-label,
+body.erp-clean-page .stat-label,
+body.admin-page .module-summary-label,
+body.erp-clean-page .module-summary-label {
+  align-self: start !important;
+  display: block !important;
+  min-height: 18px !important;
+  margin: 0 !important;
+  line-height: 1.2 !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
+body.admin-page .stat-val,
+body.erp-clean-page .stat-val,
+body.admin-page .module-summary-value,
+body.erp-clean-page .module-summary-value {
+  align-self: center !important;
+  display: block !important;
+  min-height: 34px !important;
+  margin: 0 !important;
+  line-height: 1.05 !important;
+  font-variant-numeric: tabular-nums !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  max-width: 100% !important;
+}
+
+body.admin-page .stat-mini,
+body.erp-clean-page .stat-mini {
+  align-self: end !important;
+  min-height: 16px !important;
+  margin: 0 !important;
+  line-height: 1.25 !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
+body.admin-page .module-summary-card:hover,
+body.erp-clean-page .module-summary-card:hover,
+body.admin-page .stat-card:hover,
+body.erp-clean-page .stat-card:hover {
+  transform: none !important;
+}
+
+/* Consistent module toolbar: Back left, search/actions right, same row and height. */
+body.admin-page .module-page-toolbar,
+body.erp-clean-page .module-page-toolbar,
+body.admin-page .company-toolbar,
+body.erp-clean-page .company-toolbar,
+body.admin-page .reports-toolbar,
+body.erp-clean-page .reports-toolbar {
+  display: grid !important;
+  grid-template-columns: max-content minmax(0, 1fr) !important;
+  align-items: center !important;
+  column-gap: 16px !important;
+  row-gap: 12px !important;
+  min-height: 88px !important;
+  padding: 16px !important;
+  box-sizing: border-box !important;
+}
+
+body.admin-page .module-page-toolbar > .section-back-btn,
+body.erp-clean-page .module-page-toolbar > .section-back-btn,
+body.admin-page .company-toolbar > .section-back-btn,
+body.erp-clean-page .company-toolbar > .section-back-btn,
+body.admin-page .reports-toolbar > .section-back-btn,
+body.erp-clean-page .reports-toolbar > .section-back-btn {
+  grid-column: 1 !important;
+  justify-self: start !important;
+  align-self: center !important;
+  height: 44px !important;
+  min-height: 44px !important;
+  width: auto !important;
+  min-width: 136px !important;
+  margin: 0 !important;
+  padding: 0 16px !important;
+  white-space: nowrap !important;
+}
+
+body.admin-page .module-page-toolbar-actions,
+body.erp-clean-page .module-page-toolbar-actions,
+body.admin-page .company-toolbar-actions,
+body.erp-clean-page .company-toolbar-actions,
+body.admin-page .reports-toolbar-actions,
+body.erp-clean-page .reports-toolbar-actions {
+  grid-column: 2 !important;
+  justify-self: end !important;
+  align-self: center !important;
+  display: flex !important;
+  flex-flow: row nowrap !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 10px !important;
+  width: auto !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+}
+
+body.admin-page .module-page-toolbar .module-toolbar-search,
+body.admin-page .module-page-toolbar .top-search-bar,
+body.erp-clean-page .module-page-toolbar .module-toolbar-search,
+body.erp-clean-page .module-page-toolbar .top-search-bar,
+body.admin-page .company-toolbar .module-toolbar-search,
+body.erp-clean-page .company-toolbar .module-toolbar-search,
+body.admin-page .reports-toolbar .module-toolbar-search,
+body.erp-clean-page .reports-toolbar .module-toolbar-search {
+  flex: 0 1 240px !important;
+  width: 240px !important;
+  min-width: 220px !important;
+  max-width: 260px !important;
+  height: 44px !important;
+  min-height: 44px !important;
+  margin: 0 !important;
+}
+
+body.admin-page .module-page-toolbar .module-toolbar-search input,
+body.admin-page .module-page-toolbar .top-search-bar input,
+body.erp-clean-page .module-page-toolbar .module-toolbar-search input,
+body.erp-clean-page .module-page-toolbar .top-search-bar input,
+body.admin-page .company-toolbar .module-toolbar-search input,
+body.erp-clean-page .company-toolbar .module-toolbar-search input,
+body.admin-page .reports-toolbar .module-toolbar-search input,
+body.erp-clean-page .reports-toolbar .module-toolbar-search input {
+  height: 44px !important;
+  min-height: 44px !important;
+  width: 100% !important;
+}
+
+body.admin-page .module-page-toolbar .btn,
+body.erp-clean-page .module-page-toolbar .btn,
+body.admin-page .company-toolbar .btn,
+body.erp-clean-page .company-toolbar .btn,
+body.admin-page .reports-toolbar .btn,
+body.erp-clean-page .reports-toolbar .btn {
+  align-self: center !important;
+  height: 44px !important;
+  min-height: 44px !important;
+  margin: 0 !important;
+  white-space: nowrap !important;
+}
+
+@media (max-width: 760px) {
+  body.admin-page .module-page-toolbar,
+  body.erp-clean-page .module-page-toolbar,
+  body.admin-page .company-toolbar,
+  body.erp-clean-page .company-toolbar,
+  body.admin-page .reports-toolbar,
+  body.erp-clean-page .reports-toolbar {
+    grid-template-columns: 1fr !important;
+    min-height: 0 !important;
+  }
+
+  body.admin-page .module-page-toolbar > .section-back-btn,
+  body.erp-clean-page .module-page-toolbar > .section-back-btn,
+  body.admin-page .company-toolbar > .section-back-btn,
+  body.erp-clean-page .company-toolbar > .section-back-btn,
+  body.admin-page .reports-toolbar > .section-back-btn,
+  body.erp-clean-page .reports-toolbar > .section-back-btn,
+  body.admin-page .module-page-toolbar-actions,
+  body.erp-clean-page .module-page-toolbar-actions,
+  body.admin-page .company-toolbar-actions,
+  body.erp-clean-page .company-toolbar-actions,
+  body.admin-page .reports-toolbar-actions,
+  body.erp-clean-page .reports-toolbar-actions {
+    grid-column: 1 !important;
+    justify-self: stretch !important;
+    width: 100% !important;
+  }
+
+  body.admin-page .module-page-toolbar-actions,
+  body.erp-clean-page .module-page-toolbar-actions,
+  body.admin-page .company-toolbar-actions,
+  body.erp-clean-page .company-toolbar-actions,
+  body.admin-page .reports-toolbar-actions,
+  body.erp-clean-page .reports-toolbar-actions {
+    flex-wrap: wrap !important;
+    justify-content: stretch !important;
+  }
+
+  body.admin-page .module-page-toolbar .module-toolbar-search,
+  body.admin-page .module-page-toolbar .top-search-bar,
+  body.erp-clean-page .module-page-toolbar .module-toolbar-search,
+  body.erp-clean-page .module-page-toolbar .top-search-bar,
+  body.admin-page .company-toolbar .module-toolbar-search,
+  body.erp-clean-page .company-toolbar .module-toolbar-search,
+  body.admin-page .reports-toolbar .module-toolbar-search,
+  body.erp-clean-page .reports-toolbar .module-toolbar-search,
+  body.admin-page .module-page-toolbar .btn,
+  body.erp-clean-page .module-page-toolbar .btn,
+  body.admin-page .company-toolbar .btn,
+  body.erp-clean-page .company-toolbar .btn,
+  body.admin-page .reports-toolbar .btn,
+  body.erp-clean-page .reports-toolbar .btn {
+    flex: 1 1 100% !important;
+    width: 100% !important;
+    max-width: none !important;
+  }
+}
+
+/* Consistent ERP tables: same scale, spacing, row height, and scroll behavior across modules. */
+body.admin-page .table-wrap,
+body.erp-clean-page .table-wrap,
+body.admin-page .registry-table-wrap,
+body.erp-clean-page .registry-table-wrap,
+body.admin-page .project-ledger-table-wrap,
+body.erp-clean-page .project-ledger-table-wrap,
+body.admin-page .gantt-planner-table-wrap,
+body.erp-clean-page .gantt-planner-table-wrap {
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow-x: auto !important;
+  overflow-y: visible !important;
+  border-radius: 14px !important;
+  border: 1px solid color-mix(in srgb, var(--primary) 14%, #f4d6d2) !important;
+  background: #ffffff !important;
+  box-shadow: 0 14px 32px color-mix(in srgb, var(--primary) 7%, transparent) !important;
+  scrollbar-gutter: stable !important;
+}
+
+body.admin-page .table-wrap table,
+body.erp-clean-page .table-wrap table,
+body.admin-page .registry-table,
+body.erp-clean-page .registry-table,
+body.admin-page .project-master-table,
+body.erp-clean-page .project-master-table,
+body.admin-page .project-records-table,
+body.erp-clean-page .project-records-table,
+body.admin-page .gantt-planner-table,
+body.erp-clean-page .gantt-planner-table,
+body.admin-page .public-table,
+body.erp-clean-page .public-table {
+  width: max-content !important;
+  min-width: max(100%, 1120px) !important;
+  table-layout: auto !important;
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+  font-size: 0.82rem !important;
+}
+
+body.admin-page .table-wrap thead th,
+body.erp-clean-page .table-wrap thead th,
+body.admin-page .registry-table thead th,
+body.erp-clean-page .registry-table thead th,
+body.admin-page .project-master-table thead th,
+body.erp-clean-page .project-master-table thead th,
+body.admin-page .project-records-table thead th,
+body.erp-clean-page .project-records-table thead th,
+body.admin-page .gantt-planner-table thead th,
+body.erp-clean-page .gantt-planner-table thead th,
+body.admin-page .public-table thead th,
+body.erp-clean-page .public-table thead th {
+  height: 48px !important;
+  min-height: 48px !important;
+  padding: 0 16px !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--primary) 14%, #f4d6d2) !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 8%, #ffffff), #fffafa) !important;
+  color: var(--primary-dark, #4b1210) !important;
+  font-size: 0.68rem !important;
+  font-weight: 900 !important;
+  letter-spacing: 0.08em !important;
+  line-height: 1.2 !important;
+  text-align: left !important;
+  text-transform: uppercase !important;
+  vertical-align: middle !important;
+  white-space: nowrap !important;
+}
+
+body.admin-page .table-wrap tbody td,
+body.erp-clean-page .table-wrap tbody td,
+body.admin-page .registry-table tbody td,
+body.erp-clean-page .registry-table tbody td,
+body.admin-page .project-master-table tbody td,
+body.erp-clean-page .project-master-table tbody td,
+body.admin-page .project-records-table tbody td,
+body.erp-clean-page .project-records-table tbody td,
+body.admin-page .gantt-planner-table tbody td,
+body.erp-clean-page .gantt-planner-table tbody td,
+body.admin-page .public-table tbody td,
+body.erp-clean-page .public-table tbody td {
+  height: 56px !important;
+  min-height: 56px !important;
+  padding: 12px 16px !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--primary) 8%, #f7e3e0) !important;
+  color: var(--text, #1a1a14) !important;
+  font-size: 0.82rem !important;
+  font-weight: 500 !important;
+  line-height: 1.35 !important;
+  vertical-align: middle !important;
+  white-space: nowrap !important;
+}
+
+body.admin-page .table-wrap tbody tr,
+body.erp-clean-page .table-wrap tbody tr,
+body.admin-page .registry-table tbody tr,
+body.erp-clean-page .registry-table tbody tr,
+body.admin-page .project-master-table tbody tr,
+body.erp-clean-page .project-master-table tbody tr,
+body.admin-page .project-records-table tbody tr,
+body.erp-clean-page .project-records-table tbody tr,
+body.admin-page .gantt-planner-table tbody tr,
+body.erp-clean-page .gantt-planner-table tbody tr,
+body.admin-page .public-table tbody tr,
+body.erp-clean-page .public-table tbody tr {
+  background: #ffffff !important;
+}
+
+body.admin-page .table-wrap tbody tr:nth-child(even),
+body.erp-clean-page .table-wrap tbody tr:nth-child(even),
+body.admin-page .registry-table tbody tr:nth-child(even),
+body.erp-clean-page .registry-table tbody tr:nth-child(even),
+body.admin-page .project-master-table tbody tr:nth-child(even),
+body.erp-clean-page .project-master-table tbody tr:nth-child(even),
+body.admin-page .project-records-table tbody tr:nth-child(even),
+body.erp-clean-page .project-records-table tbody tr:nth-child(even),
+body.admin-page .gantt-planner-table tbody tr:nth-child(even),
+body.erp-clean-page .gantt-planner-table tbody tr:nth-child(even),
+body.admin-page .public-table tbody tr:nth-child(even),
+body.erp-clean-page .public-table tbody tr:nth-child(even) {
+  background: #fffafa !important;
+}
+
+body.admin-page .table-wrap tbody tr:hover,
+body.erp-clean-page .table-wrap tbody tr:hover,
+body.admin-page .registry-table tbody tr:hover,
+body.erp-clean-page .registry-table tbody tr:hover,
+body.admin-page .project-master-table tbody tr:hover,
+body.erp-clean-page .project-master-table tbody tr:hover,
+body.admin-page .project-records-table tbody tr:hover,
+body.erp-clean-page .project-records-table tbody tr:hover,
+body.admin-page .gantt-planner-table tbody tr:hover,
+body.erp-clean-page .gantt-planner-table tbody tr:hover,
+body.admin-page .public-table tbody tr:hover,
+body.erp-clean-page .public-table tbody tr:hover {
+  background: color-mix(in srgb, var(--primary) 5%, #ffffff) !important;
+}
+
+body.admin-page .table-wrap th:first-child,
+body.admin-page .table-wrap td:first-child,
+body.erp-clean-page .table-wrap th:first-child,
+body.erp-clean-page .table-wrap td:first-child,
+body.admin-page .registry-table th:first-child,
+body.admin-page .registry-table td:first-child,
+body.erp-clean-page .registry-table th:first-child,
+body.erp-clean-page .registry-table td:first-child {
+  padding-left: 18px !important;
+}
+
+body.admin-page .table-wrap th:last-child,
+body.admin-page .table-wrap td:last-child,
+body.erp-clean-page .table-wrap th:last-child,
+body.erp-clean-page .table-wrap td:last-child,
+body.admin-page .registry-table th:last-child,
+body.admin-page .registry-table td:last-child,
+body.erp-clean-page .registry-table th:last-child,
+body.erp-clean-page .registry-table td:last-child {
+  padding-right: 18px !important;
+}
+
+body.admin-page .table-wrap .empty-row td,
+body.erp-clean-page .table-wrap .empty-row td,
+body.admin-page .empty-row td,
+body.erp-clean-page .empty-row td {
+  height: 72px !important;
+  padding: 22px 18px !important;
+  color: var(--muted, #5f6b7b) !important;
+  font-size: 0.86rem !important;
+  text-align: center !important;
+  white-space: normal !important;
+}
+
+body.admin-page .table-wrap .btn-sm,
+body.erp-clean-page .table-wrap .btn-sm,
+body.admin-page table .btn-sm,
+body.erp-clean-page table .btn-sm {
+  min-height: 32px !important;
+  height: 32px !important;
+  padding: 0 10px !important;
+  font-size: 0.68rem !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+}
+
+body.admin-page .table-wrap .status-pill,
+body.erp-clean-page .table-wrap .status-pill,
+body.admin-page table .status-pill,
+body.erp-clean-page table .status-pill,
+body.admin-page .table-wrap .type-pill,
+body.erp-clean-page .table-wrap .type-pill,
+body.admin-page table .type-pill,
+body.erp-clean-page table .type-pill {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-height: 26px !important;
+  padding: 0 10px !important;
+  border-radius: 999px !important;
+  font-size: 0.68rem !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
 }

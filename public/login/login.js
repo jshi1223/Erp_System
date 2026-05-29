@@ -197,6 +197,29 @@
     }
   }
 
+  function clearLoginPasswordField() {
+    const passwordInput = document.getElementById('upass');
+    if (!passwordInput) return;
+
+    passwordInput.value = '';
+    passwordInput.type = 'password';
+    const toggle = document.querySelector('.password-toggle[data-target="upass"]');
+    if (toggle) {
+      toggle.classList.remove('is-visible');
+      toggle.setAttribute('aria-label', 'Show password');
+      toggle.setAttribute('title', 'Show password');
+    }
+    passwordInput.focus();
+  }
+
+  function formatLoginErrorMessage(data, fallbackMessage) {
+    const message = String(data?.message || fallbackMessage || 'Invalid email or password.');
+    const attemptsRemaining = Number(data?.attemptsRemaining);
+    if (!Number.isFinite(attemptsRemaining) || attemptsRemaining <= 0) return message;
+    const attemptLabel = attemptsRemaining === 1 ? 'attempt' : 'attempts';
+    return `${message}. ${attemptsRemaining} ${attemptLabel} remaining.`;
+  }
+
   function getThemeProfile(theme, name) {
     void theme;
     void name;
@@ -339,12 +362,14 @@
           : (Number.isFinite(retryAfterBody) && retryAfterBody > 0 ? retryAfterBody : 60);
         startLoginCooldown(username, retrySeconds);
         errDiv.textContent = data.message || `Too many login attempts. Try again in ${retrySeconds} seconds.`;
+        clearLoginPasswordField();
         return;
       }
 
       if (res.status === 403) {
         errDiv.className = 'err-msg';
-        errDiv.textContent = data.message || 'Disabled account. Please contact the administrator.';
+        errDiv.textContent = formatLoginErrorMessage(data, 'Disabled account. Please contact the administrator.');
+        clearLoginPasswordField();
         return;
       }
 
@@ -363,7 +388,8 @@
           }
         }, 1000);
       } else {
-        errDiv.textContent = data.message || 'Invalid email or password.';
+        errDiv.textContent = formatLoginErrorMessage(data, 'Invalid email or password.');
+        clearLoginPasswordField();
       }
     })
     .catch(() => {
@@ -694,7 +720,6 @@
     }
     if (passwordInput) {
       passwordInput.addEventListener('input', clearLoginMessage);
-      passwordInput.addEventListener('focus', clearLoginMessage);
     }
 
     setupPasswordToggles();

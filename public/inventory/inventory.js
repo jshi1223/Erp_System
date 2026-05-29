@@ -9,6 +9,7 @@ let movementsDb = [];
 
 document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('movement-date').value = new Date().toISOString().slice(0, 10);
+  setupInventoryModalCloseHandlers();
   switchInventoryTab(getInitialInventoryTab(), { syncUrl: false });
   await loadBusinessEntities();
   await loadInventory();
@@ -103,6 +104,8 @@ function renderSummary(summary) {
   document.getElementById('metric-warehouses').textContent = Number(summary.warehouses || 0);
   document.getElementById('metric-on-hand').textContent = Number(summary.on_hand || 0).toLocaleString('en-PH');
   document.getElementById('metric-low-stock').textContent = Number(summary.low_stock || 0);
+  const movementsMetric = document.getElementById('metric-movements');
+  if (movementsMetric) movementsMetric.textContent = Number(movementsDb.length || 0).toLocaleString('en-PH');
 }
 
 function renderInventory() {
@@ -216,6 +219,23 @@ function openInventoryModal(type) {
 function closeInventoryModal() {
   document.getElementById('inventory-modal').classList.remove('open');
   document.getElementById('inventory-modal').setAttribute('aria-hidden', 'true');
+}
+
+function setupInventoryModalCloseHandlers() {
+  const modal = document.getElementById('inventory-modal');
+  if (modal && modal.dataset.closeHandlersBound !== '1') {
+    modal.dataset.closeHandlersBound = '1';
+    modal.addEventListener('click', (event) => {
+      if (event.target === event.currentTarget) closeInventoryModal();
+    });
+  }
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    if (document.getElementById('inventory-modal')?.classList.contains('open')) {
+      closeInventoryModal();
+    }
+  });
 }
 
 async function saveProduct(event) {

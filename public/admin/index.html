@@ -7,9 +7,9 @@
   <meta http-equiv="Expires" content="0">
   <title>KVSK CCTV &amp; IT Solutions - Admin Panel</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<script src="/assets/js/auth-guard.js?v=20260528b"></script>
+<script src="/assets/js/auth-guard.js?v=20260529a"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Orbitron:wght@500;700;800&amp;family=Playfair+Display:wght@600;700&amp;family=IBM+Plex+Mono:wght@300;400;500&amp;display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/shared.css?v=20260529b">
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260529k">
   <link rel="stylesheet" href="/admin/admin.css?v=20260522e">
 </head>
 <body class="admin-page">
@@ -61,6 +61,30 @@
         <div class="business-profile-panel" id="business-profile-panel" role="menu" aria-label="Switch workspace"></div>
       </div>
       <span class="admin-badge" id="role-badge" data-user-ready="0" aria-live="polite"></span>
+      <script>
+        (function () {
+          var badge = document.getElementById('role-badge');
+          if (!badge) return;
+          try {
+            var raw = localStorage.getItem('kinaadman_currentUserBadge');
+            var cached = raw ? JSON.parse(raw) : null;
+            if (!cached || !cached.role) return;
+            var labels = {
+              super_admin: 'Super Admin',
+              admin: 'Admin',
+              staff: 'Staff',
+              user: 'User'
+            };
+            var role = String(cached.role || 'user').trim().toLowerCase();
+            var name = String(cached.fullname || cached.username || '').trim();
+            var label = labels[role] || 'User';
+            badge.textContent = name ? name + ' (' + label + ')' : label;
+            badge.title = name ? 'Logged in as ' + name + ' (' + label + ')' : 'Logged in as ' + label;
+            badge.dataset.role = role;
+            badge.dataset.userReady = '1';
+          } catch (_) {}
+        })();
+      </script>
       <div class="notification-wrap">
         <button class="btn-icon notification-btn" type="button" aria-label="Notifications" title="Notifications">
           <svg viewBox="0 0 24 24" aria-hidden="true" class="notification-icon">
@@ -256,7 +280,7 @@
       </div>
       
       <!-- Net Position -->
-      <div class="stat-card stat-card-warning stat-card-link" id="stat-card-reports" onclick="openReportsPanel()">
+      <div class="stat-card stat-card-warning stat-card-link" id="stat-card-reports" data-admin-only="1" onclick="openReportsPanel()">
         <div class="stat-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24">
             <path d="M6.5 4.5h7l4 4V19.5H6.5A1.5 1.5 0 0 1 5 18V6A1.5 1.5 0 0 1 6.5 4.5z"></path>
@@ -813,17 +837,10 @@
     var sidebar = document.getElementById('sidebar');
     if (!sidebar) return;
     sidebar.querySelectorAll('.sidebar-group[data-sidebar-group]').forEach(function (group) {
-      var key = String(group.getAttribute('data-sidebar-group') || '').trim();
       var toggle = group.querySelector('.sidebar-group-toggle');
       if (!toggle) return;
-      var stored = null;
-      try {
-        stored = key ? localStorage.getItem('kinaadman_sidebarGroup_' + key) : null;
-      } catch (_) {}
-      var defaultCollapsed = group.getAttribute('data-sidebar-default-collapsed') === '1';
-      var shouldCollapse = stored === null ? defaultCollapsed : stored === '1';
-      group.classList.toggle('is-collapsed', shouldCollapse);
-      toggle.setAttribute('aria-expanded', String(!shouldCollapse));
+      group.classList.add('is-collapsed');
+      toggle.setAttribute('aria-expanded', 'false');
     });
 
     var currentUrl = new URL(window.location.href);
@@ -1023,7 +1040,7 @@
           <div class="field full">
             <label data-label-base="Company">Company<span class="field-label-status is-required">Required</span></label>
             <div class="search-wrap project-company-search">
-              <input id="p-company-search" type="text" placeholder="Search company name or number" autocomplete="off" oninput="filterProjectCompanies()">
+              <input id="p-company-search" type="text" placeholder="Search company name or number" autocomplete="off" oninput="filterProjectCompanies()" required aria-required="true">
               <input id="p-company-id" type="hidden">
               <div id="p-company-results" class="search-results-list" role="listbox" aria-label="Company search results" style="display:none;"></div>
             </div>
@@ -1216,7 +1233,8 @@
 
       <div class="modal-actions">
         <button class="btn btn-cancel btn-sm" onclick="closeProjectModal()">Cancel</button>
-        <button id="project-save-btn" class="btn btn-save btn-sm" onclick="saveProject()">Save Project</button>
+        <button id="project-save-btn" class="btn btn-save btn-sm" onclick="saveProject('draft')">Save Draft</button>
+        <button id="project-submit-btn" class="btn btn-add btn-sm" onclick="saveProject('submit')">Submit for Approval</button>
       </div>
     </div>
   </div>
@@ -1647,7 +1665,7 @@
 </div>
 
 <!-- Scripts -->
-<script src="admin.js?v=20260529c"></script>
+<script src="admin.js?v=20260529g"></script>
 
 
 

@@ -80,14 +80,10 @@
     if (typeof window.syncSidebarGroupStates !== 'function') {
       window.syncSidebarGroupStates = function () {
         document.querySelectorAll('.sidebar-group[data-sidebar-group]').forEach(function (group) {
-          var key = String(group.getAttribute('data-sidebar-group') || '').trim();
           var toggle = group.querySelector('.sidebar-group-toggle');
           if (!toggle) return;
-          var stored = key ? localStorage.getItem('kinaadman_sidebarGroup_' + key) : null;
-          var defaultCollapsed = group.getAttribute('data-sidebar-default-collapsed') === '1';
-          var shouldCollapse = stored === null ? defaultCollapsed : stored === '1';
-          group.classList.toggle('is-collapsed', shouldCollapse);
-          toggle.setAttribute('aria-expanded', String(!shouldCollapse));
+          group.classList.add('is-collapsed');
+          toggle.setAttribute('aria-expanded', 'false');
         });
       };
     }
@@ -735,6 +731,9 @@
         }
 
         applyRoleBasedSidebar(data);
+        if (typeof syncSidebarActiveLinks === 'function') {
+          syncSidebarActiveLinks();
+        }
 
         var path = String(location.pathname || '').toLowerCase();
         var role = String(data.role || 'user').toLowerCase();
@@ -1067,9 +1066,7 @@
       '/accounts-payable?tab=vendor-balances',
       '/accounts-payable?tab=ap-aging',
       '/accounts-payable?tab=disbursements',
-      '/accounts-receivable?tab=customer-balances',
       '/accounts-receivable?tab=ar-aging',
-      '/sales-management?tab=customer-balances',
       '/service-operations?tab=documents'
     ];
     var adminOnlySelectors = [
@@ -1090,7 +1087,6 @@
       '[data-tab="vendor-balances"]',
       '[data-tab="ap-aging"]',
       '[data-tab="disbursements"]',
-      '[data-tab="customer-balances"]',
       '[data-tab="ar-aging"]',
       '[data-tab="documents"]'
     ];

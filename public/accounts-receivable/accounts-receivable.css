@@ -51,6 +51,28 @@ body.accounts-receivable-page .ar-summary-card[hidden] {
   display: none !important;
 }
 
+body.accounts-receivable-page[data-initial-ar-tab="service-orders"] #service-orders,
+body.accounts-receivable-page[data-initial-ar-tab="invoices"] #invoices,
+body.accounts-receivable-page[data-initial-ar-tab="collections"] #collections,
+body.accounts-receivable-page[data-initial-ar-tab="customer-balances"] #customer-balances,
+body.accounts-receivable-page[data-initial-ar-tab="ar-aging"] #ar-aging,
+body.accounts-receivable-page[data-initial-ar-tab="documents"] #documents {
+  display: block !important;
+}
+
+body.accounts-receivable-page[data-initial-ar-tab] .ar-summary-card {
+  display: none !important;
+}
+
+body.accounts-receivable-page[data-initial-ar-tab="service-orders"] .ar-summary-card[data-summary-tabs~="service-orders"],
+body.accounts-receivable-page[data-initial-ar-tab="invoices"] .ar-summary-card[data-summary-tabs~="invoices"],
+body.accounts-receivable-page[data-initial-ar-tab="collections"] .ar-summary-card[data-summary-tabs~="collections"],
+body.accounts-receivable-page[data-initial-ar-tab="customer-balances"] .ar-summary-card[data-summary-tabs~="customer-balances"],
+body.accounts-receivable-page[data-initial-ar-tab="ar-aging"] .ar-summary-card[data-summary-tabs~="ar-aging"],
+body.accounts-receivable-page[data-initial-ar-tab="documents"] .ar-summary-card[data-summary-tabs~="documents"] {
+  display: flex !important;
+}
+
 body.accounts-receivable-page[data-module-mode="service"] .ar-summary-card:not([data-summary-tabs="service-orders"]),
 body.accounts-receivable-page[data-module-mode="sales"] .ar-summary-card:not([data-summary-tabs="invoices"]):not([data-summary-tabs="collections"]):not([data-summary-tabs="customer-balances"]),
 body.accounts-receivable-page[data-module-mode="finance"] .ar-summary-card:not([data-summary-tabs="invoices"]):not([data-summary-tabs="collections"]):not([data-summary-tabs="customer-balances"]):not([data-summary-tabs="ar-aging"]) {

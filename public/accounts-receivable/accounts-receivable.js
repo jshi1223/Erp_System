@@ -24,7 +24,7 @@ const arToolbarState = {
   summary: {}
 };
 const AR_TABS = new Set(['service-orders', 'invoices', 'collections', 'customer-balances', 'ar-aging', 'documents']);
-let activeArTab = getDefaultArTabForMode();
+let activeArTab = getInitialArTab();
 
 function getArModuleMode() {
   const path = String(window.location.pathname || '').replace(/\/+$/, '').toLowerCase();
@@ -41,6 +41,11 @@ function getAllowedArTabsForMode(mode = AR_MODULE_MODE) {
 
 function getDefaultArTabForMode(mode = AR_MODULE_MODE) {
   return mode === 'service' ? 'service-orders' : 'invoices';
+}
+
+function getInitialArTab() {
+  const params = new URLSearchParams(window.location.search || '');
+  return params.has('tab') ? normalizeArTab(params.get('tab')) : getDefaultArTabForMode();
 }
 
 function isArTabAllowedForMode(tab, mode = AR_MODULE_MODE) {
@@ -121,6 +126,7 @@ function syncArSummaryCards(tab = activeArTab) {
   if (!grid) return;
 
   grid.dataset.activeTab = activeTab;
+  let visibleCount = 0;
   grid.querySelectorAll('.ar-summary-card').forEach((card) => {
     const tabs = String(card.dataset.summaryTabs || '')
       .split(',')
@@ -131,7 +137,9 @@ function syncArSummaryCards(tab = activeArTab) {
         return AR_TABS.has(value) ? value : '';
       })
       .filter(Boolean);
-    card.hidden = !tabs.includes(activeTab);
+    const shouldShow = tabs.includes(activeTab) && visibleCount < 5;
+    card.hidden = !shouldShow;
+    if (shouldShow) visibleCount += 1;
   });
 }
 
@@ -149,25 +157,29 @@ function isInCurrentMonth(value) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  applyArModuleModeChrome();
-  restoreArUiState();
-  setupArModuleSidebarTabLinks();
-  const params = new URLSearchParams(window.location.search);
-  activeArTab = params.has('tab') ? normalizeArTab(params.get('tab')) : activeArTab;
-  const initialButton = document.querySelector(`.module-tab[data-tab="${activeArTab}"]`)
-    || document.querySelector('.module-tab.active');
-  switchTab(activeArTab, initialButton, { captureState: false, persistState: false });
-  syncArModuleSidebarActiveLink(activeArTab);
-  if (!params.has('tab')) {
-    syncArTabUrl(activeArTab);
+  try {
+    applyArModuleModeChrome();
+    restoreArUiState();
+    setupArModuleSidebarTabLinks();
+    const params = new URLSearchParams(window.location.search);
+    activeArTab = params.has('tab') ? normalizeArTab(params.get('tab')) : activeArTab;
+    const initialButton = document.querySelector(`.module-tab[data-tab="${activeArTab}"]`)
+      || document.querySelector('.module-tab.active');
+    switchTab(activeArTab, initialButton, { captureState: false, persistState: false });
+    syncArModuleSidebarActiveLink(activeArTab);
+    if (!params.has('tab')) {
+      syncArTabUrl(activeArTab);
+    }
+    setTodayDefaults();
+    loadBusinessEntitiesForAr();
+    loadServiceOrders();
+    loadReceivables();
+    loadCollections();
+    loadTransactions();
+    if (typeof loadNotifications === 'function') loadNotifications();
+  } finally {
+    delete document.body.dataset.initialArTab;
   }
-  setTodayDefaults();
-  loadBusinessEntitiesForAr();
-  loadServiceOrders();
-  loadReceivables();
-  loadCollections();
-  loadTransactions();
-  if (typeof loadNotifications === 'function') loadNotifications();
 });
 
 function setupArModuleSidebarTabLinks() {

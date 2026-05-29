@@ -1160,12 +1160,12 @@ function isStaffRole(role) {
 
 function normalizeProjectStatusForSave(status, actualStartDate = null, actualEndDate = null, plannedEndDate = null) {
   const requestedStatus = String(status || '').trim().toLowerCase();
-  const allowedProjectStatuses = new Set(['draft', 'planning', 'active', 'on_hold', 'completed', 'cancelled', 'overdue']);
+  const allowedProjectStatuses = new Set(['draft', 'submitted', 'planning', 'active', 'on_hold', 'completed', 'cancelled', 'overdue']);
   const safeStatus = allowedProjectStatuses.has(requestedStatus) ? requestedStatus : 'planning';
   const hasActualStart = Boolean(String(actualStartDate || '').trim());
   const hasActualEnd = Boolean(String(actualEndDate || '').trim());
 
-  if (safeStatus === 'draft' || safeStatus === 'cancelled' || safeStatus === 'on_hold') return safeStatus;
+  if (safeStatus === 'draft' || safeStatus === 'submitted' || safeStatus === 'cancelled' || safeStatus === 'on_hold') return safeStatus;
   if (hasActualEnd) return 'completed';
   const plannedEnd = new Date(String(plannedEndDate || '').slice(0, 10));
   if (!Number.isNaN(plannedEnd.getTime())) {
@@ -1181,7 +1181,7 @@ function normalizeProjectStatusForSave(status, actualStartDate = null, actualEnd
 
 function computeProjectPriority(plannedEndDate = null, actualEndDate = null, status = '') {
   const safeStatus = String(status || '').trim().toLowerCase();
-  if (safeStatus === 'draft' || safeStatus === 'completed' || safeStatus === 'cancelled' || actualEndDate) return 'low';
+  if (safeStatus === 'draft' || safeStatus === 'submitted' || safeStatus === 'completed' || safeStatus === 'cancelled' || actualEndDate) return 'low';
 
   const end = new Date(String(plannedEndDate || '').slice(0, 10));
   if (Number.isNaN(end.getTime())) return 'medium';
@@ -1196,6 +1196,14 @@ function computeProjectPriority(plannedEndDate = null, actualEndDate = null, sta
   if (daysLeft <= 7) return 'high';
   if (daysLeft <= 14) return 'medium';
   return 'low';
+}
+
+function isProjectAwaitingApprovalStatus(status = '') {
+  return ['draft', 'submitted'].includes(String(status || '').trim().toLowerCase());
+}
+
+function getProjectAwaitingApprovalMessage(activity = 'creating new activity') {
+  return `Selected project is not yet approved. Save it as draft, submit it for approval, then Admin or Super Admin must approve it before ${activity}.`;
 }
 
 function canManageSuperAdmin(req) {
@@ -1567,6 +1575,7 @@ function createRateLimiter({ windowMs, max, keyPrefix, keyGenerator, message, sk
 
 const loginAttemptState = new Map();
 const LOGIN_FAILURE_LIMIT = 3;
+const LOGIN_ACCOUNT_FAILURE_LIMIT = 5;
 const LOGIN_COOLDOWN_STAGES = [60 * 1000, 5 * 60 * 1000, 15 * 60 * 1000, 30 * 60 * 1000];
 const LOGIN_STATE_TTL = 6 * 60 * 60 * 1000;
 
@@ -1592,8 +1601,12 @@ function getLoginThrottleKey(req, username) {
   return `login:${safeUsername}:${getClientIp(req).toLowerCase()}`;
 }
 
-function getLoginThrottleEntry(req, username) {
-  const key = getLoginThrottleKey(req, username);
+function getLoginAccountThrottleKey(username) {
+  const safeUsername = String(username || '').trim().toLowerCase() || 'unknown';
+  return `login-account:${safeUsername}`;
+}
+
+function getLoginThrottleEntryByKey(key) {
   const now = Date.now();
   let entry = loginAttemptState.get(key);
 
@@ -1617,20 +1630,33 @@ function getLoginThrottleEntry(req, username) {
   return { key, entry, now };
 }
 
-function getLoginCooldownRemaining(req, username) {
-  const { entry, now } = getLoginThrottleEntry(req, username);
-  if (!entry.lockUntil || entry.lockUntil <= now) return 0;
-  return Math.max(1, Math.ceil((entry.lockUntil - now) / 1000));
+function getLoginThrottleEntry(req, username) {
+  return getLoginThrottleEntryByKey(getLoginThrottleKey(req, username));
 }
 
-function registerLoginFailure(req, username) {
-  const { key, entry, now } = getLoginThrottleEntry(req, username);
+function getLoginCooldownRemaining(req, username) {
+  const throttleStates = [
+    getLoginThrottleEntryByKey(getLoginAccountThrottleKey(username)),
+    getLoginThrottleEntry(req, username)
+  ];
+  return throttleStates.reduce((maxRemaining, { entry, now }) => {
+    if (!entry.lockUntil || entry.lockUntil <= now) return maxRemaining;
+    return Math.max(maxRemaining, Math.ceil((entry.lockUntil - now) / 1000));
+  }, 0);
+}
+
+function registerLoginFailureForKey(key, failureLimit) {
+  const { entry, now } = getLoginThrottleEntryByKey(key);
   entry.failures += 1;
   entry.updatedAt = now;
 
-  if (entry.failures < LOGIN_FAILURE_LIMIT) {
+  if (entry.failures < failureLimit) {
     loginAttemptState.set(key, entry);
-    return { locked: false, retryAfter: 0 };
+    return {
+      locked: false,
+      retryAfter: 0,
+      attemptsRemaining: Math.max(0, failureLimit - entry.failures)
+    };
   }
 
   const stageIndex = Math.min(entry.cooldownStage || 0, LOGIN_COOLDOWN_STAGES.length - 1);
@@ -1643,12 +1669,32 @@ function registerLoginFailure(req, username) {
 
   return {
     locked: true,
-    retryAfter: Math.max(1, Math.ceil(cooldownMs / 1000))
+    retryAfter: Math.max(1, Math.ceil(cooldownMs / 1000)),
+    attemptsRemaining: 0
   };
+}
+
+function registerLoginFailure(req, username) {
+  const accountState = registerLoginFailureForKey(getLoginAccountThrottleKey(username), LOGIN_ACCOUNT_FAILURE_LIMIT);
+  const ipState = registerLoginFailureForKey(getLoginThrottleKey(req, username), LOGIN_FAILURE_LIMIT);
+
+  return [accountState, ipState].reduce((current, next) => {
+    if (!next.locked) return current;
+    if (!current.locked || next.retryAfter > current.retryAfter) return next;
+    return current;
+  }, {
+    locked: false,
+    retryAfter: 0,
+    attemptsRemaining: Math.min(
+      Number(accountState.attemptsRemaining || 0),
+      Number(ipState.attemptsRemaining || 0)
+    )
+  });
 }
 
 function clearLoginThrottle(req, username) {
   loginAttemptState.delete(getLoginThrottleKey(req, username));
+  loginAttemptState.delete(getLoginAccountThrottleKey(username));
 }
 
 const loginRateLimiter = createRateLimiter({
@@ -4990,8 +5036,112 @@ function buildSimplePdfBuffer({ title, subtitle = '', headers = [], rows = [], b
   return Buffer.from(pdf, 'binary');
 }
 
+function buildProfessionalTablePdfBuffer({ title = 'ERP REPORT', subtitle = '', headers = [], rows = [] } = {}) {
+  const brand = getPurchaseRequisitionPdfBrand({});
+  const safeHeaders = Array.isArray(headers) ? headers.slice(0, 7) : [];
+  const safeRows = Array.isArray(rows) ? rows : [];
+  const rowsPerPage = 24;
+  const pages = [];
+  for (let i = 0; i < safeRows.length; i += rowsPerPage) {
+    pages.push(safeRows.slice(i, i + rowsPerPage));
+  }
+  if (!pages.length) pages.push([]);
+
+  const objects = [
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>'
+  ];
+  const pageObjectNumbers = [];
+  const pageCount = pages.length;
+  const colWidth = safeHeaders.length ? 512 / safeHeaders.length : 512;
+
+  const addPage = (pageRows, pageIndex) => {
+    const content = [];
+    const text = (x, y, value, options = {}) => {
+      const font = options.bold ? 'F2' : 'F1';
+      const size = Number(options.size || 8);
+      const color = options.color || '0.12 0.12 0.12';
+      content.push(`BT /${font} ${size} Tf ${color} rg 1 0 0 1 ${x} ${y} Tm (${escapePdfText(value)}) Tj ET`);
+    };
+    const rect = (x, y, w, h, options = {}) => {
+      if (options.fill) content.push(`${options.fill} rg ${x} ${y} ${w} ${h} re f`);
+      if (options.stroke) content.push(`${options.stroke} RG ${x} ${y} ${w} ${h} re S`);
+    };
+    const line = (x1, y1, x2, y2, color = '0.70 0.70 0.70') => {
+      content.push(`${color} RG 0.6 w ${x1} ${y1} m ${x2} ${y2} l S`);
+    };
+
+    rect(32, 42, 548, 708, { stroke: '0.86 0.88 0.90' });
+    rect(50, 724, 512, 4, { fill: brand.accent });
+    text(450, 759, 'ERP GENERATED DOCUMENT', { bold: true, size: 7, color: '0.38 0.40 0.44' });
+    text(50, 755, brand.name, { bold: true, size: 14, color: brand.accent });
+    text(50, 739, brand.subtitle, { size: 8, color: '0.25 0.25 0.25' });
+    line(50, 728, 562, 728, brand.accent);
+
+    rect(50, 670, 512, 36, { fill: '0.96 0.97 0.98', stroke: '0.80 0.83 0.86' });
+    text(64, 690, String(title || 'ERP REPORT').toUpperCase(), { bold: true, size: 16, color: '0.08 0.08 0.08' });
+    text(398, 691, `PAGE ${pageIndex + 1} OF ${pageCount}`, { bold: true, size: 9, color: brand.accent });
+    text(64, 676, subtitle || `Generated: ${new Date().toLocaleString('en-PH')}`, { size: 8, color: '0.36 0.38 0.42' });
+
+    let y = 630;
+    rect(50, y, 512, 22, { fill: brand.accent });
+    safeHeaders.forEach((header, index) => {
+      text(58 + (index * colWidth), y + 8, truncatePdfValue(header, Math.max(8, Math.floor(colWidth / 5))), { bold: true, size: 7, color: '1 1 1' });
+    });
+    y -= 24;
+
+    if (!pageRows.length) {
+      rect(50, y - 6, 512, 24, { fill: '1 1 1', stroke: '0.88 0.89 0.91' });
+      text(62, y + 2, 'No data found.', { size: 9, color: '0.36 0.38 0.42' });
+    } else {
+      pageRows.forEach((row, rowIndex) => {
+        rect(50, y - 6, 512, 22, { fill: rowIndex % 2 === 0 ? '1 1 1' : '0.98 0.98 0.98', stroke: '0.88 0.89 0.91' });
+        safeHeaders.forEach((header, colIndex) => {
+          const maxLength = Math.max(8, Math.floor(colWidth / 4.6));
+          text(58 + (colIndex * colWidth), y + 2, truncatePdfValue(row?.[header] ?? '', maxLength), { size: 7 });
+        });
+        y -= 22;
+      });
+    }
+
+    rect(50, 86, 512, 34, { fill: '0.96 0.97 0.98', stroke: '0.82 0.84 0.87' });
+    text(62, 105, 'System Note', { bold: true, size: 8, color: '0.36 0.38 0.42' });
+    text(126, 105, 'This report was generated by the KVSK ERP system. Validate against the live ERP record before external release.', { size: 7, color: '0.45 0.48 0.52' });
+    text(470, 58, `Rows: ${safeRows.length}`, { size: 7, color: '0.45 0.48 0.52' });
+
+    const contentStream = content.join('\n');
+    const contentObjectNumber = objects.length + 1;
+    const pageObjectNumber = objects.length + 2;
+    pageObjectNumbers.push(pageObjectNumber);
+    objects.push(`<< /Length ${Buffer.byteLength(contentStream, 'utf8')} >>\nstream\n${contentStream}\nendstream`);
+    objects.push(`<< /Type /Page /Parent PAGES_OBJECT 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 1 0 R /F2 2 0 R >> >> /Contents ${contentObjectNumber} 0 R >>`);
+  };
+
+  pages.forEach(addPage);
+  const pagesObjectNumber = objects.length + 1;
+  const catalogObjectNumber = objects.length + 2;
+  for (let i = 0; i < objects.length; i += 1) {
+    objects[i] = objects[i].replace(/PAGES_OBJECT/g, String(pagesObjectNumber));
+  }
+  objects.push(`<< /Type /Pages /Kids [${pageObjectNumbers.map((num) => `${num} 0 R`).join(' ')}] /Count ${pageCount} >>`);
+  objects.push(`<< /Type /Catalog /Pages ${pagesObjectNumber} 0 R >>`);
+
+  let pdf = '%PDF-1.4\n';
+  const offsets = ['0000000000 65535 f \n'];
+  objects.forEach((body, index) => {
+    offsets.push(`${String(pdf.length).padStart(10, '0')} 00000 n \n`);
+    pdf += `${index + 1} 0 obj\n${body}\nendobj\n`;
+  });
+  const xrefStart = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n`;
+  pdf += offsets.join('');
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogObjectNumber} 0 R >>\n`;
+  pdf += `startxref\n${xrefStart}\n%%EOF`;
+  return Buffer.from(pdf, 'binary');
+}
+
 function sendPdfTableResponse(res, filename, title, headers, rows, subtitle = '') {
-  const pdf = buildSimplePdfBuffer({ title, subtitle, headers, rows, branded: true });
+  const pdf = buildProfessionalTablePdfBuffer({ title, subtitle, headers, rows });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.send(pdf);
@@ -5612,6 +5762,19 @@ async function generateServiceOrderPdfFile(serviceOrderId) {
   return { filename, filePath };
 }
 
+function isGeneratedErpPdfFilename(filename = '', documentType = '') {
+  const safeFilename = path.basename(String(filename || '').trim()).toLowerCase();
+  const safeType = String(documentType || '').trim().toLowerCase();
+  if (!safeFilename || !safeType) return false;
+  return safeFilename.includes(`-${safeType}-`) && safeFilename.endsWith('.pdf');
+}
+
+function shouldRegenerateErpPdfFile(filename = '', filePath = '', documentType = '') {
+  const safeFilename = path.basename(String(filename || '').trim());
+  if (!safeFilename || !filePath || !fs.existsSync(filePath)) return true;
+  return isGeneratedErpPdfFilename(safeFilename, documentType);
+}
+
 // ==================== AUTH MIDDLEWARE ====================
 function isApiRequest(req) {
   return req.path.startsWith('/api/');
@@ -5677,7 +5840,7 @@ async function sendTransactionPdf(req, res, whereClause, params) {
     let safeFilename = record.pdfFilename ? path.basename(record.pdfFilename) : '';
     let filePath = safeFilename ? path.join(UPLOAD_DIR, safeFilename) : '';
 
-    if (!safeFilename || !fs.existsSync(filePath)) {
+    if (shouldRegenerateErpPdfFile(safeFilename, filePath, 'transaction')) {
       const generated = await generateTransactionPdfFile(record.id);
       safeFilename = generated.filename;
       filePath = generated.filePath;
@@ -5710,7 +5873,7 @@ async function sendBillPdf(req, res, billId) {
     let safeFilename = record.pdfFilename ? path.basename(record.pdfFilename) : '';
     let filePath = safeFilename ? path.join(UPLOAD_DIR, safeFilename) : '';
 
-    if (!safeFilename || !fs.existsSync(filePath)) {
+    if (shouldRegenerateErpPdfFile(safeFilename, filePath, 'bill')) {
       const generated = await generateBillPdfFile(record.id);
       safeFilename = generated.filename;
       filePath = generated.filePath;
@@ -5743,7 +5906,7 @@ async function sendProjectPdf(req, res, projectId) {
     let safeFilename = record.pdfFilename ? path.basename(record.pdfFilename) : '';
     let filePath = safeFilename ? path.join(UPLOAD_DIR, safeFilename) : '';
 
-    if (!safeFilename || !fs.existsSync(filePath)) {
+    if (shouldRegenerateErpPdfFile(safeFilename, filePath, 'project')) {
       const generated = await generateProjectPdfFile(projectId);
       safeFilename = generated.filename;
       filePath = generated.filePath;
@@ -5776,7 +5939,7 @@ async function sendServiceOrderPdf(req, res, serviceOrderId) {
     let safeFilename = record.pdfFilename ? path.basename(record.pdfFilename) : '';
     let filePath = safeFilename ? path.join(UPLOAD_DIR, safeFilename) : '';
 
-    if (!safeFilename || !fs.existsSync(filePath)) {
+    if (shouldRegenerateErpPdfFile(safeFilename, filePath, 'service-order')) {
       const generated = await generateServiceOrderPdfFile(record.id);
       safeFilename = generated.filename;
       filePath = generated.filePath;
@@ -5926,8 +6089,8 @@ async function assertProjectAcceptsNewActivity(projectId, dbClient = null) {
   if (rows[0].is_archived === true || Number(rows[0].is_archived || 0) === 1) {
     throw new Error('Selected project is archived. Restore the project before creating new activity.');
   }
-  if (String(rows[0].status || '').trim().toLowerCase() === 'draft') {
-    throw new Error('Selected project is still draft. Admin or Super Admin approval is required before creating new activity.');
+  if (isProjectAwaitingApprovalStatus(rows[0].status)) {
+    throw new Error(getProjectAwaitingApprovalMessage('creating new activity'));
   }
 }
 
@@ -6335,8 +6498,8 @@ app.post('/api/service-orders', protectAdmin, async (req, res) => {
       if (projectRow.is_archived === true || Number(projectRow.is_archived || 0) === 1) {
         throw Object.assign(new Error('Selected project is archived. Restore the project before creating new activity.'), { statusCode: 400 });
       }
-      if (String(projectRow.status || '').trim().toLowerCase() === 'draft') {
-        throw Object.assign(new Error('Selected project is still draft. Admin or Super Admin approval is required before creating new activity.'), { statusCode: 400 });
+      if (isProjectAwaitingApprovalStatus(projectRow.status)) {
+        throw Object.assign(new Error(getProjectAwaitingApprovalMessage('creating new activity')), { statusCode: 400 });
       }
     }
 
@@ -6496,8 +6659,8 @@ app.put('/api/service-orders/:id', protectAdmin, async (req, res) => {
       if (projectRow.is_archived === true || Number(projectRow.is_archived || 0) === 1) {
         throw Object.assign(new Error('Selected project is archived. Restore the project before creating new activity.'), { statusCode: 400 });
       }
-      if (String(projectRow.status || '').trim().toLowerCase() === 'draft') {
-        throw Object.assign(new Error('Selected project is still draft. Admin or Super Admin approval is required before creating new activity.'), { statusCode: 400 });
+      if (isProjectAwaitingApprovalStatus(projectRow.status)) {
+        throw Object.assign(new Error(getProjectAwaitingApprovalMessage('creating new activity')), { statusCode: 400 });
       }
     }
 
@@ -7706,10 +7869,15 @@ app.post('/login', loginRateLimiter, async (req, res) => {
         return res.status(429).json({
           status: 'error',
           message: `Too many login attempts. Try again in ${lockState.retryAfter} seconds.`,
-          retryAfter: lockState.retryAfter
+          retryAfter: lockState.retryAfter,
+          attemptsRemaining: 0
         });
       }
-      return res.status(401).json({ status: 'error', message: 'Invalid email or password' });
+      return res.status(401).json({
+        status: 'error',
+        message: 'Invalid email or password',
+        attemptsRemaining: lockState.attemptsRemaining
+      });
     }
 
     const user = rows[0];
@@ -7758,10 +7926,15 @@ app.post('/login', loginRateLimiter, async (req, res) => {
         return res.status(429).json({
           status: 'error',
           message: `Too many login attempts. Try again in ${lockState.retryAfter} seconds.`,
-          retryAfter: lockState.retryAfter
+          retryAfter: lockState.retryAfter,
+          attemptsRemaining: 0
         });
       }
-      return res.status(401).json({ status: 'error', message: 'Invalid email or password' });
+      return res.status(401).json({
+        status: 'error',
+        message: 'Invalid email or password',
+        attemptsRemaining: lockState.attemptsRemaining
+      });
     }
 
     req.session.regenerate((regenErr) => {
@@ -11599,8 +11772,8 @@ async function resolvePurchaseOrderProjectContext(projectId = 0, companyId = 0) 
   if (project.is_archived === true || Number(project.is_archived || 0) === 1) {
     throw new Error('Selected project is archived. Restore the project before creating new activity.');
   }
-  if (String(project.status || '').trim().toLowerCase() === 'draft') {
-    throw new Error('Selected project is still draft. Admin or Super Admin approval is required before creating procurement records.');
+  if (isProjectAwaitingApprovalStatus(project.status)) {
+    throw new Error(getProjectAwaitingApprovalMessage('creating procurement records'));
   }
   const projectCompanyId = Number(project.company_id || 0) || 0;
   const normalizedCompanyId = Number(companyId || 0) || 0;
@@ -13842,11 +14015,13 @@ app.post('/api/projects', protectAdmin, upload.single('pdf_file'), (req, res) =>
   const actor = getAuthenticatedUser(req) || {};
   const actorRole = normalizeAccessRole(actor.role);
   const isStaffCreator = isStaffRole(actorRole);
-  const resolvedProjectStatus = isStaffCreator
-    ? 'draft'
-    : normalizeProjectStatusForSave(status || 'planning', actual_start_date, actual_end_date, resolvedPlannedEnd);
+  const projectSubmitAction = String(req.body.project_submit_action || '').trim().toLowerCase();
+  const isProjectSubmitAction = projectSubmitAction === 'submit';
+  const resolvedProjectStatus = isProjectSubmitAction
+    ? 'submitted'
+    : 'draft';
   const resolvedProjectPriority = computeProjectPriority(resolvedPlannedEnd, actual_end_date, resolvedProjectStatus);
-  const approvedBy = resolvedProjectStatus === 'draft' ? null : getApprovalActorName(req);
+  const approvedBy = ['draft', 'submitted'].includes(resolvedProjectStatus) ? null : getApprovalActorName(req);
   const todayYmd = new Date().toISOString().slice(0, 10);
   const resolvedPausedAt = resolvedProjectStatus === 'on_hold' ? (paused_at || todayYmd) : (paused_at || null);
   const resolvedCancelledAt = resolvedProjectStatus === 'cancelled' ? (cancelled_at || todayYmd) : (cancelled_at || null);
@@ -14000,14 +14175,14 @@ app.post('/api/projects', protectAdmin, upload.single('pdf_file'), (req, res) =>
                 console.error('Default task creation failed:', taskErr);
               }
               logAction(req, 'CREATE_PROJECT', `Project Doc No: ${finalProjectDocno} | Status: ${resolvedProjectStatus} | Company ID: ${resolvedCompanyId} | Company No: ${resolvedCompanyNo} | Company Name: ${resolvedCompanyName}`);
-              if (resolvedProjectStatus === 'draft') {
+              if (resolvedProjectStatus === 'submitted') {
                 sendBackgroundNotification(() => notifyProjectApprovalRequest(req, projectId), 'project approval request email');
               }
               res.json({
                 id: projectId,
                 project_docno: finalProjectDocno || null,
                 status: resolvedProjectStatus,
-                requiresApproval: resolvedProjectStatus === 'draft',
+                requiresApproval: resolvedProjectStatus === 'submitted',
                 receivableSynced: false,
                 defaultTasksCreated: !taskErr && !!created
               });
@@ -14144,11 +14319,15 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
     const actor = getAuthenticatedUser(req) || {};
     const actorRole = normalizeAccessRole(actor.role);
     const currentProjectStatus = String(rows[0].status || 'planning').trim().toLowerCase() || 'planning';
-    const resolvedProjectStatus = isStaffRole(actorRole)
+    const projectSubmitAction = String(req.body.project_submit_action || '').trim().toLowerCase();
+    let resolvedProjectStatus = isStaffRole(actorRole)
       ? currentProjectStatus
       : normalizeProjectStatusForSave(status || currentProjectStatus, actual_start_date, actual_end_date, resolvedPlannedEnd);
+    if (currentProjectStatus === 'draft' || currentProjectStatus === 'submitted') {
+      resolvedProjectStatus = projectSubmitAction === 'submit' ? 'submitted' : 'draft';
+    }
     const resolvedProjectPriority = computeProjectPriority(resolvedPlannedEnd, actual_end_date, resolvedProjectStatus);
-    const newlyApprovedBy = currentProjectStatus === 'draft' && resolvedProjectStatus !== 'draft'
+    const newlyApprovedBy = ['draft', 'submitted'].includes(currentProjectStatus) && !['draft', 'submitted'].includes(resolvedProjectStatus)
       ? getApprovalActorName(req)
       : null;
     const todayYmd = new Date().toISOString().slice(0, 10);
@@ -14286,11 +14465,15 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
                   console.error('Default task ensure failed:', taskErr);
                 }
                 logAction(req, 'UPDATE_PROJECT', `Project Doc No: ${resolvedProjectDocno || finalProjectDocno} | Company ID: ${resolvedCompanyId} | Company No: ${resolvedCompanyNo} | Company Name: ${resolvedCompanyName}`);
+                if (currentProjectStatus !== 'submitted' && resolvedProjectStatus === 'submitted') {
+                  sendBackgroundNotification(() => notifyProjectApprovalRequest(req, Number(req.params.id)), 'project approval request email');
+                }
                 res.json({
                   success: true,
                   defaultTasksCreated: !taskErr && !!created,
                   project_docno: resolvedProjectDocno || null,
                   status: resolvedProjectStatus,
+                  requiresApproval: resolvedProjectStatus === 'submitted',
                   approved_by: newlyApprovedBy || undefined,
                   receivableSynced: false
                 });
@@ -14348,7 +14531,7 @@ app.get('/api/procurement/requisitions/:id/pdf', protectAdmin, async (req, res) 
     let safeFilename = record.pdfFilename ? path.basename(record.pdfFilename) : '';
     let filePath = safeFilename ? path.join(UPLOAD_DIR, safeFilename) : '';
 
-    if (!safeFilename || !fs.existsSync(filePath)) {
+    if (shouldRegenerateErpPdfFile(safeFilename, filePath, 'purchase-requisition')) {
       const generated = await generatePurchaseRequisitionPdfFile(requisitionId);
       safeFilename = generated.filename;
       filePath = generated.filePath;
@@ -14458,7 +14641,10 @@ app.post('/api/projects/:id/approve', protectAdminOnly, async (req, res) => {
     }
 
     const currentStatus = String(rows[0].status || '').trim().toLowerCase();
-    if (currentStatus !== 'draft') {
+    if (currentStatus === 'draft') {
+      return res.status(400).json({ error: 'Submit the project for approval before approving it.' });
+    }
+    if (currentStatus !== 'submitted') {
       return res.json({ success: true, status: currentStatus || 'planning', alreadyApproved: true });
     }
 
@@ -14471,6 +14657,37 @@ app.post('/api/projects/:id/approve', protectAdminOnly, async (req, res) => {
     res.json({ success: true, status: 'planning', approved_by: approvedBy });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Unable to approve project.' });
+  }
+});
+
+app.post('/api/projects/:id/submit', protectAdmin, async (req, res) => {
+  const projectId = Number(req.params.id || 0);
+  if (!projectId) return res.status(400).json({ error: 'Invalid project id' });
+
+  try {
+    const rows = await queryAsync(
+      'SELECT id, project_docno, project_name, status, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ? LIMIT 1',
+      [projectId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Project not found' });
+    if (rows[0].is_archived === true || Number(rows[0].is_archived || 0) === 1) {
+      return res.status(400).json({ error: 'Restore the project before submitting it.' });
+    }
+
+    const currentStatus = String(rows[0].status || '').trim().toLowerCase();
+    if (currentStatus === 'submitted') {
+      return res.json({ success: true, status: 'submitted', alreadySubmitted: true });
+    }
+    if (currentStatus !== 'draft') {
+      return res.status(400).json({ error: 'Only draft projects can be submitted for approval.' });
+    }
+
+    await queryAsync("UPDATE projects SET status = 'submitted', approved_by = NULL, approved_at = NULL WHERE id = ?", [projectId]);
+    logAction(req, 'SUBMIT_PROJECT', `Project Doc No: ${rows[0].project_docno || projectId} | Project Name: ${rows[0].project_name || ''}`);
+    sendBackgroundNotification(() => notifyProjectApprovalRequest(req, projectId), 'project approval request email');
+    res.json({ success: true, status: 'submitted', requiresApproval: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Unable to submit project.' });
   }
 });
 
@@ -14541,8 +14758,8 @@ app.put('/api/projects/:projectId/tasks', protectAdmin, (req, res) => {
     if (rows[0].is_archived === true || Number(rows[0].is_archived || 0) === 1) {
       return res.status(400).json({ error: 'Selected project is archived. Restore the project before creating new activity.' });
     }
-    if (String(rows[0].status || '').trim().toLowerCase() === 'draft') {
-      return res.status(400).json({ error: 'Selected project is still draft. Admin or Super Admin approval is required before creating new activity.' });
+    if (isProjectAwaitingApprovalStatus(rows[0].status)) {
+      return res.status(400).json({ error: getProjectAwaitingApprovalMessage('creating new activity') });
     }
 
     db.getConnection((connErr, connection) => {

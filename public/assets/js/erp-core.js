@@ -3080,16 +3080,11 @@ function setSidebarOpen(isOpen) {
 
 function syncSidebarGroupStates() {
   document.querySelectorAll('.sidebar-group[data-sidebar-group]').forEach((group) => {
-    const key = String(group.getAttribute('data-sidebar-group') || '').trim();
     const toggle = group.querySelector('.sidebar-group-toggle');
     if (!toggle) return;
 
-    const stored = key ? localStorage.getItem(`kinaadman_sidebarGroup_${key}`) : null;
-    const defaultCollapsed = group.getAttribute('data-sidebar-default-collapsed') === '1';
-    const shouldCollapse = stored === null ? defaultCollapsed : stored === '1';
-
-    group.classList.toggle('is-collapsed', shouldCollapse);
-    toggle.setAttribute('aria-expanded', String(!shouldCollapse));
+    group.classList.add('is-collapsed');
+    toggle.setAttribute('aria-expanded', 'false');
   });
 }
 

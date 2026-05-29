@@ -4,14 +4,38 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KVSK CCTV & IT Solution - Accounts Receivable</title>
-  <script src="/assets/js/auth-guard.js?v=20260528b"></script>
+  <script src="/assets/js/auth-guard.js?v=20260529b"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/css/shared.css?v=20260529b" />
-  <link rel="stylesheet" href="/accounts-receivable/accounts-receivable.css?v=20260528a" />
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260529k" />
+  <link rel="stylesheet" href="/accounts-receivable/accounts-receivable.css?v=20260529c" />
 
   
 </head>
 <body class="erp-clean-page accounts-receivable-page">
+<script>
+  (function () {
+    var path = String(window.location.pathname || '').replace(/\/+$/, '').toLowerCase();
+    var mode = path === '/sales-management' ? 'sales' : (path === '/service-operations' ? 'service' : 'finance');
+    var allowed = {
+      sales: ['invoices', 'collections', 'customer-balances'],
+      service: ['service-orders', 'documents'],
+      finance: ['invoices', 'collections', 'customer-balances', 'ar-aging']
+    };
+    var aliases = {
+      overview: mode === 'service' ? 'service-orders' : 'invoices',
+      transactions: 'service-orders',
+      receivables: 'invoices',
+      payments: 'collections'
+    };
+    var params = new URLSearchParams(window.location.search || '');
+    var fallback = mode === 'service' ? 'service-orders' : 'invoices';
+    var tab = String(params.get('tab') || fallback).trim().toLowerCase();
+    tab = aliases[tab] || tab;
+    if ((allowed[mode] || allowed.finance).indexOf(tab) === -1) tab = fallback;
+    document.body.dataset.moduleMode = mode;
+    document.body.dataset.initialArTab = tab;
+  })();
+</script>
 <header>
   <div class="header-left">
     <button class="btn-icon sidebar-toggle-btn" type="button" onclick="toggleSidebar()" title="Menu" aria-label="Open menu">
@@ -827,8 +851,8 @@
 
 <div id="toast"></div>
 
-<script src="/assets/js/erp-core.js?v=20260529b"></script>
-<script src="/accounts-receivable/accounts-receivable.js?v=20260528b"></script>
+<script src="/assets/js/erp-core.js?v=20260529c"></script>
+<script src="/accounts-receivable/accounts-receivable.js?v=20260529d"></script>
 </body>
 </html>
 

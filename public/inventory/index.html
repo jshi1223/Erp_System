@@ -4,10 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>KVSK CCTV & IT Solution - Inventory</title>
-  <script src="/assets/js/auth-guard.js?v=20260528b"></script>
+  <script src="/assets/js/auth-guard.js?v=20260529a"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/shared.css?v=20260529b">
-  <link rel="stylesheet" href="/inventory/inventory.css?v=20260521p">
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260529k">
+  <link rel="stylesheet" href="/inventory/inventory.css?v=20260529a">
 </head>
 <body class="erp-clean-page inventory-page">
   <header>
@@ -79,6 +79,10 @@
       <article class="module-summary-card">
         <span class="module-summary-label">Low Stock</span>
         <div class="module-summary-value" id="metric-low-stock">0</div>
+      </article>
+      <article class="module-summary-card">
+        <span class="module-summary-label">Movements</span>
+        <div class="module-summary-value" id="metric-movements">0</div>
       </article>
     </section>
 
@@ -179,7 +183,7 @@
           <div class="user-modal-kicker">Inventory</div>
           <div class="modal-title" id="inventory-modal-title">Inventory</div>
         </div>
-        <button class="modal-close" type="button" onclick="closeInventoryModal()">X</button>
+        <button class="modal-close inventory-modal-close" type="button" onclick="closeInventoryModal()" aria-label="Close inventory modal">&times;</button>
       </div>
 
       <form id="product-form" class="inventory-form" onsubmit="saveProduct(event)">
@@ -193,7 +197,10 @@
           <label>Unit Cost<input id="product-cost" type="number" step="0.01" min="0"></label>
           <label>Reorder Level<input id="product-reorder" type="number" step="0.01" min="0"></label>
         </div>
-        <button class="btn btn-save" type="submit">Save Product</button>
+        <div class="inventory-modal-actions">
+          <button class="btn btn-cancel" type="button" onclick="closeInventoryModal()">Cancel</button>
+          <button class="btn btn-save" type="submit">Save Product</button>
+        </div>
       </form>
 
       <form id="warehouse-form" class="inventory-form" onsubmit="saveWarehouse(event)">
@@ -202,7 +209,10 @@
           <label>Name<input id="warehouse-name" required></label>
         </div>
         <label>Location<textarea id="warehouse-location" rows="3"></textarea></label>
-        <button class="btn btn-save" type="submit">Save Warehouse</button>
+        <div class="inventory-modal-actions">
+          <button class="btn btn-cancel" type="button" onclick="closeInventoryModal()">Cancel</button>
+          <button class="btn btn-save" type="submit">Save Warehouse</button>
+        </div>
       </form>
 
       <form id="movement-form" class="inventory-form" onsubmit="saveMovement(event)">
@@ -226,14 +236,17 @@
           <label>Reference No.<input id="movement-ref-no"></label>
         </div>
         <label>Notes<textarea id="movement-notes" rows="3"></textarea></label>
-        <button class="btn btn-save" type="submit">Save Movement</button>
+        <div class="inventory-modal-actions">
+          <button class="btn btn-cancel" type="button" onclick="closeInventoryModal()">Cancel</button>
+          <button class="btn btn-save" type="submit">Save Movement</button>
+        </div>
       </form>
 
       <div id="inventory-status" class="inventory-status"></div>
     </div>
   </div>
 
-  <script src="/inventory/inventory.js?v=20260521p"></script>
+  <script src="/inventory/inventory.js?v=20260529b"></script>
 </body>
 </html>
 
