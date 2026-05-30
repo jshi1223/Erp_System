@@ -113,6 +113,11 @@ function userCanApproveProcurement() {
   return role === 'super_admin' || role === 'admin';
 }
 
+function procurementRecordVisibleForCurrentUser(row = {}) {
+  if (!userCanApproveProcurement()) return true;
+  return normalizeWorkflowStatus(row.status || 'draft') !== 'draft';
+}
+
 function syncProcurementStatusSelect(selectId, staffAllowed = ['draft'], { lockStaff = true } = {}) {
   const select = $(selectId);
   if (!select) return;
@@ -924,9 +929,9 @@ function renderSummary() {
     return date.getFullYear() === today.getFullYear() && date.getMonth() === today.getMonth();
   };
   const entityFilter = typeof businessEntityMatches === 'function' ? businessEntityMatches : procurementBusinessEntityMatches;
-  const requisitionRows = procurementState.requisitions.filter(entityFilter);
-  const quotationRows = procurementState.quotations.filter(entityFilter);
-  const purchaseOrderRows = procurementState.purchaseOrders.filter(entityFilter);
+  const requisitionRows = procurementState.requisitions.filter(entityFilter).filter(procurementRecordVisibleForCurrentUser);
+  const quotationRows = procurementState.quotations.filter(entityFilter).filter(procurementRecordVisibleForCurrentUser);
+  const purchaseOrderRows = procurementState.purchaseOrders.filter(entityFilter).filter(procurementRecordVisibleForCurrentUser);
   const goodsReceiptRows = procurementState.goodsReceipts.filter(entityFilter);
   const activeVendorCount = getActiveVendors(procurementState.vendors).length;
   const inactiveVendorCount = procurementState.vendors.length - activeVendorCount;
@@ -2775,7 +2780,7 @@ function renderRequisitions() {
   if (!tbody) return;
 
   const entityFilter = typeof businessEntityMatches === 'function' ? businessEntityMatches : procurementBusinessEntityMatches;
-  const rows = filteredRows(procurementState.requisitions.filter(entityFilter), $('procurement-search-input')?.value, [
+  const rows = filteredRows(procurementState.requisitions.filter(entityFilter).filter(procurementRecordVisibleForCurrentUser), $('procurement-search-input')?.value, [
     'pr_number',
     'project_docno',
     'project_name',
@@ -3088,7 +3093,7 @@ function renderQuotations() {
   if (!tbody) return;
 
   const entityFilter = typeof businessEntityMatches === 'function' ? businessEntityMatches : procurementBusinessEntityMatches;
-  const rows = filteredRows(procurementState.quotations.filter(entityFilter), $('procurement-search-input')?.value, [
+  const rows = filteredRows(procurementState.quotations.filter(entityFilter).filter(procurementRecordVisibleForCurrentUser), $('procurement-search-input')?.value, [
     'quote_number',
     'pr_number',
     'vendor_name',
@@ -3477,7 +3482,7 @@ function renderPurchaseOrders() {
   if (!tbody) return;
 
   const entityFilter = typeof businessEntityMatches === 'function' ? businessEntityMatches : procurementBusinessEntityMatches;
-  const rows = filteredRows(procurementState.purchaseOrders.filter(entityFilter), $('procurement-search-input')?.value, [
+  const rows = filteredRows(procurementState.purchaseOrders.filter(entityFilter).filter(procurementRecordVisibleForCurrentUser), $('procurement-search-input')?.value, [
     'po_number',
     'requisition_number',
     'vendor_name',

@@ -167,6 +167,8 @@
   }
 
   function normalizeFinanceSidebar() {
+    var sidebar = document.getElementById('sidebar');
+    if (sidebar && sidebar.dataset && sidebar.dataset.sharedSidebarRendered === '1') return;
     var nav = document.querySelector('#sidebar .sidebar-nav');
     if (!nav || nav.dataset.financeNormalized === '1') return;
 
@@ -844,7 +846,7 @@
   function renderSharedSidebar() {
     var sidebar = document.getElementById('sidebar');
     if (!sidebar) return;
-    if (sidebar.dataset && sidebar.dataset.sharedSidebarRendered === '1' && hasCompleteSharedSidebar(sidebar)) return;
+    if (sidebar.dataset && sidebar.dataset.sharedSidebarRendered === '1') return;
 
     var currentUrl = new URL(window.location.href);
     var currentPath = currentUrl.pathname.replace(/\/+$/, '') || '/';

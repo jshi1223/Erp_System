@@ -1300,7 +1300,9 @@ function getBillProjectLabel(bill) {
 
 function normalizeApprovalStatus(value) {
   const status = String(value || 'approved').trim().toLowerCase();
-  return status === 'pending' ? 'pending' : 'approved';
+  if (status === 'pending') return 'pending';
+  if (status === 'rejected') return 'rejected';
+  return 'approved';
 }
 
 function canApproveApRecords() {
@@ -1314,6 +1316,9 @@ function getApprovalUiStatus(row) {
   const status = normalizeApprovalStatus(row?.approval_status);
   if (status === 'pending') {
     return { key: 'pending', label: 'Pending Approval', className: 'status-pending' };
+  }
+  if (status === 'rejected') {
+    return { key: 'rejected', label: 'Rejected', className: 'status-cancelled' };
   }
   return { key: 'approved', label: 'Approved', className: 'status-paid' };
 }
@@ -1715,7 +1720,7 @@ function syncPaymentFromBill() {
 }
 
 function updateMetrics() {
-  const visibleBills = billsDb.filter(b => businessEntityMatches(b));
+  const visibleBills = getApprovedVisibleBills();
   const visibleVendors = vendorsDb.filter(vendor => businessEntityMatches(vendor));
   const totalPayable = visibleBills.reduce((sum, b) => sum + getBillBalance(b), 0);
   const paidBills = visibleBills.filter((b) => getBillBalance(b) <= 0).length;
@@ -1757,7 +1762,13 @@ function getVisiblePayments() {
   });
 }
 
-function getVendorBalanceRows(visibleBills = billsDb.filter(b => businessEntityMatches(b))) {
+function getApprovedVisibleBills() {
+  return (Array.isArray(billsDb) ? billsDb : [])
+    .filter(b => businessEntityMatches(b))
+    .filter(b => normalizeApprovalStatus(b.approval_status) === 'approved');
+}
+
+function getVendorBalanceRows(visibleBills = getApprovedVisibleBills()) {
   const grouped = new Map();
   visibleBills.forEach((bill) => {
     const vendorId = String(bill.vendor_id || 'unassigned');
@@ -1792,7 +1803,7 @@ function updateVendorBalanceMetrics(visibleBills) {
   setMetricText('metric-vb-top-balance', formatApMoney(rows[0]?.balance || 0));
 }
 
-function getAgingBuckets(visibleBills = billsDb.filter(b => businessEntityMatches(b))) {
+function getAgingBuckets(visibleBills = getApprovedVisibleBills()) {
   const buckets = { current: 0, d30: 0, d60: 0, d90: 0, over90: 0 };
   const today = new Date();
   visibleBills.forEach((bill) => {
@@ -1864,7 +1875,7 @@ function updatePaymentMetrics() {
     .reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
   const methods = new Set(approvedPayments.map((payment) => String(payment.payment_method || '').trim()).filter(Boolean));
 
-  setMetricText('metric-payment-count', payments.length);
+  setMetricText('metric-payment-count', approvedPayments.length);
   setMetricText('metric-payment-total', formatApMoney(totalPaid));
   setMetricText('metric-payment-this-month', formatApMoney(paidThisMonth));
   setMetricText('metric-payment-methods', methods.size);
@@ -1952,6 +1963,7 @@ function renderApAging() {
   if (!tbody) return;
   const rows = billsDb
     .filter(bill => businessEntityMatches(bill))
+    .filter(bill => normalizeApprovalStatus(bill.approval_status) === 'approved')
     .filter(bill => getBillBalance(bill) > 0)
     .map((bill) => ({
       bill,

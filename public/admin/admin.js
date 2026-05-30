@@ -17,7 +17,38 @@ function isPrivilegedRoleValue(role) {
   return ['super_admin', 'admin', 'staff'].includes(normalizeAccessRole(role));
 }
 
+function cleanupAdminSidebarDuplicates() {
+  const sidebar = document.getElementById('sidebar');
+  const nav = sidebar?.querySelector(':scope > .sidebar-nav');
+  if (!sidebar || !nav) return;
+
+  const legacyGroupKeys = new Set(['accounts-payable', 'accounts-receivable']);
+  const seenGroupKeys = new Set();
+  nav.querySelectorAll('.sidebar-group[data-sidebar-group]').forEach((group) => {
+    const key = String(group.getAttribute('data-sidebar-group') || '').trim();
+    const isDirectGroup = group.parentElement === nav;
+    if (!isDirectGroup || legacyGroupKeys.has(key) || seenGroupKeys.has(key)) {
+      group.remove();
+      return;
+    }
+    seenGroupKeys.add(key);
+  });
+
+  const seenDashboardLinks = [];
+  nav.querySelectorAll('.sidebar-link').forEach((link) => {
+    const href = String(link.getAttribute('href') || '').trim();
+    const isDashboard = link.id === 'menu-dashboard' || href === '/admin' || href === '/admin?view=dashboard';
+    const isNestedTopLevel = link.parentElement !== nav && !link.classList.contains('is-subitem');
+    if (isDashboard) seenDashboardLinks.push(link);
+    if (isNestedTopLevel) link.remove();
+  });
+  seenDashboardLinks.slice(1).forEach((link) => link.remove());
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  cleanupAdminSidebarDuplicates();
+  window.setTimeout(cleanupAdminSidebarDuplicates, 0);
+  window.setTimeout(cleanupAdminSidebarDuplicates, 250);
   if (window.location.pathname.replace(/\/+$/, '') === '/admin' && !new URLSearchParams(window.location.search).has('panel')) {
     currentDashboardCompany = 'all';
     localStorage.setItem('kinaadman_dashboardCompany', 'all');
@@ -105,7 +136,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     applyPermissionMatrix();
-    renderStaffDashboard();
+    if (isStaffUser()) {
+      if (currentDashboardPanel === 'staff-workspace') {
+        renderStaffDashboard();
+      } else {
+        updateStaffWorkspaceSummaryCard();
+      }
+    }
 
     if (document.querySelector('.stats')) {
       loadRecords();
@@ -147,6 +184,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setupNotificationButtonListeners();
   setupSidebarLinkNavigation();
   syncSidebarGroupStates();
+  cleanupAdminSidebarDuplicates();
   syncSidebarActiveLinks();
   syncBackButtonLabels();
   loadBusinessEntities();
@@ -194,7 +232,7 @@ function applyInitialAdminView(user) {
   const requestedPanel = params.get('panel');
   const requestedTab = params.get('tab');
   const rememberedProjectWorkspaceTab = localStorage.getItem('kinaadman_projectWorkspaceTab');
-  const allowedPanels = ['home', 'project-records', 'project-ledger', 'total-projects', 'ongoing-projects', 'system-logs', 'archive-center'];
+  const allowedPanels = ['home', 'project-records', 'project-ledger', 'total-projects', 'ongoing-projects', 'system-logs', 'archive-center', 'approval-center', 'staff-workspace'];
   const allowedTabs = isAdminRoleValue(user?.role) ? ['all', 'archived', 'users'] : ['all'];
   const menuByTab = {
     all: document.getElementById('menu-all'),
@@ -278,6 +316,24 @@ function applyInitialAdminView(user) {
       return;
     }
 
+    if (requestedPanel === 'approval-center') {
+      if (isAdminRoleValue(user?.role)) {
+        openDashboardPanel('approval-center');
+      } else {
+        openDashboardPanel('home');
+      }
+      return;
+    }
+
+    if (requestedPanel === 'staff-workspace') {
+      if (normalizeAccessRole(user?.role) === 'staff') {
+        openDashboardPanel('staff-workspace');
+      } else {
+        openDashboardPanel('home');
+      }
+      return;
+    }
+
     if (requestedPanel === 'ongoing-projects') {
       openDashboardPanel('ongoing-projects');
       return;
@@ -339,6 +395,14 @@ function syncAdminViewUrl(panel, tab) {
       url.searchParams.set('panel', 'archive-center');
       url.searchParams.delete('tab');
       url.searchParams.delete('project_id');
+    } else if (panel === 'approval-center') {
+      url.searchParams.set('panel', 'approval-center');
+      url.searchParams.delete('tab');
+      url.searchParams.delete('project_id');
+    } else if (panel === 'staff-workspace') {
+      url.searchParams.set('panel', 'staff-workspace');
+      url.searchParams.delete('tab');
+      url.searchParams.delete('project_id');
     } else if (panel === 'system-logs') {
       url.searchParams.set('panel', 'system-logs');
       url.searchParams.delete('tab');
@@ -374,7 +438,9 @@ function clearTransactionLaunchUrlParams() {
 
 function updateSidebarMenuState(tab) {
   const menuIdMap = {
-    'archive-center': 'menu-archive-center'
+    'archive-center': 'menu-archive-center',
+    'approval-center': 'menu-approval-center',
+    'staff-workspace': 'menu-staff-workspace'
   };
   const activeMenuId = menuIdMap[tab] || `menu-${tab}`;
   document.querySelectorAll('.sidebar-link').forEach(l => {
@@ -423,6 +489,18 @@ function updateDashboardHero(panel) {
   if (panel === 'archive-center') {
     pageTitle.textContent = 'Archive Center';
     pageSub.textContent = '';
+    return;
+  }
+
+  if (panel === 'approval-center') {
+    pageTitle.textContent = 'Approval Center';
+    pageSub.textContent = 'Pending decisions and approval actions';
+    return;
+  }
+
+  if (panel === 'staff-workspace') {
+    pageTitle.textContent = 'Staff Workspace';
+    pageSub.textContent = 'My drafts, submitted requests, and assigned work';
     return;
   }
 
@@ -501,7 +579,9 @@ function openDashboardPanel(panel = 'home', opts = {}) {
     'total-projects': document.getElementById('total-projects-section'),
     'ongoing-projects': document.getElementById('ongoing-projects-section'),
     'system-logs': document.getElementById('system-logs-section'),
-    'archive-center': document.getElementById('archive-center-section')
+    'archive-center': document.getElementById('archive-center-section'),
+    'approval-center': document.getElementById('approval-center'),
+    'staff-workspace': document.getElementById('staff-workspace')
   };
 
   Object.entries(sections).forEach(([key, section]) => {
@@ -515,16 +595,15 @@ function openDashboardPanel(panel = 'home', opts = {}) {
   }
   const staffWorkspace = document.getElementById('staff-workspace');
   if (staffWorkspace) {
-    staffWorkspace.classList.toggle('is-hidden', panel !== 'home' || !isStaffUser());
+    staffWorkspace.classList.toggle('is-hidden', panel !== 'staff-workspace' || !isStaffUser());
   }
   const approvalCenter = document.getElementById('approval-center');
   if (approvalCenter) {
-    approvalCenter.classList.toggle('is-hidden', panel !== 'home' || !isAdminUser());
+    approvalCenter.classList.toggle('is-hidden', panel !== 'approval-center' || !isAdminUser());
   }
   if (panel === 'home') {
     updateSidebarMenuState('dashboard');
-    if (isAdminUser()) renderApprovalCenter();
-    if (isStaffUser()) renderStaffDashboard();
+    if (isStaffUser()) updateStaffWorkspaceSummaryCard();
   } else if (panel === 'reports') {
     updateSidebarMenuState('reports');
   } else if (panel === 'project-records') {
@@ -539,6 +618,10 @@ function openDashboardPanel(panel = 'home', opts = {}) {
     updateSidebarMenuState('logs');
   } else if (panel === 'archive-center') {
     updateSidebarMenuState('archive-center');
+  } else if (panel === 'approval-center') {
+    updateSidebarMenuState('approval-center');
+  } else if (panel === 'staff-workspace') {
+    updateSidebarMenuState('staff-workspace');
   }
 
   updateDashboardHero(panel);
@@ -550,6 +633,10 @@ function openDashboardPanel(panel = 'home', opts = {}) {
     loadLogs();
   } else if (panel === 'archive-center') {
     loadArchiveCenter();
+  } else if (panel === 'approval-center') {
+    renderApprovalCenter(true);
+  } else if (panel === 'staff-workspace') {
+    renderStaffDashboard();
   } else if (panel === 'project-records') {
     renderProjectWorkspace();
   } else if (panel === 'project-ledger') {
@@ -583,7 +670,11 @@ function loadProjectsDashboardData() {
           console.error('Dashboard stats refresh error:', err);
         });
       }
-      renderStaffDashboard();
+      if (currentDashboardPanel === 'staff-workspace') {
+        renderStaffDashboard();
+      } else {
+        updateStaffWorkspaceSummaryCard();
+      }
       if (currentDashboardPanel === 'project-records') {
         renderProjectWorkspace();
       }
@@ -4182,6 +4273,12 @@ function applyPermissionMatrix() {
     if ('disabled' in node) node.disabled = !canApproveOperations;
   });
 
+  document.querySelectorAll('[data-staff-only="1"]').forEach((node) => {
+    node.style.display = role === 'staff' ? '' : 'none';
+    node.setAttribute('aria-hidden', role === 'staff' ? 'false' : 'true');
+    if ('disabled' in node) node.disabled = role !== 'staff';
+  });
+
   document.querySelectorAll('[data-staff-draft-note]').forEach((node) => {
     node.style.display = role === 'staff' ? '' : 'none';
   });
@@ -4210,11 +4307,11 @@ function applyPermissionMatrix() {
 
   const staffWorkspace = document.getElementById('staff-workspace');
   if (staffWorkspace) {
-    staffWorkspace.classList.toggle('is-hidden', role !== 'staff' || currentDashboardPanel !== 'home');
+    staffWorkspace.classList.toggle('is-hidden', role !== 'staff' || currentDashboardPanel !== 'staff-workspace');
   }
   const approvalCenter = document.getElementById('approval-center');
   if (approvalCenter) {
-    approvalCenter.classList.toggle('is-hidden', !isAdminRoleValue(role) || currentDashboardPanel !== 'home');
+    approvalCenter.classList.toggle('is-hidden', !isAdminRoleValue(role) || currentDashboardPanel !== 'approval-center');
   }
 
   syncDashboardRoleLabels(role);
@@ -4502,6 +4599,29 @@ function setApprovalMetric(id, value) {
   if (node) node.textContent = String(value || 0);
 }
 
+async function updateApprovalCenterSummaryCard() {
+  const card = document.getElementById('stat-card-approvals');
+  const valueNode = document.getElementById('stat-approvals');
+  const miniNode = document.getElementById('stat-approvals-mini');
+  if (!card && !valueNode && !miniNode) return;
+  if (!isAdminUser()) {
+    if (valueNode) valueNode.textContent = '0';
+    if (miniNode) miniNode.textContent = 'Admin approvals only';
+    return;
+  }
+  const items = await loadApprovalCenterItems();
+  const counts = {
+    projects: items.filter(item => item.category === 'projects').length,
+    procurement: items.filter(item => item.category === 'procurement').length,
+    finance: items.filter(item => item.category === 'finance').length,
+    users: items.filter(item => item.category === 'users').length
+  };
+  if (valueNode) valueNode.textContent = String(items.length);
+  if (miniNode) {
+    miniNode.textContent = `${counts.projects} projects • ${counts.procurement} procurement • ${counts.finance} finance • ${counts.users} users`;
+  }
+}
+
 function filterApprovalCenter(filter = 'all') {
   currentApprovalFilter = ['all', 'projects', 'procurement', 'finance', 'users'].includes(String(filter)) ? String(filter) : 'all';
   renderApprovalCenter(false, true);
@@ -4591,7 +4711,7 @@ function getApprovalSlaState(dateValue) {
 async function renderApprovalCenter(force = false, useCache = false) {
   const panel = document.getElementById('approval-center');
   if (!panel) return;
-  const showPanel = isAdminUser() && currentDashboardPanel === 'home';
+  const showPanel = isAdminUser() && currentDashboardPanel === 'approval-center';
   panel.classList.toggle('is-hidden', !showPanel);
   if (!showPanel) return;
 
@@ -4875,6 +4995,46 @@ function filterStaffWorkQueue(filter = 'all') {
   renderStaffDashboard();
 }
 
+async function updateStaffWorkspaceSummaryCard() {
+  const valueNode = document.getElementById('stat-staff-workspace');
+  const miniNode = document.getElementById('stat-staff-workspace-mini');
+  if (!valueNode && !miniNode) return;
+  if (!isStaffUser()) {
+    if (valueNode) valueNode.textContent = '0';
+    if (miniNode) miniNode.textContent = 'Staff workspace only';
+    return;
+  }
+  const items = buildStaffWorkItems();
+  const dueCount = items.filter(item => item.dueState === 'due').length;
+  const overdueCount = items.filter(item => item.dueState === 'overdue').length;
+  let requestCount = items.filter(item => item.category === 'requests').length;
+  const serviceCount = items.filter(item => item.category === 'service').length;
+  try {
+    const terms = getStaffIdentityTerms();
+    const pendingProjects = await loadStaffPendingProjectRequests();
+    const requisitions = await fetchJsonOrEmpty('/api/procurement/requisitions');
+    const prRequests = requisitions.filter(row => {
+      if (isRecordOwnedByCurrentStaff(row)) return true;
+      return [
+        row.requested_by,
+        row.requested_by_email,
+        row.submitted_by,
+        row.department
+      ].some(value => textContainsStaffTerm(value, terms));
+    });
+    requestCount = Math.max(requestCount, pendingProjects.length + prRequests.length);
+  } catch (err) {
+    console.error('Staff workspace summary load error:', err);
+  }
+  const nonRequestCount = items.filter(item => item.category !== 'requests').length;
+  if (valueNode) valueNode.textContent = String(nonRequestCount + requestCount);
+  if (miniNode) miniNode.textContent = `${requestCount} drafts • ${serviceCount} service • ${dueCount} due • ${overdueCount} overdue`;
+}
+
+function openStaffWorkspaceFromDashboard() {
+  navigateDashboardCard('/admin?panel=staff-workspace');
+}
+
 function openStaffWorkItem(type, id) {
   const safeType = String(type || '').toLowerCase();
   const safeId = Number(id || 0) || 0;
@@ -4916,7 +5076,7 @@ function renderStaffDashboard() {
   const workspace = document.getElementById('staff-workspace');
   if (!workspace) return;
 
-  const showWorkspace = isStaffUser() && currentDashboardPanel === 'home';
+  const showWorkspace = isStaffUser() && currentDashboardPanel === 'staff-workspace';
   workspace.classList.toggle('is-hidden', !showWorkspace);
   if (!showWorkspace) return;
 
@@ -5595,6 +5755,10 @@ function openTotalProjectsFromDashboard() {
 
 function openProjectsFromDashboard() {
   navigateDashboardCard('/admin?panel=project-records');
+}
+
+function openApprovalCenterFromDashboard() {
+  navigateDashboardCard('/admin?panel=approval-center');
 }
 
 function openProjectStatsModal() {
@@ -8663,6 +8827,8 @@ async function updateStats() {
   const statAr = document.getElementById('stat-ar');
   const statSales = document.getElementById('stat-sales');
   const statSalesMini = document.getElementById('stat-sales-mini');
+  const statApprovals = document.getElementById('stat-approvals');
+  const statApprovalsMini = document.getElementById('stat-approvals-mini');
   const statServiceOperations = document.getElementById('stat-service-operations');
   const statServiceOperationsMini = document.getElementById('stat-service-operations-mini');
   const statsYear = new Date().getFullYear();
@@ -8689,7 +8855,7 @@ async function updateStats() {
     .filter(project => Number(project.is_archived || 0) === 0)
     .filter(project => businessEntityMatches(project))
     .filter(project => String(project.status || '').trim().toLowerCase() !== 'draft')
-    .filter(project => !isStaffUser() || String(project.status || '').trim().toLowerCase() !== 'submitted')
+    .filter(project => String(project.status || '').trim().toLowerCase() !== 'submitted')
     .filter(project => companyMatchesDashboardFilter(getProjectCompanyName(project)));
   const totalProjectsCount = visibleProjects.filter(project => String(project.status || '').toLowerCase() !== 'cancelled').length;
   const ongoingProjectsCount = visibleProjects.filter(project => {
@@ -8832,22 +8998,18 @@ async function updateStats() {
     const requisitionRows = (Array.isArray(requisitions) ? requisitions : []).filter(row => businessEntityMatches(row));
     const purchaseOrderRows = (Array.isArray(purchaseOrders) ? purchaseOrders : []).filter(row => businessEntityMatches(row));
     const goodsReceiptRows = (Array.isArray(goodsReceipts) ? goodsReceipts : []).filter(row => businessEntityMatches(row));
-    const pendingRequisitions = requisitionRows.filter(row => {
+    const approvedRequisitions = requisitionRows.filter(row => {
       const status = String(row.status || 'draft').toLowerCase();
-      return isStaffUser()
-        ? status === 'approved'
-        : !['draft', 'ordered', 'cancelled'].includes(status);
+      return ['approved', 'ordered'].includes(status);
     }).length;
-    const pendingPurchaseOrders = purchaseOrderRows.filter(row => {
+    const approvedPurchaseOrders = purchaseOrderRows.filter(row => {
       const status = String(row.status || 'draft').toLowerCase();
-      return isStaffUser()
-        ? status === 'approved'
-        : !['draft', 'received', 'cancelled'].includes(status);
+      return ['approved', 'received'].includes(status);
     }).length;
-    const pendingProcurement = pendingRequisitions + pendingPurchaseOrders;
-    if (statProcurement) statProcurement.textContent = String(pendingProcurement);
+    const approvedProcurement = approvedRequisitions + approvedPurchaseOrders;
+    if (statProcurement) statProcurement.textContent = String(approvedProcurement);
     if (statProcurementMini) {
-      statProcurementMini.textContent = `${getCurrentDashboardCompanyLabel()} • ${pendingRequisitions} PR pending • ${pendingPurchaseOrders} PO pending`;
+      statProcurementMini.textContent = `${getCurrentDashboardCompanyLabel()} • ${approvedRequisitions} approved PR • ${approvedPurchaseOrders} approved PO`;
     }
   } catch (err) {
     console.error('Error fetching procurement stats:', err);
@@ -8878,7 +9040,9 @@ async function updateStats() {
     const billsRes = await fetch('/api/bills');
     const bills = await billsRes.json();
     if (statsSeq !== dashboardStatsSeq) return;
-    const billRows = (Array.isArray(bills) ? bills : []).filter(row => businessEntityMatches(row));
+    const billRows = (Array.isArray(bills) ? bills : [])
+      .filter(row => businessEntityMatches(row))
+      .filter(row => String(row.approval_status || 'approved').trim().toLowerCase() === 'approved');
     const totalPayable = billRows.reduce((sum, b) => {
       const totalAmount = parseFloat(b.total_amount) || 0;
       const paidAmount = parseFloat(b.paid_amount) || 0;
@@ -8896,9 +9060,24 @@ async function updateStats() {
 
   updateNetPositionSummaryCard(dashboardReceivableBalance, dashboardPayableBalance);
   if (isAdminUser()) {
-    renderApprovalCenter();
+    try {
+      await updateApprovalCenterSummaryCard();
+    } catch (err) {
+      console.error('Error fetching approval center summary:', err);
+      if (statApprovals) statApprovals.textContent = '0';
+      if (statApprovalsMini) statApprovalsMini.textContent = 'Pending decisions unavailable';
+    }
+  } else {
+    if (statApprovals) statApprovals.textContent = '0';
+    if (statApprovalsMini) statApprovalsMini.textContent = 'Admin approvals only';
   }
-  renderStaffDashboard();
+  if (isStaffUser()) {
+    if (currentDashboardPanel === 'staff-workspace') {
+      renderStaffDashboard();
+    } else {
+      await updateStaffWorkspaceSummaryCard();
+    }
+  }
   await loadNotifications();
 }
 
@@ -9712,6 +9891,7 @@ function syncSidebarActiveLinks() {
     '/admin?view=ongoing-projects': ['/admin?view=ongoing'],
     '/admin?view=logs': ['/admin?panel=logs'],
     '/admin?panel=archive-center': ['/admin?view=archive-center', '/admin?view=archived', '/admin?panel=archived'],
+    '/admin?panel=approval-center': ['/admin?view=approvals'],
     '/master-data?tab=vendors': ['/accounts-payable?tab=vendors', '/accounts-payable'],
     '/sales-management': ['/accounts-receivable', '/accounts-receivable?tab=invoices'],
     '/service-operations': ['/accounts-receivable?tab=service-orders']

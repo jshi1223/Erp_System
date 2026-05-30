@@ -41,7 +41,9 @@ body.admin-page[data-initial-dashboard-panel="project-records"] main > .dashboar
 body.admin-page[data-initial-dashboard-panel="project-ledger"] main > .dashboard-stats,
 body.admin-page[data-initial-dashboard-panel="ongoing-projects"] main > .dashboard-stats,
 body.admin-page[data-initial-dashboard-panel="system-logs"] main > .dashboard-stats,
-body.admin-page[data-initial-dashboard-panel="archive-center"] main > .dashboard-stats {
+body.admin-page[data-initial-dashboard-panel="archive-center"] main > .dashboard-stats,
+body.admin-page[data-initial-dashboard-panel="approval-center"] main > .dashboard-stats,
+body.admin-page[data-initial-dashboard-panel="staff-workspace"] main > .dashboard-stats {
   display: none !important;
 }
 
@@ -49,7 +51,9 @@ body.admin-page[data-initial-dashboard-panel="project-records"] #project-records
 body.admin-page[data-initial-dashboard-panel="project-ledger"] #project-ledger-page-section,
 body.admin-page[data-initial-dashboard-panel="ongoing-projects"] #ongoing-projects-section,
 body.admin-page[data-initial-dashboard-panel="system-logs"] #system-logs-section,
-body.admin-page[data-initial-dashboard-panel="archive-center"] #archive-center-section {
+body.admin-page[data-initial-dashboard-panel="archive-center"] #archive-center-section,
+body.admin-page[data-initial-dashboard-panel="approval-center"] #approval-center,
+body.admin-page[data-initial-dashboard-panel="staff-workspace"] #staff-workspace {
   display: block !important;
 }
 
@@ -1841,6 +1845,13 @@ body.admin-page[data-access-role="staff"] #stat-card-ap,
 body.admin-page[data-access-role="staff"] #stat-card-ar,
 body.admin-page[data-access-role="staff"] #stat-card-reports,
 body.admin-page[data-access-role="staff"] #stat-card-sales {
+  display: none !important;
+}
+
+body.admin-page:not(.is-staff-role) [data-staff-only="1"],
+body.admin-page[data-access-role="admin"] [data-staff-only="1"],
+body.admin-page[data-access-role="super_admin"] [data-staff-only="1"],
+body.admin-page[data-access-role="user"] [data-staff-only="1"] {
   display: none !important;
 }
 

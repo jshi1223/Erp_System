@@ -279,28 +279,38 @@ function toSafeAttachmentFilename(value, fallback = 'approval-summary') {
 }
 
 function buildApprovalSummaryPdfAttachment({ title = 'Approval Request', recordNo = '', submittedBy = '', details = [] } = {}) {
-  const rows = [
-    { Field: 'Type', Value: title },
-    recordNo ? { Field: 'Reference No.', Value: recordNo } : null,
-    submittedBy ? { Field: 'Submitted By', Value: submittedBy } : null,
-    ...details.map(([label, value]) => ({
-      Field: String(label || '').trim(),
-      Value: String(value || '').trim()
-    }))
-  ].filter((row) => row && row.Field && row.Value);
-
-  const subtitle = [
-    recordNo ? `Reference: ${recordNo}` : '',
-    submittedBy ? `Submitted By: ${submittedBy}` : ''
-  ].filter(Boolean).join(' | ');
+  const cleanDetails = (details || [])
+    .map(([label, value]) => [String(label || '').trim(), String(value || '').trim()])
+    .filter(([label, value]) => label && value);
+  const detailRows = cleanDetails.map(([label, value]) => ({
+    Field: label,
+    Value: value
+  }));
+  const leftRows = [
+    ['Request Type', title],
+    ['Reference No.', recordNo],
+    ['Submitted By', submittedBy],
+    ['Submitted At', formatPdfDate(new Date())],
+    ['Status', 'Pending Approval']
+  ];
+  const rightRows = cleanDetails.slice(0, 7);
 
   return {
     filename: `${toSafeAttachmentFilename(`${title}-${recordNo || Date.now()}`)}.pdf`,
-    content: buildSimplePdfBuffer({
-      title: `Approval Request - ${title}`,
-      subtitle,
-      headers: ['Field', 'Value'],
-      rows
+    content: buildProfessionalSummaryPdf({
+      title: 'APPROVAL REQUEST',
+      documentNo: recordNo || 'Pending',
+      status: 'pending',
+      leftTitle: 'REQUEST DETAILS',
+      leftRows,
+      rightTitle: 'RECORD SUMMARY',
+      rightRows,
+      tableTitle: detailRows.length ? 'APPROVAL DATA' : '',
+      tableHeaders: detailRows.length ? ['Field', 'Value'] : [],
+      tableRows: detailRows,
+      notes: `Please review and approve/reject this ${title} in the ERP approval center.`,
+      totalLabel: '',
+      totalValue: null
     }),
     contentType: 'application/pdf'
   };
@@ -850,14 +860,15 @@ async function notifyBillApprovalRequest(req, billId) {
   if (!row) return { sent: false, reason: 'not-found' };
 
   const attachments = [];
-  const pdfFilename = String(row.pdfFilename || '').trim();
-  const pdfPath = pdfFilename ? path.join(UPLOAD_DIR, path.basename(pdfFilename)) : '';
-  if (pdfFilename && fs.existsSync(pdfPath)) {
+  try {
+    const generated = await generateBillPdfFile(billId);
     attachments.push({
-      filename: path.basename(pdfFilename),
-      path: pdfPath,
+      filename: generated.filename,
+      path: generated.filePath,
       contentType: 'application/pdf'
     });
+  } catch (pdfErr) {
+    console.error('AP bill approval PDF generation warning:', pdfErr);
   }
 
   return notifyApprovalRequest(req, {
@@ -939,6 +950,17 @@ async function notifyProjectApprovalRequest(req, projectId) {
   `, [projectId]);
   const row = rows?.[0] || null;
   if (!row) return { sent: false, reason: 'not-found' };
+  const attachments = [];
+  try {
+    const generated = await generateProjectPdfFile(projectId);
+    attachments.push({
+      filename: generated.filename,
+      path: generated.filePath,
+      contentType: 'application/pdf'
+    });
+  } catch (pdfErr) {
+    console.error('Project approval PDF generation warning:', pdfErr);
+  }
 
   return notifyApprovalRequest(req, {
     title: 'Project Approval',
@@ -953,7 +975,8 @@ async function notifyProjectApprovalRequest(req, projectId) {
       'End Date': row.end_date,
       Budget: row.budget,
       Priority: row.priority
-    }
+    },
+    attachments: attachments.length ? attachments : undefined
   });
 }
 
@@ -9205,6 +9228,7 @@ app.get('/api/archive-center', protectAdminOnly, async (req, res) => {
         FROM projects p
         LEFT JOIN company_registry c ON c.id = p.company_id
         WHERE COALESCE(p.is_archived, FALSE) = TRUE
+          AND LOWER(COALESCE(p.status, '')) <> 'draft'
         ORDER BY COALESCE(p.archived_at, p.created_at) DESC, p.id DESC
       `),
       queryAsync(`
@@ -10088,6 +10112,11 @@ app.get('/api/company-registry/:id/overview', protectAdmin, async (req, res) => 
   if (!companyId) return res.status(400).json({ error: 'Invalid company id' });
 
   try {
+    const actor = getAuthenticatedUser(req) || {};
+    const hideDraftRecords = isAdminRole(actor.role);
+    const projectVisibleCondition = hideDraftRecords ? " AND LOWER(COALESCE(status, '')) <> 'draft'" : '';
+    const projectVisibleConditionWithAlias = hideDraftRecords ? " AND LOWER(COALESCE(p.status, '')) <> 'draft'" : '';
+    const purchaseOrderVisibleCondition = hideDraftRecords ? " AND LOWER(COALESCE(status, 'draft')) <> 'draft'" : '';
     const [companyRows, countRows, recentProjects, recentServiceOrders, vendorRows] = await Promise.all([
       queryAsync(
         'SELECT id, company_no, company_name, status, archived, contact_person, phone, email, tin, industry FROM company_registry WHERE id = ? LIMIT 1',
@@ -10095,11 +10124,11 @@ app.get('/api/company-registry/:id/overview', protectAdmin, async (req, res) => 
       ),
       queryAsync(`
         SELECT
-          (SELECT COUNT(*) FROM projects WHERE company_id = ?) AS project_count,
-          (SELECT COUNT(*) FROM projects WHERE company_id = ? AND COALESCE(is_archived, FALSE) = FALSE AND status NOT IN ('completed', 'cancelled')) AS active_project_count,
-          (SELECT COUNT(*) FROM projects WHERE company_id = ? AND status = 'completed') AS completed_project_count,
+          (SELECT COUNT(*) FROM projects WHERE company_id = ?${projectVisibleCondition}) AS project_count,
+          (SELECT COUNT(*) FROM projects WHERE company_id = ? AND COALESCE(is_archived, FALSE) = FALSE AND status NOT IN ('completed', 'cancelled')${projectVisibleCondition}) AS active_project_count,
+          (SELECT COUNT(*) FROM projects WHERE company_id = ? AND status = 'completed'${projectVisibleCondition}) AS completed_project_count,
           (SELECT COUNT(*) FROM service_orders WHERE company_id = ?) AS service_order_count,
-          (SELECT COUNT(*) FROM purchase_orders WHERE company_id = ?) AS purchase_order_count,
+          (SELECT COUNT(*) FROM purchase_orders WHERE company_id = ?${purchaseOrderVisibleCondition}) AS purchase_order_count,
           (SELECT COUNT(*) FROM transactions WHERE company_id = ?) AS transaction_count,
           (SELECT COUNT(*) FROM vendors WHERE company_id = ?) AS vendor_count,
           (SELECT COUNT(*) FROM accounts_receivable ar JOIN transactions t ON t.id = ar.transaction_id WHERE t.company_id = ?) AS receivable_count
@@ -10116,7 +10145,7 @@ app.get('/api/company-registry/:id/overview', protectAdmin, async (req, res) => 
           actual_end_date,
           created_at
         FROM projects
-        WHERE company_id = ?
+        WHERE company_id = ?${projectVisibleCondition}
         ORDER BY COALESCE(actual_start_date, planned_start_date, start_date, created_at) DESC, id DESC
         LIMIT 5
       `, [companyId]),
@@ -10132,7 +10161,7 @@ app.get('/api/company-registry/:id/overview', protectAdmin, async (req, res) => 
           p.project_name
         FROM service_orders so
         LEFT JOIN projects p ON p.id = so.project_id
-        WHERE so.company_id = ?
+        WHERE so.company_id = ?${projectVisibleConditionWithAlias}
         ORDER BY so.created_at DESC, so.id DESC
         LIMIT 5
       `, [companyId]),
@@ -11159,6 +11188,10 @@ app.post('/api/bills/:id/reject', protectAdminOnly, async (req, res) => {
 
 app.get('/api/erp/summary', protectAdmin, async (req, res) => {
   try {
+    const actor = getAuthenticatedUser(req) || {};
+    const hideDraftRecords = isAdminRole(actor.role);
+    const requisitionWhere = hideDraftRecords ? "WHERE LOWER(COALESCE(status, 'draft')) <> 'draft'" : '';
+    const purchaseOrderWhere = hideDraftRecords ? "WHERE LOWER(COALESCE(status, 'draft')) <> 'draft'" : '';
     const [
       accounts,
       journals,
@@ -11172,8 +11205,8 @@ app.get('/api/erp/summary', protectAdmin, async (req, res) => {
     ] = await Promise.all([
       queryAsync('SELECT COUNT(*) AS total FROM chart_of_accounts'),
       queryAsync('SELECT COUNT(*) AS total FROM journal_entries'),
-      queryAsync('SELECT COUNT(*) AS total FROM purchase_requisitions'),
-      queryAsync('SELECT COUNT(*) AS total FROM purchase_orders'),
+      queryAsync(`SELECT COUNT(*) AS total FROM purchase_requisitions ${requisitionWhere}`),
+      queryAsync(`SELECT COUNT(*) AS total FROM purchase_orders ${purchaseOrderWhere}`),
       queryAsync('SELECT COUNT(*) AS total FROM accounts_payable'),
       queryAsync('SELECT COUNT(*) AS total FROM company_registry'),
       queryAsync('SELECT COUNT(*) AS total FROM departments'),
@@ -11616,6 +11649,10 @@ app.post('/api/accounting/journal-entries', protectAdmin, async (req, res) => {
 
 app.get('/api/procurement/requisitions', protectAdmin, async (req, res) => {
   try {
+    const actor = getAuthenticatedUser(req) || {};
+    const conditions = [];
+    if (isAdminRole(actor.role)) conditions.push("LOWER(COALESCE(r.status, 'draft')) <> 'draft'");
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const [requisitions, items] = await Promise.all([
       queryAsync(`
         SELECT
@@ -11633,6 +11670,7 @@ app.get('/api/procurement/requisitions', protectAdmin, async (req, res) => {
         LEFT JOIN business_entities be ON be.id = r.business_entity_id
         LEFT JOIN company_registry c ON c.id = r.company_id
         LEFT JOIN projects p ON p.id = r.project_id
+        ${where}
         ORDER BY r.request_date DESC, r.id DESC
       `),
       queryAsync(`
@@ -12185,6 +12223,10 @@ async function resolvePurchaseOrderProjectContext(projectId = 0, companyId = 0) 
 
 app.get('/api/procurement/purchase-orders', protectAdmin, async (req, res) => {
   try {
+    const actor = getAuthenticatedUser(req) || {};
+    const conditions = [];
+    if (isAdminRole(actor.role)) conditions.push("LOWER(COALESCE(po.status, 'draft')) <> 'draft'");
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const [purchaseOrders, lineItems, bills] = await Promise.all([
       queryAsync(`
       SELECT
@@ -12209,6 +12251,7 @@ app.get('/api/procurement/purchase-orders', protectAdmin, async (req, res) => {
       LEFT JOIN company_registry c ON c.id = COALESCE(po.company_id, r.company_id)
       LEFT JOIN projects p ON p.id = po.project_id
       LEFT JOIN procurement_quotations q ON q.id = po.quotation_id
+      ${where}
         ORDER BY po.po_date DESC, po.id DESC
       `),
       queryAsync(`
@@ -12717,6 +12760,10 @@ function normalizeQuotationStatus(status) {
 
 app.get('/api/procurement/quotations', protectAdmin, async (req, res) => {
   try {
+    const actor = getAuthenticatedUser(req) || {};
+    const conditions = [];
+    if (isAdminRole(actor.role)) conditions.push("LOWER(COALESCE(q.status, 'draft')) <> 'draft'");
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const rows = await queryAsync(`
       SELECT q.*,
              r.pr_number,
@@ -12734,6 +12781,7 @@ app.get('/api/procurement/quotations', protectAdmin, async (req, res) => {
       LEFT JOIN vendors v ON v.id = q.vendor_id
       LEFT JOIN company_registry c ON c.id = r.company_id
       LEFT JOIN projects p ON p.id = r.project_id
+      ${where}
       ORDER BY q.quote_date DESC, q.id DESC
     `);
     res.json((Array.isArray(rows) ? rows : []).map((row) => ({
@@ -14438,7 +14486,7 @@ app.get('/api/projects/stats', protectAdmin, (req, res) => {
       params.push(companyFilter);
     }
     if (isAdminRole(actor.role)) {
-      whereParts.push("LOWER(COALESCE(p.status, '')) <> 'draft'");
+      whereParts.push("LOWER(COALESCE(p.status, '')) NOT IN ('draft', 'submitted')");
     }
     db.query(`
       SELECT
@@ -15081,7 +15129,7 @@ app.get('/api/procurement/requisitions/:id/pdf', protectAdmin, async (req, res) 
 
   try {
     const rows = await queryAsync(
-      'SELECT id, pr_number, pdfFilename AS "pdfFilename" FROM purchase_requisitions WHERE id = ? LIMIT 1',
+      'SELECT id, pr_number, status, pdfFilename AS "pdfFilename" FROM purchase_requisitions WHERE id = ? LIMIT 1',
       [requisitionId]
     );
     if (!rows.length) {
@@ -15089,6 +15137,9 @@ app.get('/api/procurement/requisitions/:id/pdf', protectAdmin, async (req, res) 
     }
 
     const record = rows[0];
+    if (isAdminRole(getAuthenticatedUser(req)?.role) && normalizeProcurementWorkflowStatus(record.status || 'draft') === 'draft') {
+      return res.status(404).json({ error: 'Purchase requisition not found.' });
+    }
     let safeFilename = record.pdfFilename ? path.basename(record.pdfFilename) : '';
     let filePath = safeFilename ? path.join(UPLOAD_DIR, safeFilename) : '';
 
@@ -15107,8 +15158,21 @@ app.get('/api/procurement/requisitions/:id/pdf', protectAdmin, async (req, res) 
   }
 });
 
-app.get('/api/projects/:id/pdf', protectAdmin, (req, res) => {
-  sendProjectPdf(req, res, req.params.id);
+app.get('/api/projects/:id/pdf', protectAdmin, async (req, res) => {
+  const projectId = Number(req.params.id || 0);
+  if (!projectId) return res.status(400).json({ error: 'Invalid project id' });
+
+  try {
+    const rows = await queryAsync('SELECT id, status FROM projects WHERE id = ? LIMIT 1', [projectId]);
+    if (!rows.length) return res.status(404).json({ error: 'Project not found.' });
+    if (isAdminRole(getAuthenticatedUser(req)?.role) && String(rows[0].status || '').trim().toLowerCase() === 'draft') {
+      return res.status(404).json({ error: 'Project not found.' });
+    }
+    return sendProjectPdf(req, res, projectId);
+  } catch (err) {
+    console.error('Project PDF access check error:', err);
+    return res.status(500).json({ error: err.message || 'Unable to load project PDF.' });
+  }
 });
 
 app.get('/api/projects/:id/archive-summary', protectAdminOnly, async (req, res) => {
