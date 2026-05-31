@@ -56,6 +56,13 @@
   watchSharedSidebarMount();
   verifySession();
 
+  function isAdminRoleManagedPage() {
+    return Boolean(
+      (document.body && document.body.classList && document.body.classList.contains('admin-page')) ||
+      String(location.pathname || '').replace(/\/+$/, '') === '/admin'
+    );
+  }
+
   function installSharedUiFallbacks() {
     if (typeof window.setSidebarOpen !== 'function') {
       window.setSidebarOpen = function (open) {
@@ -144,8 +151,11 @@
   function onReady() {
     applyCachedAccessRoleEarly();
     applyStoredBusinessEntityThemeEarly();
-    renderSharedSidebar();
-    normalizeFinanceSidebar();
+    if (!isAdminRoleManagedPage()) {
+      renderSharedSidebar();
+      normalizeFinanceSidebar();
+      normalizeSidebarPrimaryOrder();
+    }
     setupSidebarLinkNavigation();
     if (typeof syncSidebarGroupStates === 'function') {
       syncSidebarGroupStates();
@@ -160,7 +170,15 @@
   }
 
   function markSidebarReady() {
-    if (!document.getElementById('sidebar')) return;
+    var sidebar = document.getElementById('sidebar');
+    if (!sidebar) return;
+    if (
+      sidebar.dataset &&
+      sidebar.dataset.adminRoleSidebar === '1' &&
+      sidebar.dataset.roleNavigationRendered !== '1'
+    ) {
+      return;
+    }
     if (document.documentElement && document.documentElement.dataset) {
       document.documentElement.dataset.sidebarReady = '1';
     }
@@ -290,9 +308,37 @@
     nav.dataset.financeNormalized = '1';
   }
 
+  function normalizeSidebarPrimaryOrder() {
+    var nav = document.querySelector('#sidebar .sidebar-nav');
+    if (!nav || nav.dataset.primaryOrderNormalized === '1') return;
+
+    var dashboard = nav.querySelector('#menu-dashboard, .sidebar-link[href="/admin"], .sidebar-link[href="/admin?view=dashboard"]');
+    var masterData = nav.querySelector('.sidebar-group[data-sidebar-group="master-data"]');
+    var projects = nav.querySelector('.sidebar-group[data-sidebar-group="projects"]');
+
+    if (dashboard && dashboard.parentElement === nav && nav.firstElementChild !== dashboard) {
+      nav.insertBefore(dashboard, nav.firstElementChild);
+    }
+    if (masterData && projects && masterData.parentElement === nav && projects.parentElement === nav) {
+      nav.insertBefore(masterData, projects);
+    }
+
+    nav.dataset.primaryOrderNormalized = '1';
+  }
+
   function watchSharedSidebarMount() {
+    if (isAdminRoleManagedPage()) return;
     if (document.getElementById('sidebar')) {
       renderSharedSidebar();
+      normalizeFinanceSidebar();
+      normalizeSidebarPrimaryOrder();
+      if (typeof syncSidebarGroupStates === 'function') {
+        syncSidebarGroupStates();
+      }
+      if (typeof syncSidebarActiveLinks === 'function') {
+        syncSidebarActiveLinks();
+      }
+      markSidebarReady();
       return;
     }
     if (typeof MutationObserver !== 'function') return;
@@ -300,6 +346,8 @@
       if (!document.getElementById('sidebar')) return;
       observer.disconnect();
       renderSharedSidebar();
+      normalizeFinanceSidebar();
+      normalizeSidebarPrimaryOrder();
       if (typeof syncSidebarGroupStates === 'function') {
         syncSidebarGroupStates();
       }
@@ -846,6 +894,7 @@
   function renderSharedSidebar() {
     var sidebar = document.getElementById('sidebar');
     if (!sidebar) return;
+    if (sidebar.dataset && sidebar.dataset.adminRoleSidebar === '1') return;
     if (sidebar.dataset && sidebar.dataset.sharedSidebarRendered === '1') return;
 
     var currentUrl = new URL(window.location.href);
@@ -1099,6 +1148,9 @@
     if (document.documentElement && document.documentElement.dataset) {
       document.documentElement.dataset.accessRole = role;
     }
+
+    if (isAdminRoleManagedPage()) return;
+
     var adminOnlyHrefs = [
       '/user-management',
       '/admin?panel=archive-center',
