@@ -1,0 +1,25 @@
+/* Admin dashboard styles. */
+
+body.admin-page.is-admin-role:not(.is-super-admin-role) [data-staff-only="1"],
+body.admin-page[data-access-role="admin"] [data-staff-only="1"],
+body.admin-page.is-admin-role:not(.is-super-admin-role) #stat-card-staff-workspace,
+body.admin-page[data-access-role="admin"] #stat-card-staff-workspace {
+  display: none !important;
+  visibility: hidden !important;
+}
+
+body.admin-page[data-access-role="admin"] #dashboard > main > .stats.dashboard-stats:first-of-type,
+body.admin-page.is-admin-role:not(.is-super-admin-role) #dashboard > main > .stats.dashboard-stats:first-of-type {
+  grid-template-columns: repeat(auto-fit, minmax(245px, 1fr)) !important;
+}
+
+body.admin-page[data-access-role="admin"] .approval-center:not(.is-hidden),
+body.admin-page.is-admin-role:not(.is-super-admin-role) .approval-center:not(.is-hidden) {
+  display: block;
+}
+
+@media (max-width: 1180px) {
+  body.admin-page .approval-summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

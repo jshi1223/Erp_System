@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>KVSK CCTV &amp; IT Solutions - Staff Workspace</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<script src="/assets/js/auth-guard.js?v=20260601e"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Orbitron:wght@500;700;800&amp;family=Playfair+Display:wght@600;700&amp;family=IBM+Plex+Mono:wght@300;400;500&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260531a">
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a">
+  <link rel="stylesheet" href="/staff/css/staff-base.css?v=20260601c">
+  <link rel="stylesheet" href="/staff/css/staff.css?v=20260601b">
+</head>
+<body class="admin-page staff-page is-staff-role" data-access-role="staff">
+<script>
+  (function () {
+    var params = new URLSearchParams(window.location.search || '');
+    var panel = String(params.get('panel') || '').trim();
+    var view = String(params.get('view') || '').trim();
+    var initialPanel = 'home';
+    if (panel === 'project-records' || view === 'all' || view === 'project-records') initialPanel = 'project-records';
+    else if (panel === 'project-ledger') initialPanel = 'project-ledger';
+    else if (panel === 'ongoing-projects' || view === 'ongoing' || view === 'ongoing-projects') initialPanel = 'ongoing-projects';
+    else if (panel === 'staff-workspace') initialPanel = 'staff-workspace';
+    try {
+      document.documentElement.dataset.accessRole = 'staff';
+      document.body.dataset.accessRole = 'staff';
+      document.body.classList.add('is-staff-role');
+      document.body.classList.remove('is-admin-role', 'is-super-admin-role');
+    } catch (_) {}
+    document.body.dataset.initialDashboardPanel = initialPanel;
+    document.body.dataset.dashboardPanel = initialPanel;
+    if (initialPanel === 'home') {
+      try {
+        localStorage.setItem('kinaadman_dashboardCompany', 'all');
+        localStorage.setItem('kinaadman_dashboardPanel', 'home');
+      } catch (_) {}
+    }
+  })();
+</script>
+
+<!-- DASHBOARD -->
+<div id="dashboard" style="display: flex; min-height: 100vh; flex-direction: column;">
+
+  <!-- Header -->
+  <header>
+    <div class="header-left" style="display:flex; align-items:center; gap:15px;">
+      <button class="btn-icon sidebar-toggle-btn" type="button" onclick="toggleSidebar()" title="Menu" aria-label="Open menu">
+        <svg class="sidebar-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 7h16M4 12h16M4 17h16"></path>
+        </svg>
+      </button>
+      <button class="brand-link" type="button" onclick="openSidebarDashboard(this)" aria-label="Go to dashboard">
+        <div class="brand-lockup">
+        <img class="brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV &amp; IT Solution logo">
+        <div class="brand-copy">
+          <div class="header-logo">KVSK CCTV &amp; IT Solution</div>
+        </div>
+        </div>
+      </button>
+    </div>
+    <div class="header-right">
+      <div class="business-profile-menu">
+        <button class="workspace-badge business-profile-trigger" id="current-workspace-badge" type="button" aria-haspopup="true" aria-expanded="false">KVSK Workspace</button>
+        <div class="business-profile-panel" id="business-profile-panel" role="menu" aria-label="Switch workspace"></div>
+      </div>
+      <span class="admin-badge" id="role-badge" data-user-ready="0" aria-live="polite"></span>
+      <script>
+        (function () {
+          var badge = document.getElementById('role-badge');
+          if (!badge) return;
+          try {
+            var raw = localStorage.getItem('kinaadman_currentUserBadge');
+            var cached = raw ? JSON.parse(raw) : null;
+            if (!cached || !cached.role) return;
+            var labels = {
+              super_admin: 'Super Admin',
+              admin: 'Admin',
+              staff: 'Staff',
+              user: 'User'
+            };
+            var role = String(cached.role || 'user').trim().toLowerCase();
+            var name = String(cached.fullname || cached.username || '').trim();
+            var label = labels[role] || 'User';
+            badge.textContent = name ? name + ' (' + label + ')' : label;
+            badge.title = name ? 'Logged in as ' + name + ' (' + label + ')' : 'Logged in as ' + label;
+            badge.dataset.role = role;
+            badge.dataset.userReady = '1';
+          } catch (_) {}
+        })();
+      </script>
+      <div class="notification-wrap">
+        <button class="btn-icon notification-btn" type="button" aria-label="Notifications" title="Notifications">
+          <svg viewBox="0 0 24 24" aria-hidden="true" class="notification-icon">
+            <path d="M12 22a2.3 2.3 0 0 0 2.2-1.6h-4.4A2.3 2.3 0 0 0 12 22zm7-5.5V11a7 7 0 0 0-5-6.7V3.5a2 2 0 1 0-4 0v.8A7 7 0 0 0 5 11v5.5l-1.7 1.7a1 1 0 0 0 .7 1.7h15a1 1 0 0 0 .7-1.7L19 16.5z"></path>
+          </svg>
+          <span class="notification-badge" id="notification-count">0</span>
+        </button>
+        <div class="notifications-panel is-hidden" id="notifications-panel">
+          <div class="notifications-panel-head">
+            <div>
+              <div class="notifications-title">Notifications</div>
+            </div>
+            <div class="notifications-panel-actions">
+              <button class="notifications-mark" type="button" onclick="markNotificationsAsRead(); loadNotifications();">Mark as read</button>
+              <button class="notifications-close" type="button">&times;</button>
+            </div>
+          </div>
+          <div class="notifications-list" id="notifications-list"><div class="notifications-empty">No project alerts right now.</div></div>
+        </div>
+      </div>
+      <button class="btn btn-logout btn-sm" onclick="doLogout()">Logout</button>
+    </div>
+  </header>
+  <script>
+    (function () {
+      var stored = null;
+      try {
+        var raw = localStorage.getItem('kinaadman_businessEntityTheme');
+        stored = raw ? JSON.parse(raw) : null;
+      } catch (_) {}
+      if (!stored || !stored.theme) return;
+      var name = String(stored && stored.company_name ? stored.company_name : 'KVSK CCTV & IT Solution').trim();
+      var label = /kitsi|ktiis/i.test(name) ? 'KITSI' : 'KVSK';
+      var badge = document.getElementById('current-workspace-badge');
+      if (badge) {
+        badge.textContent = 'All Companies';
+        badge.title = 'Showing records from all business entities';
+        badge.setAttribute('aria-label', 'Showing all business entities');
+      }
+      var brand = document.querySelector('header .brand-copy .header-logo');
+      if (brand) brand.textContent = name;
+      if (document.documentElement && document.documentElement.dataset) {
+        document.documentElement.dataset.businessEntityBrandTextReady = '1';
+      }
+    })();
+  </script>
+
+  <!-- Main Content -->
+  <main>
+    <div class="page-hero">
+      <div class="page-hero-copy">
+        <div class="page-title">Dashboard</div>
+        <div class="page-sub page-subtitle"></div>
+      </div>
+    </div>
+    <section class="role-access-panel" id="role-access-panel" aria-label="Current role access">
+      <div class="role-access-copy">
+        <span id="role-access-kicker">Current Access</span>
+        <strong id="role-access-title">Checking Access</strong>
+        <p id="role-access-summary">Loading permissions...</p>
+      </div>
+      <div class="role-access-chips" id="role-access-chips" aria-label="Allowed capabilities"></div>
+    </section>
+    <script>
+      (function () {
+        var panel = document.body.dataset.initialDashboardPanel || 'home';
+        var title = document.querySelector('.page-title');
+        if (!title) return;
+        if (panel === 'project-records') title.textContent = 'Projects';
+        else if (panel === 'project-ledger') title.textContent = 'Project Overview';
+        else if (panel === 'ongoing-projects') title.textContent = 'Ongoing Projects';
+      })();
+    </script>
+
+    <div class="stats dashboard-stats" id="dashboard-summary-cards">
+      <!-- Master Data -->
+      <div class="stat-card stat-card-company stat-card-link" id="stat-card-company-registry" onclick="navigateDashboardCard('/master-data?tab=companies')">
+        <div class="stat-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M4.5 20V6.5A1.5 1.5 0 0 1 6 5h7a1.5 1.5 0 0 1 1.5 1.5V20"></path>
+            <path d="M14.5 9H18a1.5 1.5 0 0 1 1.5 1.5V20"></path>
+            <path d="M3.5 20h17"></path>
+            <path d="M7.5 8.5h3"></path>
+            <path d="M7.5 12h3"></path>
+            <path d="M7.5 15.5h3"></path>
+            <path d="M16.5 12.5h1"></path>
+            <path d="M16.5 16h1"></path>
+          </svg>
+        </div>
+        <div class="stat-label">Master Data</div>
+        <div class="stat-val" id="stat-company-registry">0</div>
+        <div class="stat-mini" id="stat-company-registry-mini">All Companies &bull; 0 active records</div>
+      </div>
+
+      <!-- Projects -->
+      <div class="stat-card stat-card-primary stat-card-link" id="stat-card-projects" onclick="openProjectsFromDashboard()">
+        <div class="stat-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M4 7.5A1.5 1.5 0 0 1 5.5 6h4.2l1.8 2H18.5A1.5 1.5 0 0 1 20 9.5v7A1.5 1.5 0 0 1 18.5 18h-13A1.5 1.5 0 0 1 4 16.5v-9z"></path>
+            <path d="M4.5 9h15"></path>
+            <path d="M9 13h6"></path>
+          </svg>
+        </div>
+        <div class="stat-label">Approved Projects</div>
+        <div class="stat-val" id="stat-projects">0</div>
+        <div class="stat-mini" id="stat-projects-mini">All Companies &bull; 0 ongoing &bull; 0 overdue</div>
+      </div>
+
+
+      <!-- Service Operations -->
+      <div class="stat-card stat-card-company stat-card-link" id="stat-card-service-operations" onclick="navigateDashboardCard('/service-operations')">
+        <div class="stat-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M6.5 4.5h11A1.5 1.5 0 0 1 19 6v12a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 18V6a1.5 1.5 0 0 1 1.5-1.5z"></path>
+            <path d="M8 8.5h8"></path>
+            <path d="M8 12h5"></path>
+            <path d="m9 16 1.4 1.4L15.5 12"></path>
+          </svg>
+        </div>
+        <div class="stat-label">Service Operations</div>
+        <div class="stat-val" id="stat-service-operations">0</div>
+        <div class="stat-mini" id="stat-service-operations-mini">All Companies &bull; 0 active service orders</div>
+      </div>
+
+      <!-- Staff Workspace -->
+      <div class="stat-card stat-card-warning stat-card-link" id="stat-card-staff-workspace" aria-hidden="false" onclick="openStaffWorkspaceFromDashboard()">
+        <div class="stat-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M6.5 4.5h11A1.5 1.5 0 0 1 19 6v12a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 18V6a1.5 1.5 0 0 1 1.5-1.5z"></path>
+            <path d="M8 8.5h8"></path>
+            <path d="M8 12h5"></path>
+            <path d="M8 15.5h4"></path>
+          </svg>
+        </div>
+        <div class="stat-label">Staff Workspace</div>
+        <div class="stat-val gold" id="stat-staff-workspace">0</div>
+        <div class="stat-mini" id="stat-staff-workspace-mini">My requests and assigned work</div>
+      </div>
+
+      <!-- Procurement -->
+      <div class="stat-card stat-card-warning stat-card-link" id="stat-card-procurement" onclick="navigateDashboardCard('/procurement?tab=requisitions')">
+        <div class="stat-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M5 5.5h14v5H5z"></path>
+            <path d="M7 10.5v8h10v-8"></path>
+            <path d="M9 14h6"></path>
+            <path d="M9 16.5h4"></path>
+            <path d="M8 3.5h8"></path>
+          </svg>
+        </div>
+        <div class="stat-label">Procurement</div>
+        <div class="stat-val gold" id="stat-procurement">0</div>
+        <div class="stat-mini" id="stat-procurement-mini">All Companies &bull; 0 approved PR &bull; 0 approved PO</div>
+      </div>
+
+
+      <!-- Inventory -->
+      <div class="stat-card stat-card-primary stat-card-link" id="stat-card-inventory" onclick="navigateDashboardCard('/inventory?tab=products')">
+        <div class="stat-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M4.5 7.5 12 3.8l7.5 3.7-7.5 3.7-7.5-3.7z"></path>
+            <path d="M4.5 7.5v8.8L12 20l7.5-3.7V7.5"></path>
+            <path d="M12 11.2V20"></path>
+            <path d="M8.2 5.7 15.8 9.5"></path>
+          </svg>
+        </div>
+        <div class="stat-label">Inventory</div>
+        <div class="stat-val" id="stat-inventory">0</div>
+        <div class="stat-mini" id="stat-inventory-mini">All Companies &bull; 0 warehouses &bull; 0 low stock</div>
+      </div>
+
+    </div>
+
+
+    <section class="staff-workspace is-hidden" id="staff-workspace" aria-label="Staff work queue">
+      <div class="staff-workspace-head">
+        <div>
+          <div class="staff-workspace-kicker">Staff Workspace</div>
+          <h2>My Work Queue</h2>
+        </div>
+        <div class="staff-workspace-actions">
+          <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-smart-back="1" data-back-force-fallback="1" data-back-fallback="/staff" onclick="goBackSmart('/staff', true)" aria-label="Go back to Dashboard">Back to Dashboard</button>
+          <button class="btn btn-add btn-sm" type="button" onclick="openProjectModal()">New Project Draft</button>
+          <button class="btn btn-cancel btn-sm" type="button" onclick="navigateDashboardCard('/procurement?tab=requisitions')">Purchase Request</button>
+          <button class="btn btn-cancel btn-sm" type="button" onclick="navigateDashboardCard('/service-operations')">Service Orders</button>
+        </div>
+      </div>
+
+      <div class="staff-summary-grid">
+        <button class="staff-summary-card" type="button" onclick="filterStaffWorkQueue('all')">
+          <span>Assigned Work</span>
+          <strong id="staff-work-total">0</strong>
+          <small>Open records assigned to you</small>
+        </button>
+        <button class="staff-summary-card" type="button" onclick="filterStaffWorkQueue('due')">
+          <span>Due Today</span>
+          <strong id="staff-work-due">0</strong>
+          <small>Needs attention today</small>
+        </button>
+        <button class="staff-summary-card" type="button" onclick="filterStaffWorkQueue('overdue')">
+          <span>Overdue</span>
+          <strong id="staff-work-overdue">0</strong>
+          <small>Past planned due date</small>
+        </button>
+        <button class="staff-summary-card" type="button" onclick="filterStaffWorkQueue('requests')">
+          <span>Drafts / For Approval</span>
+          <strong id="staff-work-requests">0</strong>
+          <small>Not yet in module count</small>
+        </button>
+        <button class="staff-summary-card" type="button" onclick="filterStaffWorkQueue('service')">
+          <span>Service</span>
+          <strong id="staff-work-service">0</strong>
+          <small>Active service orders</small>
+        </button>
+      </div>
+
+      <div class="staff-work-table-card staff-request-tracker">
+        <div class="staff-work-table-head">
+          <div>
+            <strong>My Drafts and For Approval</strong>
+            <span>Track records before and after approval</span>
+          </div>
+        </div>
+        <div class="table-wrap staff-work-table-wrap">
+          <table class="staff-work-table">
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Record</th>
+                <th>Module</th>
+                <th>Status</th>
+                <th class="text-center">Action</th>
+              </tr>
+            </thead>
+            <tbody id="staff-request-body">
+              <tr class="empty-row"><td colspan="5">No drafts or submitted requests yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="staff-work-table-card">
+        <div class="staff-work-table-head">
+          <div>
+            <strong>Actionable Items</strong>
+            <span id="staff-work-subtitle">Showing all assigned work</span>
+          </div>
+          <button class="btn btn-cancel btn-sm" type="button" onclick="renderStaffDashboard()">Refresh</button>
+        </div>
+        <div class="table-wrap staff-work-table-wrap">
+          <table class="staff-work-table">
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Record</th>
+                <th>Module</th>
+                <th>Due / Date</th>
+                <th>Status</th>
+                <th class="text-center">Action</th>
+              </tr>
+            </thead>
+            <tbody id="staff-work-body">
+              <tr class="empty-row"><td colspan="6">No assigned work yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <div class="dashboard-section is-hidden" id="project-records-section">
+      <div class="module-page-toolbar">
+        <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-smart-back="1" data-back-force-fallback="1" data-back-fallback="/staff" onclick="goBackSmart('/staff', true)" aria-label="Go back to Dashboard">Back to Dashboard</button>
+        <div class="module-page-toolbar-actions">
+          <div class="search-wrap top-search-bar module-toolbar-search">
+            <input id="project-records-search-input" type="text" placeholder="Search project title, number, company, or linked record..." oninput="renderProjectWorkspace()">
+          </div>
+          <button class="btn btn-add btn-sm" type="button" onclick="openProjectModal()">Add Project</button>
+        </div>
+      </div>
+      <div class="section-divider">Project Operations</div>
+      <div class="project-workspace-tabs" role="tablist" aria-label="Project workspace">
+        <button class="project-workspace-tab active" type="button" data-project-workspace-tab="projects" onclick="switchProjectWorkspaceTab('projects')" aria-selected="true">Projects</button>
+        <button class="project-workspace-tab" type="button" data-project-workspace-tab="ongoing" onclick="switchProjectWorkspaceTab('ongoing')" aria-selected="false">Ongoing</button>
+        <button class="project-workspace-tab" type="button" data-project-workspace-tab="transactions" onclick="switchProjectWorkspaceTab('transactions')" aria-selected="false">Transactions</button>
+        <button class="project-workspace-tab" type="button" data-project-workspace-tab="service-orders" onclick="switchProjectWorkspaceTab('service-orders')" aria-selected="false">Service Orders</button>
+        <button class="project-workspace-tab" type="button" data-project-workspace-tab="ledger" onclick="switchProjectWorkspaceTab('ledger')" aria-selected="false">Overview</button>
+        <button class="project-workspace-tab" type="button" data-project-workspace-tab="documents" onclick="switchProjectWorkspaceTab('documents')" aria-selected="false">Documents</button>
+      </div>
+      <div class="stats dashboard-stats dashboard-project-summary project-workspace-summary">
+        <button class="stat-card stat-card-primary stat-card-link" id="project-workspace-summary-card-1" type="button" onclick="handleProjectWorkspaceSummaryClick(0)">
+          <div class="stat-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M4 7.5A1.5 1.5 0 0 1 5.5 6h13A1.5 1.5 0 0 1 20 7.5v10A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5v-10z"></path>
+              <path d="M8 9h8"></path>
+              <path d="M8 13h5"></path>
+            </svg>
+          </div>
+          <div class="stat-label" id="project-workspace-summary-label-1">Total Projects</div>
+          <div class="stat-val" id="project-workspace-summary-value-1">0</div>
+          <div class="stat-mini" id="project-workspace-summary-mini-1">All Companies active records</div>
+        </button>
+        <button class="stat-card stat-card-warning stat-card-link" id="project-workspace-summary-card-2" type="button" onclick="handleProjectWorkspaceSummaryClick(1)">
+          <div class="stat-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 4.5v15"></path>
+              <path d="M5.5 10.5h13"></path>
+              <path d="M7.5 14.5c1.2-2.5 3-4 4.5-4s3.3 1.5 4.5 4"></path>
+            </svg>
+          </div>
+          <div class="stat-label" id="project-workspace-summary-label-2">Ongoing</div>
+          <div class="stat-val gold" id="project-workspace-summary-value-2">0</div>
+          <div class="stat-mini" id="project-workspace-summary-mini-2">Currently active</div>
+        </button>
+        <button class="stat-card stat-card-accent stat-card-link" id="project-workspace-summary-card-3" type="button" onclick="handleProjectWorkspaceSummaryClick(2)">
+          <div class="stat-label" id="project-workspace-summary-label-3">Transactions</div>
+          <div class="stat-val gold" id="project-workspace-summary-value-3">0</div>
+          <div class="stat-mini" id="project-workspace-summary-mini-3">Linked records</div>
+        </button>
+        <button class="stat-card stat-card-danger stat-card-link" id="project-workspace-summary-card-4" type="button" onclick="handleProjectWorkspaceSummaryClick(3)">
+          <div class="stat-label" id="project-workspace-summary-label-4">Documents</div>
+          <div class="stat-val" id="project-workspace-summary-value-4">0</div>
+          <div class="stat-mini" id="project-workspace-summary-mini-4">Attached files</div>
+        </button>
+      </div>
+
+      <div class="table-wrap project-records-wrap" data-slide-ready="1">
+        <table class="project-records-table">
+          <thead>
+            <tr>
+              <th class="table-sort-header" aria-sort="none">Project No.<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="table-sort-header" aria-sort="none">Project Title<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="table-sort-header" aria-sort="none">Company<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="table-sort-header" aria-sort="none">Manager<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-center table-sort-header" aria-sort="none">Status<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-center table-sort-header" aria-sort="none">Priority<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-center table-sort-header" aria-sort="none">Start Date<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-center table-sort-header" aria-sort="none">End Date<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-right table-sort-header" aria-sort="none">Contract Amount<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="project-records-table-body"><tr class="empty-row"><td colspan="10">Hindi ma-load ang project records.</td></tr></tbody>
+        </table>
+      </div>
+      <div id="project-workspace-alt-content" class="project-workspace-alt-content is-hidden"></div>
+    </div>
+
+    <div class="dashboard-section is-hidden" id="project-ledger-page-section">
+      <div class="module-page-toolbar project-ledger-page-toolbar">
+        <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-smart-back="1" data-back-force-fallback="1" data-back-fallback="/staff?panel=project-records" onclick="goBackSmart('/staff?panel=project-records', true)" aria-label="Go back to Dashboard">Back to Dashboard</button>
+        <div class="module-page-toolbar-actions project-ledger-page-actions">
+          <div class="search-wrap top-search-bar module-toolbar-search">
+            <input id="project-ledger-page-search" type="text" placeholder="Search overview records..." oninput="renderProjectLedgerPage()">
+          </div>
+        </div>
+      </div>
+
+      <div class="section-divider" id="project-ledger-page-heading">Project Overview</div>
+      <div class="project-ledger-page-subtitle" id="project-ledger-page-subtitle"></div>
+
+      <div class="stats dashboard-stats dashboard-project-summary project-ledger-page-stats">
+        <div class="stat-card stat-card-accent">
+          <div class="stat-label">AR Total</div>
+          <div class="stat-val gold" id="project-ledger-page-ar-total">PHP 0.00</div>
+          <div class="stat-mini" id="project-ledger-page-ar-mini">0 receivables</div>
+        </div>
+        <div class="stat-card stat-card-primary">
+          <div class="stat-label">Collected</div>
+          <div class="stat-val" id="project-ledger-page-collected-total">PHP 0.00</div>
+          <div class="stat-mini" id="project-ledger-page-collected-mini">PHP 0.00 balance</div>
+        </div>
+        <div class="stat-card stat-card-danger">
+          <div class="stat-label">AP Total</div>
+          <div class="stat-val" id="project-ledger-page-ap-total">PHP 0.00</div>
+          <div class="stat-mini" id="project-ledger-page-ap-mini">0 bills</div>
+        </div>
+        <div class="stat-card stat-card-warning">
+          <div class="stat-label">Net</div>
+          <div class="stat-val gold" id="project-ledger-page-net-total">PHP 0.00</div>
+          <div class="stat-mini" id="project-ledger-page-count-mini">0 linked records</div>
+        </div>
+      </div>
+
+      <div class="project-submodule-tabs" id="project-ledger-submodule-tabs" role="tablist" aria-label="Project submodules">
+        <button class="project-submodule-tab active" type="button" data-project-ledger-tab="overview" onclick="switchProjectLedgerSubmodule('overview')">Overview</button>
+        <button class="project-submodule-tab" type="button" data-project-ledger-tab="ar" onclick="switchProjectLedgerSubmodule('ar')">Project to AR</button>
+        <button class="project-submodule-tab" type="button" data-project-ledger-tab="ap" onclick="switchProjectLedgerSubmodule('ap')">Procurement/AP</button>
+        <button class="project-submodule-tab" type="button" data-project-ledger-tab="inventory" onclick="switchProjectLedgerSubmodule('inventory')">Inventory</button>
+        <button class="project-submodule-tab" type="button" data-project-ledger-tab="payments" onclick="switchProjectLedgerSubmodule('payments')">Payments</button>
+        <button class="project-submodule-tab" type="button" data-project-ledger-tab="service-orders" onclick="switchProjectLedgerSubmodule('service-orders')">Service Orders</button>
+        <button class="project-submodule-tab" type="button" data-project-ledger-tab="documents" onclick="switchProjectLedgerSubmodule('documents')">Documents</button>
+      </div>
+
+      <div id="project-ledger-page-content"></div>
+    </div>
+
+    <div class="dashboard-section is-hidden" id="total-projects-section">
+      <div class="module-page-toolbar project-transactions-toolbar">
+        <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-smart-back="1" data-back-force-fallback="1" data-back-fallback="/staff?panel=project-records" onclick="goBackSmart('/staff?panel=project-records', true)" aria-label="Go back to Dashboard">Back to Dashboard</button>
+        <div class="module-page-toolbar-actions project-transactions-actions" id="export-records-actions">
+          <div class="search-wrap top-search-bar module-toolbar-search project-transactions-search">
+            <input id="search-input" type="text" placeholder="Search client, document number, or items here..." oninput="renderTable()">
+          </div>
+          <select id="filter-status" class="filter-select" onchange="renderTable()">
+            <option value="">All Status</option>
+            <option value="paid">Paid</option>
+            <option value="partial">Partial</option>
+            <option value="unpaid">Unpaid</option>
+          </select>
+          <select id="project-company-filter" class="filter-select" aria-label="Project transaction company filter" onchange="setDashboardCompanyFilter(this.value)" data-selected="all"><button type="button" class="company-switch-chip is-active" data-value="all" aria-pressed="true">All Companies</button></select>
+        </div>
+      </div>
+      <div class="section-divider">Transactions</div>
+
+      <div class="stats dashboard-stats dashboard-project-summary project-ledger-stats" id="project-ledger-stats">
+        <div class="stat-card stat-card-primary">
+          <div class="stat-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M7 4.5h10A1.5 1.5 0 0 1 18.5 6v12A1.5 1.5 0 0 1 17 19.5H7A1.5 1.5 0 0 1 5.5 18V6A1.5 1.5 0 0 1 7 4.5z"></path>
+              <path d="M8 9h8"></path>
+              <path d="M8 13h8"></path>
+            </svg>
+          </div>
+          <div class="stat-label">Total Records</div>
+          <div class="stat-val" id="project-ledger-total">0</div>
+        </div>
+        <div class="stat-card stat-card-warning">
+          <div class="stat-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 4.5v15"></path>
+              <path d="M7.5 13.5 12 9l4.5 4.5"></path>
+            </svg>
+          </div>
+          <div class="stat-label">Paid</div>
+          <div class="stat-val gold" id="project-ledger-paid">0</div>
+        </div>
+        <div class="stat-card stat-card-accent">
+          <div class="stat-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M5.5 12a6.5 6.5 0 0 1 13 0"></path>
+              <path d="M12 12v6"></path>
+              <path d="M9 15h6"></path>
+            </svg>
+          </div>
+          <div class="stat-label">Partial</div>
+          <div class="stat-val gold" id="project-ledger-partial">0</div>
+        </div>
+        <div class="stat-card stat-card-danger">
+          <div class="stat-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 5a7 7 0 1 0 7 7"></path>
+              <path d="M12 8v4l3 2"></path>
+            </svg>
+          </div>
+          <div class="stat-label">Unpaid</div>
+          <div class="stat-val" id="project-ledger-unpaid">0</div>
+        </div>
+      </div>
+
+      <div class="table-wrap" style="max-height: 62vh; overflow:auto;" data-slide-ready="1">
+        <table class="public-table">
+          <thead>
+            <tr id="transaction-table-head"><th class="table-sort-header" aria-sort="none">Transaction No.<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th><th class="text-center table-sort-header" aria-sort="none">Type<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th><th class="table-sort-header" aria-sort="none">Client<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th><th class="table-sort-header" aria-sort="none">Project<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th><th class="table-sort-header" aria-sort="none">Service Order<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th><th class="table-sort-header" aria-sort="none">Description<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th><th class="text-center table-sort-header" aria-sort="none">Qty<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th><th class="text-center table-sort-header" aria-sort="none">Check<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th><th class="text-center table-sort-header" aria-sort="none">Customer PO Ref.<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th><th class="text-right table-sort-header" aria-sort="none">Amount<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th><th class="text-right table-sort-header" aria-sort="none">Bal<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th><th class="text-center table-sort-header" aria-sort="none">Date<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th><th class="text-center table-sort-header" aria-sort="none">Status<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th><th class="text-center">Actions</th></tr>
+          </thead>
+          <tbody id="table-body"><tr class="empty-row"><td colspan="6">Hindi ma-load ang records.</td></tr></tbody>
+        </table>
+        <div class="pagination">
+          <span id="page-info"></span>
+          <div class="page-btns" id="page-btns"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dashboard-section is-hidden" id="ongoing-projects-section">
+      <div class="section-divider">Ongoing Projects</div>
+      <div class="module-page-toolbar ongoing-toolbar">
+        <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-smart-back="1" data-back-force-fallback="1" data-back-fallback="/staff?panel=project-records" onclick="goBackSmart('/staff?panel=project-records', true)" aria-label="Go back to Dashboard">Back to Dashboard</button>
+        <div class="module-page-toolbar-actions ongoing-actions">
+          <div class="search-wrap top-search-bar module-toolbar-search ongoing-search">
+            <input id="ongoing-search" type="text" placeholder="Search project, manager, members, or doc..." oninput="renderOngoingProjects()">
+          </div>
+          <select id="ongoing-filter" class="filter-select" onchange="renderOngoingProjects()">
+            <option value="ongoing">Ongoing</option>
+            <option value="upcoming">Upcoming</option>
+            <option value="all">All Active</option>
+          </select>
+        </div>
+      </div>
+      <div class="table-wrap" data-slide-ready="1">
+        <table>
+          <thead>
+            <tr>
+              <th class="table-sort-header" aria-sort="none">Project Name<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-center table-sort-header" aria-sort="none">Manager<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="table-sort-header" aria-sort="none">Members<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-center table-sort-header" aria-sort="none">Start Date<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-center table-sort-header" aria-sort="none">End Date<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-center table-sort-header" aria-sort="none">Progress<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-center table-sort-header" aria-sort="none">Status<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-right table-sort-header" aria-sort="none">Contract Amount<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="ongoing-projects-body"><tr class="empty-row"><td colspan="7">Hindi ma-load ang ongoing projects.</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+</div><!-- Dashboard -->
+
+
+<!-- Sidebar Menu -->
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+<div class="sidebar" id="sidebar" data-staff-sidebar="1" data-sidebar-rendered="staff">
+  <div class="sidebar-header">
+    <a class="sidebar-brand" href="/staff?view=dashboard" onclick="openSidebarDashboard(this); return false;" aria-label="Go to dashboard">
+      <img class="sidebar-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV &amp; IT Solution logo">
+      <div>
+        <div class="header-logo" style="font-size: 1rem;">KVSK CCTV</div>
+        <div class="header-sub">Operations Control Panel</div>
+      </div>
+    </a>
+    <button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()" aria-label="Close menu">&times;</button>
+  </div>
+  <nav class="sidebar-nav">
+    <a href="/staff" class="sidebar-link active" id="menu-dashboard">Dashboard</a>
+    <a href="/staff?panel=staff-workspace" class="sidebar-link" id="menu-staff-workspace">Staff Workspace</a>
+    <div class="sidebar-group" data-sidebar-group="master-data">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Master Data</span>
+        <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/master-data?tab=companies" class="sidebar-link is-subitem" id="menu-company-registry">Company Registry</a>
+        <a href="/master-data?tab=vendors" class="sidebar-link is-subitem">Vendors</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="projects">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Projects</span>
+        <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/staff?panel=project-records" class="sidebar-link is-subitem" id="menu-projects">Project Records</a>
+        <a href="/staff?panel=project-records&amp;tab=ledger" class="sidebar-link is-subitem" id="menu-project-ledger">Project Overview</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="sales-management">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Sales Management</span>
+        <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/sales-management" class="sidebar-link is-subitem" id="menu-sales-management">Sales Invoices</a>
+        <a href="/sales-management?tab=collections" class="sidebar-link is-subitem">Collections</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="service-operations">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Service Operations</span>
+        <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/service-operations" class="sidebar-link is-subitem" id="menu-service-operations">Service Orders</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="procurement">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Procurement</span>
+        <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/procurement?tab=requisitions" class="sidebar-link is-subitem" id="menu-procurement">Purchase Requisitions</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="inventory">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Inventory</span>
+        <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/inventory?tab=products" class="sidebar-link is-subitem" id="menu-inventory">Products</a>
+        <a href="/inventory?tab=warehouses" class="sidebar-link is-subitem">Warehouses</a>
+        <a href="/inventory?tab=stock" class="sidebar-link is-subitem">Stock Levels</a>
+        <a href="/inventory?tab=movements" class="sidebar-link is-subitem">Stock Movements</a>
+      </div>
+    </div>
+  </nav>
+</div>
+<script>
+  (function () {
+    var sidebar = document.getElementById('sidebar');
+    if (!sidebar) return;
+    sidebar.querySelectorAll('.sidebar-group[data-sidebar-group]').forEach(function (group) {
+      var toggle = group.querySelector('.sidebar-group-toggle');
+      if (!toggle) return;
+      group.classList.add('is-collapsed');
+      toggle.setAttribute('aria-expanded', 'false');
+    });
+
+    var currentUrl = new URL(window.location.href);
+    var currentPath = currentUrl.pathname.replace(/\/+$/, '') || '/';
+    var currentSearch = currentUrl.search || '';
+    var activeLink = null;
+    sidebar.querySelectorAll('.sidebar-link').forEach(function (link) {
+      link.classList.remove('active');
+      try {
+        var linkUrl = new URL(link.getAttribute('href') || '', window.location.origin);
+        var linkPath = linkUrl.pathname.replace(/\/+$/, '') || '/';
+        var linkSearch = linkUrl.search || '';
+        if (!activeLink && linkPath === currentPath && (linkSearch === currentSearch || !linkSearch)) {
+          activeLink = link;
+        }
+      } catch (_) {}
+    });
+    if (!activeLink && currentPath === '/staff') {
+      activeLink = sidebar.querySelector('#menu-dashboard');
+    }
+    if (activeLink) {
+      activeLink.classList.add('active');
+      var activeGroup = activeLink.closest('.sidebar-group');
+      var activeToggle = activeGroup && activeGroup.querySelector('.sidebar-group-toggle');
+      if (activeGroup && activeToggle) {
+        activeGroup.classList.remove('is-collapsed');
+        activeToggle.setAttribute('aria-expanded', 'true');
+      }
+    }
+  })();
+</script>
+
+<!-- PROJECT DRAFT MODAL -->
+<div class="modal-backdrop" id="project-modal-backdrop">
+  <div id="project-modal-notice" class="modal-notice is-hidden"></div>
+  <div class="modal modal-project" style="max-width: 980px;">
+    <div class="modal-header modal-header-tight">
+      <div class="modal-title" id="project-modal-title">Create Project</div>
+      <button class="modal-close" onclick="closeProjectModal()" aria-label="Close project modal">&times;</button>
+    </div>
+    <div class="modal-body transaction-modal-body">
+      <div class="project-form-tabs" role="tablist" aria-label="Project form sections">
+        <button class="project-form-tab active" id="project-form-tab-details" type="button" role="tab" aria-selected="true" aria-controls="project-form-panel-details" data-project-form-tab="details" onclick="switchProjectFormTab('details')">Details</button>
+        <button class="project-form-tab" id="project-form-tab-dates" type="button" role="tab" aria-selected="false" aria-controls="project-form-panel-dates" data-project-form-tab="dates" onclick="switchProjectFormTab('dates')">Dates</button>
+        <button class="project-form-tab" id="project-form-tab-financials" type="button" role="tab" aria-selected="false" aria-controls="project-form-panel-financials" data-project-form-tab="financials" onclick="switchProjectFormTab('financials')">Financials</button>
+        <button class="project-form-tab" id="project-form-tab-team" type="button" role="tab" aria-selected="false" aria-controls="project-form-panel-team" data-project-form-tab="team" onclick="switchProjectFormTab('team')">Team</button>
+      </div>
+
+      <div class="project-form-panel active" id="project-form-panel-details" role="tabpanel" aria-labelledby="project-form-tab-details" data-project-form-panel="details">
+        <div class="section-divider">Project Details</div>
+        <div class="form-grid">
+          <div class="field full">
+            <label data-label-base="Project Title">Project Title<span class="field-label-status is-required">Required</span></label>
+            <input id="p-project-name" type="text" placeholder="PDZ Proposed 30% Progress Rate" required aria-required="true">
+            <div class="project-field-message is-hidden" data-project-field-message="project_name" aria-live="polite"></div>
+          </div>
+          <div class="field full">
+            <label data-label-base="Project No.">Project No.<span class="field-label-status is-required">Required</span></label>
+            <input id="p-project-docno" type="text" placeholder="Generated automatically" readonly="" required aria-required="true" style="background:var(--surface2);cursor:default;">
+            <div class="project-field-message is-hidden" data-project-field-message="project_docno" aria-live="polite"></div>
+          </div>
+          <div class="field full">
+            <label data-label-base="Business Entity">Business Entity<span class="field-label-status is-required">Required</span></label>
+            <select id="p-business-entity-id" required aria-required="true"></select>
+            <div class="project-field-message is-hidden" data-project-field-message="business_entity_id" aria-live="polite"></div>
+          </div>
+          <div class="field full">
+            <label data-label-base="Company">Company<span class="field-label-status is-required">Required</span></label>
+            <div class="search-wrap project-company-search">
+              <input id="p-company-search" type="text" placeholder="Search company name or number" autocomplete="off" oninput="filterProjectCompanies()" required aria-required="true">
+              <input id="p-company-id" type="hidden">
+              <div id="p-company-results" class="search-results-list" role="listbox" aria-label="Company search results" style="display:none;"></div>
+            </div>
+            <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">Choose the client/company for this project. The project stays first.</div>
+            <div class="project-field-message is-hidden" data-project-field-message="company" aria-live="polite"></div>
+          </div>
+          <div class="field">
+            <label data-label-base="Project Manager">Project Manager<span class="field-label-status is-required">Required</span></label>
+            <input id="p-project-manager" type="text" placeholder="Owner or accountable person" required aria-required="true">
+            <div class="project-field-message is-hidden" data-project-field-message="project_manager" aria-live="polite"></div>
+          </div>
+          <div class="field">
+            <label data-label-base="Status">Status<span class="field-label-status is-required">Required</span></label>
+            <select id="p-status" required aria-required="true">
+              <option value="draft">Draft</option>
+              <option value="submitted">For Admin Approval</option>
+            </select>
+          </div>
+          <div class="field">
+            <label data-label-base="Priority">Priority<span class="field-label-status is-required">Required</span></label>
+            <select id="p-priority" required aria-required="true">
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="urgent">Urgent</option>
+            </select>
+          </div>
+          <div class="field full">
+            <label data-label-base="Scope / Description">Scope / Description<span class="field-label-status is-required">Required</span></label>
+            <textarea id="p-description" rows="3" placeholder="Project scope, deliverables, or important notes" required aria-required="true"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <div class="project-form-panel" id="project-form-panel-dates" role="tabpanel" aria-labelledby="project-form-tab-dates" data-project-form-panel="dates" hidden="">
+        <div class="section-divider">Project Dates</div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-label-base="Planned Start Date">Planned Start Date<span class="field-label-status is-required">Required</span></label>
+            <input id="p-planned-start-date" type="date" required aria-required="true">
+            <div class="project-field-message is-hidden" data-project-field-message="planned_start_date" aria-live="polite"></div>
+          </div>
+          <div class="field">
+            <label data-label-base="Planned End Date">Planned End Date<span class="field-label-status is-required">Required</span></label>
+            <input id="p-planned-end-date" type="date" required aria-required="true">
+            <div class="project-field-message is-hidden" data-project-field-message="planned_end_date" aria-live="polite"></div>
+          </div>
+          <div class="field">
+            <label data-label-base="Actual Start">Actual Start<span class="field-label-status is-optional">Optional</span></label>
+            <input id="p-actual-start-date" type="date" aria-required="false">
+          </div>
+          <div class="field">
+            <label data-label-base="Actual End">Actual End<span class="field-label-status is-optional">Optional</span></label>
+            <input id="p-actual-end-date" type="date" aria-required="false">
+            <div class="project-field-message is-hidden" data-project-field-message="actual_end_date" aria-live="polite"></div>
+          </div>
+          <div class="field full" hidden>
+            <label data-label-base="Status Reason">Status Reason<span class="field-label-status is-optional">Optional</span></label>
+            <textarea id="p-status-reason" rows="3" placeholder="Reason for delay, hold, cancellation, or completion notes"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <div class="project-form-panel" id="project-form-panel-financials" role="tabpanel" aria-labelledby="project-form-tab-financials" data-project-form-panel="financials" hidden="">
+        <div class="section-divider">Project Financials</div>
+        <div class="form-grid">
+          <div class="field">
+            <label data-label-base="Contract Amount">Contract Amount<span class="field-label-status is-required">Required</span></label>
+            <input id="p-budget" type="number" step="0.01" min="0" placeholder="0.00" required aria-required="true">
+            <div class="project-field-message is-hidden" data-project-field-message="budget" aria-live="polite"></div>
+          </div>
+          <div class="field">
+            <label data-label-base="Downpayment">Downpayment<span class="field-label-status is-required">Required</span></label>
+            <input id="p-downpayment" type="number" step="0.01" min="0" placeholder="0.00" required aria-required="true">
+          </div>
+          <div class="field">
+            <label data-label-base="Balance">Balance<span class="field-label-status is-optional">Optional</span></label>
+            <div id="p-balance-display" style="padding:10px;background:var(--surface2);border-radius:4px;font-weight:600;color:var(--accent);">PHP 0.00</div>
+          </div>
+          <div class="field">
+            <label data-label-base="Payment Status">Payment Status<span class="field-label-status is-optional">Optional</span></label>
+            <span id="p-payment-status-display" class="status-pill status-unpaid">Unpaid</span>
+          </div>
+          <div class="field">
+            <label data-label-base="Check No.">Check No.<span class="field-label-status is-required">Required</span></label>
+            <input id="p-checkno" type="text" placeholder="Check reference" required aria-required="true">
+          </div>
+          <div class="field">
+            <label data-label-base="Customer PO Ref.">Customer PO Ref.<span class="field-label-status is-required">Required</span></label>
+            <input id="p-pono" type="text" placeholder="Customer purchase order no." required aria-required="true">
+          </div>
+        </div>
+      </div>
+
+      <div class="project-form-panel" id="project-form-panel-team" role="tabpanel" aria-labelledby="project-form-tab-team" data-project-form-panel="team" hidden="">
+        <div class="section-divider">Project Team</div>
+        <div class="form-grid">
+          <div class="field" data-project-team-row="1">
+            <label data-label-base="Member 1">Member 1<span class="field-label-status is-required">Required</span></label>
+            <input id="p-project-members" type="text" placeholder="Full name" required aria-required="true">
+          </div>
+          <div class="field" data-project-team-row="1">
+            <label data-label-base="Role 1">Role 1<span class="field-label-status is-required">Required</span></label>
+            <select id="p-member-role" required aria-required="true">
+              <option value="">Select role</option>
+              <option value="Project Manager">Project Manager</option>
+              <option value="Site Supervisor">Site Supervisor</option>
+              <option value="Lead Technician">Lead Technician</option>
+              <option value="Technician">Technician</option>
+              <option value="Installer">Installer</option>
+              <option value="Network Engineer">Network Engineer</option>
+              <option value="CCTV Technician">CCTV Technician</option>
+              <option value="Electrician">Electrician</option>
+              <option value="Procurement">Procurement</option>
+              <option value="Finance">Finance</option>
+              <option value="QA / Inspector">QA / Inspector</option>
+              <option value="Support">Support</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="field" data-project-team-row="1">
+            <label data-label-base="Phone 1">Phone 1<span class="field-label-status is-required">Required</span></label>
+            <input id="p-member-phone" type="text" placeholder="09171234567" inputmode="numeric" required aria-required="true">
+          </div>
+          <div class="field" data-project-team-row="2" hidden="">
+            <label data-label-base="Member 2">Member 2<span class="field-label-status is-optional">Optional</span></label>
+            <input id="p-project-members-2" type="text" placeholder="Full name">
+          </div>
+          <div class="field" data-project-team-row="2" hidden="">
+            <label data-label-base="Role 2">Role 2<span class="field-label-status is-optional">Optional</span></label>
+            <select id="p-member-role-2">
+              <option value="">Select role</option>
+              <option value="Project Manager">Project Manager</option>
+              <option value="Site Supervisor">Site Supervisor</option>
+              <option value="Lead Technician">Lead Technician</option>
+              <option value="Technician">Technician</option>
+              <option value="Installer">Installer</option>
+              <option value="Network Engineer">Network Engineer</option>
+              <option value="CCTV Technician">CCTV Technician</option>
+              <option value="Electrician">Electrician</option>
+              <option value="Procurement">Procurement</option>
+              <option value="Finance">Finance</option>
+              <option value="QA / Inspector">QA / Inspector</option>
+              <option value="Support">Support</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="field" data-project-team-row="2" hidden="">
+            <label data-label-base="Phone 2">Phone 2<span class="field-label-status is-optional">Optional</span></label>
+            <input id="p-member-phone-2" type="text" placeholder="09171234567" inputmode="numeric">
+          </div>
+          <div class="field" data-project-team-row="3" hidden="">
+            <label data-label-base="Member 3">Member 3<span class="field-label-status is-optional">Optional</span></label>
+            <input id="p-project-members-3" type="text" placeholder="Full name">
+          </div>
+          <div class="field" data-project-team-row="3" hidden="">
+            <label data-label-base="Role 3">Role 3<span class="field-label-status is-optional">Optional</span></label>
+            <select id="p-member-role-3">
+              <option value="">Select role</option>
+              <option value="Project Manager">Project Manager</option>
+              <option value="Site Supervisor">Site Supervisor</option>
+              <option value="Lead Technician">Lead Technician</option>
+              <option value="Technician">Technician</option>
+              <option value="Installer">Installer</option>
+              <option value="Network Engineer">Network Engineer</option>
+              <option value="CCTV Technician">CCTV Technician</option>
+              <option value="Electrician">Electrician</option>
+              <option value="Procurement">Procurement</option>
+              <option value="Finance">Finance</option>
+              <option value="QA / Inspector">QA / Inspector</option>
+              <option value="Support">Support</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="field" data-project-team-row="3" hidden="">
+            <label data-label-base="Phone 3">Phone 3<span class="field-label-status is-optional">Optional</span></label>
+            <input id="p-member-phone-3" type="text" placeholder="09171234567" inputmode="numeric">
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap;">
+          <button id="project-add-team-member-btn" class="btn btn-add btn-sm" type="button" onclick="addProjectTeamMember()">Add Member</button>
+          <span style="font-size:0.68rem;color:var(--muted);">Maximum 3 members.</span>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-cancel btn-sm" onclick="closeProjectModal()">Cancel</button>
+        <button id="project-save-btn" class="btn btn-save btn-sm" onclick="saveProject('draft')">Save Draft</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- CONFIRMATION MODAL -->
+<div class="modal-backdrop" id="confirm-modal-backdrop">
+  <div class="modal confirm-modal">
+    <div class="modal-title modal-title-confirm" id="confirm-modal-title">Confirm Action</div>
+    <p class="modal-copy" id="confirm-modal-message">Are you sure?</p>
+    <div class="modal-actions">
+      <button class="btn btn-confirm-no btn-sm" type="button" id="confirm-modal-no-btn" onclick="closeConfirmDialog(false)">No</button>
+      <button class="btn btn-confirm-yes btn-sm" type="button" id="confirm-modal-yes-btn" onclick="closeConfirmDialog(true)">Yes</button>
+    </div>
+  </div>
+</div>
+
+<div id="pdf-viewer-backdrop">
+  <div class="pdf-viewer-bar">
+    <div class="pdf-viewer-title" id="pdf-viewer-title">Document Viewer</div>
+    <div class="pdf-bar-actions">
+      <a id="pdf-dl-btn" href="#" download="" class="pdf-bar-btn">Download</a>
+      <button class="pdf-bar-btn close-btn" onclick="closePdfViewer()">Close</button>
+    </div>
+  </div>
+  <iframe id="pdf-frame" title="PDF Viewer"></iframe>
+  <div class="pdf-fallback" id="pdf-fallback" style="display:none">
+    <div class="pdf-fallback-icon">PDF</div>
+    <div>Hindi ma-display inline ang PDF sa browser na ito.</div>
+    <a id="pdf-fallback-dl" href="#" download="" class="pdf-bar-btn" style="margin-top:8px">
+      I-download ang PDF
+    </a>
+  </div>
+</div>
+
+<!-- Toast Notification -->
+<div id="toast" class="">Hindi ma-load ang records: HTTP 401</div>
+
+
+
+<!-- Scripts -->
+<script src="/staff/js/staff-notifications.js?v=20260601b"></script>
+<script src="/staff/js/staff-dashboard-cards.js?v=20260601b"></script>
+<script src="/staff/js/staff-page.js?v=20260601b"></script>
+<script src="/admin/js/admin.js?v=20260601f"></script>
+<script src="/staff/js/staff-workspace.js?v=20260601a"></script>
+
+
+
+</body></html>
+
+
+
+
+
+
+
+
+
+
