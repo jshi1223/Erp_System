@@ -467,7 +467,12 @@ function loadBusinessEntitiesForBills() {
 }
 
 function goBackToDashboard() {
-  window.location.href = '/admin?view=dashboard';
+  const role = String(
+    document.body?.dataset?.accessRole
+    || document.documentElement?.dataset?.accessRole
+    || ''
+  ).trim().toLowerCase();
+  window.location.href = role === 'staff' ? '/staff' : '/admin?view=dashboard';
 }
 
 function captureApToolbarState(tab) {
@@ -487,11 +492,12 @@ function renderApToolbarControls(tab) {
   const state = apToolbarState[tab] || {};
 
   if (tab === 'companies') {
+    const isStaff = isCurrentStaffRole();
     actions.innerHTML = `
       <div class="search-wrap top-search-bar module-toolbar-search">
         <input id="master-data-company-search" type="text" placeholder="Search company no, name, or address..." oninput="filterMasterDataCompanies()" />
       </div>
-      <button class="btn btn-add btn-sm" type="button" onclick="openMasterDataCompanyModal()">Add Company</button>
+      <button class="btn btn-add btn-sm" type="button" onclick="openMasterDataCompanyModal()">${isStaff ? 'Request Company' : 'Add Company'}</button>
     `;
     syncMasterDataCompanySearch();
     return;
@@ -528,6 +534,15 @@ function renderApToolbarControls(tab) {
   }
 
   actions.innerHTML = '';
+}
+
+function isCurrentStaffRole() {
+  const role = String(
+    document.body?.dataset?.accessRole ||
+    document.documentElement?.dataset?.accessRole ||
+    ''
+  ).trim().toLowerCase();
+  return role === 'staff';
 }
 
 function switchTab(tab, btn, options = {}) {
@@ -765,10 +780,11 @@ function resetMasterDataCompanyForm() {
   });
   const saveBtn = document.getElementById('master-company-save-btn');
   const title = document.getElementById('master-company-modal-title');
-  if (title) title.textContent = 'Add Company';
+  const staffRequest = isCurrentStaffRole();
+  if (title) title.textContent = staffRequest ? 'Request Company Registry' : 'Add Company';
   if (saveBtn) {
     saveBtn.disabled = false;
-    saveBtn.textContent = 'Create Company';
+    saveBtn.textContent = staffRequest ? 'Submit Request' : 'Create Company';
   }
 }
 
@@ -787,6 +803,10 @@ async function openMasterDataCompanyModal(companyId = null) {
   resetMasterDataCompanyForm();
   bindMasterDataCompanyModal();
   const numericCompanyId = Number(companyId || 0) || 0;
+  if (isCurrentStaffRole() && numericCompanyId) {
+    showToast('Staff can request new companies only. Existing registry changes need admin approval.', 'error');
+    return;
+  }
   editingMasterDataCompanyId = numericCompanyId || null;
   if (numericCompanyId) {
     await loadMasterDataCompanyForEdit(numericCompanyId);
@@ -913,12 +933,24 @@ async function saveMasterDataCompany() {
 
   const saveBtn = document.getElementById('master-company-save-btn');
   const isEdit = Number(editingMasterDataCompanyId || 0) > 0;
+  const staffRequest = isCurrentStaffRole();
   if (saveBtn) {
     saveBtn.disabled = true;
-    saveBtn.textContent = 'Saving...';
+    saveBtn.textContent = staffRequest ? 'Submitting...' : 'Saving...';
   }
 
   try {
+    if (staffRequest) {
+      await fetchJson('/api/company-registry-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      closeMasterDataCompanyModal();
+      showToast('Company registry request submitted for admin approval.', 'success');
+      return;
+    }
+
     await fetchJson(isEdit ? `/api/company-registry/${Number(editingMasterDataCompanyId)}` : '/api/company-registry', {
       method: isEdit ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -948,7 +980,7 @@ async function saveMasterDataCompany() {
   } finally {
     if (saveBtn) {
       saveBtn.disabled = false;
-      saveBtn.textContent = isEdit ? 'Save Changes' : 'Create Company';
+      saveBtn.textContent = staffRequest ? 'Submit Request' : (isEdit ? 'Save Changes' : 'Create Company');
     }
   }
 }

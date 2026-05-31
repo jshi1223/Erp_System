@@ -130,32 +130,12 @@
   }
 
   function applyCachedAccessRoleEarly() {
-    try {
-      var raw = localStorage.getItem('kinaadman_currentUserBadge');
-      var cached = raw ? JSON.parse(raw) : null;
-      var role = String(cached && cached.role ? cached.role : '').trim().toLowerCase();
-      if (['super_admin', 'admin', 'staff', 'user'].indexOf(role) === -1) return;
-      var isAdmin = role === 'super_admin' || role === 'admin';
-      var isStaff = role === 'staff';
-      if (document.body) {
-        document.body.setAttribute('data-access-role', role);
-        document.body.classList.toggle('is-staff-role', isStaff);
-        document.body.classList.toggle('is-admin-role', isAdmin);
-      }
-      if (document.documentElement && document.documentElement.dataset) {
-        document.documentElement.dataset.accessRole = role;
-      }
-    } catch (_) {}
+    // Role-specific UI must come from /api/me, not localStorage.
   }
 
   function onReady() {
     applyCachedAccessRoleEarly();
     applyStoredBusinessEntityThemeEarly();
-    if (!isAdminRoleManagedPage()) {
-      renderSharedSidebar();
-      normalizeFinanceSidebar();
-      normalizeSidebarPrimaryOrder();
-    }
     setupSidebarLinkNavigation();
     if (typeof syncSidebarGroupStates === 'function') {
       syncSidebarGroupStates();
@@ -163,7 +143,6 @@
     if (typeof syncSidebarActiveLinks === 'function') {
       syncSidebarActiveLinks();
     }
-    markSidebarReady();
     setupTableSearchHighlighting();
     setupTableSorting();
     setupTableSlideControls();
@@ -426,8 +405,6 @@
 
   function applyStoredBusinessEntityThemeEarly() {
     var stored = getStoredBusinessEntityThemeProfile();
-    var shouldWaitForAdminBusinessEntity = !stored
-      && /^\/admin(?:\/|$)?/i.test(String(window.location.pathname || ''));
     var profile = getBusinessEntityThemeFallback({ theme: 'kvsk' });
     var logoProfile = {
       logo: profile.logo,
@@ -445,21 +422,15 @@
     root.style.setProperty('--accent2', profile.accent2);
     if (root.dataset) {
       root.dataset.businessEntityTheme = activeTheme;
-      if (!shouldWaitForAdminBusinessEntity) {
-        root.dataset.businessEntityThemeReady = '1';
-      }
+      root.dataset.businessEntityThemeReady = '1';
     }
     if (document.body) {
       document.body.dataset.businessEntityTheme = activeTheme;
-      if (!shouldWaitForAdminBusinessEntity) {
-        document.body.dataset.businessEntityThemeReady = '1';
-      }
+      document.body.dataset.businessEntityThemeReady = '1';
     }
     activeBusinessEntityLogoProfile = logoProfile;
-    if (!shouldWaitForAdminBusinessEntity) {
-      applyBusinessEntityLogoProfileToDocument();
-      applyBusinessEntityBrandTextToDocument();
-    }
+    applyBusinessEntityLogoProfileToDocument();
+    applyBusinessEntityBrandTextToDocument();
     watchBusinessEntityLogoNodes();
   }
 
@@ -800,6 +771,15 @@
         if (data.csrfToken) {
           window.__CSRF_TOKEN__ = data.csrfToken;
         }
+        try {
+          localStorage.setItem('kinaadman_currentUserBadge', JSON.stringify({
+            id: data.id || '',
+            fullname: data.fullname || '',
+            username: data.username || '',
+            email: data.email || '',
+            role: data.role || 'user'
+          }));
+        } catch (_) {}
 
         applyRoleBasedSidebar(data);
         if (typeof syncSidebarActiveLinks === 'function') {
@@ -812,8 +792,8 @@
           { prefixes: ['/business-entities'], roles: ['super_admin'] },
           { prefixes: ['/user-management'], roles: ['super_admin', 'admin'] },
           { prefixes: ['/master-data'], roles: ['super_admin', 'admin', 'staff'] },
-          { prefixes: ['/master-data'], roles: ['super_admin', 'admin', 'staff'] },
-          { prefixes: ['/admin'], roles: ['super_admin', 'admin', 'staff'] },
+          { prefixes: ['/admin'], roles: ['super_admin', 'admin'] },
+          { prefixes: ['/staff'], roles: ['staff'] },
           { prefixes: ['/erp'], roles: ['super_admin', 'admin', 'staff'] },
           { prefixes: ['/accounts-payable'], roles: ['super_admin', 'admin', 'staff'] },
           { prefixes: ['/accounts-receivable'], roles: ['super_admin', 'admin', 'staff'] },
@@ -891,7 +871,7 @@
     }
   }
 
-  function renderSharedSidebar() {
+  function renderSharedSidebar(roleValue) {
     var sidebar = document.getElementById('sidebar');
     if (!sidebar) return;
     if (sidebar.dataset && sidebar.dataset.adminRoleSidebar === '1') return;
@@ -900,6 +880,178 @@
     var currentUrl = new URL(window.location.href);
     var currentPath = currentUrl.pathname.replace(/\/+$/, '') || '/';
     var currentSearch = currentUrl.search || '';
+    var currentRole = String(
+      roleValue ||
+      (document.body && document.body.dataset ? document.body.dataset.accessRole : '') ||
+      (document.documentElement && document.documentElement.dataset ? document.documentElement.dataset.accessRole : '')
+    ).trim().toLowerCase();
+    if (['super_admin', 'admin', 'staff'].indexOf(currentRole) === -1) return;
+    var roleSidebarConfigs = {
+      staff: {
+        dashboardHref: '/staff',
+        dashboardAliases: ['/staff?view=dashboard'],
+        groups: [
+          {
+            key: 'staff-workspace',
+            label: 'Staff Workspace',
+            items: [
+              { href: '/staff?panel=staff-workspace', label: 'My Work Queue', id: 'menu-staff-workspace' },
+              { href: '/staff?panel=project-records', label: 'Approved Projects', id: 'menu-projects', aliases: ['/staff?view=project-records'] }
+            ]
+          },
+          {
+            key: 'master-data',
+            label: 'Master Data',
+            items: [
+              { href: '/master-data?tab=companies', label: 'Company Registry', id: 'menu-company-registry' },
+              { href: '/master-data?tab=vendors', label: 'Vendors', aliases: ['/accounts-payable?tab=vendors'] }
+            ]
+          },
+          {
+            key: 'sales-management',
+            label: 'Sales Management',
+            items: [
+              { href: '/sales-management', label: 'Sales Invoices', id: 'menu-sales-management' },
+              { href: '/sales-management?tab=collections', label: 'Collections' }
+            ]
+          },
+          {
+            key: 'service-operations',
+            label: 'Service Operations',
+            items: [
+              { href: '/service-operations', label: 'Service Orders', id: 'menu-service-operations' }
+            ]
+          },
+          {
+            key: 'procurement',
+            label: 'Procurement',
+            items: [
+              { href: '/procurement?tab=requisitions', label: 'Purchase Requisitions' }
+            ]
+          },
+          {
+            key: 'inventory',
+            label: 'Inventory',
+            items: [
+              { href: '/inventory?tab=products', label: 'Products', id: 'menu-inventory', aliases: ['/inventory'] },
+              { href: '/inventory?tab=warehouses', label: 'Warehouses' },
+              { href: '/inventory?tab=stock', label: 'Stock Levels' },
+              { href: '/inventory?tab=movements', label: 'Stock Movements' }
+            ]
+          }
+        ]
+      },
+      admin: {
+        dashboardHref: '/admin',
+        dashboardAliases: ['/admin?view=dashboard'],
+        groups: [
+          {
+            key: 'master-data',
+            label: 'Master Data',
+            items: [
+              { href: '/master-data?tab=companies', label: 'Company Registry', id: 'menu-company-registry' },
+              { href: '/master-data?tab=vendors', label: 'Vendors', aliases: ['/accounts-payable?tab=vendors'] }
+            ]
+          },
+          {
+            key: 'projects',
+            label: 'Projects',
+            items: [
+              { href: '/admin?panel=project-records', label: 'Project Records', id: 'menu-projects', aliases: ['/admin?view=project-records'] },
+              { href: '/admin?panel=project-records&tab=ledger', label: 'Project Overview', id: 'menu-project-ledger', aliases: ['/admin?panel=project-ledger'] },
+              { href: '/gantt-chart', label: 'Gantt Chart', id: 'menu-gantt-chart' }
+            ]
+          },
+          {
+            key: 'sales-management',
+            label: 'Sales Management',
+            items: [
+              { href: '/sales-management', label: 'Sales Invoices', id: 'menu-sales-management', aliases: ['/accounts-receivable', '/accounts-receivable?tab=invoices', '/accounts-receivable?tab=overview', '/accounts-receivable?tab=receivables'] },
+              { href: '/sales-management?tab=collections', label: 'Collections', aliases: ['/accounts-receivable?tab=payments'] },
+              { href: '/sales-management?tab=customer-balances', label: 'Customer Balances', aliases: ['/accounts-receivable?tab=customer-balances'] }
+            ]
+          },
+          {
+            key: 'service-operations',
+            label: 'Service Operations',
+            items: [
+              { href: '/service-operations', label: 'Service Orders', id: 'menu-service-operations', aliases: ['/accounts-receivable?tab=service-orders', '/accounts-receivable?tab=transactions'] },
+              { href: '/service-operations?tab=documents', label: 'Service Documents' },
+              { href: '/admin?panel=project-records&tab=transactions', label: 'Project Transactions', aliases: ['/admin?view=all'] }
+            ]
+          },
+          {
+            key: 'procurement',
+            label: 'Procurement',
+            items: [
+              { href: '/procurement?tab=requisitions', label: 'Purchase Requisitions', aliases: ['/procurement', '/accounts-payable?tab=requisitions'] },
+              { href: '/procurement?tab=rfq', label: 'RFQ' },
+              { href: '/procurement?tab=quotations', label: 'Quotations & Evaluation', aliases: ['/procurement?tab=bid-evaluation', '/accounts-payable?tab=quotations', '/accounts-payable?tab=bid-evaluation'] },
+              { href: '/procurement?tab=purchase-orders', label: 'Purchase Orders', aliases: ['/accounts-payable?tab=purchase-orders'] },
+              { href: '/procurement?tab=goods-receipts', label: 'Goods Receipts', aliases: ['/accounts-payable?tab=goods-receipts'] }
+            ]
+          },
+          {
+            key: 'inventory',
+            label: 'Inventory',
+            items: [
+              { href: '/inventory?tab=products', label: 'Products', id: 'menu-inventory', aliases: ['/inventory'] },
+              { href: '/inventory?tab=warehouses', label: 'Warehouses' },
+              { href: '/inventory?tab=stock', label: 'Stock Levels' },
+              { href: '/inventory?tab=movements', label: 'Stock Movements' }
+            ]
+          },
+          {
+            key: 'finance',
+            label: 'Financial Management',
+            items: [
+              { href: '/accounts-payable?tab=bills', label: 'Bills', aliases: ['/accounts-payable'] },
+              { href: '/accounts-payable?tab=vendor-balances', label: 'Vendor Balances' },
+              { href: '/accounts-payable?tab=ap-aging', label: 'AP Aging' },
+              { href: '/accounts-payable?tab=payments', label: 'AP Payments' },
+              { href: '/accounts-payable?tab=disbursements', label: 'Disbursements' },
+              { href: '/accounts-receivable?tab=invoices', label: 'AR Invoices', aliases: ['/accounts-receivable?tab=receivables'] },
+              { href: '/accounts-receivable?tab=collections', label: 'AR Collections', aliases: ['/accounts-receivable?tab=payments'] },
+              { href: '/accounts-receivable?tab=customer-balances', label: 'AR Customer Balances' },
+              { href: '/accounts-receivable?tab=ar-aging', label: 'AR Aging' },
+              { href: '/reports', label: 'General Ledger / Reports' }
+            ]
+          },
+          {
+            key: 'admin',
+            label: 'Admin',
+            collapsed: true,
+            items: [
+              { href: '/user-management', label: 'User Management', id: 'menu-users' },
+              { href: '/admin?panel=approval-center', label: 'Approval Center', id: 'menu-approval-center' },
+              { href: '/admin?panel=archive-center', label: 'Archive Center', id: 'menu-archive-center', aliases: ['/admin?view=archive-center', '/admin?view=archived', '/admin?panel=archived'] },
+              { href: '/admin?view=logs', label: 'System Logs', id: 'menu-logs', aliases: ['/admin?panel=logs'] }
+            ]
+          }
+        ]
+      }
+    };
+    roleSidebarConfigs.super_admin = {
+      dashboardHref: '/admin',
+      dashboardAliases: ['/admin?view=dashboard'],
+      groups: roleSidebarConfigs.admin.groups.map(function (entry) {
+        if (entry.key !== 'admin') return entry;
+        return {
+          key: 'super-admin',
+          label: 'Super Admin',
+          collapsed: true,
+          items: [
+            { href: '/user-management', label: 'User Management', id: 'menu-users' },
+            { href: '/business-entities', label: 'Business Entities', id: 'menu-business-entities' },
+            { href: '/admin?panel=approval-center', label: 'Approval Center', id: 'menu-approval-center' },
+            { href: '/admin?panel=archive-center', label: 'Archive Center', id: 'menu-archive-center', aliases: ['/admin?view=archive-center', '/admin?view=archived', '/admin?panel=archived'] },
+            { href: '/admin?view=logs', label: 'System Logs', id: 'menu-logs', aliases: ['/admin?panel=logs'] }
+          ]
+        };
+      })
+    };
+    var sidebarConfig = roleSidebarConfigs[currentRole];
+    if (!sidebarConfig) return;
 
     function escapeAttr(value) {
       return String(value || '')
@@ -938,6 +1090,14 @@
       return '<a ' + attrs.join(' ') + '>' + label + '</a>';
     }
 
+    function linkFromItem(item) {
+      return link(item.href, item.label, {
+        id: item.id,
+        aliases: item.aliases,
+        subitem: true
+      });
+    }
+
     function group(key, label, collapsed, items) {
       var isCollapsed = !!collapsed;
       return [
@@ -965,7 +1125,7 @@
 
     sidebar.innerHTML = [
       '<div class="sidebar-header">',
-        '<a class="sidebar-brand" href="/admin?view=dashboard" onclick="if (typeof openSidebarDashboard === &quot;function&quot;) { openSidebarDashboard(this); return false; }">',
+        '<a class="sidebar-brand" href="' + sidebarConfig.dashboardHref + '" onclick="if (typeof openSidebarDashboard === &quot;function&quot;) { openSidebarDashboard(this); return false; }">',
           '<img class="sidebar-brand-mark" src="' + escapeAttr(storedProfile && storedProfile.logo ? storedProfile.logo : sidebarProfile.logo) + '" alt="' + escapeAttr(storedProfile && storedProfile.alt ? storedProfile.alt : sidebarProfile.alt) + '" />',
           '<div>',
             '<div class="header-logo" style="font-size: 1rem;">' + escapeAttr(sidebarTitle) + '</div>',
@@ -975,164 +1135,38 @@
         '<button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()" aria-label="Close menu">×</button>',
       '</div>',
       '<nav class="sidebar-nav">',
-        link('/admin', 'Dashboard', {
+        link(sidebarConfig.dashboardHref, 'Dashboard', {
           id: 'menu-dashboard',
-          aliases: ['/admin?view=dashboard']
+          aliases: sidebarConfig.dashboardAliases
         }),
-        group('master-data', 'Master Data', false, [
-          link('/master-data?tab=companies', 'Company Registry', {
-            id: 'menu-company-registry',
-            subitem: true
-          }),
-          link('/master-data?tab=vendors', 'Vendors', {
-            subitem: true,
-            aliases: ['/accounts-payable?tab=vendors']
-          })
-        ]),
-        group('projects', 'Projects', false, [
-          link('/admin?panel=project-records', 'Project Records', {
-            id: 'menu-projects',
-            subitem: true,
-            aliases: ['/admin?view=project-records']
-          }),
-          link('/admin?panel=project-records&tab=ledger', 'Project Overview', {
-            id: 'menu-project-ledger',
-            subitem: true,
-            aliases: ['/admin?panel=project-ledger']
-          }),
-          link('/gantt-chart', 'Gantt Chart', {
-            id: 'menu-gantt-chart',
-            subitem: true
-          })
-        ]),
-        group('sales-management', 'Sales Management', false, [
-          link('/sales-management', 'Sales Invoices', {
-            id: 'menu-sales-management',
-            subitem: true,
-            aliases: ['/accounts-receivable', '/accounts-receivable?tab=invoices', '/accounts-receivable?tab=overview', '/accounts-receivable?tab=receivables']
-          }),
-          link('/sales-management?tab=collections', 'Collections', {
-            subitem: true,
-            aliases: ['/accounts-receivable?tab=payments']
-          }),
-          link('/sales-management?tab=customer-balances', 'Customer Balances', {
-            subitem: true,
-            aliases: ['/accounts-receivable?tab=customer-balances']
-          })
-        ]),
-        group('service-operations', 'Service Operations', false, [
-          link('/service-operations', 'Service Orders', {
-            id: 'menu-service-operations',
-            subitem: true,
-            aliases: ['/accounts-receivable?tab=service-orders', '/accounts-receivable?tab=transactions']
-          }),
-          link('/service-operations?tab=documents', 'Service Documents', {
-            subitem: true
-          }),
-          link('/admin?panel=project-records&tab=transactions', 'Project Transactions', {
-            subitem: true,
-            aliases: ['/admin?view=all']
-          })
-        ]),
-        group('procurement', 'Procurement Management', false, [
-          link('/procurement?tab=requisitions', 'Purchase Requisitions', {
-            subitem: true,
-            aliases: ['/procurement', '/accounts-payable?tab=requisitions']
-          }),
-          link('/procurement?tab=rfq', 'RFQ', { subitem: true }),
-          link('/procurement?tab=quotations', 'Quotations & Evaluation', {
-            subitem: true,
-            aliases: ['/procurement?tab=bid-evaluation', '/accounts-payable?tab=quotations', '/accounts-payable?tab=bid-evaluation']
-          }),
-          link('/procurement?tab=purchase-orders', 'Purchase Orders', {
-            subitem: true,
-            aliases: ['/accounts-payable?tab=purchase-orders']
-          }),
-          link('/procurement?tab=goods-receipts', 'Goods Receipts', {
-            subitem: true,
-            aliases: ['/accounts-payable?tab=goods-receipts']
-          })
-        ]),
-        group('inventory', 'Inventory Management', false, [
-          link('/inventory?tab=products', 'Products', {
-            id: 'menu-inventory',
-            subitem: true,
-            aliases: ['/inventory']
-          }),
-          link('/inventory?tab=warehouses', 'Warehouses', {
-            subitem: true
-          }),
-          link('/inventory?tab=stock', 'Stock Levels', {
-            subitem: true
-          }),
-          link('/inventory?tab=movements', 'Stock Movements', {
-            subitem: true
-          })
-        ]),
-        group('finance', 'Financial Management', false, [
-          link('/accounts-payable?tab=bills', 'Bills', {
-            subitem: true,
-            aliases: ['/accounts-payable']
-          }),
-          link('/accounts-payable?tab=vendor-balances', 'Vendor Balances', { subitem: true }),
-          link('/accounts-payable?tab=ap-aging', 'AP Aging', { subitem: true }),
-          link('/accounts-payable?tab=payments', 'AP Payments', { subitem: true }),
-          link('/accounts-payable?tab=disbursements', 'Disbursements', { subitem: true }),
-          link('/accounts-receivable?tab=invoices', 'AR Invoices', {
-            subitem: true,
-            aliases: ['/accounts-receivable?tab=receivables']
-          }),
-          link('/accounts-receivable?tab=collections', 'AR Collections', {
-            subitem: true,
-            aliases: ['/accounts-receivable?tab=payments']
-          }),
-          link('/accounts-receivable?tab=customer-balances', 'AR Customer Balances', { subitem: true }),
-          link('/accounts-receivable?tab=ar-aging', 'AR Aging', { subitem: true }),
-          link('/reports', 'General Ledger / Reports', { subitem: true })
-        ]),
-        group('admin', 'Admin', true, [
-          link('/user-management', 'User Management', {
-            id: 'menu-users',
-            subitem: true
-          }),
-          link('/business-entities', 'Business Entities', {
-            id: 'menu-business-entities',
-            subitem: true
-          }),
-          link('/admin?panel=archive-center', 'Archive Center', {
-            id: 'menu-archive-center',
-            subitem: true,
-            aliases: ['/admin?view=archive-center', '/admin?view=archived', '/admin?panel=archived']
-          }),
-          link('/admin?view=logs', 'System Logs', {
-            id: 'menu-logs',
-            subitem: true,
-            aliases: ['/admin?panel=logs']
-          })
-        ]),
+        sidebarConfig.groups.map(function (entry) {
+          return group(entry.key, entry.label, entry.collapsed, entry.items.map(linkFromItem));
+        }).join(''),
       '</nav>'
     ].join('');
 
     sidebar.dataset.sharedSidebarRendered = '1';
+    sidebar.dataset.sharedSidebarRole = currentRole;
   }
 
   function hasCompleteSharedSidebar(sidebar) {
     var nav = sidebar && sidebar.querySelector ? sidebar.querySelector('.sidebar-nav') : null;
     if (!nav) return false;
-    var requiredGroups = [
-      'master-data',
-      'projects',
-      'sales-management',
-      'service-operations',
-      'procurement',
-      'inventory',
-      'finance',
-      'admin'
-    ];
+    var role = String(
+      (document.body && document.body.dataset ? document.body.dataset.accessRole : '') ||
+      (document.documentElement && document.documentElement.dataset ? document.documentElement.dataset.accessRole : '') ||
+      ''
+    ).trim().toLowerCase();
+    var requiredGroupsByRole = {
+      staff: ['staff-workspace', 'master-data', 'sales-management', 'service-operations', 'procurement', 'inventory'],
+      admin: ['master-data', 'projects', 'sales-management', 'service-operations', 'procurement', 'inventory', 'finance', 'admin'],
+      super_admin: ['master-data', 'projects', 'sales-management', 'service-operations', 'procurement', 'inventory', 'finance', 'super-admin']
+    };
+    var requiredGroups = requiredGroupsByRole[role] || [];
     var hasGroups = requiredGroups.every(function (key) {
       return Boolean(nav.querySelector('.sidebar-group[data-sidebar-group="' + key + '"]'));
     });
-    var dashboard = nav.querySelector('#menu-dashboard, .sidebar-link[href="/admin"], .sidebar-link[href="/admin?view=dashboard"]');
+    var dashboard = nav.querySelector('#menu-dashboard, .sidebar-link[href="/staff"], .sidebar-link[href="/admin"], .sidebar-link[href="/admin?view=dashboard"]');
     return hasGroups && Boolean(dashboard);
   }
 
@@ -1150,6 +1184,20 @@
     }
 
     if (isAdminRoleManagedPage()) return;
+
+    var sidebar = document.getElementById('sidebar');
+    if (sidebar && sidebar.dataset) {
+      var renderedRole = String(sidebar.dataset.sharedSidebarRole || '').trim().toLowerCase();
+      if (renderedRole !== role || !hasCompleteSharedSidebar(sidebar)) {
+        delete sidebar.dataset.sharedSidebarRendered;
+        renderSharedSidebar(role);
+      }
+      normalizeFinanceSidebar();
+      normalizeSidebarPrimaryOrder();
+      markSidebarReady();
+    }
+
+    setupSidebarLinkNavigation();
 
     var adminOnlyHrefs = [
       '/user-management',
@@ -1212,6 +1260,9 @@
       '/admin',
       '/admin?view=dashboard',
       '/admin?panel=project-records',
+      '/staff',
+      '/staff?panel=staff-workspace',
+      '/staff?panel=project-records',
       '/master-data?tab=companies',
       '/master-data?tab=vendors',
       '/sales-management',
@@ -1249,7 +1300,7 @@
         node.style.display = (isAdmin || isStaff) ? '' : 'none';
         node.setAttribute('aria-hidden', (isAdmin || isStaff) ? 'false' : 'true');
       }
-      if (targetHref === '/admin' || targetHref === '/admin?view=dashboard' || targetHref === '/admin?panel=project-records') {
+      if (targetHref === '/staff' || targetHref === '/staff?panel=project-records' || targetHref === '/admin' || targetHref === '/admin?view=dashboard' || targetHref === '/admin?panel=project-records') {
         node.style.display = (isAdmin || isStaff) ? '' : 'none';
         node.setAttribute('aria-hidden', (isAdmin || isStaff) ? 'false' : 'true');
       }

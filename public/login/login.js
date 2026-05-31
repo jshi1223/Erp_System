@@ -376,12 +376,23 @@
       if (res.ok && data.status === 'success') {
         localStorage.removeItem('kinaadman_activeTab');
         localStorage.removeItem('kinaadman_dashboardPanel');
+        try {
+          localStorage.setItem('kinaadman_currentUserBadge', JSON.stringify({
+            id: data.id || '',
+            fullname: data.fullname || data.name || '',
+            username: data.username || username,
+            email: data.email || username,
+            role: data.role || 'user'
+          }));
+        } catch (_) {}
         // Show success message briefly
         errDiv.className = 'err-msg success-msg';
         errDiv.textContent = 'Login successful! Redirecting...';
 
         setTimeout(() => {
-          if (data.role === 'super_admin' || data.role === 'admin' || data.role === 'staff') {
+          if (data.role === 'staff') {
+            window.location.href = '/staff';
+          } else if (data.role === 'super_admin' || data.role === 'admin') {
             window.location.href = '/admin';
           } else {
             window.location.href = '/status';
