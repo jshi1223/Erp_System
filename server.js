@@ -980,6 +980,127 @@ async function notifyProjectApprovalRequest(req, projectId) {
   });
 }
 
+async function notifyProjectRequester(req, projectId, decision = 'approved', options = {}) {
+  const rows = await queryAsync(`
+    SELECT
+      p.id,
+      p.project_docno,
+      p.draft_docno,
+      p.project_name,
+      p.project_manager,
+      p.start_date,
+      p.end_date,
+      p.budget,
+      p.priority,
+      p.status,
+      p.approved_by,
+      p.approved_at,
+      p.created_by,
+      p.assigned_to,
+      c.company_name,
+      creator.email AS created_by_email,
+      creator.fullname AS created_by_name,
+      creator.username AS created_by_username,
+      assignee.email AS assigned_to_email,
+      assignee.fullname AS assigned_to_name,
+      assignee.username AS assigned_to_username
+    FROM projects p
+    LEFT JOIN company_registry c ON c.id = p.company_id
+    LEFT JOIN users creator ON creator.id = p.created_by
+    LEFT JOIN users assignee ON assignee.id = p.assigned_to
+    WHERE p.id = ?
+    LIMIT 1
+  `, [projectId]);
+  const row = rows?.[0] || null;
+  if (!row) return { sent: false, reason: 'not-found' };
+
+  const recipients = dedupeEmailList([
+    ...parseEmailList(row.created_by_email || ''),
+    ...parseEmailList(row.assigned_to_email || ''),
+    ...await resolveUserEmailsByText([
+      row.project_manager,
+      row.created_by_username,
+      row.created_by_name,
+      row.assigned_to_username,
+      row.assigned_to_name
+    ])
+  ]);
+
+  const recordNo = row.project_docno || row.draft_docno || `Project #${projectId}`;
+  if (!recipients.length) {
+    console.warn(`No staff/requester email configured for project ${recordNo}.`);
+    return { sent: false, reason: 'no-recipients' };
+  }
+
+  const rejected = String(decision || '').toLowerCase() === 'rejected';
+  const statusText = rejected ? 'Rejected' : 'Approved';
+  const actor = String(options.decidedBy || (rejected ? options.rejectedBy : options.approvedBy) || row.approved_by || getApprovalActorLabel(req) || '').trim();
+  const reason = String(options.reason || '').trim();
+  const reviewUrl = buildAppUrl(`/staff?panel=project-records&tab=${rejected ? 'requests' : 'projects'}&search=${encodeURIComponent(recordNo)}`, getRequestBaseUrl(req));
+  const attachments = [];
+
+  if (!rejected) {
+    try {
+      const generated = await generateProjectPdfFile(projectId);
+      attachments.push({
+        filename: generated.filename,
+        path: generated.filePath,
+        contentType: 'application/pdf'
+      });
+    } catch (pdfErr) {
+      console.error('Project approved PDF attachment warning:', pdfErr);
+    }
+  }
+
+  const detailRows = [
+    ['Project No.', recordNo],
+    ['Status', statusText],
+    ['Company', row.company_name],
+    ['Project', row.project_name],
+    ['Manager', row.project_manager],
+    ['Start Date', row.start_date],
+    ['End Date', row.end_date],
+    ['Budget', row.budget],
+    ['Priority', row.priority],
+    [rejected ? 'Rejected By' : 'Approved By', actor],
+    [rejected ? 'Rejected At' : 'Approved At', row.approved_at],
+    rejected ? ['Reason', reason] : null
+  ].filter(Boolean)
+    .filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== '')
+    .map(([label, value]) => `
+      <tr>
+        <td style="padding:6px 10px;border:1px solid #d9e2ec;font-weight:600;">${htmlEscape(label)}</td>
+        <td style="padding:6px 10px;border:1px solid #d9e2ec;">${htmlEscape(value)}</td>
+      </tr>
+    `)
+    .join('');
+
+  return sendSystemEmail({
+    from: `Kinaadman ERP <${SMTP_FROM}>`,
+    to: recipients.join(','),
+    subject: `Project ${statusText}: ${recordNo}`,
+    attachments: attachments.length ? attachments : undefined,
+    text: [
+      `Hello,`,
+      `Your project ${recordNo} has been ${statusText.toLowerCase()}.`,
+      row.project_name ? `Project: ${row.project_name}` : '',
+      rejected && reason ? `Reason: ${reason}` : '',
+      `View: ${reviewUrl}`
+    ].filter(Boolean).join('\n'),
+    html: `
+      <div style="font-family:Arial,sans-serif;color:#1f2937;line-height:1.5;">
+        <h2 style="margin:0 0 12px;">Project ${htmlEscape(statusText)}</h2>
+        <p style="margin:0 0 12px;">Your project <strong>${htmlEscape(recordNo)}</strong> has been ${htmlEscape(statusText.toLowerCase())}.</p>
+        <table style="border-collapse:collapse;margin:12px 0;">${detailRows}</table>
+        ${!rejected && attachments.length ? '<p style="margin:0 0 12px;">The approved project PDF is attached to this email.</p>' : ''}
+        <p style="margin:16px 0;">
+          <a href="${htmlEscape(reviewUrl)}" style="background:#14532d;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;display:inline-block;">View in ERP</a>
+        </p>
+      </div>
+    `
+  });
+}
+
 function sendBackgroundNotification(task, label = 'notification') {
   Promise.resolve()
     .then(task)
@@ -2000,7 +2121,7 @@ app.use((req, res, next) => {
 });
 
 function redirectAccountsPayableProcurementTab(req, res, tab) {
-  const procurementTabs = new Set(['requisitions', 'rfq', 'quotations', 'bid-evaluation', 'purchase-orders', 'goods-receipts']);
+  const procurementTabs = new Set(['requests', 'requisitions', 'rfq', 'quotations', 'bid-evaluation', 'purchase-orders', 'goods-receipts']);
   if (!procurementTabs.has(tab)) return false;
   const targetTab = tab === 'bid-evaluation' ? 'quotations' : tab;
   const redirectUrl = new URL('/procurement', `${req.protocol}://${req.get('host')}`);
@@ -2607,6 +2728,25 @@ function initApp() {
   });
 
   db.query(`
+    CREATE TABLE IF NOT EXISTS vendor_registry_requests (
+      id integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+      request_no VARCHAR(50) NOT NULL UNIQUE,
+      payload TEXT NOT NULL,
+      status VARCHAR(30) NOT NULL DEFAULT 'submitted',
+      requested_by VARCHAR(255),
+      requested_by_email VARCHAR(255),
+      submitted_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+      approved_by VARCHAR(255),
+      approved_at TIMESTAMP NULL DEFAULT NULL,
+      reject_reason TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `, (err) => {
+    if (err) console.error('Vendor registry requests table error:', err);
+    else console.log('âœ… Table "vendor_registry_requests" ready');
+  });
+
+  db.query(`
     CREATE TABLE IF NOT EXISTS purchase_orders (
       id          integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
       po_number   VARCHAR(50)   NOT NULL UNIQUE,
@@ -2649,6 +2789,9 @@ function initApp() {
   });
   db.query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS approved_by VARCHAR(255) NULL`, (err) => {
     if (err) console.error('Purchase orders approved_by migration error:', err);
+  });
+  db.query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS draft_po_number VARCHAR(50) NULL`, (err) => {
+    if (err) console.error('Purchase orders draft_po_number migration error:', err);
   });
   db.query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS submitted_by VARCHAR(255) NULL`, (err) => {
     if (err) console.error('Purchase orders submitted_by migration error:', err);
@@ -2876,6 +3019,9 @@ function initApp() {
   db.query(`ALTER TABLE accounts_payable ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP NULL`, (err) => {
     if (err) console.error('Accounts payable approved_at migration error:', err);
   });
+  db.query(`ALTER TABLE accounts_payable ADD COLUMN IF NOT EXISTS draft_bill_number VARCHAR(50) NULL`, (err) => {
+    if (err) console.error('Accounts payable draft_bill_number migration error:', err);
+  });
 
   db.query(`
     CREATE TABLE IF NOT EXISTS accounts_receivable (
@@ -3058,6 +3204,7 @@ function initApp() {
     CREATE TABLE IF NOT EXISTS projects (
       id          integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
       project_docno VARCHAR(20) UNIQUE,
+      draft_docno VARCHAR(24) UNIQUE,
       project_name VARCHAR(255)  NOT NULL,
       business_entity_id integer NULL,
       transaction_id integer,
@@ -3139,6 +3286,24 @@ function initApp() {
   });
   db.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS project_docno VARCHAR(20)`, (err) => {
     if (err) console.error('Projects project_docno migration error:', err);
+  });
+  db.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS draft_docno VARCHAR(24)`, (err) => {
+    if (err) console.error('Projects draft_docno migration error:', err);
+  });
+  db.query(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_projects_draft_docno ON projects (draft_docno) WHERE draft_docno IS NOT NULL`, (err) => {
+    if (err) console.error('Projects draft_docno unique index migration error:', err);
+  });
+  db.query(`
+    UPDATE projects
+    SET draft_docno = COALESCE(draft_docno, project_docno),
+        project_docno = NULL,
+        project_ar_invoice_no = NULL,
+        project_ap_bill_no = NULL
+    WHERE LOWER(COALESCE(status, '')) IN ('draft', 'submitted')
+      AND draft_docno IS NULL
+      AND project_docno IS NOT NULL
+  `, (err) => {
+    if (err) console.error('Projects draft number backfill migration error:', err);
   });
   db.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS business_entity_id integer NULL`, (err) => {
     if (err) console.error('Projects business_entity_id migration error:', err);
@@ -3615,6 +3780,9 @@ function initApp() {
   db.query(`ALTER TABLE purchase_requisitions ADD COLUMN IF NOT EXISTS cancel_reason TEXT NULL`, (err) => {
     if (err) console.error('Purchase requisitions cancel_reason migration error:', err);
   });
+  db.query(`ALTER TABLE purchase_requisitions ADD COLUMN IF NOT EXISTS draft_pr_number VARCHAR(50) NULL`, (err) => {
+    if (err) console.error('Purchase requisitions draft_pr_number migration error:', err);
+  });
   addForeignKeyIfMissing(`
     ALTER TABLE purchase_requisitions
     ADD CONSTRAINT fk_purchase_requisitions_company_id
@@ -3726,6 +3894,9 @@ function initApp() {
   });
   db.query(`ALTER TABLE procurement_quotations ADD COLUMN IF NOT EXISTS selected_at TIMESTAMP NULL`, (err) => {
     if (err) console.error('Procurement quotations selected_at migration error:', err);
+  });
+  db.query(`ALTER TABLE procurement_quotations ADD COLUMN IF NOT EXISTS draft_quote_number VARCHAR(50) NULL`, (err) => {
+    if (err) console.error('Procurement quotations draft_quote_number migration error:', err);
   });
 
   db.query(`
@@ -4308,6 +4479,98 @@ async function peekNextEntityDocumentNo({
   return `${codePrefix}-${String(nextNum).padStart(pad, '0')}`;
 }
 
+async function generateNextDraftEntityDocumentNo({
+  businessEntityId,
+  documentType,
+  prefix,
+  tableName,
+  columnName,
+  dbClient = null,
+  pad = 3,
+  periodKey = getManilaYmd().slice(0, 4)
+}) {
+  const safeTables = new Set([
+    'service_orders',
+    'purchase_requisitions',
+    'purchase_orders',
+    'procurement_quotations',
+    'accounts_payable',
+    'accounts_receivable'
+  ]);
+  const safeColumns = new Set([
+    'so_number',
+    'pr_number',
+    'po_number',
+    'quote_number',
+    'bill_number',
+    'invoice_number'
+  ]);
+  if (!safeTables.has(tableName) || !safeColumns.has(columnName)) {
+    throw new Error('Invalid draft document sequence target.');
+  }
+
+  const entity = await getBusinessEntitySequenceCode(businessEntityId, dbClient);
+  const resolvedEntityId = entity.id || await getDefaultBusinessEntityId();
+  const docPrefix = String(prefix || documentType || 'DOC').replace(/[^a-z0-9]/gi, '').toUpperCase();
+  const period = String(periodKey || getManilaYmd().slice(0, 4)).replace(/[^0-9]/g, '').slice(0, 8) || getManilaYmd().slice(0, 4);
+  const codePrefix = `DFT-${docPrefix}-${entity.code}-${period}`;
+  const sequenceKey = `draft-${String(documentType || docPrefix).toLowerCase()}:${resolvedEntityId || 'default'}`;
+  const existingRows = tableName === 'procurement_quotations'
+    ? await queryDbAsync(
+        dbClient,
+        `SELECT COALESCE(MAX(CAST(split_part(q.${columnName}, '-', array_length(string_to_array(q.${columnName}, '-'), 1)) AS integer)), 0) AS max_no
+         FROM procurement_quotations q
+         JOIN purchase_requisitions pr ON pr.id = q.requisition_id
+         WHERE pr.business_entity_id ${resolvedEntityId ? '= ?' : 'IS NULL'}
+           AND q.${columnName} LIKE ?`,
+        resolvedEntityId ? [resolvedEntityId, `${codePrefix}-%`] : [`${codePrefix}-%`]
+      )
+    : await queryDbAsync(
+        dbClient,
+        `SELECT COALESCE(MAX(CAST(split_part(${columnName}, '-', array_length(string_to_array(${columnName}, '-'), 1)) AS integer)), 0) AS max_no
+         FROM ${tableName}
+         WHERE business_entity_id ${resolvedEntityId ? '= ?' : 'IS NULL'}
+           AND ${columnName} LIKE ?`,
+        resolvedEntityId ? [resolvedEntityId, `${codePrefix}-%`] : [`${codePrefix}-%`]
+      );
+  let nextNo = Number(existingRows?.[0]?.max_no || 0) + 1;
+  try {
+    const rows = await queryDbAsync(
+      dbClient,
+      `INSERT INTO document_sequences (sequence_key, period_key, last_value)
+       VALUES (?, ?, ?)
+       ON CONFLICT (sequence_key, period_key)
+       DO UPDATE SET last_value = GREATEST(document_sequences.last_value, ?) + 1
+       RETURNING last_value`,
+      [sequenceKey, period, nextNo, Number(existingRows?.[0]?.max_no || 0) || 0]
+    );
+    nextNo = Number(rows?.[0]?.last_value || nextNo) || nextNo;
+  } catch (err) {
+    if (!isPostgresUndefinedTable(err)) throw err;
+  }
+  return `${codePrefix}-${String(nextNo).padStart(pad, '0')}`;
+}
+
+async function peekNextDraftEntityDocumentNo(options = {}) {
+  const generated = await generateNextDraftEntityDocumentNo(options);
+  const match = generated.match(/^(.*-)(\d+)$/);
+  if (!match) return generated;
+  await queryAsync(
+    `UPDATE document_sequences
+     SET last_value = GREATEST(0, last_value - 1)
+     WHERE sequence_key = ? AND period_key = ?`,
+    [
+      `draft-${String(options.documentType || options.prefix || 'DOC').toLowerCase()}:${(await getBusinessEntitySequenceCode(options.businessEntityId, options.dbClient)).id || await getDefaultBusinessEntityId() || 'default'}`,
+      String(options.periodKey || getManilaYmd().slice(0, 4)).replace(/[^0-9]/g, '').slice(0, 8) || getManilaYmd().slice(0, 4)
+    ]
+  ).catch(() => {});
+  return generated;
+}
+
+function isDraftDocumentNo(value) {
+  return /^DFT-/i.test(String(value || '').trim());
+}
+
 async function claimEntityDocumentNo({
   businessEntityId,
   documentType,
@@ -4464,14 +4727,79 @@ async function getProjectDocnoSequenceState(businessEntityId = null, dbClient = 
   };
 }
 
+async function getDraftProjectDocnoSequenceState(businessEntityId = null, dbClient = null) {
+  const resolvedBusinessEntityId = normalizeBusinessEntityId(businessEntityId) || await getDefaultBusinessEntityId();
+  const period = getProjectMonthKey(new Date());
+  const prefix = `DFT-${period}`;
+  const sequenceKey = `project-draft-docno:${resolvedBusinessEntityId || 'default'}`;
+  const params = resolvedBusinessEntityId
+    ? [resolvedBusinessEntityId, `${prefix}-%`]
+    : [`${prefix}-%`];
+  const projectRows = await queryDbAsync(
+    dbClient,
+    `SELECT COALESCE(MAX(CAST(split_part(draft_docno, '-', array_length(string_to_array(draft_docno, '-'), 1)) AS integer)), 0) AS max_no
+     FROM projects
+     WHERE business_entity_id ${resolvedBusinessEntityId ? '= ?' : 'IS NULL'}
+       AND draft_docno LIKE ?`,
+    params
+  );
+  let sequenceMax = 0;
+  try {
+    const sequenceRows = await queryDbAsync(
+      dbClient,
+      'SELECT COALESCE(last_value, 0) AS last_value FROM document_sequences WHERE sequence_key = ? AND period_key = ? LIMIT 1',
+      [sequenceKey, period]
+    );
+    sequenceMax = Number(sequenceRows?.[0]?.last_value || 0) || 0;
+  } catch (err) {
+    if (!isPostgresUndefinedTable(err)) throw err;
+  }
+
+  return {
+    period,
+    prefix,
+    sequenceKey,
+    tableMax: Number(projectRows?.[0]?.max_no || 0) || 0,
+    sequenceMax
+  };
+}
+
 async function peekNextProjectDocnoAsync(businessEntityId = null, dbClient = null) {
   const state = await getProjectDocnoSequenceState(businessEntityId, dbClient);
   const nextNo = Math.max(state.tableMax, state.sequenceMax) + 1;
   return `${state.prefix}-${String(nextNo).padStart(2, '0')}`;
 }
 
+async function peekNextDraftProjectDocnoAsync(businessEntityId = null, dbClient = null) {
+  const state = await getDraftProjectDocnoSequenceState(businessEntityId, dbClient);
+  const nextNo = Math.max(state.tableMax, state.sequenceMax) + 1;
+  return `${state.prefix}-${String(nextNo).padStart(2, '0')}`;
+}
+
 async function generateNextProjectDocnoAsync(businessEntityId = null, dbClient = null) {
   const state = await getProjectDocnoSequenceState(businessEntityId, dbClient);
+  let nextNo = Math.max(state.tableMax, state.sequenceMax) + 1;
+
+  try {
+    const rows = await queryDbAsync(
+      dbClient,
+      `INSERT INTO document_sequences (sequence_key, period_key, last_value)
+       VALUES (?, ?, ?)
+       ON CONFLICT (sequence_key, period_key)
+       DO UPDATE SET last_value = GREATEST(document_sequences.last_value, ?) + 1
+       RETURNING last_value`,
+      [state.sequenceKey, state.period, nextNo, state.tableMax]
+    );
+    nextNo = Number(rows?.[0]?.last_value || nextNo) || nextNo;
+  } catch (err) {
+    if (!isPostgresUndefinedTable(err)) throw err;
+  }
+
+  return `${state.prefix}-${String(nextNo).padStart(2, '0')}`;
+}
+
+async function generateNextDraftProjectDocnoAsync(businessEntityId = null, dbClient = null) {
+  const state = await getDraftProjectDocnoSequenceState(businessEntityId, dbClient);
   let nextNo = Math.max(state.tableMax, state.sequenceMax) + 1;
 
   try {
@@ -5757,7 +6085,7 @@ async function generatePurchaseRequisitionPdfFile(requisitionId) {
 function buildProjectSummaryPdf(row = {}) {
   return buildProfessionalSummaryPdf({
     title: 'PROJECT SUMMARY',
-    documentNo: row.project_docno || `PROJECT-${row.id || ''}`,
+    documentNo: row.project_docno || row.draft_docno || `PROJECT-${row.id || ''}`,
     status: row.status || 'planning',
     brandSource: row,
     leftTitle: 'PROJECT DETAILS',
@@ -8721,6 +9049,15 @@ function generateNextVendorNo(callback) {
     .catch((err) => callback(err));
 }
 
+function generateNextVendorNoPromise() {
+  return new Promise((resolve, reject) => {
+    generateNextVendorNo((err, vendorNo) => {
+      if (err) reject(err);
+      else resolve(vendorNo);
+    });
+  });
+}
+
 function backfillVendorNumbers() {
   queryAsync('SELECT id, created_at, vendor_no FROM vendors ORDER BY created_at ASC, id ASC')
     .then((rows) => {
@@ -8894,7 +9231,7 @@ async function migrateExistingProjectDocnos({ attempt = 0 } = {}) {
 
   try {
     const projectRows = await queryAsync(`
-      SELECT id, project_docno, created_at, start_date, project_ar_invoice_no, project_ap_bill_no
+      SELECT id, project_docno, status, created_at, start_date, project_ar_invoice_no, project_ap_bill_no
       FROM projects
       ORDER BY COALESCE(created_at, start_date::timestamp, to_timestamp(0)) ASC, id ASC
     `);
@@ -8908,6 +9245,7 @@ async function migrateExistingProjectDocnos({ attempt = 0 } = {}) {
     const plan = [];
 
     for (const row of projectRows) {
+      if (['draft', 'submitted'].includes(String(row.status || '').trim().toLowerCase())) continue;
       const createdAt = row.created_at || row.start_date || new Date();
       const monthKey = getProjectMonthKey(createdAt);
       const currentDocno = String(row.project_docno || '').trim();
@@ -9010,10 +9348,17 @@ app.get('/api/transactions/next-docno', protectAdmin, async (req, res) => {
 });
 
 app.get('/api/projects/next-docno', protectAdmin, (req, res) => {
-  peekNextProjectDocno((err, projectDocno) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ project_docno: projectDocno });
-  }, req.query.business_entity_id);
+  const actor = getAuthenticatedUser(req) || {};
+  const nextNumberPromise = isStaffRole(actor.role)
+    ? peekNextDraftProjectDocnoAsync(req.query.business_entity_id)
+    : peekNextProjectDocnoAsync(req.query.business_entity_id);
+  nextNumberPromise
+    .then((projectDocno) => {
+      res.json(isStaffRole(actor.role)
+        ? { project_docno: projectDocno, draft_docno: projectDocno, number_type: 'draft' }
+        : { project_docno: projectDocno, number_type: 'official' });
+    })
+    .catch((err) => res.status(500).json({ error: err.message }));
 });
 
 app.get('/api/service-orders/next-number', protectAdmin, async (req, res) => {
@@ -9035,7 +9380,7 @@ app.get('/api/service-orders/next-number', protectAdmin, async (req, res) => {
 app.get('/api/procurement/requisitions/next-number', protectAdmin, async (req, res) => {
   try {
     const businessEntityId = await resolveBusinessEntityId(req.query.business_entity_id);
-    const pr_number = await peekNextEntityDocumentNo({
+    const pr_number = await peekNextDraftEntityDocumentNo({
       businessEntityId,
       documentType: 'purchase-requisition',
       prefix: 'PR',
@@ -9051,7 +9396,7 @@ app.get('/api/procurement/requisitions/next-number', protectAdmin, async (req, r
 app.get('/api/procurement/purchase-orders/next-number', protectAdmin, async (req, res) => {
   try {
     const businessEntityId = await resolveBusinessEntityId(req.query.business_entity_id);
-    const po_number = await peekNextEntityDocumentNo({
+    const po_number = await peekNextDraftEntityDocumentNo({
       businessEntityId,
       documentType: 'purchase-order',
       prefix: 'PO',
@@ -9083,7 +9428,7 @@ app.get('/api/procurement/goods-receipts/next-number', protectAdmin, async (req,
 app.get('/api/procurement/quotations/next-number', protectAdmin, async (req, res) => {
   try {
     const businessEntityId = await resolveBusinessEntityId(req.query.business_entity_id);
-    const quote_number = await peekNextEntityDocumentNo({
+    const quote_number = await peekNextDraftEntityDocumentNo({
       businessEntityId,
       documentType: 'procurement-quotation',
       prefix: 'RFQ',
@@ -9099,7 +9444,7 @@ app.get('/api/procurement/quotations/next-number', protectAdmin, async (req, res
 app.get('/api/bills/next-number', protectAdmin, async (req, res) => {
   try {
     const businessEntityId = await resolveBusinessEntityId(req.query.business_entity_id);
-    const bill_number = await peekNextEntityDocumentNo({
+    const bill_number = await peekNextDraftEntityDocumentNo({
       businessEntityId,
       documentType: 'ap-bill',
       prefix: 'BILL',
@@ -9850,6 +10195,197 @@ app.post('/api/company-registry-requests/:id/reject', protectAdminOnly, async (r
     res.json({ success: true, status: 'rejected', reason });
   } catch (err) {
     res.status(400).json({ error: err.message || 'Unable to reject company registry request.' });
+  }
+});
+
+function sanitizeVendorRegistryPayload(body = {}) {
+  const vendorTinDigits = normalizeTin(body.tin);
+  return {
+    vendor_no: String(body.vendor_no || '').trim(),
+    vendor_name: String(body.vendor_name || '').trim(),
+    contact_person: String(body.contact_person || '').trim(),
+    email: String(body.email || '').trim(),
+    phone: normalizePhone(body.phone),
+    address: String(body.address || '').trim(),
+    tin: formatTin(vendorTinDigits),
+    is_active: 1
+  };
+}
+
+function validateVendorRegistryPayload(payload = {}) {
+  if (!payload.vendor_name) {
+    const err = new Error('Vendor name is required.');
+    err.field = 'vendor_name';
+    throw err;
+  }
+  if (!payload.contact_person) {
+    const err = new Error('Contact person is required.');
+    err.field = 'vendor_contact';
+    throw err;
+  }
+  if (!payload.email) {
+    const err = new Error('Email is required.');
+    err.field = 'vendor_email';
+    throw err;
+  }
+  if (!isValidEmail(payload.email)) {
+    const err = new Error('Please enter a valid email address.');
+    err.field = 'vendor_email';
+    throw err;
+  }
+  if (!payload.phone) {
+    const err = new Error('Vendor phone is required.');
+    err.field = 'vendor_phone';
+    throw err;
+  }
+  if (!isValidPhone(payload.phone)) {
+    const err = new Error('Vendor phone number must be digits only, 7 to 15 digits.');
+    err.field = 'vendor_phone';
+    throw err;
+  }
+  const tinDigits = normalizeTin(payload.tin);
+  if (!tinDigits) {
+    const err = new Error('TIN is required.');
+    err.field = 'vendor_tin';
+    throw err;
+  }
+  if (tinDigits.length !== 12) {
+    const err = new Error('TIN must follow 000-000-000-000 format.');
+    err.field = 'vendor_tin';
+    throw err;
+  }
+  if (!payload.address) {
+    const err = new Error('Address is required.');
+    err.field = 'vendor_address';
+    throw err;
+  }
+}
+
+function findVendorDuplicatePromise(phone, tin, email, excludeId = 0) {
+  return new Promise((resolve, reject) => {
+    findVendorDuplicate(phone, tin, email, excludeId, (err, duplicate) => {
+      if (err) reject(err);
+      else resolve(duplicate || null);
+    });
+  });
+}
+
+async function assertVendorRegistryPayloadUnique(payload = {}) {
+  const duplicate = await findVendorDuplicatePromise(payload.phone, payload.tin, payload.email, 0);
+  if (!duplicate) return;
+  const err = new Error(duplicate.field === 'tin'
+    ? 'TIN already exists in Vendor Directory.'
+    : (duplicate.field === 'vendor_email'
+      ? 'Email already exists in Vendor Directory.'
+      : 'Vendor phone already exists in Vendor Directory.'));
+  err.field = duplicate.field;
+  throw err;
+}
+
+app.get('/api/vendor-registry-requests', protectAdmin, async (req, res) => {
+  try {
+    const actor = getAuthenticatedUser(req);
+    const admin = isAdminRole(actor?.role);
+    const rows = await queryAsync(`
+      SELECT *
+      FROM vendor_registry_requests
+      ${admin ? '' : 'WHERE requested_by_email = ? OR requested_by = ?'}
+      ORDER BY COALESCE(submitted_at, created_at) DESC, id DESC
+    `, admin ? [] : [actor?.email || '', actor?.fullname || actor?.username || '']);
+    res.json((Array.isArray(rows) ? rows : []).map((row) => {
+      let payload = {};
+      try { payload = JSON.parse(row.payload || '{}'); } catch (_) {}
+      return Object.assign({}, row, { payload });
+    }));
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Unable to load vendor registry requests.' });
+  }
+});
+
+app.post('/api/vendor-registry-requests', protectAdmin, async (req, res) => {
+  try {
+    const actor = getAuthenticatedUser(req);
+    const payload = sanitizeVendorRegistryPayload(req.body || {});
+    validateVendorRegistryPayload(payload);
+    await assertVendorRegistryPayloadUnique(payload);
+    const requestNo = generateCode('VRR');
+    await queryAsync(`
+      INSERT INTO vendor_registry_requests
+        (request_no, payload, status, requested_by, requested_by_email, submitted_at)
+      VALUES (?, ?, 'submitted', ?, ?, NOW())
+    `, [
+      requestNo,
+      JSON.stringify(payload),
+      actor?.fullname || actor?.username || null,
+      actor?.email || null
+    ]);
+    logAction(req, 'REQUEST_VENDOR_REGISTRY', `Request No: ${requestNo} | Vendor Name: ${payload.vendor_name}`);
+    res.status(201).json({ success: true, request_no: requestNo, status: 'submitted' });
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Unable to submit vendor request.', field: err.field || null });
+  }
+});
+
+app.post('/api/vendor-registry-requests/:id/approve', protectAdminOnly, async (req, res) => {
+  try {
+    const requestId = Number(req.params.id || 0);
+    if (!requestId) return res.status(400).json({ error: 'Invalid request ID.' });
+    const rows = await queryAsync('SELECT * FROM vendor_registry_requests WHERE id = ? LIMIT 1', [requestId]);
+    const requestRow = rows?.[0];
+    if (!requestRow) return res.status(404).json({ error: 'Vendor request not found.' });
+    const currentStatus = String(requestRow.status || '').toLowerCase();
+    if (currentStatus === 'approved') return res.json({ success: true, status: 'approved', alreadyApproved: true });
+    if (currentStatus !== 'submitted') return res.status(400).json({ error: 'Only submitted vendor requests can be approved.' });
+
+    let payload = {};
+    try { payload = JSON.parse(requestRow.payload || '{}'); } catch (_) {}
+    payload = sanitizeVendorRegistryPayload(payload);
+    validateVendorRegistryPayload(payload);
+    await assertVendorRegistryPayloadUnique(payload);
+    const vendorNo = await generateNextVendorNoPromise();
+    await queryAsync(`
+      INSERT INTO vendors
+        (company_id, vendor_no, vendor_name, contact_person, email, phone, address, tin, is_active)
+      VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, TRUE)
+    `, [
+      vendorNo,
+      payload.vendor_name,
+      payload.contact_person || null,
+      payload.email || null,
+      payload.phone || null,
+      payload.address || null,
+      payload.tin || null
+    ]);
+    const approvedBy = getApprovalActorName(req);
+    await queryAsync(
+      "UPDATE vendor_registry_requests SET status = 'approved', approved_by = ?, approved_at = NOW(), reject_reason = NULL WHERE id = ?",
+      [approvedBy, requestId]
+    );
+    logAction(req, 'APPROVE_VENDOR_REGISTRY_REQUEST', `Request No: ${requestRow.request_no || requestId} | Vendor No: ${vendorNo} | Vendor Name: ${payload.vendor_name}`);
+    res.json({ success: true, status: 'approved', vendor_no: vendorNo, approved_by: approvedBy });
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Unable to approve vendor request.', field: err.field || null });
+  }
+});
+
+app.post('/api/vendor-registry-requests/:id/reject', protectAdminOnly, async (req, res) => {
+  try {
+    const requestId = Number(req.params.id || 0);
+    const reason = String(req.body?.reason || '').trim() || 'Rejected by admin.';
+    if (!requestId) return res.status(400).json({ error: 'Invalid request ID.' });
+    const rows = await queryAsync('SELECT request_no, status FROM vendor_registry_requests WHERE id = ? LIMIT 1', [requestId]);
+    if (!rows?.[0]) return res.status(404).json({ error: 'Vendor request not found.' });
+    if (String(rows[0].status || '').toLowerCase() !== 'submitted') {
+      return res.status(400).json({ error: 'Only submitted vendor requests can be rejected.' });
+    }
+    await queryAsync(
+      "UPDATE vendor_registry_requests SET status = 'rejected', approved_by = ?, approved_at = NOW(), reject_reason = ? WHERE id = ?",
+      [getApprovalActorName(req), reason, requestId]
+    );
+    logAction(req, 'REJECT_VENDOR_REGISTRY_REQUEST', `Request No: ${rows[0].request_no || requestId} | Reason: ${reason}`);
+    res.json({ success: true, status: 'rejected', reason });
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Unable to reject vendor request.' });
   }
 });
 
@@ -12050,8 +12586,8 @@ app.post('/api/procurement/requisitions', protectAdmin, async (req, res) => {
     const projectRecord = await resolvePurchaseOrderProjectContext(projectId, companyId);
     companyId = Number(projectRecord?.company_id || 0) || 0;
     const businessEntityId = await resolveBusinessEntityId(projectRecord?.business_entity_id || req.body.business_entity_id);
-    if (!prNumber) {
-      prNumber = await generateNextEntityDocumentNo({
+    if (!prNumber || !isDraftDocumentNo(prNumber)) {
+      prNumber = await generateNextDraftEntityDocumentNo({
         businessEntityId,
         documentType: 'purchase-requisition',
         prefix: 'PR',
@@ -12666,8 +13202,8 @@ app.post('/api/procurement/purchase-orders', protectAdmin, async (req, res) => {
     if (Number(vendorRows[0].business_entity_id || 0) && Number(vendorRows[0].business_entity_id || 0) === Number(businessEntityId || 0)) {
       return res.status(400).json({ error: 'Select another vendor. The issuing company cannot be its own supplier on this PO.' });
     }
-    if (!poNumber) {
-      poNumber = await generateNextEntityDocumentNo({
+    if (!poNumber || !isDraftDocumentNo(poNumber)) {
+      poNumber = await generateNextDraftEntityDocumentNo({
         businessEntityId,
         documentType: 'purchase-order',
         prefix: 'PO',
@@ -13092,8 +13628,8 @@ app.post('/api/procurement/quotations', protectAdmin, async (req, res) => {
     if (!vendorRows.length) return res.status(404).json({ error: 'Selected vendor was not found.' });
     if (Number(vendorRows[0].is_active || 0) !== 1) return res.status(400).json({ error: 'Vendor is inactive.' });
     const businessEntityId = await resolveBusinessEntityId(requisitionRows[0].business_entity_id || req.body.business_entity_id);
-    if (!quoteNumber) {
-      quoteNumber = await generateNextEntityDocumentNo({
+    if (!quoteNumber || !isDraftDocumentNo(quoteNumber)) {
+      quoteNumber = await generateNextDraftEntityDocumentNo({
         businessEntityId,
         documentType: 'procurement-quotation',
         prefix: 'RFQ',
@@ -13183,7 +13719,12 @@ app.post('/api/procurement/quotations/:id/select', protectAdminOnly, async (req,
   const quotationId = Number(req.params.id || 0) || 0;
   if (!quotationId) return res.status(400).json({ error: 'Quotation ID is required.' });
   try {
-    const rows = await queryAsync('SELECT id, quote_number, requisition_id, status FROM procurement_quotations WHERE id = ? LIMIT 1', [quotationId]);
+    const rows = await queryAsync(`
+      SELECT q.id, q.quote_number, q.draft_quote_number, q.requisition_id, q.status, pr.business_entity_id
+      FROM procurement_quotations q
+      LEFT JOIN purchase_requisitions pr ON pr.id = q.requisition_id
+      WHERE q.id = ? LIMIT 1
+    `, [quotationId]);
     if (!rows.length) return res.status(404).json({ error: 'Quotation not found.' });
     if (normalizeQuotationStatus(rows[0].status) === 'rejected') {
       return res.status(400).json({ error: 'Rejected RFQs are read-only.' });
@@ -13192,11 +13733,20 @@ app.post('/api/procurement/quotations/:id/select', protectAdminOnly, async (req,
     if (existingPoRows.length) {
       return res.status(409).json({ error: `Selected PR already has PO ${existingPoRows[0].po_number || existingPoRows[0].id}. RFQ approval is locked.` });
     }
+    const officialQuoteNumber = isDraftDocumentNo(rows[0].quote_number)
+      ? await generateNextEntityDocumentNo({
+          businessEntityId: rows[0].business_entity_id,
+          documentType: 'procurement-quotation',
+          prefix: 'RFQ',
+          tableName: 'procurement_quotations',
+          columnName: 'quote_number'
+        })
+      : rows[0].quote_number;
     await queryAsync("UPDATE procurement_quotations SET status = 'rejected', selected_at = NULL WHERE requisition_id = ? AND id <> ?", [rows[0].requisition_id, quotationId]);
-    await queryAsync("UPDATE procurement_quotations SET status = 'selected', selected_at = COALESCE(selected_at, NOW()) WHERE id = ?", [quotationId]);
-    logAction(req, 'SELECT_QUOTATION', `Selected quotation ${rows[0].quote_number || quotationId}`);
+    await queryAsync("UPDATE procurement_quotations SET quote_number = ?, draft_quote_number = COALESCE(draft_quote_number, ?), status = 'selected', selected_at = COALESCE(selected_at, NOW()) WHERE id = ?", [officialQuoteNumber, rows[0].quote_number, quotationId]);
+    logAction(req, 'SELECT_QUOTATION', `Selected quotation ${officialQuoteNumber} (Draft ${rows[0].draft_quote_number || rows[0].quote_number || '-'})`);
     sendBackgroundNotification(() => notifyRfqAwardedRequester(req, quotationId), 'rfq awarded requester email');
-    res.json({ success: true, status: 'selected' });
+    res.json({ success: true, status: 'selected', quote_number: officialQuoteNumber });
   } catch (err) {
     console.error('Select quotation error:', err);
     res.status(500).json({ error: err.message || 'Unable to select quotation.' });
@@ -13229,7 +13779,7 @@ app.post('/api/procurement/requisitions/:id/submit', protectAdmin, async (req, r
   if (!requisitionId) return res.status(400).json({ error: 'Requisition ID is required.' });
 
   try {
-    const rows = await queryAsync('SELECT id, pr_number, status FROM purchase_requisitions WHERE id = ? LIMIT 1', [requisitionId]);
+    const rows = await queryAsync('SELECT id, pr_number, draft_pr_number, business_entity_id, status FROM purchase_requisitions WHERE id = ? LIMIT 1', [requisitionId]);
     if (!Array.isArray(rows) || !rows.length) return res.status(404).json({ error: 'Requisition not found.' });
 
     assertStatusTransition(rows[0].status, 'submitted', {
@@ -13303,15 +13853,24 @@ app.post('/api/procurement/requisitions/:id/approve', protectAdminOnly, async (r
       approved: ['approved']
     }, 'Purchase requisition');
 
+    const officialPrNumber = isDraftDocumentNo(rows[0].pr_number)
+      ? await generateNextEntityDocumentNo({
+          businessEntityId: rows[0].business_entity_id,
+          documentType: 'purchase-requisition',
+          prefix: 'PR',
+          tableName: 'purchase_requisitions',
+          columnName: 'pr_number'
+        })
+      : rows[0].pr_number;
     await queryAsync(
-      "UPDATE purchase_requisitions SET status = 'approved', approved_by = COALESCE(approved_by, ?), approved_at = COALESCE(approved_at, NOW()) WHERE id = ?",
-      [getApprovalActorName(req), requisitionId]
+      "UPDATE purchase_requisitions SET pr_number = ?, draft_pr_number = COALESCE(draft_pr_number, ?), status = 'approved', approved_by = COALESCE(approved_by, ?), approved_at = COALESCE(approved_at, NOW()) WHERE id = ?",
+      [officialPrNumber, rows[0].pr_number, getApprovalActorName(req), requisitionId]
     );
-    logAction(req, 'APPROVE_PURCHASE_REQUISITION', `Approved requisition ${rows[0].pr_number}`);
+    logAction(req, 'APPROVE_PURCHASE_REQUISITION', `Approved requisition ${officialPrNumber} (Draft ${rows[0].draft_pr_number || rows[0].pr_number || '-'})`);
     sendBackgroundNotification(() => notifyPurchaseRequisitionRequester(req, requisitionId, 'approved', {
       approvedBy: getApprovalActorLabel(req)
     }), 'purchase requisition approved email');
-    res.json({ success: true, status: 'approved' });
+    res.json({ success: true, status: 'approved', pr_number: officialPrNumber });
   } catch (err) {
     const validationMessage = String(err?.message || '').toLowerCase();
     if (validationMessage.includes('cannot move')) return res.status(400).json({ error: err.message });
@@ -13461,8 +14020,8 @@ app.put('/api/procurement/purchase-orders/:id', protectAdmin, async (req, res) =
     const quotationRow = await resolvePurchaseOrderQuotationContext(quotationId, requisitionRow?.id || requisitionId || 0, vendorId);
     const resolvedCompanyId = Number(companyRecord?.id || projectRecord?.company_id || 0) || null;
     await validatePurchaseOrderLineProducts(lineItems, businessEntityId);
-    if (!poNumber) {
-      poNumber = await generateNextEntityDocumentNo({
+    if (!poNumber || !isDraftDocumentNo(poNumber)) {
+      poNumber = await generateNextDraftEntityDocumentNo({
         businessEntityId,
         documentType: 'purchase-order',
         prefix: 'PO',
@@ -13570,7 +14129,7 @@ app.post('/api/procurement/purchase-orders/:id/approve', protectAdminOnly, async
   if (!poId) return res.status(400).json({ error: 'Purchase order ID is required.' });
 
   try {
-    const rows = await queryAsync('SELECT id, po_number, status, approved_by FROM purchase_orders WHERE id = ? LIMIT 1', [poId]);
+    const rows = await queryAsync('SELECT id, po_number, draft_po_number, business_entity_id, status, approved_by FROM purchase_orders WHERE id = ? LIMIT 1', [poId]);
     if (!Array.isArray(rows) || !rows.length) return res.status(404).json({ error: 'Purchase order not found.' });
 
     assertStatusTransition(rows[0].status, 'approved', {
@@ -13579,15 +14138,24 @@ app.post('/api/procurement/purchase-orders/:id/approve', protectAdminOnly, async
     }, 'Purchase order');
 
     const approvedBy = String(rows[0].approved_by || '').trim() || getApprovalActorName(req);
+    const officialPoNumber = isDraftDocumentNo(rows[0].po_number)
+      ? await generateNextEntityDocumentNo({
+          businessEntityId: rows[0].business_entity_id,
+          documentType: 'purchase-order',
+          prefix: 'PO',
+          tableName: 'purchase_orders',
+          columnName: 'po_number'
+        })
+      : rows[0].po_number;
     await queryAsync(
-      "UPDATE purchase_orders SET status = 'approved', approved_by = ?, approved_at = COALESCE(approved_at, NOW()) WHERE id = ?",
-      [approvedBy, poId]
+      "UPDATE purchase_orders SET po_number = ?, draft_po_number = COALESCE(draft_po_number, ?), status = 'approved', approved_by = ?, approved_at = COALESCE(approved_at, NOW()) WHERE id = ?",
+      [officialPoNumber, rows[0].po_number, approvedBy, poId]
     );
-    logAction(req, 'APPROVE_PURCHASE_ORDER', `Approved purchase order ${rows[0].po_number}`);
+    logAction(req, 'APPROVE_PURCHASE_ORDER', `Approved purchase order ${officialPoNumber} (Draft ${rows[0].draft_po_number || rows[0].po_number || '-'})`);
     sendBackgroundNotification(() => notifyPurchaseOrderRequester(req, poId, 'approved', {
       approvedBy: getApprovalActorLabel(req)
     }), 'purchase order approved email');
-    res.json({ success: true, status: 'approved', approved_by: approvedBy });
+    res.json({ success: true, status: 'approved', po_number: officialPoNumber, approved_by: approvedBy });
   } catch (err) {
     const validationMessage = String(err?.message || '').toLowerCase();
     if (validationMessage.includes('cannot move')) return res.status(400).json({ error: err.message });
@@ -13735,6 +14303,8 @@ app.get('/api/projects', protectAdmin, (req, res) => {
     db.query(`
       SELECT
         p.*,
+        COALESCE(p.project_docno, p.draft_docno) AS project_docno,
+        p.project_docno AS official_project_docno,
         be.company_name AS business_entity_name,
         be.entity_code AS business_entity_code,
         creator.fullname AS created_by_name,
@@ -14723,7 +15293,7 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
           makeLikeParams(3)
         ).catch(() => []),
         queryAsync(
-          `SELECT id, project_docno, project_name, project_manager, status, status_reason, approved_by, approved_at, created_at
+          `SELECT id, project_docno, draft_docno, project_name, project_manager, status, status_reason, approved_by, approved_at, created_at
            FROM projects
            WHERE (${projectWhere})
              AND (status = 'planning' OR (status = 'draft' AND status_reason IS NOT NULL))
@@ -14756,8 +15326,8 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
             level: needsRevision ? 'warning' : 'success',
             type: 'staff-project',
             category: 'My Work',
-            href: `/staff?panel=project-records&tab=projects&search=${encodeURIComponent(row.project_docno || row.project_name || '')}`,
-            title: row.project_docno || row.project_name || 'Project',
+            href: `/staff?panel=project-records&tab=projects&search=${encodeURIComponent(row.project_docno || row.draft_docno || row.project_name || '')}`,
+            title: row.project_docno || row.draft_docno || row.project_name || 'Project',
             message: needsRevision ? 'Project needs revision from admin.' : 'Project approved by admin.',
             meta: needsRevision ? (row.status_reason || 'Please review admin note.') : `Reviewed by ${row.approved_by || 'Admin'}`,
             date: row.approved_at || row.created_at || null
@@ -15008,21 +15578,22 @@ app.post('/api/projects', protectAdmin, upload.single('pdf_file'), (req, res) =>
       return sendProjectDuplicateResponse(res, duplicateProject);
     }
 
-    const insertProject = (finalProjectDocno) => {
-      const projectArInvoiceNo = getProjectInvoiceNumber(finalProjectDocno);
-      const projectApBillNo = getProjectBillNumber(finalProjectDocno);
+    const insertProject = (finalProjectDocno, finalDraftDocno = null) => {
+      const projectArInvoiceNo = finalProjectDocno ? getProjectInvoiceNumber(finalProjectDocno) : null;
+      const projectApBillNo = finalProjectDocno ? getProjectBillNumber(finalProjectDocno) : null;
       db.query(
         `INSERT INTO projects
-          (project_docno, project_name, business_entity_id, transaction_id, company_id, source_docno, company_no, company_name, client_name, project_ar_invoice_no, project_ap_bill_no, description, checkno, pono, downpayment, qty,
+          (project_docno, draft_docno, project_name, business_entity_id, transaction_id, company_id, source_docno, company_no, company_name, client_name, project_ar_invoice_no, project_ap_bill_no, description, checkno, pono, downpayment, qty,
            project_members, member_role, member_phone,
            project_members_2, member_role_2, member_phone_2,
            project_members_3, member_role_3, member_phone_3,
            start_date, end_date, planned_start_date, planned_end_date,
            actual_start_date, actual_end_date, status_reason, paused_at, cancelled_at,
            project_manager, pdfFilename, budget, unit_cost, members, status, priority, created_by, assigned_to, approved_by, approved_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
         [
           finalProjectDocno || null,
+          finalDraftDocno || null,
           project_name,
           resolvedBusinessEntityId,
           transaction_id || null,
@@ -15079,7 +15650,7 @@ app.post('/api/projects', protectAdmin, upload.single('pdf_file'), (req, res) =>
           const projectId = result.insertId;
           const projectForSync = {
             id: projectId,
-            project_docno: finalProjectDocno,
+            project_docno: finalProjectDocno || finalDraftDocno,
             business_entity_id: resolvedBusinessEntityId,
             company_id: resolvedCompanyId,
             company_no: resolvedCompanyNo,
@@ -15105,13 +15676,14 @@ app.post('/api/projects', protectAdmin, upload.single('pdf_file'), (req, res) =>
               if (taskErr) {
                 console.error('Default task creation failed:', taskErr);
               }
-              logAction(req, 'CREATE_PROJECT', `Project Doc No: ${finalProjectDocno} | Status: ${resolvedProjectStatus} | Company ID: ${resolvedCompanyId} | Company No: ${resolvedCompanyNo} | Company Name: ${resolvedCompanyName}`);
+              logAction(req, 'CREATE_PROJECT', `Project No: ${finalProjectDocno || finalDraftDocno} | Status: ${resolvedProjectStatus} | Company ID: ${resolvedCompanyId} | Company No: ${resolvedCompanyNo} | Company Name: ${resolvedCompanyName}`);
               if (resolvedProjectStatus === 'submitted') {
                 sendBackgroundNotification(() => notifyProjectApprovalRequest(req, projectId), 'project approval request email');
               }
               res.json({
                 id: projectId,
                 project_docno: finalProjectDocno || null,
+                draft_docno: finalDraftDocno || null,
                 status: resolvedProjectStatus,
                 requiresApproval: resolvedProjectStatus === 'submitted',
                 receivableSynced: false,
@@ -15144,10 +15716,15 @@ app.post('/api/projects', protectAdmin, upload.single('pdf_file'), (req, res) =>
       );
     };
 
-    generateNextProjectDocno((docErr, nextProjectDocno) => {
-      if (docErr) return res.status(500).json({ error: docErr.message });
-      insertProject(nextProjectDocno);
-    }, resolvedBusinessEntityId);
+    const needsDraftNumber = ['draft', 'submitted'].includes(resolvedProjectStatus);
+    const numberPromise = needsDraftNumber
+      ? generateNextDraftProjectDocnoAsync(resolvedBusinessEntityId)
+      : generateNextProjectDocnoAsync(resolvedBusinessEntityId);
+    numberPromise
+      .then((nextNumber) => {
+        insertProject(needsDraftNumber ? null : nextNumber, needsDraftNumber ? nextNumber : null);
+      })
+      .catch((docErr) => res.status(500).json({ error: docErr.message }));
   });
 });
 
@@ -15223,11 +15800,12 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
     project_members_3 && member_role_3 && normalizedMemberPhone3 ? `${project_members_3} (${member_role_3}) - ${normalizedMemberPhone3}` : ''
   ].filter(Boolean).join(' | ') || null;
 
-    db.query('SELECT project_docno, pdfFilename, budget, downpayment, qty, unit_cost, status, created_by, assigned_to FROM projects WHERE id = ?', [req.params.id], (findErr, rows) => {
+    db.query('SELECT project_docno, draft_docno, pdfFilename, budget, downpayment, qty, unit_cost, status, created_by, assigned_to FROM projects WHERE id = ?', [req.params.id], (findErr, rows) => {
     if (findErr) return res.status(500).json({ error: findErr.message });
     if (!rows || !rows.length) return res.status(404).json({ error: 'Project not found' });
 
     const finalProjectDocno = String(rows[0].project_docno || '').trim();
+    const finalDraftDocno = String(rows[0].draft_docno || '').trim();
     const currentPdfFilename = String(rows[0].pdfFilename || '').trim() || null;
     const removePdfRequested = String(remove_pdf || '').trim() === '1';
     if (currentPdfFilename) {
@@ -15296,8 +15874,8 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
       }
 
       const ensureDocnoAndUpdate = (resolvedProjectDocno) => {
-        const projectArInvoiceNo = getProjectInvoiceNumber(resolvedProjectDocno);
-        const projectApBillNo = getProjectBillNumber(resolvedProjectDocno);
+        const projectArInvoiceNo = resolvedProjectDocno ? getProjectInvoiceNumber(resolvedProjectDocno) : null;
+        const projectApBillNo = resolvedProjectDocno ? getProjectBillNumber(resolvedProjectDocno) : null;
         db.query(
           `UPDATE projects
            SET project_docno = ?, project_name = ?, business_entity_id = ?, transaction_id = COALESCE(?, transaction_id), company_id = ?, source_docno = COALESCE(?, source_docno), company_no = ?, company_name = ?, client_name = ?,
@@ -15372,7 +15950,7 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
             if (result.affectedRows === 0) return res.status(404).json({ error: 'Project not found' });
             const projectForSync = {
               id: Number(req.params.id),
-              project_docno: resolvedProjectDocno || finalProjectDocno,
+              project_docno: resolvedProjectDocno || finalProjectDocno || finalDraftDocno,
               business_entity_id: resolvedBusinessEntityId,
               company_id: resolvedCompanyId,
               company_no: resolvedCompanyNo,
@@ -15397,7 +15975,7 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
                 if (taskErr) {
                   console.error('Default task ensure failed:', taskErr);
                 }
-                logAction(req, 'UPDATE_PROJECT', `Project Doc No: ${resolvedProjectDocno || finalProjectDocno} | Company ID: ${resolvedCompanyId} | Company No: ${resolvedCompanyNo} | Company Name: ${resolvedCompanyName}`);
+                logAction(req, 'UPDATE_PROJECT', `Project No: ${resolvedProjectDocno || finalProjectDocno || finalDraftDocno} | Company ID: ${resolvedCompanyId} | Company No: ${resolvedCompanyNo} | Company Name: ${resolvedCompanyName}`);
                 if (currentProjectStatus !== 'submitted' && resolvedProjectStatus === 'submitted') {
                   sendBackgroundNotification(() => notifyProjectApprovalRequest(req, Number(req.params.id)), 'project approval request email');
                 }
@@ -15405,6 +15983,7 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
                   success: true,
                   defaultTasksCreated: !taskErr && !!created,
                   project_docno: resolvedProjectDocno || null,
+                  draft_docno: finalDraftDocno || null,
                   status: resolvedProjectStatus,
                   requiresApproval: resolvedProjectStatus === 'submitted',
                   approved_by: newlyApprovedBy || undefined,
@@ -15437,7 +16016,8 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
         );
       };
 
-      if (finalProjectDocno) return ensureDocnoAndUpdate(finalProjectDocno);
+      const needsOfficialDocno = !['draft', 'submitted'].includes(resolvedProjectStatus);
+      if (finalProjectDocno || !needsOfficialDocno) return ensureDocnoAndUpdate(finalProjectDocno || null);
 
       generateNextProjectDocno((docErr, nextProjectDocno) => {
         if (docErr) return res.status(500).json({ error: docErr.message });
@@ -15581,7 +16161,7 @@ app.post('/api/projects/:id/approve', protectAdminOnly, async (req, res) => {
 
   try {
     const rows = await queryAsync(
-      'SELECT id, project_docno, project_name, status, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ? LIMIT 1',
+      'SELECT id, project_docno, draft_docno, project_name, business_entity_id, status, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ? LIMIT 1',
       [projectId]
     );
     if (!rows.length) return res.status(404).json({ error: 'Project not found' });
@@ -15598,12 +16178,19 @@ app.post('/api/projects/:id/approve', protectAdminOnly, async (req, res) => {
     }
 
     const approvedBy = getApprovalActorName(req);
+    const officialProjectDocno = String(rows[0].project_docno || '').trim()
+      || await generateNextProjectDocnoAsync(rows[0].business_entity_id || null);
+    const projectArInvoiceNo = getProjectInvoiceNumber(officialProjectDocno);
+    const projectApBillNo = getProjectBillNumber(officialProjectDocno);
     await queryAsync(
-      "UPDATE projects SET status = 'planning', approved_by = ?, approved_at = COALESCE(approved_at, NOW()) WHERE id = ?",
-      [approvedBy, projectId]
+      "UPDATE projects SET project_docno = ?, project_ar_invoice_no = ?, project_ap_bill_no = ?, status = 'planning', approved_by = ?, approved_at = COALESCE(approved_at, NOW()) WHERE id = ?",
+      [officialProjectDocno, projectArInvoiceNo, projectApBillNo, approvedBy, projectId]
     );
-    logAction(req, 'APPROVE_PROJECT', `Project Doc No: ${rows[0].project_docno || projectId} | Project Name: ${rows[0].project_name || ''} | Approved by ${approvedBy}`);
-    res.json({ success: true, status: 'planning', approved_by: approvedBy });
+    logAction(req, 'APPROVE_PROJECT', `Draft No: ${rows[0].draft_docno || '-'} | Project No: ${officialProjectDocno || projectId} | Project Name: ${rows[0].project_name || ''} | Approved by ${approvedBy}`);
+    sendBackgroundNotification(() => notifyProjectRequester(req, projectId, 'approved', {
+      approvedBy: getApprovalActorLabel(req)
+    }), 'project approved staff email');
+    res.json({ success: true, status: 'planning', project_docno: officialProjectDocno, approved_by: approvedBy });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Unable to approve project.' });
   }
@@ -15617,7 +16204,7 @@ app.post('/api/projects/:id/reject', protectAdminOnly, async (req, res) => {
 
   try {
     const rows = await queryAsync(
-      'SELECT id, project_docno, project_name, status, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ? LIMIT 1',
+      'SELECT id, project_docno, draft_docno, project_name, status, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ? LIMIT 1',
       [projectId]
     );
     if (!rows.length) return res.status(404).json({ error: 'Project not found' });
@@ -15635,7 +16222,7 @@ app.post('/api/projects/:id/reject', protectAdminOnly, async (req, res) => {
       "UPDATE projects SET status = 'draft', status_reason = ?, approved_by = ?, approved_at = COALESCE(approved_at, NOW()) WHERE id = ?",
       [`Rejected by ${actor}: ${reason}`, actor, projectId]
     );
-    logAction(req, 'REJECT_PROJECT', `Project Doc No: ${rows[0].project_docno || projectId} | Project Name: ${rows[0].project_name || ''} | Reason: ${reason}`);
+    logAction(req, 'REJECT_PROJECT', `Project No: ${rows[0].project_docno || rows[0].draft_docno || projectId} | Project Name: ${rows[0].project_name || ''} | Reason: ${reason}`);
     res.json({ success: true, status: 'draft', reason });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Unable to reject project.' });
@@ -15648,7 +16235,7 @@ app.post('/api/projects/:id/submit', protectAdmin, async (req, res) => {
 
   try {
     const rows = await queryAsync(
-      'SELECT id, project_docno, project_name, status, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ? LIMIT 1',
+      'SELECT id, project_docno, draft_docno, project_name, status, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ? LIMIT 1',
       [projectId]
     );
     if (!rows.length) return res.status(404).json({ error: 'Project not found' });
@@ -15665,7 +16252,7 @@ app.post('/api/projects/:id/submit', protectAdmin, async (req, res) => {
     }
 
     await queryAsync("UPDATE projects SET status = 'submitted', approved_by = NULL, approved_at = NULL WHERE id = ?", [projectId]);
-    logAction(req, 'SUBMIT_PROJECT', `Project Doc No: ${rows[0].project_docno || projectId} | Project Name: ${rows[0].project_name || ''}`);
+    logAction(req, 'SUBMIT_PROJECT', `Project No: ${rows[0].project_docno || rows[0].draft_docno || projectId} | Project Name: ${rows[0].project_name || ''}`);
     sendBackgroundNotification(() => notifyProjectApprovalRequest(req, projectId), 'project approval request email');
     res.json({ success: true, status: 'submitted', requiresApproval: true });
   } catch (err) {

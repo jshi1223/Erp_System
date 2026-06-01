@@ -16,8 +16,8 @@ const apToolbarState = {
   bills: { search: '' },
   payments: { search: '' }
 };
-const AP_MASTER_DATA_TABS = new Set(['companies', 'vendors']);
-const AP_PROCUREMENT_TABS = new Set(['requisitions', 'rfq', 'quotations', 'purchase-orders', 'goods-receipts']);
+const AP_MASTER_DATA_TABS = new Set(['companies', 'vendors', 'requests']);
+const AP_PROCUREMENT_TABS = new Set(['requests', 'requisitions', 'rfq', 'quotations', 'purchase-orders', 'goods-receipts']);
 const AP_NATIVE_TABS = new Set(['bills', 'vendor-balances', 'ap-aging', 'payments', 'disbursements']);
 let activeApTab = 'vendors';
 let editingMasterDataCompanyId = null;
@@ -31,20 +31,22 @@ function isProcurementWorkspacePage() {
 }
 
 function getWorkspaceAllowedTabs() {
-  if (isMasterDataWorkspacePage()) return AP_MASTER_DATA_TABS;
-  if (isProcurementWorkspacePage() && isCurrentStaffRole()) return new Set(['requisitions']);
+  if (isMasterDataWorkspacePage()) {
+    return isCurrentStaffRole() ? AP_MASTER_DATA_TABS : new Set(['companies', 'vendors']);
+  }
+  if (isProcurementWorkspacePage() && isCurrentStaffRole()) return new Set(['requests', 'requisitions']);
   return isProcurementWorkspacePage() ? AP_PROCUREMENT_TABS : AP_NATIVE_TABS;
 }
 
 function getWorkspaceDefaultTab() {
   if (isMasterDataWorkspacePage()) return 'companies';
-  return isProcurementWorkspacePage() ? 'requisitions' : 'bills';
+  if (isProcurementWorkspacePage()) return isCurrentStaffRole() ? 'requests' : 'requisitions';
+  return 'bills';
 }
 
 function normalizeApWorkspaceTab(value) {
   let tab = String(value || '').trim().toLowerCase();
   if (tab === 'bid-evaluation') tab = 'quotations';
-  if (isProcurementWorkspacePage() && isCurrentStaffRole()) return 'requisitions';
   const knownTab = (AP_MASTER_DATA_TABS.has(tab) || AP_PROCUREMENT_TABS.has(tab) || AP_NATIVE_TABS.has(tab)) ? tab : getWorkspaceDefaultTab();
   return getWorkspaceAllowedTabs().has(knownTab) ? knownTab : getWorkspaceDefaultTab();
 }
@@ -163,7 +165,8 @@ function applyWorkspaceModeUi() {
     tab.setAttribute('aria-hidden', String(tab.hidden));
   });
   document.querySelectorAll('.master-data-tab').forEach((tab) => {
-    tab.hidden = !masterDataMode;
+    const tabName = normalizeWorkspaceTabName(tab.dataset.workspaceTab || tab.dataset.masterDataTab || '');
+    tab.hidden = !masterDataMode || !allowedTabs.has(tabName);
     tab.setAttribute('aria-hidden', String(tab.hidden));
     tab.classList.toggle('active', masterDataMode && tab.dataset.masterDataTab === activeApTab);
   });
@@ -206,7 +209,9 @@ document.addEventListener('DOMContentLoaded', () => {
   applyWorkspaceModeUi();
   bindMasterDataTabLinks();
   const requestedTab = params.has('tab') ? normalizeApWorkspaceTab(params.get('tab')) : activeApTab;
-  const initialButton = document.querySelector(`.ap-workspace-tab[data-workspace-tab="${requestedTab}"]`)
+  const initialButton = (isProcurementWorkspacePage()
+    ? document.querySelector(`.ap-workspace-tab[data-proc-tab="${requestedTab}"]`)
+    : document.querySelector(`.ap-workspace-tab[data-workspace-tab="${requestedTab}"]`))
     || document.querySelector('.ap-workspace-tab.active')
     || document.querySelector('.module-tab.active');
   switchApWorkspaceTab(requestedTab, initialButton, { captureState: false, persistState: false });
@@ -505,6 +510,16 @@ function renderApToolbarControls(tab) {
     return;
   }
 
+  if (tab === 'requests') {
+    actions.innerHTML = `
+      <div class="search-wrap top-search-bar module-toolbar-search">
+        <input id="master-data-requests-search" type="text" placeholder="Search request no., type, name, requester, or status..." oninput="renderMasterDataRequests()" />
+      </div>
+      <button class="btn btn-cancel btn-sm" type="button" onclick="loadMasterDataRequests()">Refresh</button>
+    `;
+    return;
+  }
+
   if (tab === 'bills') {
     actions.innerHTML = `
       <div class="search-wrap top-search-bar module-toolbar-search">
@@ -538,6 +553,129 @@ function renderApToolbarControls(tab) {
   actions.innerHTML = '';
 }
 
+let masterDataRequestsDb = [];
+
+function getMasterDataRequestStatusBadge(status) {
+  const safe = String(status || 'submitted').trim().toLowerCase();
+  const labelMap = {
+    submitted: 'Submitted',
+    approved: 'Approved',
+    rejected: 'Rejected'
+  };
+  const classMap = {
+    submitted: 'status-submitted',
+    approved: 'status-approved',
+    rejected: 'status-rejected'
+  };
+  return `<span class="status-pill ${classMap[safe] || 'status-draft'}">${escHtml(labelMap[safe] || safe || 'Open')}</span>`;
+}
+
+function normalizeMasterDataRequestRows(rows = [], type = 'company') {
+  return (Array.isArray(rows) ? rows : []).map((row) => {
+    const payload = row && typeof row.payload === 'object' && row.payload ? row.payload : {};
+    return {
+      ...row,
+      request_type: type,
+      request_type_label: type === 'vendor' ? 'Vendor' : 'Company',
+      request_name: type === 'vendor'
+        ? (payload.vendor_name || row.request_no || 'Vendor Request')
+        : (payload.company_name || row.request_no || 'Company Request'),
+      payload
+    };
+  });
+}
+
+async function loadMasterDataRequests() {
+  if (!isMasterDataWorkspacePage()) return;
+  const tbody = document.getElementById('master-data-requests-body');
+  if (tbody) tbody.innerHTML = '<tr class="empty-row"><td colspan="8">Loading requests...</td></tr>';
+  try {
+    const [companyRequests, vendorRequests] = await Promise.all([
+      fetchJson('/api/company-registry-requests', { cache: 'no-store' }).catch(() => []),
+      fetchJson('/api/vendor-registry-requests', { cache: 'no-store' }).catch(() => [])
+    ]);
+    masterDataRequestsDb = [
+      ...normalizeMasterDataRequestRows(companyRequests, 'company'),
+      ...normalizeMasterDataRequestRows(vendorRequests, 'vendor')
+    ].sort((a, b) => String(b.submitted_at || b.created_at || '').localeCompare(String(a.submitted_at || a.created_at || '')));
+    renderMasterDataRequests();
+  } catch (err) {
+    if (tbody) tbody.innerHTML = `<tr class="empty-row"><td colspan="8">${escHtml(err.message || 'Unable to load requests.')}</td></tr>`;
+  }
+}
+
+function renderMasterDataRequests() {
+  const tbody = document.getElementById('master-data-requests-body');
+  if (!tbody) return;
+  const q = String(document.getElementById('master-data-requests-search')?.value || '').trim().toLowerCase();
+  const rows = masterDataRequestsDb.filter((row) => {
+    const haystack = [
+      row.request_no,
+      row.request_type_label,
+      row.request_name,
+      row.requested_by,
+      row.requested_by_email,
+      row.status,
+      row.reject_reason
+    ].map((value) => String(value || '')).join(' ').toLowerCase();
+    return !q || haystack.includes(q);
+  });
+
+  const canApprove = !isCurrentStaffRole();
+  tbody.innerHTML = rows.length ? rows.map((row) => {
+    const id = Number(row.id || 0);
+    const type = String(row.request_type || 'company');
+    const status = String(row.status || 'submitted').toLowerCase();
+    const endpoint = type === 'vendor' ? 'vendor-registry-requests' : 'company-registry-requests';
+    const actions = canApprove && status === 'submitted'
+      ? `
+        <button class="btn btn-save btn-sm" type="button" onclick="approveMasterDataRequest('${endpoint}', ${id})">Approve</button>
+        <button class="btn btn-cancel btn-sm" type="button" onclick="rejectMasterDataRequest('${endpoint}', ${id})">Reject</button>
+      `
+      : '<span class="staff-audit-muted">No action</span>';
+    return `
+      <tr>
+        <td><strong>${escHtml(row.request_no || id || '-')}</strong></td>
+        <td>${escHtml(row.request_type_label || '-')}</td>
+        <td>${escHtml(row.request_name || '-')}</td>
+        <td>${escHtml(row.requested_by || row.requested_by_email || '-')}</td>
+        <td>${escHtml(String(row.submitted_at || row.created_at || '').slice(0, 10) || '-')}</td>
+        <td>${getMasterDataRequestStatusBadge(row.status)}</td>
+        <td>${escHtml(row.reject_reason || (status === 'submitted' ? 'Waiting for admin approval' : '-'))}</td>
+        <td class="text-center"><div class="erp-actions" style="justify-content:center;">${actions}</div></td>
+      </tr>
+    `;
+  }).join('') : '<tr class="empty-row"><td colspan="8">No master data requests yet.</td></tr>';
+}
+
+async function approveMasterDataRequest(endpoint, id) {
+  try {
+    await fetchJson(`/api/${endpoint}/${Number(id)}/approve`, { method: 'POST' });
+    showToast('Request approved.', 'success');
+    await loadMasterDataRequests();
+    refreshMasterDataCompanyFrame();
+    if (typeof loadProcurementData === 'function') await loadProcurementData();
+  } catch (err) {
+    showToast(err.message || 'Unable to approve request.', 'error');
+  }
+}
+
+async function rejectMasterDataRequest(endpoint, id) {
+  const reason = window.prompt('Reason for rejection?', 'Needs revision.');
+  if (reason === null) return;
+  try {
+    await fetchJson(`/api/${endpoint}/${Number(id)}/reject`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason })
+    });
+    showToast('Request rejected.', 'success');
+    await loadMasterDataRequests();
+  } catch (err) {
+    showToast(err.message || 'Unable to reject request.', 'error');
+  }
+}
+
 function isCurrentStaffRole() {
   const role = String(
     document.body?.dataset?.accessRole ||
@@ -549,21 +687,43 @@ function isCurrentStaffRole() {
 
 function applyStaffProcurementRestriction() {
   if (!isProcurementWorkspacePage() || !isCurrentStaffRole()) return;
-  activeApTab = 'requisitions';
-  document.body.dataset.initialTab = 'requisitions';
+  const params = new URLSearchParams(window.location.search);
+  const requestedTab = normalizeApWorkspaceTab(params.get('tab') || activeApTab || 'requests');
+  const nextTab = getWorkspaceAllowedTabs().has(requestedTab) ? requestedTab : 'requests';
+  activeApTab = nextTab;
+  document.body.dataset.initialTab = nextTab;
   applyWorkspaceModeUi();
-  switchApWorkspaceTab('requisitions', document.querySelector('.ap-workspace-tab[data-proc-tab="requisitions"]'), {
+  switchApWorkspaceTab(nextTab, document.querySelector(`.ap-workspace-tab[data-proc-tab="${nextTab}"]`), {
     captureState: false,
     persistState: false
   });
   const url = new URL(window.location.href);
-  if (url.searchParams.get('tab') !== 'requisitions') {
-    url.searchParams.set('tab', 'requisitions');
+  if (url.searchParams.get('tab') !== nextTab) {
+    url.searchParams.set('tab', nextTab);
     window.history.replaceState({}, '', `${url.pathname}?${url.searchParams.toString()}${url.hash || ''}`);
   }
 }
 
 window.addEventListener('kinaadman:role-ready', applyStaffProcurementRestriction);
+
+function applyMasterDataRoleTabs() {
+  if (!isMasterDataWorkspacePage()) return;
+  applyWorkspaceModeUi();
+  const params = new URLSearchParams(window.location.search);
+  const requestedTab = String(params.get('tab') || '').trim().toLowerCase();
+  const allowedTabs = getWorkspaceAllowedTabs();
+  const nextTab = allowedTabs.has(requestedTab)
+    ? requestedTab
+    : (allowedTabs.has(activeApTab) ? activeApTab : 'companies');
+  if (nextTab !== activeApTab || !document.getElementById(nextTab)?.classList.contains('active')) {
+    switchApWorkspaceTab(nextTab, document.querySelector(`.ap-workspace-tab[data-workspace-tab="${nextTab}"]`), {
+      captureState: false,
+      persistState: false
+    });
+  }
+}
+
+window.addEventListener('kinaadman:role-ready', applyMasterDataRoleTabs);
 
 function switchTab(tab, btn, options = {}) {
   const nextTab = AP_NATIVE_TABS.has(tab) ? tab : 'bills';
@@ -610,6 +770,30 @@ function switchApWorkspaceTab(tab, btn, options = {}) {
     renderApToolbarControls(nextTab);
     ensureMasterDataCompanyFrameLoaded();
     loadMasterDataCompanyMetrics();
+    if (persistState) {
+      saveApUiState();
+      syncApTabUrl(nextTab);
+    }
+    return;
+  }
+  if (nextTab === 'requests' && isMasterDataWorkspacePage()) {
+    const captureState = options.captureState !== false;
+    const persistState = options.persistState !== false;
+    if (captureState) {
+      captureApToolbarState(activeApTab);
+    }
+    activeApTab = nextTab;
+    if (isMasterDataWorkspacePage()) {
+      document.body.dataset.initialTab = nextTab;
+    }
+    document.querySelectorAll('.ap-workspace-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.ap-workspace-section').forEach(s => s.classList.remove('active'));
+    const tabButton = btn || document.querySelector('.ap-workspace-tab[data-workspace-tab="requests"]');
+    if (tabButton) tabButton.classList.add('active');
+    document.getElementById('requests')?.classList.add('active');
+    syncApSummaryCards(nextTab);
+    renderApToolbarControls(nextTab);
+    loadMasterDataRequests();
     if (persistState) {
       saveApUiState();
       syncApTabUrl(nextTab);
@@ -968,6 +1152,8 @@ async function saveMasterDataCompany() {
       });
       closeMasterDataCompanyModal();
       showToast('Company registry request submitted for admin approval.', 'success');
+      await loadMasterDataRequests();
+      switchApWorkspaceTab('requests', document.querySelector('.ap-workspace-tab[data-workspace-tab="requests"]'));
       return;
     }
 

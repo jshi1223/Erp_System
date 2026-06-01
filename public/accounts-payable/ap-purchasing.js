@@ -39,6 +39,7 @@ let activeDocumentContext = null;
 const PROCUREMENT_VENDOR_SORT_STORAGE_KEY = 'kinaadman.procurement.vendorSort';
 let vendorDirectorySortOrder = 'asc';
 const procurementToolbarState = {
+  requests: { search: '' },
   requisitions: { search: '' },
   rfq: { search: '' },
   quotations: { search: '' },
@@ -123,6 +124,16 @@ function isStaffProcurementWorkspace() {
   return path === '/procurement' && role === 'staff';
 }
 
+function isStaffMasterDataWorkspace() {
+  const path = (window.location.pathname || '').replace(/\/+$/, '');
+  const role = String(
+    document.body?.dataset?.accessRole ||
+    document.documentElement?.dataset?.accessRole ||
+    ''
+  ).trim().toLowerCase();
+  return path === '/master-data' && role === 'staff';
+}
+
 function procurementRecordVisibleForCurrentUser(row = {}) {
   if (!userCanApproveProcurement()) return true;
   return normalizeWorkflowStatus(row.status || 'draft') !== 'draft';
@@ -162,12 +173,18 @@ function renderProcurementArchivedProjectBadge(row = {}) {
 function normalizeProcurementTab(value) {
   let tab = String(value || '').trim().toLowerCase();
   if (tab === 'bid-evaluation') tab = 'quotations';
-  if (isStaffProcurementWorkspace()) return 'requisitions';
-  return ['vendors', 'requisitions', 'rfq', 'quotations', 'purchase-orders', 'goods-receipts'].includes(tab) ? tab : 'vendors';
+  if (isStaffProcurementWorkspace()) return ['requests', 'requisitions'].includes(tab) ? tab : 'requests';
+  return ['vendors', 'requests', 'requisitions', 'rfq', 'quotations', 'purchase-orders', 'goods-receipts'].includes(tab) ? tab : 'vendors';
 }
 
 function getSavedProcurementTab() {
-  if (isStaffProcurementWorkspace()) return 'requisitions';
+  if (isStaffProcurementWorkspace()) {
+    try {
+      return normalizeProcurementTab(window.localStorage.getItem(PROCUREMENT_TAB_STORAGE_KEY) || 'requests');
+    } catch (_) {
+      return 'requests';
+    }
+  }
   try {
     return normalizeProcurementTab(window.localStorage.getItem(PROCUREMENT_TAB_STORAGE_KEY));
   } catch (_) {
@@ -176,7 +193,7 @@ function getSavedProcurementTab() {
 }
 
 function saveProcurementTab(tab) {
-  if (isStaffProcurementWorkspace() && normalizeProcurementTab(tab) !== 'requisitions') return;
+  if (isStaffProcurementWorkspace() && !['requests', 'requisitions'].includes(normalizeProcurementTab(tab))) return;
   try {
     window.localStorage.setItem(PROCUREMENT_TAB_STORAGE_KEY, normalizeProcurementTab(tab));
   } catch (_) {}
@@ -767,8 +784,8 @@ function wireBackdropClose() {
 
 function switchProcTab(tab, btn) {
   const nextTab = normalizeProcurementTab(tab);
-  if (isStaffProcurementWorkspace() && nextTab !== 'requisitions') {
-    switchProcTab('requisitions', getProcurementTabButton('requisitions'));
+  if (isStaffProcurementWorkspace() && !['requests', 'requisitions'].includes(nextTab)) {
+    switchProcTab('requests', getProcurementTabButton('requests'));
     return;
   }
   captureProcurementToolbarState(procurementTab);
@@ -789,6 +806,7 @@ function switchProcTab(tab, btn) {
   const section = $(nextTab);
   if (section) section.classList.add('active');
   renderProcurementToolbarControls(nextTab);
+  if (nextTab === 'requests') renderProcurementRequests();
   if (nextTab === 'requisitions') renderRequisitions();
   if (nextTab === 'rfq') renderRfqWorkspace();
   if (nextTab === 'quotations') renderQuotations();
@@ -810,22 +828,34 @@ function renderProcurementToolbarControls(tab) {
   if (!actions) return;
 
   const state = procurementToolbarState[tab] || {};
+  if (tab === 'requests') {
+    actions.innerHTML = `
+      <div class="search-wrap top-search-bar module-toolbar-search">
+        <input id="procurement-search-input" type="text" placeholder="Search request no., company, item, or status..." value="${escHtml(state.search || '')}" oninput="renderProcurementRequests()" />
+      </div>
+      <button class="btn btn-add btn-sm" type="button" onclick="openRequisitionModal()">Request Purchase</button>
+    `;
+    return;
+  }
+
   if (tab === 'requisitions') {
+    const requestLabel = isStaffProcurementWorkspace() ? 'Add PR' : 'Add Requisition';
     actions.innerHTML = `
       <div class="search-wrap top-search-bar module-toolbar-search">
         <input id="procurement-search-input" type="text" placeholder="Search PR no., company, item, or status..." value="${escHtml(state.search || '')}" oninput="renderRequisitions()" />
       </div>
-      <button class="btn btn-add btn-sm" type="button" onclick="openRequisitionModal()">Add Requisition</button>
+      <button class="btn btn-add btn-sm" type="button" onclick="openRequisitionModal()">${requestLabel}</button>
     `;
     return;
   }
 
   if (tab === 'vendors') {
+    const vendorButtonLabel = isStaffMasterDataWorkspace() ? 'Request Vendor' : 'Add Vendor';
     actions.innerHTML = `
       <div class="search-wrap top-search-bar module-toolbar-search">
         <input id="vendor-search" type="text" placeholder="Search vendor no., name, contact, email, or phone..." value="${escHtml(state.search || '')}" oninput="filterVendorDirectory()" />
       </div>
-      <button class="btn btn-add btn-sm" type="button" onclick="openVendorModal()">Add Vendor</button>
+      <button class="btn btn-add btn-sm" type="button" onclick="openVendorModal()">${vendorButtonLabel}</button>
     `;
     return;
   }
@@ -919,6 +949,7 @@ async function loadProcurementData() {
     initVendorSearch();
     renderPurchaseOrderRequisitionOptions();
     renderPurchaseOrderOptions();
+    renderProcurementRequests();
     renderRequisitions();
     renderRfqWorkspace();
     renderQuotations();
@@ -1254,8 +1285,17 @@ function resetVendorForm() {
 function syncVendorModalMode() {
   const title = $('vendor-modal-title');
   const saveBtn = $('vendor-save-btn');
-  if (title) title.textContent = editingVendorId ? 'Edit Vendor' : 'Add Vendor';
-  if (saveBtn) saveBtn.textContent = editingVendorId ? 'Save Changes' : 'Create Vendor';
+  const staffRequest = isStaffMasterDataWorkspace();
+  if (title) {
+    title.textContent = staffRequest
+      ? (editingVendorId ? 'View Vendor' : 'Request Vendor')
+      : (editingVendorId ? 'Edit Vendor' : 'Add Vendor');
+  }
+  if (saveBtn) {
+    saveBtn.textContent = staffRequest
+      ? 'Submit Request'
+      : (editingVendorId ? 'Save Changes' : 'Create Vendor');
+  }
 }
 
 function findDuplicateVendorEntry(phone, tin, email, excludeId = null) {
@@ -1299,6 +1339,11 @@ function findDuplicateVendorEntry(phone, tin, email, excludeId = null) {
 
 async function openVendorModal(id = null) {
   editingVendorId = id ? Number(id) : null;
+  if (isStaffMasterDataWorkspace() && editingVendorId) {
+    showToast('Staff can request new vendors only. Existing vendor changes need admin approval.', 'error');
+    editingVendorId = null;
+    return;
+  }
   resetVendorForm();
   clearProcurementFieldMessages();
   syncVendorModalMode();
@@ -1432,10 +1477,30 @@ async function saveVendor() {
   const originalSaveText = saveBtn?.textContent || 'Create Vendor';
   if (saveBtn) {
     saveBtn.disabled = true;
-    saveBtn.textContent = 'Saving...';
+    saveBtn.textContent = isStaffMasterDataWorkspace() ? 'Submitting...' : 'Saving...';
   }
 
   try {
+    if (isStaffMasterDataWorkspace()) {
+      await apiFetch('/api/vendor-registry-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      forceCloseVendorModal();
+      editingVendorId = null;
+      vendorNumberPreviewToken += 1;
+      resetVendorForm();
+      clearProcurementFieldMessages();
+      syncVendorModalMode();
+      showToast('Vendor request submitted for admin approval.', 'success');
+      if (typeof loadMasterDataRequests === 'function') await loadMasterDataRequests();
+      if (typeof switchApWorkspaceTab === 'function') {
+        switchApWorkspaceTab('requests', document.querySelector('.ap-workspace-tab[data-workspace-tab="requests"]'));
+      }
+      return;
+    }
+
     const result = await apiFetch(editingVendorId ? `/api/vendors/${editingVendorId}` : '/api/vendors', {
       method: editingVendorId ? 'PUT' : 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1838,7 +1903,8 @@ function getProcurementProjectById(projectId) {
 
 function getVisibleProcurementProjects() {
   return (Array.isArray(procurementState.projects) ? procurementState.projects : [])
-    .filter(procurementBusinessEntityMatches);
+    .filter(procurementBusinessEntityMatches)
+    .filter((project) => !['draft', 'submitted', 'rejected'].includes(normalizeWorkflowStatus(project.status || '')));
 }
 
 function getProcurementProjectCompanyId(projectId) {
@@ -2792,12 +2858,14 @@ function filteredRows(rows, searchValue, fields) {
   return rows.filter((row) => fields.map((field) => String(row[field] ?? '')).join(' ').toLowerCase().includes(q));
 }
 
-function renderRequisitions() {
-  const tbody = $('pr-body');
-  if (!tbody) return;
+function isProcurementRequestRow(row = {}) {
+  const status = normalizeWorkflowStatus(row.status || 'draft');
+  return ['draft', 'submitted', 'pending', 'rejected'].includes(status);
+}
 
+function getVisibleRequisitionRows(searchValue) {
   const entityFilter = typeof businessEntityMatches === 'function' ? businessEntityMatches : procurementBusinessEntityMatches;
-  const rows = filteredRows(procurementState.requisitions.filter(entityFilter).filter(procurementRecordVisibleForCurrentUser), $('procurement-search-input')?.value, [
+  return filteredRows(procurementState.requisitions.filter(entityFilter).filter(procurementRecordVisibleForCurrentUser), searchValue, [
     'pr_number',
     'project_docno',
     'project_name',
@@ -2811,6 +2879,55 @@ function renderRequisitions() {
     'item_summary',
     'status'
   ]);
+}
+
+function renderProcurementRequests() {
+  const tbody = $('procurement-requests-body');
+  if (!tbody) return;
+
+  const rows = getVisibleRequisitionRows($('procurement-search-input')?.value)
+    .filter(isProcurementRequestRow);
+
+  tbody.innerHTML = rows.length ? rows.map((row) => {
+    const projectLabel = getProcurementProjectLabel(Number(row.project_id || 0) || 0);
+    const companyLabel = [row.company_no, row.company_name].filter(Boolean).join(' - ') || '-';
+    const status = normalizeWorkflowStatus(row.status || 'draft');
+    const canSubmit = ['draft'].includes(status);
+    const submitButton = canSubmit
+      ? `<button class="btn btn-save btn-sm" type="button" onclick="submitRequisitionForApproval(${Number(row.id)})">Submit</button>`
+      : '';
+    const editLabel = requisitionIsLockedForEditing(row) ? 'View' : 'Edit';
+    return `
+      <tr>
+        <td style="font-weight:600;color:var(--primary)">${escHtml(row.pr_number)}</td>
+        <td>
+          <div style="font-weight:600;">${escHtml(projectLabel || 'No linked project')}</div>
+          <div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px;">${escHtml(companyLabel)}</div>
+          ${renderProcurementArchivedProjectBadge(row)}
+        </td>
+        <td>${escHtml(dateText(row.request_date))}</td>
+        <td>${escHtml(row.requested_by || '-')}</td>
+        <td>${escHtml(dateText(row.needed_by))}</td>
+        <td><span class="status-chip ${statusClass(row.status)}">${escHtml(row.status || 'draft')}</span></td>
+        <td>${renderRequisitionItemsCell(row)}</td>
+        <td class="text-right" style="font-weight:600;">${escHtml(money(row.total_amount || 0))}</td>
+        <td>
+          <div class="erp-actions" style="justify-content:center;">
+            ${submitButton}
+            <button class="btn btn-edit btn-sm" type="button" onclick="openRequisitionModal(${Number(row.id)})">${editLabel}</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('') : '<tr class="empty-row"><td colspan="9">No procurement requests yet.</td></tr>';
+}
+
+function renderRequisitions() {
+  const tbody = $('pr-body');
+  if (!tbody) return;
+
+  const rows = getVisibleRequisitionRows($('procurement-search-input')?.value)
+    .filter((row) => !isStaffProcurementWorkspace() || !isProcurementRequestRow(row));
 
   tbody.innerHTML = rows.length ? rows.map((row) => {
     const projectLabel = getProcurementProjectLabel(Number(row.project_id || 0) || 0);
@@ -3803,8 +3920,19 @@ function resetRequisitionForm() {
 function syncRequisitionModalMode() {
   const title = $('pr-modal-title');
   const saveBtn = $('pr-save-btn');
-  if (title) title.textContent = viewingProjectLinkedRequisition ? 'View Requisition' : (editingRequisitionId ? 'Edit Requisition' : 'Add Requisition');
-  if (saveBtn) saveBtn.textContent = editingRequisitionId ? 'Save Changes' : 'Create Requisition';
+  const staffRequest = isStaffProcurementWorkspace();
+  if (title) {
+    title.textContent = viewingProjectLinkedRequisition
+      ? (staffRequest ? 'View Purchase Request' : 'View Requisition')
+      : staffRequest
+      ? (editingRequisitionId ? 'Edit Purchase Request' : 'Request Purchase')
+      : (editingRequisitionId ? 'Edit Requisition' : 'Add Requisition');
+  }
+  if (saveBtn) {
+    saveBtn.textContent = staffRequest
+      ? (editingRequisitionId ? 'Update Request Draft' : 'Save Request Draft')
+      : (editingRequisitionId ? 'Save Changes' : 'Create Requisition');
+  }
 }
 
 function openRequisitionModal(id = null, options = {}) {
@@ -3928,7 +4056,7 @@ async function saveRequisition() {
       body: JSON.stringify(payload)
     });
     closeRequisitionModal();
-    showToast('Requisition created successfully!', 'success');
+    showToast(isStaffProcurementWorkspace() ? 'Purchase request draft saved.' : 'Requisition created successfully!', 'success');
     await loadProcurementData();
     return result;
   } catch (err) {

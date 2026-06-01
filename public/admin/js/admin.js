@@ -27,6 +27,19 @@ function getWorkspaceHomePath() {
     : '/admin';
 }
 
+function safeRenderStaffDashboard() {
+  if (typeof renderStaffDashboard === 'function') {
+    renderStaffDashboard();
+  }
+}
+
+function safeUpdateStaffWorkspaceSummaryCard() {
+  if (typeof updateStaffWorkspaceSummaryCard === 'function') {
+    return updateStaffWorkspaceSummaryCard();
+  }
+  return Promise.resolve();
+}
+
 function normalizeWorkspaceHref(href) {
   const target = String(href || '').trim();
   if (!target) return '';
@@ -171,9 +184,9 @@ document.addEventListener('DOMContentLoaded', () => {
     applyPermissionMatrix();
     if (isStaffUser()) {
       if (currentDashboardPanel === 'staff-workspace') {
-        renderStaffDashboard();
+        safeRenderStaffDashboard();
       } else {
-        updateStaffWorkspaceSummaryCard();
+        safeUpdateStaffWorkspaceSummaryCard();
       }
     }
 
@@ -263,7 +276,7 @@ function applyInitialAdminView(user) {
   }
 
   if (requestedPanel === 'project-records') {
-    currentProjectWorkspaceTab = staffView ? 'projects' : normalizeProjectWorkspaceTab(requestedTab || rememberedProjectWorkspaceTab || currentProjectWorkspaceTab);
+    currentProjectWorkspaceTab = normalizeProjectWorkspaceTab(requestedTab || rememberedProjectWorkspaceTab || currentProjectWorkspaceTab);
     openDashboardPanel('project-records');
     return;
   }
@@ -285,7 +298,7 @@ function applyInitialAdminView(user) {
   }
 
   if (requestedView === 'all') {
-    currentProjectWorkspaceTab = staffView ? 'projects' : normalizeProjectWorkspaceTab(requestedTab || rememberedProjectWorkspaceTab || currentProjectWorkspaceTab);
+    currentProjectWorkspaceTab = normalizeProjectWorkspaceTab(requestedTab || rememberedProjectWorkspaceTab || currentProjectWorkspaceTab);
     window.location.replace(normalizeWorkspaceHref(`/admin?panel=project-records&tab=${encodeURIComponent(currentProjectWorkspaceTab)}`));
     return;
   }
@@ -351,7 +364,9 @@ function applyInitialAdminView(user) {
 
     if (requestedPanel === 'staff-workspace') {
       if (normalizeAccessRole(user?.role) === 'staff') {
-        openDashboardPanel('staff-workspace');
+        currentProjectWorkspaceTab = 'requests';
+        localStorage.setItem('kinaadman_projectWorkspaceTab', currentProjectWorkspaceTab);
+        openDashboardPanel('project-records');
       } else {
         openDashboardPanel('home');
       }
@@ -374,7 +389,7 @@ function applyInitialAdminView(user) {
     }
 
     if (requestedPanel === 'project-records') {
-      currentProjectWorkspaceTab = staffView ? 'projects' : normalizeProjectWorkspaceTab(requestedTab || rememberedProjectWorkspaceTab || currentProjectWorkspaceTab);
+      currentProjectWorkspaceTab = normalizeProjectWorkspaceTab(requestedTab || rememberedProjectWorkspaceTab || currentProjectWorkspaceTab);
       openDashboardPanel('project-records');
       return;
     }
@@ -528,8 +543,8 @@ function updateDashboardHero(panel) {
   }
 
   if (panel === 'staff-workspace') {
-    pageTitle.textContent = 'Staff Workspace';
-    pageSub.textContent = 'My drafts, submitted requests, and assigned work';
+    pageTitle.textContent = 'Project Requests';
+    pageSub.textContent = 'Draft and submitted project requests';
     return;
   }
 
@@ -642,7 +657,7 @@ function openDashboardPanel(panel = 'home', opts = {}) {
   }
   if (panel === 'home') {
     updateSidebarMenuState('dashboard');
-    if (isStaffUser()) updateStaffWorkspaceSummaryCard();
+    if (isStaffUser()) safeUpdateStaffWorkspaceSummaryCard();
   } else if (panel === 'reports') {
     updateSidebarMenuState('reports');
   } else if (panel === 'project-records') {
@@ -675,7 +690,7 @@ function openDashboardPanel(panel = 'home', opts = {}) {
   } else if (panel === 'approval-center') {
     renderApprovalCenter(true);
   } else if (panel === 'staff-workspace') {
-    renderStaffDashboard();
+    safeRenderStaffDashboard();
   } else if (panel === 'project-records') {
     renderProjectWorkspace();
   } else if (panel === 'project-ledger') {
@@ -710,9 +725,9 @@ function loadProjectsDashboardData() {
         });
       }
       if (currentDashboardPanel === 'staff-workspace') {
-        renderStaffDashboard();
+        safeRenderStaffDashboard();
       } else {
-        updateStaffWorkspaceSummaryCard();
+        safeUpdateStaffWorkspaceSummaryCard();
       }
       if (currentDashboardPanel === 'project-records') {
         renderProjectWorkspace();
@@ -1624,6 +1639,10 @@ function renderProjectRecordsTable() {
 
   const list = getProjectWorkspaceProjects()
     .filter(project => {
+      if (!isStaffUser()) return true;
+      return !['draft', 'submitted', 'rejected'].includes(String(project.status || '').trim().toLowerCase());
+    })
+    .filter(project => {
       if (!q) return true;
       return [
         project.project_docno || '',
@@ -1699,7 +1718,7 @@ function renderProjectRecordsTable() {
 
 function normalizeProjectWorkspaceTab(tab) {
   const safeTab = String(tab || '').trim().toLowerCase();
-  if (isStaffUser()) return 'projects';
+  if (isStaffUser()) return ['projects', 'requests'].includes(safeTab) ? safeTab : 'projects';
   return ['projects', 'ongoing', 'transactions', 'service-orders', 'ledger', 'documents'].includes(safeTab)
     ? safeTab
     : 'projects';
@@ -1792,8 +1811,11 @@ function updateProjectWorkspaceSummary() {
   const activeTab = normalizeProjectWorkspaceTab(currentProjectWorkspaceTab);
 
   if (isStaffUser()) {
+    const requestCount = getProjectWorkspaceProjects({ includeArchived: true })
+      .filter((project) => ['draft', 'submitted', 'rejected'].includes(String(project.status || '').trim().toLowerCase()))
+      .length;
     const companyCount = new Set(metrics.projects.map((project) => getProjectCompanyName(project)).filter(Boolean)).size;
-    setProjectWorkspaceSummaryCard(0, 'Approved Projects', String(metrics.projects.length), `${getCurrentDashboardCompanyLabel()} active records`);
+    setProjectWorkspaceSummaryCard(0, 'Requests', String(requestCount), 'Drafts and for approval');
     setProjectWorkspaceSummaryCard(1, 'Ongoing', String(metrics.ongoing.length), 'Currently active');
     setProjectWorkspaceSummaryCard(2, 'Upcoming', String(metrics.upcoming.length), 'Scheduled projects');
     setProjectWorkspaceSummaryCard(3, 'Companies', String(companyCount), 'With approved projects');
@@ -2045,12 +2067,69 @@ function renderProjectWorkspaceDocuments() {
   );
 }
 
+function renderProjectWorkspaceRequests() {
+  const query = getProjectWorkspaceQuery();
+  const rows = getProjectWorkspaceProjects({ includeArchived: true })
+    .filter((project) => ['draft', 'submitted', 'rejected'].includes(String(project.status || '').trim().toLowerCase()))
+    .filter((project) => projectWorkspaceMatchesSearch([
+      project.draft_docno,
+      project.project_docno,
+      project.project_name,
+      getProjectCompanyName(project),
+      project.project_manager,
+      project.status,
+      project.status_reason
+    ], query))
+    .sort((a, b) => {
+      const rank = { rejected: 0, submitted: 1, draft: 2 };
+      const statusA = String(a.status || 'draft').toLowerCase();
+      const statusB = String(b.status || 'draft').toLowerCase();
+      return (rank[statusA] ?? 9) - (rank[statusB] ?? 9);
+    })
+    .map((project) => {
+      const status = String(project.status || 'draft').toLowerCase();
+      const needsRevision = status === 'rejected' || Boolean(String(project.status_reason || '').trim());
+      const statusLabel = needsRevision ? 'Needs Revision' : (status === 'submitted' ? 'Submitted' : 'Draft');
+      const statusClass = needsRevision ? 'status-rejected' : (status === 'submitted' ? 'status-submitted' : 'status-draft');
+      const canEdit = status === 'draft' || status === 'rejected';
+      const docNo = project.draft_docno || project.project_docno || '-';
+      return `
+        <tr>
+          <td>${highlight(docNo, query)}</td>
+          <td><strong>${highlight(project.project_name || 'Untitled Project', query)}</strong></td>
+          <td>${highlight(getProjectCompanyName(project) || '-', query)}</td>
+          <td>${highlight(project.project_manager || '-', query)}</td>
+          <td class="text-center"><span class="status-pill ${statusClass}">${escHtml(statusLabel)}</span></td>
+          <td>${escHtml(project.status_reason || (status === 'submitted' ? 'Waiting for admin approval' : '-'))}</td>
+          <td class="text-center">
+            <div class="project-master-actions">
+              ${canEdit ? `<button class="btn btn-edit btn-sm" type="button" onclick="openProjectModal(${Number(project.id || 0)})">Edit</button>` : ''}
+              ${canEdit ? `<button class="btn btn-add btn-sm" type="button" onclick="submitProject(${Number(project.id || 0)})">${needsRevision ? 'Resubmit' : 'Submit'}</button>` : '<span class="status-pill status-submitted">Waiting for Admin</span>'}
+            </div>
+          </td>
+        </tr>
+      `;
+    });
+
+  return renderProjectWorkspaceTable(
+    'Project Requests',
+    [
+      { label: 'Request No.' },
+      { label: 'Project Title' },
+      { label: 'Company' },
+      { label: 'Manager' },
+      { label: 'Status', className: 'text-center' },
+      { label: 'Note' },
+      { label: 'Actions', className: 'text-center' }
+    ],
+    rows,
+    'No draft or submitted project requests found.'
+  );
+}
+
 function renderProjectWorkspace() {
   const recordsWrap = document.querySelector('#project-records-section .project-records-wrap');
   const altContent = document.getElementById('project-workspace-alt-content');
-  if (isStaffUser()) {
-    currentProjectWorkspaceTab = 'projects';
-  }
   const activeTab = normalizeProjectWorkspaceTab(currentProjectWorkspaceTab);
   currentProjectWorkspaceTab = activeTab;
 
@@ -2073,6 +2152,8 @@ function renderProjectWorkspace() {
   altContent.classList.remove('is-hidden');
   if (activeTab === 'ongoing') {
     altContent.innerHTML = renderProjectWorkspaceOngoing();
+  } else if (activeTab === 'requests') {
+    altContent.innerHTML = renderProjectWorkspaceRequests();
   } else if (activeTab === 'transactions') {
     altContent.innerHTML = renderProjectWorkspaceTransactions();
   } else if (activeTab === 'service-orders') {
@@ -2085,15 +2166,6 @@ function renderProjectWorkspace() {
 }
 
 function switchProjectWorkspaceTab(tab) {
-  if (isStaffUser()) {
-    currentProjectWorkspaceTab = 'projects';
-    localStorage.setItem('kinaadman_projectWorkspaceTab', currentProjectWorkspaceTab);
-    if (currentDashboardPanel === 'project-records') {
-      syncAdminViewUrl('project-records', activeTab);
-    }
-    renderProjectWorkspace();
-    return;
-  }
   currentProjectWorkspaceTab = normalizeProjectWorkspaceTab(tab);
   localStorage.setItem('kinaadman_projectWorkspaceTab', currentProjectWorkspaceTab);
   if (currentDashboardPanel === 'project-records') {
@@ -2107,7 +2179,7 @@ function switchProjectWorkspaceTab(tab) {
 
 function handleProjectWorkspaceSummaryClick(index) {
   if (isStaffUser()) {
-    switchProjectWorkspaceTab('projects');
+    switchProjectWorkspaceTab(index === 0 ? 'requests' : 'projects');
     return;
   }
   const tabMap = {
@@ -4422,9 +4494,9 @@ function renderRoleAccessPanel(roleValue = normalizeAccessRole(currentUser?.role
     },
     staff: {
       kicker: 'Staff Access',
-      title: 'Staff - Daily Operations Workspace',
-      summary: 'Can work on assigned records, drafts, service orders, purchase requests, inventory, sales invoices, and collections. Finance totals and system settings are hidden.',
-      chips: ['My Work Queue', 'Drafts', 'Service Orders', 'Purchase Requests', 'Inventory']
+      title: 'Staff - Daily Operations',
+      summary: 'Can work inside assigned modules and track draft or submitted requests from each module. Finance totals and system settings are hidden.',
+      chips: ['Project Requests', 'Service Orders', 'Purchase Requests', 'Inventory']
     },
     user: {
       kicker: 'Limited Access',
@@ -4828,7 +4900,7 @@ function switchTab(tab, btn) {
     if (mainCont) mainCont.style.maxWidth = '1400px';
 
     if (addBtn) {
-      addBtn.textContent = 'Add Project';
+      addBtn.textContent = isStaffUser() ? 'Request Project' : 'Add Project';
       addBtn.onclick = openProjectModal;
       addBtn.style.display = (!isAdminUser() && !isStaffUser()) ? 'none' : '';
     }
@@ -4861,7 +4933,7 @@ function switchTab(tab, btn) {
     if (mainCont) mainCont.style.maxWidth = '1400px';
 
     if (addBtn) {
-      addBtn.textContent = 'Add Project';
+      addBtn.textContent = isStaffUser() ? 'Request Project' : 'Add Project';
       addBtn.onclick = openProjectModal;
       addBtn.style.display = (!isAdminUser() && !isStaffUser()) ? 'none' : '';
     }
@@ -5289,19 +5361,23 @@ function openProjectModal(projectId = null) {
     modal.style.display = 'flex';
   }
 
-  if (title) title.textContent = project ? 'Edit Project' : 'Create Project';
+  if (title) {
+    title.textContent = isStaffUser()
+      ? (project ? 'Edit Project Request' : 'Request Project')
+      : (project ? 'Edit Project' : 'Create Project');
+  }
   const projectStatus = String(projectData.status || '').trim().toLowerCase();
   const canStaffEditProject = !isStaffUser() || !project || projectStatus === 'draft';
   const canStaffSubmitProject = isStaffUser() && (!project || projectStatus === 'draft');
   if (saveBtn) {
     saveBtn.textContent = isStaffUser()
-      ? 'Save Draft'
+      ? (project ? 'Update Request Draft' : 'Save Request Draft')
       : (project ? 'Update Project' : 'Create Project');
     saveBtn.style.display = canStaffEditProject ? '' : 'none';
     saveBtn.disabled = !canStaffEditProject;
   }
   if (submitBtn) {
-    submitBtn.textContent = 'Submit for Approval';
+    submitBtn.textContent = isStaffUser() ? 'Submit Request' : 'Submit for Approval';
     submitBtn.style.display = canStaffSubmitProject ? '' : 'none';
     submitBtn.disabled = !canStaffSubmitProject;
   }
@@ -5374,11 +5450,11 @@ function openProjectModal(projectId = null) {
     }
     if (isStaffUser()) {
       if (!project) {
-        setProjectModalNotice('Staff-created projects will be saved as Draft and require Admin or Super Admin approval.');
+        setProjectModalNotice('Project requests are saved as Draft and require Admin or Super Admin approval.');
       } else if (projectStatus === 'submitted') {
-        setProjectModalNotice('This project is already submitted and waiting for Admin approval.');
+        setProjectModalNotice('This project request is already submitted and waiting for Admin approval.');
       } else if (!canStaffEditProject) {
-        setProjectModalNotice('This project is no longer editable from the Staff workspace.');
+        setProjectModalNotice('This project request is no longer editable.');
       }
     }
     if (!project) {
@@ -8246,9 +8322,9 @@ async function updateStats() {
   }
   if (isStaffUser()) {
     if (currentDashboardPanel === 'staff-workspace') {
-      renderStaffDashboard();
+      safeRenderStaffDashboard();
     } else {
-      await updateStaffWorkspaceSummaryCard();
+      await safeUpdateStaffWorkspaceSummaryCard();
     }
   }
   syncStaffWorkspaceVisibility(currentUser?.role);

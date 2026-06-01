@@ -205,6 +205,7 @@
     ]);
 
     var procurementHtml = buildGroup('procurement', 'Procurement Management', [
+      buildLink('/procurement?tab=requests', 'Requests'),
       buildLink('/procurement?tab=requisitions', 'Purchase Requisitions'),
       buildLink('/procurement?tab=rfq', 'RFQ'),
       buildLink('/procurement?tab=quotations', 'Quotations & Evaluation'),
@@ -857,7 +858,7 @@
   function redirectStaffToOperationalTab() {
     var path = String(location.pathname || '').toLowerCase();
     if (path === '/accounts-payable') {
-      location.replace('/procurement?tab=requisitions');
+      location.replace('/procurement?tab=requests');
       return;
     }
     if (path === '/accounts-receivable') {
@@ -869,7 +870,7 @@
       return;
     }
     if (path === '/procurement') {
-      location.replace('/procurement?tab=requisitions');
+      location.replace('/procurement?tab=requests');
     }
   }
 
@@ -894,10 +895,9 @@
         dashboardAliases: ['/staff?view=dashboard'],
         groups: [
           {
-            key: 'staff-workspace',
-            label: 'Staff Workspace',
+            key: 'projects',
+            label: 'Projects',
             items: [
-              { href: '/staff?panel=staff-workspace', label: 'My Work Queue', id: 'menu-staff-workspace' },
               { href: '/staff?panel=project-records', label: 'Approved Projects', id: 'menu-projects', aliases: ['/staff?view=project-records'] }
             ]
           },
@@ -906,7 +906,8 @@
             label: 'Master Data',
             items: [
               { href: '/master-data?tab=companies', label: 'Company Registry', id: 'menu-company-registry' },
-              { href: '/master-data?tab=vendors', label: 'Vendors', aliases: ['/accounts-payable?tab=vendors'] }
+              { href: '/master-data?tab=vendors', label: 'Vendors', aliases: ['/accounts-payable?tab=vendors'] },
+              { href: '/master-data?tab=requests', label: 'Requests' }
             ]
           },
           {
@@ -928,6 +929,7 @@
             key: 'procurement',
             label: 'Procurement',
             items: [
+              { href: '/procurement?tab=requests', label: 'Requests' },
               { href: '/procurement?tab=requisitions', label: 'Purchase Requisitions' }
             ]
           },
@@ -986,6 +988,7 @@
             key: 'procurement',
             label: 'Procurement',
             items: [
+              { href: '/procurement?tab=requests', label: 'Requests' },
               { href: '/procurement?tab=requisitions', label: 'Purchase Requisitions', aliases: ['/procurement', '/accounts-payable?tab=requisitions'] },
               { href: '/procurement?tab=rfq', label: 'RFQ' },
               { href: '/procurement?tab=quotations', label: 'Quotations & Evaluation', aliases: ['/procurement?tab=bid-evaluation', '/accounts-payable?tab=quotations', '/accounts-payable?tab=bid-evaluation'] },
@@ -1160,7 +1163,7 @@
       ''
     ).trim().toLowerCase();
     var requiredGroupsByRole = {
-      staff: ['staff-workspace', 'master-data', 'sales-management', 'service-operations', 'procurement', 'inventory'],
+      staff: ['projects', 'master-data', 'sales-management', 'service-operations', 'procurement', 'inventory'],
       admin: ['master-data', 'projects', 'sales-management', 'service-operations', 'procurement', 'inventory', 'finance', 'admin'],
       super_admin: ['master-data', 'projects', 'sales-management', 'service-operations', 'procurement', 'inventory', 'finance', 'super-admin']
     };
@@ -1274,13 +1277,14 @@
       '/admin?view=dashboard',
       '/admin?panel=project-records',
       '/staff',
-      '/staff?panel=staff-workspace',
       '/staff?panel=project-records',
       '/master-data?tab=companies',
       '/master-data?tab=vendors',
+      '/master-data?tab=requests',
       '/sales-management',
       '/sales-management?tab=collections',
       '/service-operations',
+      '/procurement?tab=requests',
       '/procurement?tab=requisitions',
       '/inventory',
       '/inventory?tab=products',

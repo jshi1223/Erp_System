@@ -5,7 +5,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KVSK CCTV & IT Solution - Accounts Payable</title>
-  <script src="/assets/js/auth-guard.js?v=20260601f"></script>
+  <script src="/assets/js/auth-guard.js?v=20260601h"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260531a" />
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a" />
@@ -21,13 +21,13 @@
   const workspaceMode = workspacePath === '/master-data' ? 'master-data' : (workspacePath === '/procurement' ? 'procurement' : 'ap');
   const workspaceTabParam = String(workspaceParams.get('tab') || '').trim().toLowerCase();
   const workspaceTabSets = {
-    'master-data': new Set(['companies', 'vendors']),
-    procurement: new Set(['requisitions', 'rfq', 'quotations', 'purchase-orders', 'goods-receipts']),
+    'master-data': new Set(['companies', 'vendors', 'requests']),
+    procurement: new Set(['requests', 'requisitions', 'rfq', 'quotations', 'purchase-orders', 'goods-receipts']),
     ap: new Set(['bills', 'vendor-balances', 'ap-aging', 'payments', 'disbursements'])
   };
   const workspaceDefaultTabs = {
     'master-data': 'companies',
-    procurement: 'requisitions',
+    procurement: 'requests',
     ap: 'bills'
   };
   document.body.dataset.workspaceMode = workspaceMode;
@@ -421,6 +421,8 @@
   <div class="module-tabs">
     <button class="module-tab master-data-tab ap-workspace-tab" type="button" data-master-data-tab="companies" data-workspace-tab="companies" onclick="switchApWorkspaceTab('companies', this)">Company Registry</button>
     <button class="module-tab master-data-tab ap-workspace-tab" type="button" data-master-data-tab="vendors" data-proc-tab="vendors" data-workspace-tab="vendors" onclick="switchApWorkspaceTab('vendors', this)">Vendors</button>
+    <button class="module-tab master-data-tab ap-workspace-tab" type="button" data-master-data-tab="requests" data-workspace-tab="requests" onclick="switchApWorkspaceTab('requests', this)">Requests</button>
+    <div class="module-tab procurement-tab ap-workspace-tab" data-proc-tab="requests" data-workspace-tab="requests" onclick="switchApWorkspaceTab('requests', this)">Requests</div>
     <div class="module-tab ap-workspace-tab" data-proc-tab="requisitions" data-workspace-tab="requisitions" onclick="switchApWorkspaceTab('requisitions', this)">Purchase Requisitions</div>
     <div class="module-tab ap-workspace-tab" data-proc-tab="rfq" data-workspace-tab="rfq" onclick="switchApWorkspaceTab('rfq', this)">RFQ</div>
     <div class="module-tab ap-workspace-tab" data-proc-tab="quotations" data-workspace-tab="quotations" onclick="switchApWorkspaceTab('quotations', this)">Quotations &amp; Evaluation</div>
@@ -438,7 +440,7 @@
     });
   </script>
 
-  <div id="ap-purchasing-root" data-procurement-only>
+  <div id="ap-purchasing-root">
     <div id="companies" class="content-section ap-workspace-section master-data-company-section" data-master-data-section="companies">
       <iframe
         id="company-registry-frame"
@@ -470,6 +472,58 @@
           </thead>
           <tbody id="vendor-body"></tbody>
         </table>
+      </div>
+    </div>
+
+    <div id="requests" class="content-section ap-workspace-section">
+      <div class="master-data-requests-panel" data-master-data-section="requests">
+        <div class="table-wrap" style="margin-top: 12px;">
+          <table class="registry-table">
+            <thead>
+              <tr>
+                <th>Request No.</th>
+                <th>Type</th>
+                <th>Name</th>
+                <th>Requested By</th>
+                <th>Date</th>
+                <th>Status</th>
+                <th>Note</th>
+                <th class="text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="master-data-requests-body">
+              <tr class="empty-row"><td colspan="8">No master data requests yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="procurement-requests-panel" data-procurement-only>
+        <div class="module-panel-head">
+          <div>
+            <div class="section-title">Requests</div>
+            <div class="proc-help">Draft and submitted purchase requests before they become approved PR records.</div>
+          </div>
+        </div>
+        <div class="table-wrap" style="margin-top: 12px;">
+        <table class="registry-table">
+          <thead>
+            <tr>
+              <th>Draft / PR No.</th>
+              <th>Project</th>
+              <th>Request Date</th>
+              <th>Requested By</th>
+              <th>Needed By</th>
+              <th>Status</th>
+              <th>Items</th>
+              <th>Total</th>
+              <th class="text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="procurement-requests-body">
+            <tr class="empty-row"><td colspan="9">No procurement requests yet.</td></tr>
+          </tbody>
+        </table>
+        </div>
       </div>
     </div>
 
@@ -1478,6 +1532,7 @@
       <div class="sidebar-group-items">
         <a href="/master-data?tab=companies" class="sidebar-link is-subitem">Company Registry</a>
         <a href="/master-data?tab=vendors" class="sidebar-link is-subitem">Vendors</a>
+        <a href="/master-data?tab=requests" class="sidebar-link is-subitem">Requests</a>
       </div>
     </div>
 
@@ -1487,6 +1542,7 @@
         <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
       </button>
       <div class="sidebar-group-items">
+        <a href="/procurement?tab=requests" class="sidebar-link is-subitem">Requests</a>
         <a href="/procurement?tab=requisitions" class="sidebar-link is-subitem">Purchase Requisitions</a>
         <a href="/procurement?tab=rfq" class="sidebar-link is-subitem">RFQ</a>
         <a href="/procurement?tab=quotations" class="sidebar-link is-subitem">Quotations &amp; Evaluation</a>
@@ -1554,8 +1610,8 @@
 </div>
 
   <script src="/assets/js/erp-core.js?v=20260529c"></script>
-  <script src="/accounts-payable/ap-purchasing.js?v=20260601b"></script>
-  <script src="/accounts-payable/accounts-payable.js?v=20260601c"></script>
+  <script src="/accounts-payable/ap-purchasing.js?v=20260601d"></script>
+  <script src="/accounts-payable/accounts-payable.js?v=20260601d"></script>
 </body>
 </html>
 

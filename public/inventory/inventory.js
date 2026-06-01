@@ -27,6 +27,15 @@ function normalizeInventoryTab(tab) {
     : 'products';
 }
 
+function isInventoryStaffRole() {
+  try {
+    const cached = JSON.parse(localStorage.getItem('kinaadman_currentUserBadge') || '{}');
+    return String(cached.role || '').trim().toLowerCase() === 'staff';
+  } catch (_) {
+    return false;
+  }
+}
+
 function escHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -192,12 +201,17 @@ function switchInventoryTab(tab, options = {}) {
 
 function syncInventoryToolbarActions(tab = 'stock') {
   const safeTab = normalizeInventoryTab(tab);
+  const staffRole = isInventoryStaffRole();
   document.querySelectorAll('[data-inventory-action]').forEach(button => {
     const tabs = String(button.dataset.inventoryAction || '')
       .split(/\s+/)
       .map(value => value.trim())
       .filter(Boolean);
     button.hidden = !tabs.includes(safeTab);
+    if (button.hidden) return;
+    if (safeTab === 'products') button.textContent = staffRole ? 'Request Product' : 'New Product';
+    if (safeTab === 'warehouses') button.textContent = staffRole ? 'Request Warehouse' : 'New Warehouse';
+    if (safeTab === 'movements') button.textContent = staffRole ? 'Request Stock Movement' : 'Stock Movement';
   });
 }
 
@@ -220,9 +234,18 @@ function openInventoryModal(type) {
   setStatus('');
   document.getElementById('inventory-modal').classList.add('open');
   document.getElementById('inventory-modal').setAttribute('aria-hidden', 'false');
-  document.getElementById('inventory-modal-title').textContent = type === 'product' ? 'New Product' : type === 'warehouse' ? 'New Warehouse' : 'Stock Movement';
+  const staffRole = isInventoryStaffRole();
+  document.getElementById('inventory-modal-title').textContent = staffRole
+    ? (type === 'product' ? 'Request Product' : type === 'warehouse' ? 'Request Warehouse' : 'Request Stock Movement')
+    : (type === 'product' ? 'New Product' : type === 'warehouse' ? 'New Warehouse' : 'Stock Movement');
   ['product-form', 'warehouse-form', 'movement-form'].forEach(id => document.getElementById(id).classList.remove('active'));
   document.getElementById(`${type}-form`)?.classList.add('active');
+  const productSave = document.querySelector('#product-form .btn-save');
+  const warehouseSave = document.querySelector('#warehouse-form .btn-save');
+  const movementSave = document.querySelector('#movement-form .btn-save');
+  if (productSave) productSave.textContent = staffRole ? 'Save Product Request' : 'Save Product';
+  if (warehouseSave) warehouseSave.textContent = staffRole ? 'Save Warehouse Request' : 'Save Warehouse';
+  if (movementSave) movementSave.textContent = staffRole ? 'Save Movement Request' : 'Save Movement';
 }
 
 function closeInventoryModal() {

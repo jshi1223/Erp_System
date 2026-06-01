@@ -75,6 +75,7 @@ body.erp-clean-page.accounts-payable-page[data-workspace-mode="ap"][data-initial
 body.erp-clean-page.accounts-payable-page[data-workspace-mode="ap"][data-initial-tab="ap-aging"] .ap-summary-card:not([data-summary-tabs~="ap-aging"]),
 body.erp-clean-page.accounts-payable-page[data-workspace-mode="ap"][data-initial-tab="payments"] .ap-summary-card:not([data-summary-tabs~="payments"]),
 body.erp-clean-page.accounts-payable-page[data-workspace-mode="ap"][data-initial-tab="disbursements"] .ap-summary-card:not([data-summary-tabs~="disbursements"]),
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="requests"] .ap-summary-card:not([data-summary-tabs~="requests"]),
 body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="requisitions"] .ap-summary-card:not([data-summary-tabs~="requisitions"]),
 body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="rfq"] .ap-summary-card:not([data-summary-tabs~="rfq"]),
 body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="quotations"] .ap-summary-card:not([data-summary-tabs~="quotations"]),
@@ -91,17 +92,29 @@ body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][dat
   display: block;
 }
 
-body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"] .ap-workspace-tab:not([data-workspace-tab="companies"]):not([data-workspace-tab="vendors"]),
-body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"] .ap-workspace-section:not(#companies):not(#vendors) {
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"] .ap-workspace-tab:not([data-workspace-tab="companies"]):not([data-workspace-tab="vendors"]):not([data-workspace-tab="requests"]),
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"] .ap-workspace-section:not(#companies):not(#vendors):not(#requests) {
+  display: none !important;
+}
+
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"]:not([data-access-role="staff"]) .ap-workspace-tab[data-workspace-tab="requests"],
+html:not([data-access-role="staff"]) body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"] .ap-workspace-tab[data-workspace-tab="requests"],
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"]:not([data-access-role="staff"]) #requests,
+html:not([data-access-role="staff"]) body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"] #requests {
   display: none !important;
 }
 
 body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"][data-initial-tab="companies"] #vendors,
-body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"][data-initial-tab="vendors"] #companies {
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"][data-initial-tab="companies"] #requests,
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"][data-initial-tab="vendors"] #companies,
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"][data-initial-tab="vendors"] #requests,
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"][data-initial-tab="requests"] #companies,
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"][data-initial-tab="requests"] #vendors {
   display: none !important;
 }
 
 body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="requisitions"] .ap-workspace-section:not(#requisitions),
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="requests"] .ap-workspace-section:not(#requests),
 body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="rfq"] .ap-workspace-section:not(#rfq),
 body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="quotations"] .ap-workspace-section:not(#quotations),
 body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="purchase-orders"] .ap-workspace-section:not(#purchase-orders),
@@ -115,11 +128,13 @@ body.erp-clean-page.accounts-payable-page[data-workspace-mode="ap"][data-initial
 }
 
 body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"][data-initial-tab="companies"] #companies,
-body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"][data-initial-tab="vendors"] #vendors {
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"][data-initial-tab="vendors"] #vendors,
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="master-data"][data-initial-tab="requests"] #requests {
   display: block;
 }
 
 body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="requisitions"] #requisitions,
+body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="requests"] #requests,
 body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="rfq"] #rfq,
 body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="quotations"] #quotations,
 body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"][data-initial-tab="purchase-orders"] #purchase-orders,
@@ -134,6 +149,11 @@ body.erp-clean-page.accounts-payable-page[data-workspace-mode="ap"][data-initial
 
 body.erp-clean-page.accounts-payable-page:not([data-workspace-mode="master-data"]) .master-data-tab,
 body.erp-clean-page.accounts-payable-page:not([data-workspace-mode="master-data"]) [data-master-data-section] {
+  display: none !important;
+}
+
+body.erp-clean-page.accounts-payable-page:not([data-workspace-mode="procurement"]) .procurement-tab,
+body.erp-clean-page.accounts-payable-page:not([data-workspace-mode="procurement"]) [data-procurement-only] {
   display: none !important;
 }
 
@@ -157,12 +177,12 @@ body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"] .ap
   display: none !important;
 }
 
-body.erp-clean-page.accounts-payable-page[data-access-role="staff"][data-workspace-mode="procurement"] .ap-workspace-tab[data-proc-tab]:not([data-proc-tab="requisitions"]),
-html[data-access-role="staff"] body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"] .ap-workspace-tab[data-proc-tab]:not([data-proc-tab="requisitions"]),
-body.erp-clean-page.accounts-payable-page[data-access-role="staff"][data-workspace-mode="procurement"] .ap-workspace-section:not(#requisitions),
-html[data-access-role="staff"] body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"] .ap-workspace-section:not(#requisitions),
-body.erp-clean-page.accounts-payable-page[data-access-role="staff"][data-workspace-mode="procurement"] .ap-summary-card:not([data-summary-tabs~="requisitions"]),
-html[data-access-role="staff"] body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"] .ap-summary-card:not([data-summary-tabs~="requisitions"]) {
+body.erp-clean-page.accounts-payable-page[data-access-role="staff"][data-workspace-mode="procurement"] .ap-workspace-tab[data-proc-tab]:not([data-proc-tab="requests"]):not([data-proc-tab="requisitions"]),
+html[data-access-role="staff"] body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"] .ap-workspace-tab[data-proc-tab]:not([data-proc-tab="requests"]):not([data-proc-tab="requisitions"]),
+body.erp-clean-page.accounts-payable-page[data-access-role="staff"][data-workspace-mode="procurement"] .ap-workspace-section:not(#requests):not(#requisitions),
+html[data-access-role="staff"] body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"] .ap-workspace-section:not(#requests):not(#requisitions),
+body.erp-clean-page.accounts-payable-page[data-access-role="staff"][data-workspace-mode="procurement"] .ap-summary-card:not([data-summary-tabs~="requests"]):not([data-summary-tabs~="requisitions"]),
+html[data-access-role="staff"] body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"] .ap-summary-card:not([data-summary-tabs~="requests"]):not([data-summary-tabs~="requisitions"]) {
   display: none !important;
 }
 

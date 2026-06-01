@@ -5,9 +5,9 @@
   <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
   <meta http-equiv="Pragma" content="no-cache">
   <meta http-equiv="Expires" content="0">
-  <title>KVSK CCTV &amp; IT Solutions - Staff Workspace</title>
+  <title>KVSK CCTV &amp; IT Solutions - Staff Dashboard</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<script src="/assets/js/auth-guard.js?v=20260601f"></script>
+<script src="/assets/js/auth-guard.js?v=20260601h"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Orbitron:wght@500;700;800&amp;family=Playfair+Display:wght@600;700&amp;family=IBM+Plex+Mono:wght@300;400;500&amp;display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260531a">
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a">
@@ -22,7 +22,7 @@
     var view = String(params.get('view') || '').trim();
     var initialPanel = 'home';
     if (panel === 'project-records' || view === 'all' || view === 'project-records' || panel === 'project-ledger' || panel === 'ongoing-projects' || view === 'ongoing' || view === 'ongoing-projects') initialPanel = 'project-records';
-    else if (panel === 'staff-workspace') initialPanel = 'staff-workspace';
+    else if (panel === 'staff-workspace') initialPanel = 'project-records';
     try {
       document.documentElement.dataset.accessRole = 'staff';
       document.body.dataset.accessRole = 'staff';
@@ -197,6 +197,22 @@
       </div>
 
 
+      <!-- Sales Management -->
+      <div class="stat-card stat-card-company stat-card-link" id="stat-card-sales-management" onclick="navigateDashboardCard('/sales-management')">
+        <div class="stat-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M5 19.5V5.5A1.5 1.5 0 0 1 6.5 4h11A1.5 1.5 0 0 1 19 5.5v14"></path>
+            <path d="M8 8h8"></path>
+            <path d="M8 11.5h8"></path>
+            <path d="M8 15h4"></path>
+            <path d="M4 19.5h16"></path>
+          </svg>
+        </div>
+        <div class="stat-label">Sales Management</div>
+        <div class="stat-val" id="stat-sales">0</div>
+        <div class="stat-mini" id="stat-sales-mini">All Companies &bull; 0 sales invoices</div>
+      </div>
+
       <!-- Service Operations -->
       <div class="stat-card stat-card-company stat-card-link" id="stat-card-service-operations" onclick="navigateDashboardCard('/service-operations')">
         <div class="stat-icon" aria-hidden="true">
@@ -212,23 +228,8 @@
         <div class="stat-mini" id="stat-service-operations-mini">All Companies &bull; 0 active service orders</div>
       </div>
 
-      <!-- Staff Workspace -->
-      <div class="stat-card stat-card-warning stat-card-link" id="stat-card-staff-workspace" aria-hidden="false" onclick="openStaffWorkspaceFromDashboard()">
-        <div class="stat-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24">
-            <path d="M6.5 4.5h11A1.5 1.5 0 0 1 19 6v12a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 18V6a1.5 1.5 0 0 1 1.5-1.5z"></path>
-            <path d="M8 8.5h8"></path>
-            <path d="M8 12h5"></path>
-            <path d="M8 15.5h4"></path>
-          </svg>
-        </div>
-        <div class="stat-label">Staff Workspace</div>
-        <div class="stat-val gold" id="stat-staff-workspace">0</div>
-        <div class="stat-mini" id="stat-staff-workspace-mini">My requests and assigned work</div>
-      </div>
-
       <!-- Procurement -->
-      <div class="stat-card stat-card-warning stat-card-link" id="stat-card-procurement" onclick="navigateDashboardCard('/procurement?tab=requisitions')">
+      <div class="stat-card stat-card-warning stat-card-link" id="stat-card-procurement" onclick="navigateDashboardCard('/procurement?tab=requests')">
         <div class="stat-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24">
             <path d="M5 5.5h14v5H5z"></path>
@@ -262,102 +263,6 @@
     </div>
 
 
-    <section class="staff-workspace is-hidden" id="staff-workspace" aria-label="Staff work queue">
-      <div class="staff-workspace-head">
-        <div>
-          <div class="staff-workspace-kicker">Staff Workspace</div>
-          <h2>My Work Queue</h2>
-        </div>
-        <div class="staff-workspace-actions">
-          <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-smart-back="1" data-back-force-fallback="1" data-back-fallback="/staff" onclick="goBackSmart('/staff', true)" aria-label="Go back to Dashboard">Back to Dashboard</button>
-          <button class="btn btn-add btn-sm" type="button" onclick="openProjectModal()">New Project Draft</button>
-          <button class="btn btn-cancel btn-sm" type="button" onclick="navigateDashboardCard('/procurement?tab=requisitions')">Purchase Request</button>
-          <button class="btn btn-cancel btn-sm" type="button" onclick="navigateDashboardCard('/service-operations')">Service Orders</button>
-        </div>
-      </div>
-
-      <div class="staff-summary-grid">
-        <button class="staff-summary-card" type="button" onclick="filterStaffWorkQueue('all')">
-          <span>Assigned Work</span>
-          <strong id="staff-work-total">0</strong>
-          <small>Open records assigned to you</small>
-        </button>
-        <button class="staff-summary-card" type="button" onclick="filterStaffWorkQueue('due')">
-          <span>Due Today</span>
-          <strong id="staff-work-due">0</strong>
-          <small>Needs attention today</small>
-        </button>
-        <button class="staff-summary-card" type="button" onclick="filterStaffWorkQueue('overdue')">
-          <span>Overdue</span>
-          <strong id="staff-work-overdue">0</strong>
-          <small>Past planned due date</small>
-        </button>
-        <button class="staff-summary-card" type="button" onclick="filterStaffWorkQueue('requests')">
-          <span>Drafts / For Approval</span>
-          <strong id="staff-work-requests">0</strong>
-          <small>Not yet in module count</small>
-        </button>
-        <button class="staff-summary-card" type="button" onclick="filterStaffWorkQueue('service')">
-          <span>Service</span>
-          <strong id="staff-work-service">0</strong>
-          <small>Active service orders</small>
-        </button>
-      </div>
-
-      <div class="staff-work-table-card staff-request-tracker">
-        <div class="staff-work-table-head">
-          <div>
-            <strong>My Drafts and For Approval</strong>
-            <span>Track records before and after approval</span>
-          </div>
-        </div>
-        <div class="table-wrap staff-work-table-wrap">
-          <table class="staff-work-table">
-            <thead>
-              <tr>
-                <th>Type</th>
-                <th>Record</th>
-                <th>Module</th>
-                <th>Status</th>
-                <th>Audit Trail</th>
-                <th class="text-center">Action</th>
-              </tr>
-            </thead>
-            <tbody id="staff-request-body">
-              <tr class="empty-row"><td colspan="6">No drafts or submitted requests yet.</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="staff-work-table-card">
-        <div class="staff-work-table-head">
-          <div>
-            <strong>Actionable Items</strong>
-            <span id="staff-work-subtitle">Showing all assigned work</span>
-          </div>
-          <button class="btn btn-cancel btn-sm" type="button" onclick="renderStaffDashboard()">Refresh</button>
-        </div>
-        <div class="table-wrap staff-work-table-wrap">
-          <table class="staff-work-table">
-            <thead>
-              <tr>
-                <th>Type</th>
-                <th>Record</th>
-                <th>Module</th>
-                <th>Due / Date</th>
-                <th>Status</th>
-                <th class="text-center">Action</th>
-              </tr>
-            </thead>
-            <tbody id="staff-work-body">
-              <tr class="empty-row"><td colspan="6">No assigned work yet.</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
     <div class="dashboard-section is-hidden" id="project-records-section">
       <div class="module-page-toolbar">
         <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-smart-back="1" data-back-force-fallback="1" data-back-fallback="/staff" onclick="goBackSmart('/staff', true)" aria-label="Go back to Dashboard">Back to Dashboard</button>
@@ -365,12 +270,13 @@
           <div class="search-wrap top-search-bar module-toolbar-search">
             <input id="project-records-search-input" type="text" placeholder="Search project title, number, company, or linked record..." oninput="renderProjectWorkspace()">
           </div>
-          <button class="btn btn-add btn-sm" type="button" onclick="openProjectModal()">Add Project</button>
+          <button class="btn btn-add btn-sm" type="button" onclick="openProjectModal()">Request Project</button>
         </div>
       </div>
       <div class="section-divider">Project Operations</div>
       <div class="project-workspace-tabs" role="tablist" aria-label="Project workspace">
         <button class="project-workspace-tab active" type="button" data-project-workspace-tab="projects" onclick="switchProjectWorkspaceTab('projects')" aria-selected="true">Projects</button>
+        <button class="project-workspace-tab" type="button" data-project-workspace-tab="requests" onclick="switchProjectWorkspaceTab('requests')" aria-selected="false">Requests</button>
       </div>
       <div class="stats dashboard-stats dashboard-project-summary project-workspace-summary">
         <button class="stat-card stat-card-primary stat-card-link" id="project-workspace-summary-card-1" type="button" onclick="handleProjectWorkspaceSummaryClick(0)">
@@ -612,7 +518,6 @@
   </div>
   <nav class="sidebar-nav">
     <a href="/staff" class="sidebar-link active" id="menu-dashboard">Dashboard</a>
-    <a href="/staff?panel=staff-workspace" class="sidebar-link" id="menu-staff-workspace">Staff Workspace</a>
     <div class="sidebar-group" data-sidebar-group="master-data">
       <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
         <span>Master Data</span>
@@ -621,6 +526,7 @@
       <div class="sidebar-group-items">
         <a href="/master-data?tab=companies" class="sidebar-link is-subitem" id="menu-company-registry">Company Registry</a>
         <a href="/master-data?tab=vendors" class="sidebar-link is-subitem">Vendors</a>
+        <a href="/master-data?tab=requests" class="sidebar-link is-subitem">Requests</a>
       </div>
     </div>
 
@@ -661,7 +567,8 @@
         <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/procurement?tab=requisitions" class="sidebar-link is-subitem" id="menu-procurement">Purchase Requisitions</a>
+        <a href="/procurement?tab=requests" class="sidebar-link is-subitem" id="menu-procurement">Requests</a>
+        <a href="/procurement?tab=requisitions" class="sidebar-link is-subitem">Purchase Requisitions</a>
       </div>
     </div>
 
@@ -725,7 +632,7 @@
   <div id="project-modal-notice" class="modal-notice is-hidden"></div>
   <div class="modal modal-project" style="max-width: 980px;">
     <div class="modal-header modal-header-tight">
-      <div class="modal-title" id="project-modal-title">Create Project</div>
+      <div class="modal-title" id="project-modal-title">Request Project</div>
       <button class="modal-close" onclick="closeProjectModal()" aria-label="Close project modal">&times;</button>
     </div>
     <div class="modal-body transaction-modal-body">
@@ -945,7 +852,7 @@
 
       <div class="modal-actions">
         <button class="btn btn-cancel btn-sm" onclick="closeProjectModal()">Cancel</button>
-        <button id="project-save-btn" class="btn btn-save btn-sm" onclick="saveProject('draft')">Save Draft</button>
+        <button id="project-save-btn" class="btn btn-save btn-sm" onclick="saveProject('draft')">Save Request Draft</button>
       </div>
     </div>
   </div>
@@ -989,7 +896,7 @@
 
 <!-- Scripts -->
 <script src="/staff/js/staff-notifications.js?v=20260601b"></script>
-<script src="/staff/js/staff-dashboard-cards.js?v=20260601b"></script>
+<script src="/staff/js/staff-dashboard-cards.js?v=20260601c"></script>
 <script src="/staff/js/staff-page.js?v=20260601c"></script>
 <script src="/admin/js/admin.js?v=20260601h"></script>
 <script src="/staff/js/staff-workspace.js?v=20260601b"></script>

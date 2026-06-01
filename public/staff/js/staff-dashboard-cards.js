@@ -1,14 +1,15 @@
 (function () {
   'use strict';
 
-  const STAFF_CARD_IDS = [
-    'stat-card-company-registry',
-    'stat-card-projects',
-    'stat-card-service-operations',
-    'stat-card-staff-workspace',
-    'stat-card-procurement',
-    'stat-card-inventory'
+  const STAFF_SIDEBAR_CARD_MAP = [
+    { group: 'master-data', card: 'stat-card-company-registry' },
+    { group: 'projects', card: 'stat-card-projects' },
+    { group: 'sales-management', card: 'stat-card-sales-management' },
+    { group: 'service-operations', card: 'stat-card-service-operations' },
+    { group: 'procurement', card: 'stat-card-procurement' },
+    { group: 'inventory', card: 'stat-card-inventory' }
   ];
+  const STAFF_CARD_IDS = STAFF_SIDEBAR_CARD_MAP.map(function (entry) { return entry.card; });
 
   function syncStaffDashboardCards() {
     const row = document.getElementById('dashboard-summary-cards');
@@ -32,7 +33,8 @@
     row.style.removeProperty('grid-template-columns');
     row.style.removeProperty('grid-auto-flow');
 
-    STAFF_CARD_IDS.forEach(function (id, index) {
+    STAFF_SIDEBAR_CARD_MAP.forEach(function (entry, index) {
+      const id = entry.card;
       const card = document.getElementById(id);
       if (!card) return;
       card.style.setProperty('display', 'grid', 'important');
@@ -42,6 +44,7 @@
       card.style.setProperty('order', String(index), 'important');
       card.setAttribute('aria-hidden', 'false');
       card.dataset.dashboardRole = 'staff';
+      card.dataset.sidebarGroup = entry.group;
     });
 
     if (document.documentElement && document.documentElement.dataset) {

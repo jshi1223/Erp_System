@@ -560,38 +560,42 @@ function renderArToolbarControls(tab) {
     : (tab === 'invoices' ? arToolbarState.receivables : (arToolbarState[tab] || {}));
 
   if (tab === 'service-orders') {
+    const serviceButtonLabel = isCurrentStaffRole() ? 'Request Service Order' : 'Add Service Order';
     actions.innerHTML = `
       <div class="search-wrap top-search-bar module-toolbar-search">
         <input id="service-orders-search" type="text" placeholder="Search SO no., company, project, title, or status..." value="${escHtml(state.search || '')}" oninput="renderServiceOrders()" />
       </div>
-      <button class="btn btn-add btn-sm" type="button" onclick="openServiceOrderCreateModal()">Add Service Order</button>
+      <button class="btn btn-add btn-sm" type="button" onclick="openServiceOrderCreateModal()">${serviceButtonLabel}</button>
     `;
     return;
   }
 
   if (tab === 'transactions') {
+    const transactionButtonLabel = isCurrentStaffRole() ? 'Request Transaction' : 'Add Transaction';
     actions.innerHTML = `
       <div class="search-wrap top-search-bar module-toolbar-search">
         <input id="transactions-search" type="text" placeholder="Search transaction no., customer, SO, or status..." value="${escHtml(state.search || '')}" oninput="renderTransactions()" />
       </div>
-      <button class="btn btn-add btn-sm" type="button" onclick="openTransactionModal()">Add Transaction</button>
+      <button class="btn btn-add btn-sm" type="button" onclick="openTransactionModal()">${transactionButtonLabel}</button>
     `;
     return;
   }
 
   if (tab === 'invoices') {
+    const invoiceButtonLabel = isCurrentStaffRole() ? 'Request Invoice' : 'Add Invoice';
     actions.innerHTML = `
       <div class="search-wrap top-search-bar module-toolbar-search">
         <input id="receivable-search" type="text" placeholder="Search customer or invoice number..." value="${escHtml(state.search || '')}" oninput="renderReceivables()" />
       </div>
-      <button class="btn btn-add btn-sm" type="button" onclick="openReceivableModal()">Add Invoice</button>
+      <button class="btn btn-add btn-sm" type="button" onclick="openReceivableModal()">${invoiceButtonLabel}</button>
     `;
     return;
   }
 
   if (tab === 'collections') {
+    const collectionButtonLabel = isCurrentStaffRole() ? 'Request Collection' : 'Record Collection';
     actions.innerHTML = `
-      <button class="btn btn-add btn-sm" type="button" onclick="openCollectionModal()">Record Collection</button>
+      <button class="btn btn-add btn-sm" type="button" onclick="openCollectionModal()">${collectionButtonLabel}</button>
     `;
     return;
   }
@@ -1159,8 +1163,16 @@ function syncReceivableModalMode() {
   const title = document.querySelector('#receivable-modal-backdrop .modal-title');
   const saveBtn = document.querySelector('#receivable-modal-backdrop .btn-save');
   const transactionSearch = document.getElementById('f-transaction-search');
-  if (title) title.textContent = editingReceivableId ? 'Edit Receivable' : 'Add Receivable';
-  if (saveBtn) saveBtn.textContent = editingReceivableId ? 'Save Changes' : 'Save Receivable';
+  if (title) {
+    title.textContent = isCurrentStaffRole()
+      ? (editingReceivableId ? 'Edit Invoice Request' : 'Request Invoice')
+      : (editingReceivableId ? 'Edit Receivable' : 'Add Receivable');
+  }
+  if (saveBtn) {
+    saveBtn.textContent = isCurrentStaffRole()
+      ? (editingReceivableId ? 'Update Request' : 'Save Invoice Request')
+      : (editingReceivableId ? 'Save Changes' : 'Save Receivable');
+  }
   if (transactionSearch) {
     transactionSearch.disabled = Boolean(editingReceivableId);
     transactionSearch.placeholder = editingReceivableId
@@ -1810,8 +1822,16 @@ async function openTransactionModal(id = null) {
 
   const title = document.getElementById('ar-transaction-modal-title');
   const saveBtn = document.getElementById('ar-transaction-save-btn');
-  if (title) title.textContent = row ? 'Edit Transaction' : 'Add Transaction';
-  if (saveBtn) saveBtn.textContent = row ? 'Save Changes' : 'Save Transaction';
+  if (title) {
+    title.textContent = isCurrentStaffRole()
+      ? (row ? 'Edit Transaction Request' : 'Request Transaction')
+      : (row ? 'Edit Transaction' : 'Add Transaction');
+  }
+  if (saveBtn) {
+    saveBtn.textContent = isCurrentStaffRole()
+      ? (row ? 'Update Request' : 'Save Transaction Request')
+      : (row ? 'Save Changes' : 'Save Transaction');
+  }
 
   if (row) {
     document.getElementById('f-ar-transaction-docno').value = row.docno || '';
@@ -2161,8 +2181,16 @@ function closeReceivableModal() {
 function syncCollectionModalMode() {
   const title = document.querySelector('#collection-modal-backdrop .modal-title');
   const saveBtn = document.querySelector('#collection-modal-backdrop .btn-save');
-  if (title) title.textContent = editingCollectionId ? 'Edit Payment' : 'Record Payment';
-  if (saveBtn) saveBtn.textContent = editingCollectionId ? 'Save Changes' : 'Save Payment';
+  if (title) {
+    title.textContent = isCurrentStaffRole()
+      ? (editingCollectionId ? 'Edit Collection Request' : 'Request Collection')
+      : (editingCollectionId ? 'Edit Payment' : 'Record Payment');
+  }
+  if (saveBtn) {
+    saveBtn.textContent = isCurrentStaffRole()
+      ? (editingCollectionId ? 'Update Request' : 'Save Collection Request')
+      : (editingCollectionId ? 'Save Changes' : 'Save Payment');
+  }
 }
 
 function resetCollectionForm() {
@@ -2238,8 +2266,8 @@ async function openServiceOrderCreateModal() {
   }
 
   editingServiceOrderId = null;
-  document.getElementById('service-order-modal-title').textContent = 'Add Service Order';
-  document.getElementById('service-order-save-btn').textContent = 'Save Service Order';
+  document.getElementById('service-order-modal-title').textContent = isCurrentStaffRole() ? 'Request Service Order' : 'Add Service Order';
+  document.getElementById('service-order-save-btn').textContent = isCurrentStaffRole() ? 'Save Service Request' : 'Save Service Order';
   document.getElementById('f-so-number').value = '';
   await prefillServiceOrderNumber();
   populateArBusinessEntitySelect('f-so-business-entity');
@@ -2271,8 +2299,8 @@ async function openServiceOrderEditModal(serviceOrderId) {
   }
 
   editingServiceOrderId = Number(serviceOrderId);
-  document.getElementById('service-order-modal-title').textContent = 'Edit Service Order';
-  document.getElementById('service-order-save-btn').textContent = 'Save Changes';
+  document.getElementById('service-order-modal-title').textContent = isCurrentStaffRole() ? 'Edit Service Request' : 'Edit Service Order';
+  document.getElementById('service-order-save-btn').textContent = isCurrentStaffRole() ? 'Update Service Request' : 'Save Changes';
   populateServiceOrderReferenceSelects({
     project_id: row.project_id,
     company_id: row.company_id
