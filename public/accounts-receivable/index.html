@@ -4,11 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KVSK CCTV & IT Solution - Accounts Receivable</title>
-  <script src="/assets/js/auth-guard.js?v=20260601e"></script>
+  <script src="/assets/js/auth-guard.js?v=20260601f"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260531a" />
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a" />
-  <link rel="stylesheet" href="/accounts-receivable/accounts-receivable.css?v=20260529c" />
+  <link rel="stylesheet" href="/accounts-receivable/accounts-receivable.css?v=20260601a" />
 
   
 </head>
@@ -17,8 +17,14 @@
   (function () {
     var path = String(window.location.pathname || '').replace(/\/+$/, '').toLowerCase();
     var mode = path === '/sales-management' ? 'sales' : (path === '/service-operations' ? 'service' : 'finance');
+    var cachedRole = '';
+    try {
+      var cachedBadge = JSON.parse(localStorage.getItem('kinaadman_currentUserBadge') || '{}');
+      cachedRole = String(cachedBadge && cachedBadge.role ? cachedBadge.role : '').trim().toLowerCase();
+    } catch (_) {}
+    var staffSales = mode === 'sales' && cachedRole === 'staff';
     var allowed = {
-      sales: ['invoices', 'collections', 'customer-balances'],
+      sales: staffSales ? ['invoices', 'collections'] : ['invoices', 'collections', 'customer-balances'],
       service: ['service-orders', 'documents'],
       finance: ['invoices', 'collections', 'customer-balances', 'ar-aging']
     };
@@ -35,6 +41,7 @@
     if ((allowed[mode] || allowed.finance).indexOf(tab) === -1) tab = fallback;
     document.body.dataset.moduleMode = mode;
     document.body.dataset.initialArTab = tab;
+    if (staffSales) document.body.dataset.accessRole = 'staff';
   })();
 </script>
 <header>
@@ -879,7 +886,7 @@
 <div id="toast"></div>
 
 <script src="/assets/js/erp-core.js?v=20260529c"></script>
-<script src="/accounts-receivable/accounts-receivable.js?v=20260530a"></script>
+<script src="/accounts-receivable/accounts-receivable.js?v=20260601a"></script>
 </body>
 </html>
 

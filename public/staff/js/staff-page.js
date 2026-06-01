@@ -23,7 +23,7 @@
     let activeId = 'menu-dashboard';
 
     if (panel === 'staff-workspace') activeId = 'menu-staff-workspace';
-    else if (panel === 'project-records' || panel === 'project-ledger') activeId = 'menu-projects';
+    else if (panel === 'project-records' || panel === 'project-ledger' || panel === 'ongoing-projects') activeId = 'menu-projects';
     else if (path === '/master-data') activeId = 'menu-company-registry';
     else if (path === '/sales-management') activeId = 'menu-sales-management';
     else if (path === '/service-operations') activeId = 'menu-service-operations';

@@ -22,7 +22,7 @@ function isStaffWorkspaceRoute() {
 }
 
 function getWorkspaceHomePath() {
-  return isStaffWorkspaceRoute() || normalizeAccessRole(currentUser?.role || getCachedAccessRole()) === 'staff'
+  return isStaffWorkspaceRoute() || normalizeAccessRole(currentUser?.role) === 'staff'
     ? '/staff'
     : '/admin';
 }
@@ -104,6 +104,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateRoleBadge(user);
     const safeCurrentRole = normalizeAccessRole(user.role);
     window.KinaadmanRoleFlow?.apply(safeCurrentRole, user);
+    syncBackButtonLabels();
     
     if (isAdminRoleValue(user.role)) {
       const adminSidebarGroup = document.querySelector('.sidebar-group[data-sidebar-group="admin"]');
@@ -244,6 +245,7 @@ function applyInitialAdminView(user) {
   const requestedPanel = params.get('panel');
   const requestedTab = params.get('tab');
   const rememberedProjectWorkspaceTab = localStorage.getItem('kinaadman_projectWorkspaceTab');
+  const staffView = normalizeAccessRole(user?.role) === 'staff';
   const allowedPanels = ['home', 'project-records', 'project-ledger', 'total-projects', 'ongoing-projects', 'system-logs', 'archive-center', 'approval-center', 'staff-workspace'];
   const allowedTabs = isAdminRoleValue(user?.role) ? ['all', 'archived', 'users'] : ['all'];
   const menuByTab = {
@@ -261,12 +263,17 @@ function applyInitialAdminView(user) {
   }
 
   if (requestedPanel === 'project-records') {
-    currentProjectWorkspaceTab = normalizeProjectWorkspaceTab(requestedTab || rememberedProjectWorkspaceTab || currentProjectWorkspaceTab);
+    currentProjectWorkspaceTab = staffView ? 'projects' : normalizeProjectWorkspaceTab(requestedTab || rememberedProjectWorkspaceTab || currentProjectWorkspaceTab);
     openDashboardPanel('project-records');
     return;
   }
 
   if (requestedPanel === 'project-ledger') {
+    if (staffView) {
+      currentProjectWorkspaceTab = 'projects';
+      openDashboardPanel('project-records');
+      return;
+    }
     currentProjectLedgerId = Number(params.get('project_id') || 0) || null;
     openDashboardPanel('project-ledger');
     return;
@@ -278,7 +285,7 @@ function applyInitialAdminView(user) {
   }
 
   if (requestedView === 'all') {
-    currentProjectWorkspaceTab = normalizeProjectWorkspaceTab(requestedTab || rememberedProjectWorkspaceTab || currentProjectWorkspaceTab);
+    currentProjectWorkspaceTab = staffView ? 'projects' : normalizeProjectWorkspaceTab(requestedTab || rememberedProjectWorkspaceTab || currentProjectWorkspaceTab);
     window.location.replace(normalizeWorkspaceHref(`/admin?panel=project-records&tab=${encodeURIComponent(currentProjectWorkspaceTab)}`));
     return;
   }
@@ -305,6 +312,11 @@ function applyInitialAdminView(user) {
   }
 
   if (requestedView === 'ongoing' || requestedView === 'ongoing-projects') {
+    if (staffView) {
+      currentProjectWorkspaceTab = 'projects';
+      openDashboardPanel('project-records');
+      return;
+    }
     openDashboardPanel('ongoing-projects');
     return;
   }
@@ -347,6 +359,11 @@ function applyInitialAdminView(user) {
     }
 
     if (requestedPanel === 'ongoing-projects') {
+      if (staffView) {
+        currentProjectWorkspaceTab = 'projects';
+        openDashboardPanel('project-records');
+        return;
+      }
       openDashboardPanel('ongoing-projects');
       return;
     }
@@ -357,7 +374,7 @@ function applyInitialAdminView(user) {
     }
 
     if (requestedPanel === 'project-records') {
-      currentProjectWorkspaceTab = normalizeProjectWorkspaceTab(requestedTab || rememberedProjectWorkspaceTab || currentProjectWorkspaceTab);
+      currentProjectWorkspaceTab = staffView ? 'projects' : normalizeProjectWorkspaceTab(requestedTab || rememberedProjectWorkspaceTab || currentProjectWorkspaceTab);
       openDashboardPanel('project-records');
       return;
     }
@@ -562,6 +579,10 @@ function applyCachedRoleBadge() {
 }
 
 function openDashboardPanel(panel = 'home', opts = {}) {
+  if (isStaffUser() && ['project-ledger', 'total-projects', 'ongoing-projects'].includes(panel)) {
+    panel = 'project-records';
+    currentProjectWorkspaceTab = 'projects';
+  }
   if (panel === 'total-projects' && activeTab !== 'archived') {
     panel = 'project-records';
   }
@@ -1678,6 +1699,7 @@ function renderProjectRecordsTable() {
 
 function normalizeProjectWorkspaceTab(tab) {
   const safeTab = String(tab || '').trim().toLowerCase();
+  if (isStaffUser()) return 'projects';
   return ['projects', 'ongoing', 'transactions', 'service-orders', 'ledger', 'documents'].includes(safeTab)
     ? safeTab
     : 'projects';
@@ -1768,6 +1790,15 @@ function getProjectWorkspaceMetrics() {
 function updateProjectWorkspaceSummary() {
   const metrics = getProjectWorkspaceMetrics();
   const activeTab = normalizeProjectWorkspaceTab(currentProjectWorkspaceTab);
+
+  if (isStaffUser()) {
+    const companyCount = new Set(metrics.projects.map((project) => getProjectCompanyName(project)).filter(Boolean)).size;
+    setProjectWorkspaceSummaryCard(0, 'Approved Projects', String(metrics.projects.length), `${getCurrentDashboardCompanyLabel()} active records`);
+    setProjectWorkspaceSummaryCard(1, 'Ongoing', String(metrics.ongoing.length), 'Currently active');
+    setProjectWorkspaceSummaryCard(2, 'Upcoming', String(metrics.upcoming.length), 'Scheduled projects');
+    setProjectWorkspaceSummaryCard(3, 'Companies', String(companyCount), 'With approved projects');
+    return;
+  }
 
   if (activeTab === 'ongoing') {
     setProjectWorkspaceSummaryCard(0, 'Ongoing', String(metrics.ongoing.length), 'Currently in progress');
@@ -2017,6 +2048,9 @@ function renderProjectWorkspaceDocuments() {
 function renderProjectWorkspace() {
   const recordsWrap = document.querySelector('#project-records-section .project-records-wrap');
   const altContent = document.getElementById('project-workspace-alt-content');
+  if (isStaffUser()) {
+    currentProjectWorkspaceTab = 'projects';
+  }
   const activeTab = normalizeProjectWorkspaceTab(currentProjectWorkspaceTab);
   currentProjectWorkspaceTab = activeTab;
 
@@ -2051,6 +2085,15 @@ function renderProjectWorkspace() {
 }
 
 function switchProjectWorkspaceTab(tab) {
+  if (isStaffUser()) {
+    currentProjectWorkspaceTab = 'projects';
+    localStorage.setItem('kinaadman_projectWorkspaceTab', currentProjectWorkspaceTab);
+    if (currentDashboardPanel === 'project-records') {
+      syncAdminViewUrl('project-records', activeTab);
+    }
+    renderProjectWorkspace();
+    return;
+  }
   currentProjectWorkspaceTab = normalizeProjectWorkspaceTab(tab);
   localStorage.setItem('kinaadman_projectWorkspaceTab', currentProjectWorkspaceTab);
   if (currentDashboardPanel === 'project-records') {
@@ -2063,6 +2106,10 @@ function switchProjectWorkspaceTab(tab) {
 }
 
 function handleProjectWorkspaceSummaryClick(index) {
+  if (isStaffUser()) {
+    switchProjectWorkspaceTab('projects');
+    return;
+  }
   const tabMap = {
     projects: ['projects', 'ongoing', 'transactions', 'documents'],
     ongoing: ['ongoing', 'ongoing', 'ongoing', 'ongoing'],
@@ -4979,11 +5026,15 @@ function syncBackButtonLabels(root = document) {
 
   root.querySelectorAll('.section-back-btn').forEach((button) => {
     const explicit = button.getAttribute('data-back-label');
-    const fallback =
+    let fallback =
       button.getAttribute('data-back-fallback') ||
       button.dataset.backFallback ||
       button.getAttribute('onclick')?.match(/(?:goBackSmart|window\.location\.href\s*=\s*['"])([^'"]+)/)?.[1] ||
       '';
+    if (normalizeAccessRole(currentUser?.role) !== 'staff' && String(fallback || '').startsWith('/staff')) {
+      fallback = '/admin?view=dashboard';
+      button.setAttribute('data-back-fallback', fallback);
+    }
     const label = explicit || formatBackButtonLabel(fallback);
     if (!label) return;
     button.textContent = label;

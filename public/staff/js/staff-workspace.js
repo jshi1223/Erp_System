@@ -279,22 +279,94 @@
     }
   }
 
+  function getStaffRequestStatusInfo(row = {}) {
+    const rawStatus = String(row.status || '').toLowerCase().replace(/\s+/g, '_');
+    const hasRevisionNote = Boolean(String(row.statusReason || row.rejectReason || row.cancelReason || '').trim());
+    if (rawStatus === 'draft' && hasRevisionNote) {
+      return { key: 'needs_revision', label: 'Needs Revision', className: 'status-rejected' };
+    }
+    const map = {
+      draft: { key: 'draft', label: 'Draft', className: 'status-draft' },
+      submitted: { key: 'submitted', label: 'Submitted', className: 'status-submitted' },
+      pending: { key: 'submitted', label: 'Submitted', className: 'status-submitted' },
+      approved: { key: 'approved', label: 'Approved', className: 'status-approved' },
+      planning: { key: 'approved', label: 'Approved', className: 'status-approved' },
+      rejected: { key: 'needs_revision', label: 'Needs Revision', className: 'status-rejected' },
+      cancelled: { key: 'rejected', label: 'Rejected', className: 'status-cancelled' }
+    };
+    return map[rawStatus] || { key: rawStatus || 'open', label: String(row.status || 'Open').replace(/_/g, ' '), className: `status-${rawStatus || 'open'}` };
+  }
+
+  function getStaffActorName(row = {}, ...keys) {
+    for (const key of keys) {
+      const value = String(row?.[key] || '').trim();
+      if (value) return value;
+    }
+    return '';
+  }
+
+  function renderStaffAuditTrail(row = {}) {
+    const lines = [];
+    const submittedBy = getStaffActorName(row, 'submittedBy', 'submitted_by', 'requestedBy', 'requested_by', 'createdBy', 'created_by_name');
+    const submittedAt = row.submittedAt || row.submitted_at || row.created_at || row.request_date;
+    if (submittedBy || submittedAt) {
+      lines.push({ label: 'Submitted', actor: submittedBy || 'Staff', date: submittedAt });
+    }
+
+    const statusInfo = getStaffRequestStatusInfo(row);
+    const decisionBy = getStaffActorName(row, 'approvedBy', 'approved_by', 'cancelledBy', 'cancelled_by');
+    const decisionAt = row.approvedAt || row.approved_at || row.cancelledAt || row.cancelled_at;
+    if (['approved', 'needs_revision', 'rejected'].includes(statusInfo.key) && (decisionBy || decisionAt)) {
+      lines.push({
+        label: statusInfo.key === 'approved' ? 'Approved' : 'Reviewed',
+        actor: decisionBy || 'Admin',
+        date: decisionAt
+      });
+    }
+
+    const note = String(row.statusReason || row.rejectReason || row.cancelReason || '').trim();
+    if (note) {
+      lines.push({ label: statusInfo.key === 'needs_revision' ? 'Revision Note' : 'Note', actor: note, date: '' });
+    }
+
+    if (!lines.length) return '<span class="staff-audit-muted">No approval action yet</span>';
+    return `
+      <div class="staff-audit-trail">
+        ${lines.map(line => `
+          <div class="staff-audit-line">
+            <strong>${escHtml(line.label)}</strong>
+            <span>${escHtml([line.actor, line.date ? formatDateYmd(line.date) : ''].filter(Boolean).join(' - '))}</span>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
   function renderStaffRequestAction(row) {
     const type = String(row?.type || '').toLowerCase();
     const status = String(row?.status || '').toLowerCase();
     const id = Number(row?.id || 0);
+    const statusInfo = getStaffRequestStatusInfo(row);
 
     if (type === 'project' && id && (status === 'draft' || status === 'rejected')) {
       return `
         <div class="project-master-actions">
           <button class="btn btn-edit btn-sm" type="button" onclick="openProjectModal(${id})">Edit</button>
-          <button class="btn btn-add btn-sm" type="button" onclick="submitProject(${id})">${status === 'rejected' ? 'Resubmit' : 'Submit'}</button>
+          <button class="btn btn-add btn-sm" type="button" onclick="submitProject(${id})">${statusInfo.key === 'needs_revision' ? 'Resubmit' : 'Submit'}</button>
         </div>
       `;
     }
 
-    if (['submitted', 'pending'].includes(status)) {
+    if (statusInfo.key === 'submitted') {
       return '<span class="status-pill status-submitted">Waiting for Admin</span>';
+    }
+
+    if (statusInfo.key === 'approved') {
+      return '<span class="status-pill status-approved">Approved - locked</span>';
+    }
+
+    if (statusInfo.key === 'needs_revision' && type !== 'project') {
+      return `<button class="btn btn-cancel btn-sm" type="button" onclick="navigateDashboardCard('${escHtml(row?.url || '/staff')}')">View Note</button>`;
     }
 
     return `<button class="btn btn-cancel btn-sm" type="button" onclick="navigateDashboardCard('${escHtml(row?.url || '/staff')}')">Open</button>`;
@@ -400,6 +472,12 @@
         title: getProjectLinkLabel(project) || project.project_name || 'Project Draft',
         module: 'Projects',
         status: String(project.status || 'draft').toLowerCase(),
+        created_at: project.created_at,
+        submittedAt: project.submitted_at,
+        submittedBy: project.submitted_by || project.created_by_name || project.project_manager,
+        approvedAt: project.approved_at,
+        approvedBy: project.approved_by,
+        statusReason: project.status_reason,
         url: '/staff?panel=project-records&tab=projects'
       }));
 
@@ -416,9 +494,19 @@
       })
       .map(row => ({
         type: 'Purchase Request',
+        id: Number(row.id || 0),
         title: row.pr_number || row.item_summary || 'Purchase Requisition',
         module: 'Procurement',
         status: String(row.status || 'draft').toLowerCase(),
+        created_at: row.created_at,
+        request_date: row.request_date,
+        submittedAt: row.submitted_at,
+        submittedBy: row.submitted_by || row.requested_by,
+        approvedAt: row.approved_at,
+        approvedBy: row.approved_by,
+        cancelledAt: row.cancelled_at,
+        cancelledBy: row.cancelled_by,
+        cancelReason: row.cancel_reason,
         url: '/procurement?tab=requisitions'
       }));
 
@@ -431,6 +519,12 @@
           title: payload.company_name || row.request_no || 'Company Registry Request',
           module: 'Master Data',
           status: String(row.status || 'submitted').toLowerCase(),
+          created_at: row.created_at,
+          submittedAt: row.created_at,
+          submittedBy: payload.requested_by || row.requested_by || currentUser?.fullname || currentUser?.username,
+          approvedAt: row.approved_at,
+          approvedBy: row.approved_by,
+          rejectReason: row.reject_reason,
           url: '/master-data?tab=companies'
         };
       });
@@ -449,21 +543,25 @@
     setStaffMetric('staff-work-total', nonRequestItems + rows.length);
 
     if (!rows.length) {
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No drafts or submitted requests yet.</td></tr>';
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No drafts or submitted requests yet.</td></tr>';
       return;
     }
 
-    tbody.innerHTML = rows.map(row => `
-      <tr>
-        <td>${escHtml(row.type)}</td>
-        <td>${escHtml(row.title)}</td>
-        <td>${escHtml(row.module)}</td>
-        <td><span class="status-pill status-${escHtml(row.status.replace(/_/g, '-'))}">${escHtml(row.status.replace(/_/g, ' '))}</span></td>
-        <td class="text-center">
-          ${renderStaffRequestAction(row)}
-        </td>
-      </tr>
-    `).join('');
+    tbody.innerHTML = rows.map(row => {
+      const statusInfo = getStaffRequestStatusInfo(row);
+      return `
+        <tr>
+          <td>${escHtml(row.type)}</td>
+          <td>${escHtml(row.title)}</td>
+          <td>${escHtml(row.module)}</td>
+          <td><span class="status-pill ${escHtml(statusInfo.className)}">${escHtml(statusInfo.label)}</span></td>
+          <td>${renderStaffAuditTrail(row)}</td>
+          <td class="text-center">
+            ${renderStaffRequestAction(row)}
+          </td>
+        </tr>
+      `;
+    }).join('');
   }
 
   Object.assign(window, {
@@ -482,6 +580,8 @@
     updateStaffWorkspaceSummaryCard,
     openStaffWorkspaceFromDashboard,
     openStaffWorkItem,
+    getStaffRequestStatusInfo,
+    renderStaffAuditTrail,
     renderStaffRequestAction,
     renderStaffDashboard,
     renderStaffRequestTracker

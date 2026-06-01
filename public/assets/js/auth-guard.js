@@ -57,9 +57,11 @@
   verifySession();
 
   function isAdminRoleManagedPage() {
+    var normalizedPath = String(location.pathname || '').replace(/\/+$/, '') || '/';
     return Boolean(
       (document.body && document.body.classList && document.body.classList.contains('admin-page')) ||
-      String(location.pathname || '').replace(/\/+$/, '') === '/admin'
+      normalizedPath === '/admin' ||
+      normalizedPath === '/staff'
     );
   }
 
@@ -1182,6 +1184,9 @@
     if (document.documentElement && document.documentElement.dataset) {
       document.documentElement.dataset.accessRole = role;
     }
+    try {
+      window.dispatchEvent(new CustomEvent('kinaadman:role-ready', { detail: { role: role, user: data } }));
+    } catch (_) {}
 
     if (isAdminRoleManagedPage()) return;
 
@@ -1254,7 +1259,15 @@
       '[data-tab="disbursements"]',
       '[data-tab="customer-balances"]',
       '[data-tab="ar-aging"]',
-      '[data-tab="documents"]'
+      '[data-tab="documents"]',
+      '[data-proc-tab="rfq"]',
+      '[data-proc-tab="quotations"]',
+      '[data-proc-tab="purchase-orders"]',
+      '[data-proc-tab="goods-receipts"]',
+      '[data-workspace-tab="rfq"]',
+      '[data-workspace-tab="quotations"]',
+      '[data-workspace-tab="purchase-orders"]',
+      '[data-workspace-tab="goods-receipts"]'
     ];
     var staffAllowedHrefs = [
       '/admin',

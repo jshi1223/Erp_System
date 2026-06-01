@@ -163,6 +163,34 @@ body.staff-page .staff-work-open-btn {
   padding: 0 12px;
 }
 
+body.staff-page .staff-audit-trail {
+  display: grid;
+  gap: 5px;
+  min-width: 170px;
+}
+
+body.staff-page .staff-audit-line strong {
+  display: block;
+  color: #5e1712;
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+body.staff-page .staff-audit-line span,
+body.staff-page .staff-audit-muted {
+  color: #786762;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+body.staff-page .staff-work-table th,
+body.staff-page .staff-work-table td {
+  vertical-align: top;
+}
+
 @media (max-width: 1180px) {
   body.staff-page #dashboard-summary-cards > .stat-card {
     flex-basis: calc((100% - 14px) / 2) !important;
@@ -196,5 +224,18 @@ body.staff-page .staff-work-open-btn {
 
   body.staff-page .staff-summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  body.staff-page .staff-work-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  body.staff-page .staff-work-table {
+    min-width: 760px;
+  }
+
+  body.staff-page .staff-work-table .btn {
+    min-height: 36px;
   }
 }

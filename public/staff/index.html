@@ -7,12 +7,12 @@
   <meta http-equiv="Expires" content="0">
   <title>KVSK CCTV &amp; IT Solutions - Staff Workspace</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<script src="/assets/js/auth-guard.js?v=20260601e"></script>
+<script src="/assets/js/auth-guard.js?v=20260601f"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Orbitron:wght@500;700;800&amp;family=Playfair+Display:wght@600;700&amp;family=IBM+Plex+Mono:wght@300;400;500&amp;display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260531a">
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a">
   <link rel="stylesheet" href="/staff/css/staff-base.css?v=20260601c">
-  <link rel="stylesheet" href="/staff/css/staff.css?v=20260601b">
+  <link rel="stylesheet" href="/staff/css/staff.css?v=20260601c">
 </head>
 <body class="admin-page staff-page is-staff-role" data-access-role="staff">
 <script>
@@ -21,9 +21,7 @@
     var panel = String(params.get('panel') || '').trim();
     var view = String(params.get('view') || '').trim();
     var initialPanel = 'home';
-    if (panel === 'project-records' || view === 'all' || view === 'project-records') initialPanel = 'project-records';
-    else if (panel === 'project-ledger') initialPanel = 'project-ledger';
-    else if (panel === 'ongoing-projects' || view === 'ongoing' || view === 'ongoing-projects') initialPanel = 'ongoing-projects';
+    if (panel === 'project-records' || view === 'all' || view === 'project-records' || panel === 'project-ledger' || panel === 'ongoing-projects' || view === 'ongoing' || view === 'ongoing-projects') initialPanel = 'project-records';
     else if (panel === 'staff-workspace') initialPanel = 'staff-workspace';
     try {
       document.documentElement.dataset.accessRole = 'staff';
@@ -160,9 +158,7 @@
         var panel = document.body.dataset.initialDashboardPanel || 'home';
         var title = document.querySelector('.page-title');
         if (!title) return;
-        if (panel === 'project-records') title.textContent = 'Projects';
-        else if (panel === 'project-ledger') title.textContent = 'Project Overview';
-        else if (panel === 'ongoing-projects') title.textContent = 'Ongoing Projects';
+        if (panel === 'project-records') title.textContent = 'Approved Projects';
       })();
     </script>
 
@@ -323,11 +319,12 @@
                 <th>Record</th>
                 <th>Module</th>
                 <th>Status</th>
+                <th>Audit Trail</th>
                 <th class="text-center">Action</th>
               </tr>
             </thead>
             <tbody id="staff-request-body">
-              <tr class="empty-row"><td colspan="5">No drafts or submitted requests yet.</td></tr>
+              <tr class="empty-row"><td colspan="6">No drafts or submitted requests yet.</td></tr>
             </tbody>
           </table>
         </div>
@@ -374,11 +371,6 @@
       <div class="section-divider">Project Operations</div>
       <div class="project-workspace-tabs" role="tablist" aria-label="Project workspace">
         <button class="project-workspace-tab active" type="button" data-project-workspace-tab="projects" onclick="switchProjectWorkspaceTab('projects')" aria-selected="true">Projects</button>
-        <button class="project-workspace-tab" type="button" data-project-workspace-tab="ongoing" onclick="switchProjectWorkspaceTab('ongoing')" aria-selected="false">Ongoing</button>
-        <button class="project-workspace-tab" type="button" data-project-workspace-tab="transactions" onclick="switchProjectWorkspaceTab('transactions')" aria-selected="false">Transactions</button>
-        <button class="project-workspace-tab" type="button" data-project-workspace-tab="service-orders" onclick="switchProjectWorkspaceTab('service-orders')" aria-selected="false">Service Orders</button>
-        <button class="project-workspace-tab" type="button" data-project-workspace-tab="ledger" onclick="switchProjectWorkspaceTab('ledger')" aria-selected="false">Overview</button>
-        <button class="project-workspace-tab" type="button" data-project-workspace-tab="documents" onclick="switchProjectWorkspaceTab('documents')" aria-selected="false">Documents</button>
       </div>
       <div class="stats dashboard-stats dashboard-project-summary project-workspace-summary">
         <button class="stat-card stat-card-primary stat-card-link" id="project-workspace-summary-card-1" type="button" onclick="handleProjectWorkspaceSummaryClick(0)">
@@ -389,7 +381,7 @@
               <path d="M8 13h5"></path>
             </svg>
           </div>
-          <div class="stat-label" id="project-workspace-summary-label-1">Total Projects</div>
+          <div class="stat-label" id="project-workspace-summary-label-1">Approved Projects</div>
           <div class="stat-val" id="project-workspace-summary-value-1">0</div>
           <div class="stat-mini" id="project-workspace-summary-mini-1">All Companies active records</div>
         </button>
@@ -406,14 +398,14 @@
           <div class="stat-mini" id="project-workspace-summary-mini-2">Currently active</div>
         </button>
         <button class="stat-card stat-card-accent stat-card-link" id="project-workspace-summary-card-3" type="button" onclick="handleProjectWorkspaceSummaryClick(2)">
-          <div class="stat-label" id="project-workspace-summary-label-3">Transactions</div>
+          <div class="stat-label" id="project-workspace-summary-label-3">Upcoming</div>
           <div class="stat-val gold" id="project-workspace-summary-value-3">0</div>
-          <div class="stat-mini" id="project-workspace-summary-mini-3">Linked records</div>
+          <div class="stat-mini" id="project-workspace-summary-mini-3">Scheduled projects</div>
         </button>
         <button class="stat-card stat-card-danger stat-card-link" id="project-workspace-summary-card-4" type="button" onclick="handleProjectWorkspaceSummaryClick(3)">
-          <div class="stat-label" id="project-workspace-summary-label-4">Documents</div>
+          <div class="stat-label" id="project-workspace-summary-label-4">Companies</div>
           <div class="stat-val" id="project-workspace-summary-value-4">0</div>
-          <div class="stat-mini" id="project-workspace-summary-mini-4">Attached files</div>
+          <div class="stat-mini" id="project-workspace-summary-mini-4">With approved projects</div>
         </button>
       </div>
 
@@ -639,7 +631,6 @@
       </button>
       <div class="sidebar-group-items">
         <a href="/staff?panel=project-records" class="sidebar-link is-subitem" id="menu-projects">Project Records</a>
-        <a href="/staff?panel=project-records&amp;tab=ledger" class="sidebar-link is-subitem" id="menu-project-ledger">Project Overview</a>
       </div>
     </div>
 
@@ -999,9 +990,9 @@
 <!-- Scripts -->
 <script src="/staff/js/staff-notifications.js?v=20260601b"></script>
 <script src="/staff/js/staff-dashboard-cards.js?v=20260601b"></script>
-<script src="/staff/js/staff-page.js?v=20260601b"></script>
-<script src="/admin/js/admin.js?v=20260601f"></script>
-<script src="/staff/js/staff-workspace.js?v=20260601a"></script>
+<script src="/staff/js/staff-page.js?v=20260601c"></script>
+<script src="/admin/js/admin.js?v=20260601h"></script>
+<script src="/staff/js/staff-workspace.js?v=20260601b"></script>
 
 
 

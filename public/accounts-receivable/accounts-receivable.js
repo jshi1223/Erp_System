@@ -37,6 +37,7 @@ function getArModuleMode() {
 
 function getAllowedArTabsForMode(mode = AR_MODULE_MODE) {
   if (mode === 'service') return new Set(['service-orders', 'documents']);
+  if (mode === 'sales' && isCurrentStaffRole()) return new Set(['invoices', 'collections']);
   if (mode === 'sales') return new Set(['invoices', 'collections', 'customer-balances']);
   return new Set(['invoices', 'collections', 'customer-balances', 'ar-aging']);
 }
@@ -121,6 +122,35 @@ function normalizeArTab(value) {
   if (!AR_TABS.has(normalized)) return getDefaultArTabForMode();
   return isArTabAllowedForMode(normalized) ? normalized : getDefaultArTabForMode();
 }
+
+function isCurrentStaffRole() {
+  const role = String(
+    document.body?.dataset?.accessRole ||
+    document.documentElement?.dataset?.accessRole ||
+    ''
+  ).trim().toLowerCase();
+  return role === 'staff';
+}
+
+function applyStaffSalesRestriction() {
+  if (AR_MODULE_MODE !== 'sales' || !isCurrentStaffRole()) return;
+  activeArTab = isArTabAllowedForMode(activeArTab) ? activeArTab : getDefaultArTabForMode();
+  document.body.dataset.initialArTab = activeArTab;
+  syncStaffSalesStaticSidebar();
+  applyArModuleModeChrome();
+  switchTab(activeArTab, document.querySelector(`.module-tab[data-tab="${activeArTab}"]`), {
+    captureState: false,
+    persistState: false
+  });
+  const url = new URL(window.location.href);
+  const tab = normalizeArTab(url.searchParams.get('tab') || activeArTab);
+  if (url.searchParams.get('tab') !== tab) {
+    url.searchParams.set('tab', tab);
+    window.history.replaceState({}, '', `${url.pathname}?${url.searchParams.toString()}${url.hash || ''}`);
+  }
+}
+
+window.addEventListener('kinaadman:role-ready', applyStaffSalesRestriction);
 
 function syncArSummaryCards(tab = activeArTab) {
   const activeTab = normalizeArTab(tab);
@@ -217,8 +247,16 @@ function setupArModuleSidebarTabLinks() {
   });
 }
 
+function syncStaffSalesStaticSidebar() {
+  if (AR_MODULE_MODE !== 'sales' || !isCurrentStaffRole()) return;
+  document.querySelectorAll('.sidebar-link[href="/sales-management?tab=customer-balances"]').forEach((link) => {
+    link.remove();
+  });
+}
+
 function applyArModuleModeChrome() {
   document.body.dataset.moduleMode = AR_MODULE_MODE;
+  syncStaffSalesStaticSidebar();
 
   const titleMap = {
     service: 'Service Operations',

@@ -113,6 +113,16 @@ function userCanApproveProcurement() {
   return role === 'super_admin' || role === 'admin';
 }
 
+function isStaffProcurementWorkspace() {
+  const path = (window.location.pathname || '').replace(/\/+$/, '');
+  const role = String(
+    document.body?.dataset?.accessRole ||
+    document.documentElement?.dataset?.accessRole ||
+    ''
+  ).trim().toLowerCase();
+  return path === '/procurement' && role === 'staff';
+}
+
 function procurementRecordVisibleForCurrentUser(row = {}) {
   if (!userCanApproveProcurement()) return true;
   return normalizeWorkflowStatus(row.status || 'draft') !== 'draft';
@@ -152,10 +162,12 @@ function renderProcurementArchivedProjectBadge(row = {}) {
 function normalizeProcurementTab(value) {
   let tab = String(value || '').trim().toLowerCase();
   if (tab === 'bid-evaluation') tab = 'quotations';
+  if (isStaffProcurementWorkspace()) return 'requisitions';
   return ['vendors', 'requisitions', 'rfq', 'quotations', 'purchase-orders', 'goods-receipts'].includes(tab) ? tab : 'vendors';
 }
 
 function getSavedProcurementTab() {
+  if (isStaffProcurementWorkspace()) return 'requisitions';
   try {
     return normalizeProcurementTab(window.localStorage.getItem(PROCUREMENT_TAB_STORAGE_KEY));
   } catch (_) {
@@ -164,6 +176,7 @@ function getSavedProcurementTab() {
 }
 
 function saveProcurementTab(tab) {
+  if (isStaffProcurementWorkspace() && normalizeProcurementTab(tab) !== 'requisitions') return;
   try {
     window.localStorage.setItem(PROCUREMENT_TAB_STORAGE_KEY, normalizeProcurementTab(tab));
   } catch (_) {}
@@ -754,6 +767,10 @@ function wireBackdropClose() {
 
 function switchProcTab(tab, btn) {
   const nextTab = normalizeProcurementTab(tab);
+  if (isStaffProcurementWorkspace() && nextTab !== 'requisitions') {
+    switchProcTab('requisitions', getProcurementTabButton('requisitions'));
+    return;
+  }
   captureProcurementToolbarState(procurementTab);
   procurementTab = nextTab;
   saveProcurementTab(nextTab);
@@ -2808,9 +2825,9 @@ function renderRequisitions() {
     const deleteButton = isAdmin
       ? `<button class="btn btn-cancel btn-sm" type="button" onclick="deleteRequisition(${Number(row.id)})">Delete</button>`
       : '';
-    const createRfqButton = existingPurchaseOrder && canCreateRfq
+    const createRfqButton = isAdmin && existingPurchaseOrder && canCreateRfq
       ? '<button class="btn btn-add btn-sm" type="button" disabled title="PO already exists for this PR">Create RFQ</button>'
-      : canCreateRfq
+      : isAdmin && canCreateRfq
       ? `<button class="btn btn-add btn-sm" type="button" onclick="createRfqFromRequisition(${Number(row.id)})">Create RFQ</button>`
       : '';
     const submitButton = canSubmit
@@ -3048,11 +3065,11 @@ function renderRfqWorkspace() {
     const selectedQuoteForPr = getSelectedQuotationForRequisition(requisitionId);
     const hasAwardedRfq = Boolean(selectedQuoteForPr);
     const existingPurchaseOrder = row.existingPurchaseOrder || getPurchaseOrderForRequisition(requisitionId);
-    const addLinkedRfqButton = !existingPurchaseOrder && !hasAwardedRfq && requisitionId && (row.type === 'pending' || row.isFirstQuoteForPr)
+    const addLinkedRfqButton = isAdmin && !existingPurchaseOrder && !hasAwardedRfq && requisitionId && (row.type === 'pending' || row.isFirstQuoteForPr)
       ? `<button class="btn btn-add btn-sm" type="button" onclick="createRfqFromRequisition(${requisitionId})">${row.type === 'pending' ? 'Create RFQ' : 'Add RFQ'}</button>`
-      : hasAwardedRfq && (row.type === 'pending' || row.isFirstQuoteForPr)
+      : isAdmin && hasAwardedRfq && (row.type === 'pending' || row.isFirstQuoteForPr)
         ? '<button class="btn btn-add btn-sm" type="button" disabled title="Approved RFQ already exists for this PR">Add RFQ</button>'
-      : existingPurchaseOrder && row.isFirstQuoteForPr
+      : isAdmin && existingPurchaseOrder && row.isFirstQuoteForPr
         ? '<button class="btn btn-add btn-sm" type="button" disabled title="PO already exists for this PR">Add RFQ</button>'
       : '';
     const editButton = quote && !rejected

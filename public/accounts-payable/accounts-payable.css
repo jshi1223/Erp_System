@@ -157,6 +157,15 @@ body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"] .ap
   display: none !important;
 }
 
+body.erp-clean-page.accounts-payable-page[data-access-role="staff"][data-workspace-mode="procurement"] .ap-workspace-tab[data-proc-tab]:not([data-proc-tab="requisitions"]),
+html[data-access-role="staff"] body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"] .ap-workspace-tab[data-proc-tab]:not([data-proc-tab="requisitions"]),
+body.erp-clean-page.accounts-payable-page[data-access-role="staff"][data-workspace-mode="procurement"] .ap-workspace-section:not(#requisitions),
+html[data-access-role="staff"] body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"] .ap-workspace-section:not(#requisitions),
+body.erp-clean-page.accounts-payable-page[data-access-role="staff"][data-workspace-mode="procurement"] .ap-summary-card:not([data-summary-tabs~="requisitions"]),
+html[data-access-role="staff"] body.erp-clean-page.accounts-payable-page[data-workspace-mode="procurement"] .ap-summary-card:not([data-summary-tabs~="requisitions"]) {
+  display: none !important;
+}
+
 body.erp-clean-page.accounts-payable-page .ap-tab-summary-grid {
   align-items: stretch;
 }

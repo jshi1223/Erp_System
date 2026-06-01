@@ -85,6 +85,15 @@ body.accounts-receivable-page[data-module-mode="service"] .module-tab:not([data-
   display: none !important;
 }
 
+body.accounts-receivable-page[data-access-role="staff"][data-module-mode="sales"] .module-tab[data-tab="customer-balances"],
+html[data-access-role="staff"] body.accounts-receivable-page[data-module-mode="sales"] .module-tab[data-tab="customer-balances"],
+body.accounts-receivable-page[data-access-role="staff"][data-module-mode="sales"] #customer-balances,
+html[data-access-role="staff"] body.accounts-receivable-page[data-module-mode="sales"] #customer-balances,
+body.accounts-receivable-page[data-access-role="staff"][data-module-mode="sales"] .ar-summary-card[data-summary-tabs~="customer-balances"],
+html[data-access-role="staff"] body.accounts-receivable-page[data-module-mode="sales"] .ar-summary-card[data-summary-tabs~="customer-balances"] {
+  display: none !important;
+}
+
 body.accounts-receivable-page[data-module-mode="sales"] #service-orders,
 body.accounts-receivable-page[data-module-mode="sales"] #documents,
 body.accounts-receivable-page[data-module-mode="finance"] #service-orders,

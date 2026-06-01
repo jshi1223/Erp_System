@@ -32,6 +32,7 @@ function isProcurementWorkspacePage() {
 
 function getWorkspaceAllowedTabs() {
   if (isMasterDataWorkspacePage()) return AP_MASTER_DATA_TABS;
+  if (isProcurementWorkspacePage() && isCurrentStaffRole()) return new Set(['requisitions']);
   return isProcurementWorkspacePage() ? AP_PROCUREMENT_TABS : AP_NATIVE_TABS;
 }
 
@@ -43,6 +44,7 @@ function getWorkspaceDefaultTab() {
 function normalizeApWorkspaceTab(value) {
   let tab = String(value || '').trim().toLowerCase();
   if (tab === 'bid-evaluation') tab = 'quotations';
+  if (isProcurementWorkspacePage() && isCurrentStaffRole()) return 'requisitions';
   const knownTab = (AP_MASTER_DATA_TABS.has(tab) || AP_PROCUREMENT_TABS.has(tab) || AP_NATIVE_TABS.has(tab)) ? tab : getWorkspaceDefaultTab();
   return getWorkspaceAllowedTabs().has(knownTab) ? knownTab : getWorkspaceDefaultTab();
 }
@@ -149,7 +151,7 @@ function applyWorkspaceModeUi() {
     subtitle.textContent = masterDataMode
       ? 'Maintain company and vendor master records used across procurement, projects, and finance.'
       : procurementMode
-      ? 'Manage requisitions, RFQs, quotation evaluation, purchase orders, and receipts.'
+      ? (isCurrentStaffRole() ? 'Create and track purchase requisitions for admin approval.' : 'Manage requisitions, RFQs, quotation evaluation, purchase orders, and receipts.')
       : 'Manage bills, vendor balances, aging, payments, and disbursements.';
   }
   if (headerSub) headerSub.textContent = masterDataMode ? 'Master Data' : (procurementMode ? 'Procurement' : 'Accounts Payable');
@@ -544,6 +546,24 @@ function isCurrentStaffRole() {
   ).trim().toLowerCase();
   return role === 'staff';
 }
+
+function applyStaffProcurementRestriction() {
+  if (!isProcurementWorkspacePage() || !isCurrentStaffRole()) return;
+  activeApTab = 'requisitions';
+  document.body.dataset.initialTab = 'requisitions';
+  applyWorkspaceModeUi();
+  switchApWorkspaceTab('requisitions', document.querySelector('.ap-workspace-tab[data-proc-tab="requisitions"]'), {
+    captureState: false,
+    persistState: false
+  });
+  const url = new URL(window.location.href);
+  if (url.searchParams.get('tab') !== 'requisitions') {
+    url.searchParams.set('tab', 'requisitions');
+    window.history.replaceState({}, '', `${url.pathname}?${url.searchParams.toString()}${url.hash || ''}`);
+  }
+}
+
+window.addEventListener('kinaadman:role-ready', applyStaffProcurementRestriction);
 
 function switchTab(tab, btn, options = {}) {
   const nextTab = AP_NATIVE_TABS.has(tab) ? tab : 'bills';

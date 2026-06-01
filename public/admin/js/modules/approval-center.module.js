@@ -242,6 +242,26 @@
     if (node) node.textContent = String(value || 0);
   }
 
+  function syncApprovalSidebarBadge(total = 0) {
+    const link = document.getElementById('menu-approval-center');
+    if (!link) return;
+    const count = Number(total || 0);
+    let badge = link.querySelector('.approval-sidebar-badge');
+    if (!count) {
+      if (badge) badge.remove();
+      link.classList.remove('has-needs-action');
+      return;
+    }
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'approval-sidebar-badge';
+      link.appendChild(badge);
+    }
+    badge.textContent = count > 99 ? '99+' : String(count);
+    badge.setAttribute('aria-label', `${count} pending approvals`);
+    link.classList.add('has-needs-action');
+  }
+
   async function updateApprovalCenterSummaryCard() {
     const card = document.getElementById('stat-card-approvals');
     const valueNode = document.getElementById('stat-approvals');
@@ -250,6 +270,7 @@
     if (!isAdminUser()) {
       if (valueNode) valueNode.textContent = '0';
       if (miniNode) miniNode.textContent = 'Admin approvals only';
+      syncApprovalSidebarBadge(0);
       return;
     }
     const items = await loadApprovalCenterItems();
@@ -263,6 +284,7 @@
     if (miniNode) {
       miniNode.textContent = `${counts.projects} projects • ${counts.procurement} procurement • ${counts.finance} finance • ${counts.users} users`;
     }
+    syncApprovalSidebarBadge(items.length);
   }
 
   function filterApprovalCenter(filter = 'all') {
@@ -371,6 +393,7 @@
     setApprovalMetric('approval-count-procurement', counts.procurement);
     setApprovalMetric('approval-count-finance', counts.finance);
     setApprovalMetric('approval-count-users', counts.users);
+    syncApprovalSidebarBadge(counts.all);
 
     document.querySelectorAll('.approval-summary-card').forEach((card) => {
       const onclick = String(card.getAttribute('onclick') || '');
@@ -425,6 +448,7 @@
     buildApprovalChecklist,
     loadApprovalCenterItems,
     setApprovalMetric,
+    syncApprovalSidebarBadge,
     updateApprovalCenterSummaryCard,
     filterApprovalCenter,
     postApprovalCenterAction,

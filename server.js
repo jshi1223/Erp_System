@@ -2050,6 +2050,10 @@ app.get(['/procurement', '/procurement/'], protectAdmin, handleProcurementPage);
 app.get(['/master-data', '/master-data/'], protectAdmin, handleMasterDataPage);
 app.get(['/sales-management', '/sales-management/'], protectAdmin, (req, res) => {
   noCache(res);
+  const tab = String(req.query?.tab || '').trim().toLowerCase();
+  if (isStaffRole(req.session?.user?.role) && ['customer-balances', 'ar-aging', 'documents'].includes(tab)) {
+    return res.redirect('/sales-management');
+  }
   res.sendFile(path.join(__dirname, 'public', 'accounts-receivable', 'index.html'));
 });
 app.get(['/service-operations', '/service-operations/'], protectAdmin, (req, res) => {
@@ -7060,8 +7064,11 @@ function buildResetLink(token) {
 app.get('/', (req, res) => {
     noCache(res);
     if (req.session.user) {
-        if (isPrivilegedRole(req.session.user.role)) {
+        if (isAdminRole(req.session.user.role)) {
             return res.redirect('/admin');
+        }
+        if (isStaffRole(req.session.user.role)) {
+            return res.redirect('/staff');
         }
         return res.redirect('/status');
     }
@@ -7076,8 +7083,11 @@ app.get('/', (req, res) => {
 app.get('/login', (req, res) => {
     noCache(res);
     if (req.session.user) {
-        if (isPrivilegedRole(req.session.user.role)) {
+        if (isAdminRole(req.session.user.role)) {
             return res.redirect('/admin');
+        }
+        if (isStaffRole(req.session.user.role)) {
+            return res.redirect('/staff');
         }
         return res.redirect('/status');
     }
@@ -14689,13 +14699,80 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
       };
     });
 
+    let staffDecisionItems = [];
+    if (isStaffRole(actor.role)) {
+      const staffTerms = [actor.fullname, actor.username, actor.email]
+        .map((value) => String(value || '').trim().toLowerCase())
+        .filter((value) => value.length >= 3);
+      const makeLikeParams = (fieldsPerTerm) => staffTerms.flatMap((term) => Array(fieldsPerTerm).fill(`%${term}%`));
+      const staffWhere = staffTerms.length
+        ? staffTerms.map(() => `(LOWER(COALESCE(requested_by, '')) LIKE ? OR LOWER(COALESCE(requested_by_email, '')) LIKE ? OR LOWER(COALESCE(submitted_by, '')) LIKE ?)`).join(' OR ')
+        : '1=0';
+      const projectWhere = staffTerms.length
+        ? staffTerms.map(() => `(LOWER(COALESCE(project_manager, '')) LIKE ? OR LOWER(COALESCE(members, '')) LIKE ? OR LOWER(COALESCE(project_members, '')) LIKE ?)`).join(' OR ')
+        : '1=0';
+
+      const [staffPrRows, staffProjectRows] = await Promise.all([
+        queryAsync(
+          `SELECT id, pr_number, requested_by, requested_by_email, submitted_by, status, cancel_reason, approved_by, approved_at, cancelled_by, cancelled_at, submitted_at, created_at
+           FROM purchase_requisitions
+           WHERE (${staffWhere})
+             AND (status = 'approved' OR (status = 'draft' AND cancel_reason IS NOT NULL) OR status = 'cancelled')
+           ORDER BY COALESCE(approved_at, cancelled_at, submitted_at, created_at) DESC
+           LIMIT 12`,
+          makeLikeParams(3)
+        ).catch(() => []),
+        queryAsync(
+          `SELECT id, project_docno, project_name, project_manager, status, status_reason, approved_by, approved_at, created_at
+           FROM projects
+           WHERE (${projectWhere})
+             AND (status = 'planning' OR (status = 'draft' AND status_reason IS NOT NULL))
+           ORDER BY COALESCE(approved_at, created_at) DESC
+           LIMIT 12`,
+          makeLikeParams(3)
+        ).catch(() => [])
+      ]);
+
+      staffDecisionItems = [
+        ...(staffPrRows || []).map((row) => {
+          const status = String(row.status || '').toLowerCase();
+          const rejected = status === 'draft' && row.cancel_reason;
+          return {
+            id: `staff-pr-${row.id}-${rejected ? 'revision' : status}`,
+            level: rejected || status === 'cancelled' ? 'warning' : 'success',
+            type: 'staff-pr',
+            category: 'My Work',
+            href: '/procurement?tab=requisitions',
+            title: row.pr_number || 'Purchase Request',
+            message: rejected ? 'PR needs revision from admin.' : status === 'cancelled' ? 'PR was rejected/cancelled.' : 'PR approved by admin.',
+            meta: rejected ? (row.cancel_reason || 'Please review admin note.') : `Reviewed by ${row.approved_by || row.cancelled_by || 'Admin'}`,
+            date: row.approved_at || row.cancelled_at || row.submitted_at || row.created_at || null
+          };
+        }),
+        ...(staffProjectRows || []).map((row) => {
+          const needsRevision = String(row.status || '').toLowerCase() === 'draft' && row.status_reason;
+          return {
+            id: `staff-project-${row.id}-${needsRevision ? 'revision' : 'approved'}`,
+            level: needsRevision ? 'warning' : 'success',
+            type: 'staff-project',
+            category: 'My Work',
+            href: `/staff?panel=project-records&tab=projects&search=${encodeURIComponent(row.project_docno || row.project_name || '')}`,
+            title: row.project_docno || row.project_name || 'Project',
+            message: needsRevision ? 'Project needs revision from admin.' : 'Project approved by admin.',
+            meta: needsRevision ? (row.status_reason || 'Please review admin note.') : `Reviewed by ${row.approved_by || 'Admin'}`,
+            date: row.approved_at || row.created_at || null
+          };
+        })
+      ];
+    }
+
     const items = [
-      ...approvalItems,
+      ...(isStaffRole(actor.role) ? staffDecisionItems : approvalItems),
       ...dueItems,
       ...inventoryItems,
       ...serviceItems,
       ...projectItems,
-      ...auditItems
+      ...(isStaffRole(actor.role) ? [] : auditItems)
     ]
       .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0))
       .slice(0, 80);
