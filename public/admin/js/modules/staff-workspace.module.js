@@ -89,6 +89,7 @@
     if (!project) return false;
     const status = String(project.status || '').trim().toLowerCase();
     if (status === 'draft' || status === 'submitted') return true;
+    if (status !== 'rejected') return true;
     return projectAssignedToCurrentStaff(project);
   }
 

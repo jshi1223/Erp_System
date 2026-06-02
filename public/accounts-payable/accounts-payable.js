@@ -21,6 +21,7 @@ const AP_PROCUREMENT_TABS = new Set(['requests', 'requisitions', 'rfq', 'quotati
 const AP_NATIVE_TABS = new Set(['bills', 'vendor-balances', 'ap-aging', 'payments', 'disbursements']);
 let activeApTab = 'vendors';
 let editingMasterDataCompanyId = null;
+let editingMasterDataCompanyRequestId = null;
 
 function isMasterDataWorkspacePage() {
   return (window.location.pathname || '').replace(/\/+$/, '') === '/master-data';
@@ -558,11 +559,13 @@ let masterDataRequestsDb = [];
 function getMasterDataRequestStatusBadge(status) {
   const safe = String(status || 'submitted').trim().toLowerCase();
   const labelMap = {
+    draft: 'Draft',
     submitted: 'Submitted',
     approved: 'Approved',
     rejected: 'Rejected'
   };
   const classMap = {
+    draft: 'status-draft',
     submitted: 'status-submitted',
     approved: 'status-approved',
     rejected: 'status-rejected'
@@ -598,6 +601,7 @@ async function loadMasterDataRequests() {
       ...normalizeMasterDataRequestRows(companyRequests, 'company'),
       ...normalizeMasterDataRequestRows(vendorRequests, 'vendor')
     ].sort((a, b) => String(b.submitted_at || b.created_at || '').localeCompare(String(a.submitted_at || a.created_at || '')));
+    window.masterDataRequestsDb = masterDataRequestsDb;
     renderMasterDataRequests();
   } catch (err) {
     if (tbody) tbody.innerHTML = `<tr class="empty-row"><td colspan="8">${escHtml(err.message || 'Unable to load requests.')}</td></tr>`;
@@ -622,17 +626,27 @@ function renderMasterDataRequests() {
   });
 
   const canApprove = !isCurrentStaffRole();
+  const isStaff = isCurrentStaffRole();
   tbody.innerHTML = rows.length ? rows.map((row) => {
     const id = Number(row.id || 0);
     const type = String(row.request_type || 'company');
     const status = String(row.status || 'submitted').toLowerCase();
     const endpoint = type === 'vendor' ? 'vendor-registry-requests' : 'company-registry-requests';
-    const actions = canApprove && status === 'submitted'
-      ? `
+    let actions = '<span class="staff-audit-muted">No action</span>';
+    if (isStaff && status === 'draft') {
+      const editAction = type === 'vendor'
+        ? `openVendorRequestDraft(${id})`
+        : `openMasterDataCompanyRequestDraft(${id})`;
+      actions = `
+        <button class="btn btn-edit btn-sm" type="button" onclick="${editAction}">Edit</button>
+        <button class="btn btn-save btn-sm" type="button" onclick="submitMasterDataRequest('${endpoint}', ${id})">Submit</button>
+      `;
+    } else if (canApprove && status === 'submitted') {
+      actions = `
         <button class="btn btn-save btn-sm" type="button" onclick="approveMasterDataRequest('${endpoint}', ${id})">Approve</button>
         <button class="btn btn-cancel btn-sm" type="button" onclick="rejectMasterDataRequest('${endpoint}', ${id})">Reject</button>
-      `
-      : '<span class="staff-audit-muted">No action</span>';
+      `;
+    }
     return `
       <tr>
         <td><strong>${escHtml(row.request_no || id || '-')}</strong></td>
@@ -641,11 +655,28 @@ function renderMasterDataRequests() {
         <td>${escHtml(row.requested_by || row.requested_by_email || '-')}</td>
         <td>${escHtml(String(row.submitted_at || row.created_at || '').slice(0, 10) || '-')}</td>
         <td>${getMasterDataRequestStatusBadge(row.status)}</td>
-        <td>${escHtml(row.reject_reason || (status === 'submitted' ? 'Waiting for admin approval' : '-'))}</td>
+        <td>${escHtml(row.reject_reason || (status === 'submitted' ? 'Waiting for admin approval' : status === 'draft' ? 'Ready to submit' : '-'))}</td>
         <td class="text-center"><div class="erp-actions" style="justify-content:center;">${actions}</div></td>
       </tr>
     `;
   }).join('') : '<tr class="empty-row"><td colspan="8">No master data requests yet.</td></tr>';
+}
+
+async function submitMasterDataRequest(endpoint, id) {
+  const confirmed = await openConfirmDialog({
+    title: 'Submit Request?',
+    message: 'Submit this request for admin approval?',
+    noText: 'Cancel',
+    yesText: 'Submit'
+  });
+  if (!confirmed) return;
+  try {
+    await fetchJson(`/api/${endpoint}/${Number(id)}/submit`, { method: 'POST' });
+    showToast('Request submitted for approval.', 'success');
+    await loadMasterDataRequests();
+  } catch (err) {
+    showToast(err.message || 'Unable to submit request.', 'error');
+  }
 }
 
 async function approveMasterDataRequest(endpoint, id) {
@@ -977,6 +1008,7 @@ function formatMasterDataCompanyTin(value) {
 
 function resetMasterDataCompanyForm() {
   editingMasterDataCompanyId = null;
+  editingMasterDataCompanyRequestId = null;
   clearMasterDataCompanyFieldMessages();
   ['f-master-company-no', 'f-master-company-branch-code', 'f-master-company-name', 'f-master-company-contact', 'f-master-company-email', 'f-master-company-phone', 'f-master-company-tin', 'f-master-company-address', 'f-master-company-notes'].forEach((id) => {
     const input = document.getElementById(id);
@@ -988,8 +1020,45 @@ function resetMasterDataCompanyForm() {
   if (title) title.textContent = staffRequest ? 'Request Company Registry' : 'Add Company';
   if (saveBtn) {
     saveBtn.disabled = false;
-    saveBtn.textContent = staffRequest ? 'Submit Request' : 'Create Company';
+    saveBtn.textContent = staffRequest ? 'Save Draft' : 'Create Company';
   }
+}
+
+function openMasterDataCompanyRequestDraft(requestId) {
+  const row = masterDataRequestsDb.find((entry) => Number(entry.id || 0) === Number(requestId || 0) && entry.request_type === 'company');
+  if (!row || String(row.status || '').toLowerCase() !== 'draft') {
+    showToast('Only draft company requests can be edited.', 'error');
+    return;
+  }
+  resetMasterDataCompanyForm();
+  bindMasterDataCompanyModal();
+  editingMasterDataCompanyRequestId = Number(row.id || 0);
+  const payload = row.payload || {};
+  const title = document.getElementById('master-company-modal-title');
+  const saveBtn = document.getElementById('master-company-save-btn');
+  if (title) title.textContent = 'Edit Company Draft';
+  if (saveBtn) saveBtn.textContent = 'Update Draft';
+  document.getElementById('f-master-company-no').value = row.request_no || payload.company_no || '';
+  document.getElementById('f-master-company-branch-code').value = String(payload.branch_code || '').trim() === '000' ? '' : (payload.branch_code || '');
+  document.getElementById('f-master-company-name').value = payload.company_name || '';
+  document.getElementById('f-master-company-contact').value = payload.contact_person || '';
+  document.getElementById('f-master-company-email').value = payload.email || '';
+  document.getElementById('f-master-company-phone').value = payload.phone || '';
+  document.getElementById('f-master-company-tin').value = formatMasterDataCompanyTin(payload.tin || '');
+  document.getElementById('f-master-company-address').value = payload.address || '';
+  document.getElementById('f-master-company-notes').value = payload.notes || '';
+  const backdrop = document.getElementById('master-company-modal-backdrop');
+  if (backdrop) {
+    backdrop.hidden = false;
+    backdrop.style.removeProperty('display');
+    backdrop.style.removeProperty('visibility');
+    backdrop.style.removeProperty('opacity');
+    backdrop.style.removeProperty('pointer-events');
+    backdrop.classList.add('open');
+    backdrop.setAttribute('aria-hidden', 'false');
+  }
+  document.body.style.overflow = 'hidden';
+  setTimeout(() => document.getElementById('f-master-company-name')?.focus(), 60);
 }
 
 async function loadMasterDataCompanyNumberPreview() {
@@ -1000,6 +1069,22 @@ async function loadMasterDataCompanyNumberPreview() {
     if (input) input.value = data.company_no || '';
   } catch (_) {
     if (input) input.value = '';
+  }
+}
+
+async function loadMasterDataDraftNumberPreview() {
+  const input = document.getElementById('f-master-company-no');
+  if (!input) return;
+  input.placeholder = 'Loading...';
+  try {
+    const data = await fetchJson('/api/company-registry-requests/next-draft-no', { cache: 'no-store' });
+    if (data?.draft_no) {
+      input.value = data.draft_no;
+      input.placeholder = 'Auto-generated';
+    }
+  } catch (err) {
+    input.placeholder = 'Error loading draft number';
+    console.error('Failed to load draft number:', err);
   }
 }
 
@@ -1015,7 +1100,11 @@ async function openMasterDataCompanyModal(companyId = null) {
   if (numericCompanyId) {
     await loadMasterDataCompanyForEdit(numericCompanyId);
   } else {
-    loadMasterDataCompanyNumberPreview();
+    if (!isCurrentStaffRole()) {
+      loadMasterDataCompanyNumberPreview();
+    } else {
+      loadMasterDataDraftNumberPreview();
+    }
   }
   const backdrop = document.getElementById('master-company-modal-backdrop');
   if (backdrop) {
@@ -1140,18 +1229,19 @@ async function saveMasterDataCompany() {
   const staffRequest = isCurrentStaffRole();
   if (saveBtn) {
     saveBtn.disabled = true;
-    saveBtn.textContent = staffRequest ? 'Submitting...' : 'Saving...';
+    saveBtn.textContent = staffRequest ? 'Saving Draft...' : 'Saving...';
   }
 
   try {
     if (staffRequest) {
-      await fetchJson('/api/company-registry-requests', {
-        method: 'POST',
+      const requestEditId = Number(editingMasterDataCompanyRequestId || 0) || 0;
+      await fetchJson(requestEditId ? `/api/company-registry-requests/${requestEditId}` : '/api/company-registry-requests', {
+        method: requestEditId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
       closeMasterDataCompanyModal();
-      showToast('Company registry request submitted for admin approval.', 'success');
+      showToast(requestEditId ? 'Company registry draft updated.' : 'Company registry draft saved. Submit it from Requests when ready.', 'success');
       await loadMasterDataRequests();
       switchApWorkspaceTab('requests', document.querySelector('.ap-workspace-tab[data-workspace-tab="requests"]'));
       return;
@@ -1186,7 +1276,7 @@ async function saveMasterDataCompany() {
   } finally {
     if (saveBtn) {
       saveBtn.disabled = false;
-      saveBtn.textContent = staffRequest ? 'Submit Request' : (isEdit ? 'Save Changes' : 'Create Company');
+      saveBtn.textContent = staffRequest ? 'Save Draft' : (isEdit ? 'Save Changes' : 'Create Company');
     }
   }
 }
@@ -2356,4 +2446,3 @@ function highlightText(value, query) {
 function formatDate(dateStr) {
   return new Date(dateStr).toLocaleDateString('en-PH', {year: 'numeric', month: 'short', day: 'numeric'});
 }
-

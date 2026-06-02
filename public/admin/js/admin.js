@@ -5368,7 +5368,7 @@ function openProjectModal(projectId = null) {
   }
   const projectStatus = String(projectData.status || '').trim().toLowerCase();
   const canStaffEditProject = !isStaffUser() || !project || projectStatus === 'draft';
-  const canStaffSubmitProject = isStaffUser() && (!project || projectStatus === 'draft');
+  const canStaffSubmitProject = isStaffUser() && !!project && projectStatus === 'draft';
   if (saveBtn) {
     saveBtn.textContent = isStaffUser()
       ? (project ? 'Update Request Draft' : 'Save Request Draft')
@@ -5388,7 +5388,7 @@ function openProjectModal(projectId = null) {
   try {
     document.getElementById('p-project-name').value = projectData.project_name || '';
     const projectDocNoInput = document.getElementById('p-project-docno');
-    if (projectDocNoInput) projectDocNoInput.value = String(projectData.project_docno || '').trim();
+    if (projectDocNoInput) projectDocNoInput.value = String(projectData.draft_docno || projectData.project_docno || '').trim();
     populateBusinessEntitySelect('p-business-entity-id', projectData.business_entity_id || '');
     setProjectModalValue('p-project-manager', projectData.project_manager || '');
     const statusInput = document.getElementById('p-status');
@@ -5777,7 +5777,7 @@ async function saveProject(submitAction = 'draft') {
   const existingProject = editingProjectId
     ? (projectsDashboardDb || []).find(entry => Number(entry.id) === Number(editingProjectId))
     : null;
-  const projectDocNoValue = String(document.getElementById('p-project-docno')?.value || '').trim() || String(existingProject?.project_docno || '').trim();
+  const projectDocNoValue = String(document.getElementById('p-project-docno')?.value || '').trim() || String(existingProject?.draft_docno || existingProject?.project_docno || '').trim();
   const businessEntitySelect = document.getElementById('p-business-entity-id');
   const businessEntityId = businessEntitySelect?.value || getDefaultBusinessEntityId() || '';
   if (businessEntitySelect) businessEntitySelect.value = businessEntityId;
@@ -5806,7 +5806,7 @@ async function saveProject(submitAction = 'draft') {
     actualEndDate,
     keepDraft: (!existingProject && isStaffUser()) || currentStatus === 'draft' || currentStatus === 'submitted'
   });
-  if (!existingProject || currentStatus === 'draft' || currentStatus === 'submitted') {
+  if (!isStaffUser() && (!existingProject || currentStatus === 'draft' || currentStatus === 'submitted')) {
     status = projectSubmitAction === 'submit' ? 'submitted' : 'draft';
   }
   const projectPriority = getComputedProjectPriority({

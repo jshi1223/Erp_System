@@ -7,6 +7,10 @@ let warehousesDb = [];
 let stockDb = [];
 let movementsDb = [];
 let projectsDb = [];
+let inventoryRequestsDb = [];
+let editingInventoryRequestId = null;
+let editingInventoryRequestType = '';
+let inventoryConfirmResolver = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('movement-date').value = new Date().toISOString().slice(0, 10);
@@ -14,6 +18,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   switchInventoryTab(getInitialInventoryTab(), { syncUrl: false });
   await loadBusinessEntities();
   await loadInventory();
+  if (isInventoryStaffRole()) await loadInventoryRequests();
 });
 
 function getInitialInventoryTab() {
@@ -22,7 +27,7 @@ function getInitialInventoryTab() {
 }
 
 function normalizeInventoryTab(tab) {
-  return ['stock', 'products', 'warehouses', 'movements'].includes(String(tab || '').trim().toLowerCase())
+  return ['stock', 'products', 'warehouses', 'movements', 'requests'].includes(String(tab || '').trim().toLowerCase())
     ? String(tab || '').trim().toLowerCase()
     : 'products';
 }
@@ -197,11 +202,17 @@ function switchInventoryTab(tab, options = {}) {
     window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash || ''}`);
     if (typeof syncSidebarActiveLinks === 'function') syncSidebarActiveLinks();
   }
+  if (safeTab === 'requests' && isInventoryStaffRole()) {
+    loadInventoryRequests().catch(() => {});
+  }
 }
 
 function syncInventoryToolbarActions(tab = 'stock') {
   const safeTab = normalizeInventoryTab(tab);
   const staffRole = isInventoryStaffRole();
+  document.querySelectorAll('[data-staff-inventory-requests]').forEach(node => {
+    node.hidden = !staffRole;
+  });
   document.querySelectorAll('[data-inventory-action]').forEach(button => {
     const tabs = String(button.dataset.inventoryAction || '')
       .split(/\s+/)
@@ -231,6 +242,8 @@ function setStatus(message = '') {
 }
 
 function openInventoryModal(type) {
+  editingInventoryRequestId = null;
+  editingInventoryRequestType = '';
   setStatus('');
   document.getElementById('inventory-modal').classList.add('open');
   document.getElementById('inventory-modal').setAttribute('aria-hidden', 'false');
@@ -248,9 +261,91 @@ function openInventoryModal(type) {
   if (movementSave) movementSave.textContent = staffRole ? 'Save Movement Request' : 'Save Movement';
 }
 
+function openInventoryRequestDraft(requestId) {
+  const row = inventoryRequestsDb.find((entry) => Number(entry.id || 0) === Number(requestId || 0));
+  if (!row || String(row.status || '').toLowerCase() !== 'draft') {
+    setStatus('Only draft inventory requests can be edited.');
+    return;
+  }
+  const type = String(row.request_type || '').toLowerCase();
+  const payload = row.payload || {};
+  openInventoryModal(type);
+  editingInventoryRequestId = Number(row.id || 0);
+  editingInventoryRequestType = type;
+  document.getElementById('inventory-modal-title').textContent = 'Edit Inventory Draft';
+  if (type === 'product') {
+    document.getElementById('product-sku').value = payload.sku || '';
+    document.getElementById('product-name').value = payload.product_name || '';
+    document.getElementById('product-category').value = payload.category || '';
+    document.getElementById('product-unit').value = payload.unit || 'pcs';
+    document.getElementById('product-cost').value = payload.unit_cost || '';
+    document.getElementById('product-selling-price').value = payload.selling_price || '';
+    document.getElementById('product-reorder').value = payload.reorder_level || '';
+    const saveBtn = document.querySelector('#product-form .btn-save');
+    if (saveBtn) saveBtn.textContent = 'Update Draft';
+  } else if (type === 'warehouse') {
+    document.getElementById('warehouse-code').value = payload.warehouse_code || '';
+    document.getElementById('warehouse-name').value = payload.warehouse_name || '';
+    document.getElementById('warehouse-location').value = payload.location || '';
+    const saveBtn = document.querySelector('#warehouse-form .btn-save');
+    if (saveBtn) saveBtn.textContent = 'Update Draft';
+  } else if (type === 'movement') {
+    document.getElementById('movement-product').value = payload.product_id || '';
+    document.getElementById('movement-warehouse').value = payload.warehouse_id || '';
+    document.getElementById('movement-type').value = payload.movement_type || 'in';
+    document.getElementById('movement-qty').value = payload.quantity || '';
+    document.getElementById('movement-project').value = payload.project_id || '';
+    document.getElementById('movement-date').value = payload.movement_date || new Date().toISOString().slice(0, 10);
+    document.getElementById('movement-ref-type').value = payload.reference_type || '';
+    document.getElementById('movement-ref-no').value = payload.reference_no || '';
+    document.getElementById('movement-notes').value = payload.notes || '';
+    const saveBtn = document.querySelector('#movement-form .btn-save');
+    if (saveBtn) saveBtn.textContent = 'Update Draft';
+  }
+}
+
 function closeInventoryModal() {
+  editingInventoryRequestId = null;
+  editingInventoryRequestType = '';
   document.getElementById('inventory-modal').classList.remove('open');
   document.getElementById('inventory-modal').setAttribute('aria-hidden', 'true');
+}
+
+function openInventoryConfirmDialog({
+  title = 'Confirm Action',
+  message = 'Are you sure?',
+  noText = 'Cancel',
+  yesText = 'Submit'
+} = {}) {
+  const backdrop = document.getElementById('inventory-confirm-modal');
+  if (!backdrop) return Promise.resolve(false);
+  const titleEl = document.getElementById('inventory-confirm-title');
+  const messageEl = document.getElementById('inventory-confirm-message');
+  const noBtn = document.getElementById('inventory-confirm-no-btn');
+  const yesBtn = document.getElementById('inventory-confirm-yes-btn');
+  if (titleEl) titleEl.textContent = title;
+  if (messageEl) messageEl.textContent = message;
+  if (noBtn) noBtn.textContent = noText;
+  if (yesBtn) yesBtn.textContent = yesText;
+  backdrop.classList.add('open');
+  backdrop.setAttribute('aria-hidden', 'false');
+  return new Promise((resolve) => {
+    inventoryConfirmResolver = resolve;
+    setTimeout(() => yesBtn?.focus(), 0);
+  });
+}
+
+function closeInventoryConfirmDialog(result = false) {
+  const backdrop = document.getElementById('inventory-confirm-modal');
+  if (backdrop) {
+    backdrop.classList.remove('open');
+    backdrop.setAttribute('aria-hidden', 'true');
+  }
+  if (inventoryConfirmResolver) {
+    const resolve = inventoryConfirmResolver;
+    inventoryConfirmResolver = null;
+    resolve(Boolean(result));
+  }
 }
 
 function setupInventoryModalCloseHandlers() {
@@ -261,9 +356,20 @@ function setupInventoryModalCloseHandlers() {
       if (event.target === event.currentTarget) closeInventoryModal();
     });
   }
+  const confirmModal = document.getElementById('inventory-confirm-modal');
+  if (confirmModal && confirmModal.dataset.closeHandlersBound !== '1') {
+    confirmModal.dataset.closeHandlersBound = '1';
+    confirmModal.addEventListener('click', (event) => {
+      if (event.target === event.currentTarget) closeInventoryConfirmDialog(false);
+    });
+  }
 
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;
+    if (document.getElementById('inventory-confirm-modal')?.classList.contains('open')) {
+      closeInventoryConfirmDialog(false);
+      return;
+    }
     if (document.getElementById('inventory-modal')?.classList.contains('open')) {
       closeInventoryModal();
     }
@@ -273,24 +379,34 @@ function setupInventoryModalCloseHandlers() {
 async function saveProduct(event) {
   event.preventDefault();
   setStatus('');
+  const payload = {
+    business_entity_id: getCurrentBusinessEntityId(),
+    sku: document.getElementById('product-sku').value,
+    product_name: document.getElementById('product-name').value,
+    category: document.getElementById('product-category').value,
+    unit: document.getElementById('product-unit').value,
+    unit_cost: document.getElementById('product-cost').value,
+    selling_price: document.getElementById('product-selling-price').value,
+    reorder_level: document.getElementById('product-reorder').value
+  };
   try {
-    await fetchJson('/api/inventory/products', {
-      method: 'POST',
-      body: JSON.stringify({
-        business_entity_id: getCurrentBusinessEntityId(),
-        sku: document.getElementById('product-sku').value,
-        product_name: document.getElementById('product-name').value,
-        category: document.getElementById('product-category').value,
-        unit: document.getElementById('product-unit').value,
-        unit_cost: document.getElementById('product-cost').value,
-        selling_price: document.getElementById('product-selling-price').value,
-        reorder_level: document.getElementById('product-reorder').value
-      })
-    });
+    if (isInventoryStaffRole()) {
+      await saveInventoryRequest('product', payload);
+    } else {
+      await fetchJson('/api/inventory/products', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+    }
     event.target.reset();
     document.getElementById('product-unit').value = 'pcs';
     closeInventoryModal();
-    await loadInventory();
+    if (isInventoryStaffRole()) {
+      await loadInventoryRequests();
+      switchInventoryTab('requests');
+    } else {
+      await loadInventory();
+    }
   } catch (err) {
     setStatus(err.message || 'Unable to save product.');
   }
@@ -299,19 +415,29 @@ async function saveProduct(event) {
 async function saveWarehouse(event) {
   event.preventDefault();
   setStatus('');
+  const payload = {
+    business_entity_id: getCurrentBusinessEntityId(),
+    warehouse_code: document.getElementById('warehouse-code').value,
+    warehouse_name: document.getElementById('warehouse-name').value,
+    location: document.getElementById('warehouse-location').value
+  };
   try {
-    await fetchJson('/api/inventory/warehouses', {
-      method: 'POST',
-      body: JSON.stringify({
-        business_entity_id: getCurrentBusinessEntityId(),
-        warehouse_code: document.getElementById('warehouse-code').value,
-        warehouse_name: document.getElementById('warehouse-name').value,
-        location: document.getElementById('warehouse-location').value
-      })
-    });
+    if (isInventoryStaffRole()) {
+      await saveInventoryRequest('warehouse', payload);
+    } else {
+      await fetchJson('/api/inventory/warehouses', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+    }
     event.target.reset();
     closeInventoryModal();
-    await loadInventory();
+    if (isInventoryStaffRole()) {
+      await loadInventoryRequests();
+      switchInventoryTab('requests');
+    } else {
+      await loadInventory();
+    }
   } catch (err) {
     setStatus(err.message || 'Unable to save warehouse.');
   }
@@ -320,27 +446,107 @@ async function saveWarehouse(event) {
 async function saveMovement(event) {
   event.preventDefault();
   setStatus('');
+  const payload = {
+    business_entity_id: getCurrentBusinessEntityId(),
+    product_id: document.getElementById('movement-product').value,
+    warehouse_id: document.getElementById('movement-warehouse').value,
+    movement_type: document.getElementById('movement-type').value,
+    quantity: document.getElementById('movement-qty').value,
+    project_id: document.getElementById('movement-project')?.value || '',
+    movement_date: document.getElementById('movement-date').value,
+    reference_type: document.getElementById('movement-ref-type').value,
+    reference_no: document.getElementById('movement-ref-no').value,
+    notes: document.getElementById('movement-notes').value
+  };
   try {
-    await fetchJson('/api/inventory/movements', {
-      method: 'POST',
-      body: JSON.stringify({
-        business_entity_id: getCurrentBusinessEntityId(),
-        product_id: document.getElementById('movement-product').value,
-        warehouse_id: document.getElementById('movement-warehouse').value,
-        movement_type: document.getElementById('movement-type').value,
-        quantity: document.getElementById('movement-qty').value,
-        project_id: document.getElementById('movement-project')?.value || '',
-        movement_date: document.getElementById('movement-date').value,
-        reference_type: document.getElementById('movement-ref-type').value,
-        reference_no: document.getElementById('movement-ref-no').value,
-        notes: document.getElementById('movement-notes').value
-      })
-    });
+    if (isInventoryStaffRole()) {
+      await saveInventoryRequest('movement', payload);
+    } else {
+      await fetchJson('/api/inventory/movements', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+    }
     event.target.reset();
     document.getElementById('movement-date').value = new Date().toISOString().slice(0, 10);
     closeInventoryModal();
-    await loadInventory();
+    if (isInventoryStaffRole()) {
+      await loadInventoryRequests();
+      switchInventoryTab('requests');
+    } else {
+      await loadInventory();
+    }
   } catch (err) {
     setStatus(err.message || 'Unable to save movement.');
+  }
+}
+
+async function saveInventoryRequest(requestType, payload) {
+  const requestEditId = Number(editingInventoryRequestId || 0) || 0;
+  await fetchJson(requestEditId ? `/api/inventory/requests/${requestEditId}` : '/api/inventory/requests', {
+    method: requestEditId ? 'PUT' : 'POST',
+    body: JSON.stringify({ request_type: requestType, payload })
+  });
+}
+
+async function loadInventoryRequests() {
+  if (!isInventoryStaffRole()) return;
+  inventoryRequestsDb = await fetchJson('/api/inventory/requests').catch(() => []);
+  renderInventoryRequests();
+}
+
+function getInventoryRequestDetails(row = {}) {
+  const payload = row.payload || {};
+  const type = String(row.request_type || '').toLowerCase();
+  if (type === 'product') return [payload.sku, payload.product_name].filter(Boolean).join(' - ');
+  if (type === 'warehouse') return [payload.warehouse_code, payload.warehouse_name].filter(Boolean).join(' - ');
+  if (type === 'movement') {
+    const product = productsDb.find(item => Number(item.id) === Number(payload.product_id));
+    const warehouse = warehousesDb.find(item => Number(item.id) === Number(payload.warehouse_id));
+    return [
+      String(payload.movement_type || '').toUpperCase(),
+      product?.product_name || `Product #${payload.product_id || '-'}`,
+      warehouse?.warehouse_name || `Warehouse #${payload.warehouse_id || '-'}`,
+      payload.quantity ? `Qty ${payload.quantity}` : ''
+    ].filter(Boolean).join(' - ');
+  }
+  return row.request_no || '-';
+}
+
+function renderInventoryRequests() {
+  const tbody = document.getElementById('inventory-requests-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = inventoryRequestsDb.length ? inventoryRequestsDb.map(row => {
+    const status = String(row.status || 'draft').toLowerCase();
+    const canSubmit = status === 'draft';
+    const actions = canSubmit
+      ? `<button class="btn btn-edit btn-sm" type="button" onclick="openInventoryRequestDraft(${Number(row.id)})">Edit</button> <button class="btn btn-save btn-sm" type="button" onclick="submitInventoryRequest(${Number(row.id)})">Submit</button>`
+      : '<span class="inventory-muted">No action</span>';
+    return `
+      <tr>
+        <td><strong>${escHtml(row.request_no || '-')}</strong></td>
+        <td>${escHtml(row.request_type || '-')}</td>
+        <td>${escHtml(getInventoryRequestDetails(row) || '-')}</td>
+        <td><span class="inventory-status-pill status-${escHtml(status)}">${escHtml(status)}</span></td>
+        <td>${escHtml(row.reject_reason || (status === 'submitted' ? 'Waiting for admin approval' : status === 'draft' ? 'Ready to submit' : '-'))}</td>
+        <td>${actions}</td>
+      </tr>
+    `;
+  }).join('') : '<tr><td colspan="6">No inventory requests yet.</td></tr>';
+}
+
+async function submitInventoryRequest(id) {
+  const confirmed = await openInventoryConfirmDialog({
+    title: 'Submit Inventory Request?',
+    message: 'Submit this inventory draft for admin approval?',
+    noText: 'Cancel',
+    yesText: 'Submit'
+  });
+  if (!confirmed) return;
+  try {
+    await fetchJson(`/api/inventory/requests/${Number(id)}/submit`, { method: 'POST' });
+    await loadInventoryRequests();
+  } catch (err) {
+    setStatus(err.message || 'Unable to submit request.');
   }
 }

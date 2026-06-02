@@ -58,7 +58,9 @@
       bills,
       payments,
       users,
-      companyRequests
+      companyRequests,
+      vendorRequests,
+      inventoryRequests
     ] = await Promise.all([
       fetchJsonOrEmpty('/api/projects?include_archived=1'),
       fetchJsonOrEmpty('/api/procurement/requisitions'),
@@ -66,7 +68,9 @@
       fetchJsonOrEmpty('/api/bills'),
       fetchJsonOrEmpty('/api/payments'),
       fetchJsonOrEmpty('/api/admin/users'),
-      fetchJsonOrEmpty('/api/company-registry-requests')
+      fetchJsonOrEmpty('/api/company-registry-requests'),
+      fetchJsonOrEmpty('/api/vendor-registry-requests'),
+      fetchJsonOrEmpty('/api/inventory/requests')
     ]);
 
     const items = [];
@@ -91,6 +95,63 @@
             payload.contact_person ? 'Contact person provided' : 'Contact missing',
             payload.phone ? 'Phone provided' : 'Phone missing',
             payload.tin ? 'TIN provided' : 'TIN missing'
+          ])
+        }));
+      });
+
+    vendorRequests
+      .filter(row => approvalStatusPending(row.status))
+      .forEach(row => {
+        const payload = row.payload || {};
+        items.push(makeApprovalItem({
+          category: 'procurement',
+          type: 'Vendor Registry Request',
+          title: payload.vendor_name || row.request_no || 'Vendor Registry',
+          requestedBy: row.requested_by || row.requested_by_email || '-',
+          date: getApprovalDate(row, ['submitted_at', 'created_at']),
+          status: row.status || 'submitted',
+          url: '/master-data?tab=vendors',
+          approveUrl: `/api/vendor-registry-requests/${Number(row.id || 0)}/approve`,
+          rejectUrl: `/api/vendor-registry-requests/${Number(row.id || 0)}/reject`,
+          timeline: buildApprovalTimeline(row, { created: 'Requested' }),
+          checklist: buildApprovalChecklist([
+            payload.vendor_name ? 'Vendor name provided' : 'Vendor name missing',
+            payload.contact_person ? 'Contact person provided' : 'Contact missing',
+            payload.phone ? 'Phone provided' : 'Phone missing',
+            payload.tin ? 'TIN provided' : 'TIN missing'
+          ])
+        }));
+      });
+
+    inventoryRequests
+      .filter(row => approvalStatusPending(row.status))
+      .forEach(row => {
+        const payload = row.payload || {};
+        const type = String(row.request_type || 'inventory').trim();
+        const title = type === 'product'
+          ? [payload.sku, payload.product_name].filter(Boolean).join(' - ')
+          : type === 'warehouse'
+            ? [payload.warehouse_code, payload.warehouse_name].filter(Boolean).join(' - ')
+            : type === 'movement'
+              ? [String(payload.movement_type || '').toUpperCase(), payload.quantity ? `Qty ${payload.quantity}` : ''].filter(Boolean).join(' - ')
+              : row.request_no;
+        items.push(makeApprovalItem({
+          category: 'inventory',
+          type: 'Inventory Request',
+          title: title || row.request_no || 'Inventory Request',
+          requestedBy: row.requested_by || row.requested_by_email || '-',
+          date: getApprovalDate(row, ['submitted_at', 'created_at']),
+          status: row.status || 'submitted',
+          url: '/inventory?tab=requests',
+          approveUrl: `/api/inventory/requests/${Number(row.id || 0)}/approve`,
+          rejectUrl: `/api/inventory/requests/${Number(row.id || 0)}/reject`,
+          timeline: buildApprovalTimeline(row, { created: 'Requested' }),
+          checklist: buildApprovalChecklist([
+            type ? `Request type: ${type}` : 'Request type missing',
+            payload.business_entity_id ? 'Workspace selected' : 'Workspace missing',
+            type === 'movement' && payload.quantity ? 'Quantity provided' : '',
+            type === 'product' && payload.product_name ? 'Product name provided' : '',
+            type === 'warehouse' && payload.warehouse_name ? 'Warehouse name provided' : ''
           ])
         }));
       });
@@ -277,29 +338,107 @@
     const counts = {
       projects: items.filter(item => item.category === 'projects').length,
       procurement: items.filter(item => item.category === 'procurement').length,
+      inventory: items.filter(item => item.category === 'inventory').length,
       finance: items.filter(item => item.category === 'finance').length,
       users: items.filter(item => item.category === 'users').length
     };
     if (valueNode) valueNode.textContent = String(items.length);
     if (miniNode) {
-      miniNode.textContent = `${counts.projects} projects • ${counts.procurement} procurement • ${counts.finance} finance • ${counts.users} users`;
+      miniNode.textContent = `${counts.projects} projects | ${counts.procurement} procurement | ${counts.inventory} inventory | ${counts.finance} finance | ${counts.users} users`;
     }
     syncApprovalSidebarBadge(items.length);
   }
 
   function filterApprovalCenter(filter = 'all') {
-    currentApprovalFilter = ['all', 'projects', 'procurement', 'finance', 'users'].includes(String(filter)) ? String(filter) : 'all';
+    currentApprovalFilter = ['all', 'projects', 'procurement', 'inventory', 'finance', 'users'].includes(String(filter)) ? String(filter) : 'all';
     renderApprovalCenter(false, true);
   }
 
-  async function postApprovalCenterAction(url, { reason = '', method = 'POST' } = {}) {
+  let approvalCommentResolver = null;
+
+  function closeApprovalCommentDialog(result = null) {
+    const backdrop = document.getElementById('approval-comment-modal-backdrop');
+    if (backdrop) {
+      backdrop.classList.remove('open');
+      backdrop.setAttribute('aria-hidden', 'true');
+    }
+    if (approvalCommentResolver) {
+      const resolve = approvalCommentResolver;
+      approvalCommentResolver = null;
+      resolve(result);
+    }
+  }
+
+  function ensureApprovalCommentDialog() {
+    let backdrop = document.getElementById('approval-comment-modal-backdrop');
+    if (backdrop) return backdrop;
+    backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+    backdrop.id = 'approval-comment-modal-backdrop';
+    backdrop.setAttribute('aria-hidden', 'true');
+    backdrop.innerHTML = `
+      <div class="modal confirm-modal" role="dialog" aria-modal="true" aria-labelledby="approval-comment-modal-title">
+        <div class="modal-title modal-title-confirm" id="approval-comment-modal-title">Approval Comment</div>
+        <p class="modal-copy" id="approval-comment-modal-message">Add a workflow note.</p>
+        <textarea id="approval-comment-modal-input" rows="4" placeholder="Add comment or reason..." style="width:100%; resize:vertical; margin: 6px 0 14px;"></textarea>
+        <div class="modal-actions">
+          <button class="btn btn-confirm-no btn-sm" type="button" id="approval-comment-modal-cancel">Cancel</button>
+          <button class="btn btn-confirm-yes btn-sm" type="button" id="approval-comment-modal-submit">Continue</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(backdrop);
+    backdrop.addEventListener('click', (event) => {
+      if (event.target === event.currentTarget) closeApprovalCommentDialog(null);
+    });
+    backdrop.querySelector('#approval-comment-modal-cancel')?.addEventListener('click', () => closeApprovalCommentDialog(null));
+    backdrop.querySelector('#approval-comment-modal-submit')?.addEventListener('click', () => {
+      const input = document.getElementById('approval-comment-modal-input');
+      closeApprovalCommentDialog(String(input?.value || '').trim());
+    });
+    return backdrop;
+  }
+
+  function openApprovalCommentDialog({ title, message, placeholder, submitText, required = false } = {}) {
+    const backdrop = ensureApprovalCommentDialog();
+    const titleEl = document.getElementById('approval-comment-modal-title');
+    const messageEl = document.getElementById('approval-comment-modal-message');
+    const input = document.getElementById('approval-comment-modal-input');
+    const submit = document.getElementById('approval-comment-modal-submit');
+    if (titleEl) titleEl.textContent = title || 'Approval Comment';
+    if (messageEl) messageEl.textContent = message || 'Add a workflow note.';
+    if (input) {
+      input.value = '';
+      input.placeholder = placeholder || 'Add comment or reason...';
+      input.dataset.required = required ? '1' : '0';
+    }
+    if (submit) submit.textContent = submitText || 'Continue';
+    backdrop.classList.add('open');
+    backdrop.setAttribute('aria-hidden', 'false');
+    return new Promise((resolve) => {
+      approvalCommentResolver = (value) => {
+        if (value !== null && required && !String(value || '').trim()) {
+          showToast('Comment is required.', 'error');
+          openApprovalCommentDialog({ title, message, placeholder, submitText, required }).then(resolve);
+          return;
+        }
+        resolve(value);
+      };
+      setTimeout(() => input?.focus(), 0);
+    });
+  }
+
+  async function postApprovalCenterAction(url, { reason = '', comment = '', method = 'POST' } = {}) {
     const headers = { 'Content-Type': 'application/json' };
+    const payload = {};
+    if (reason) payload.reason = reason;
+    if (comment) payload.comment = comment;
     if (window.__CSRF_TOKEN__) headers['X-CSRF-Token'] = window.__CSRF_TOKEN__;
     const res = await fetch(url, {
       method,
       credentials: 'same-origin',
       headers,
-      body: JSON.stringify(reason ? { reason } : {})
+      body: JSON.stringify(payload)
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'Action failed.');
@@ -310,11 +449,18 @@
     const item = approvalCenterItems[Number(index || 0)];
     if (!item?.approveUrl) return;
     try {
-      if (!window.confirm(`Approve ${item.type}: ${item.title}?`)) return;
+      const comment = await openApprovalCommentDialog({
+        title: 'Approve Request',
+        message: `Approve ${item.type}: ${item.title}? Optional comment will be saved in audit trail.`,
+        placeholder: 'Optional approval comment...',
+        submitText: 'Approve',
+        required: false
+      });
+      if (comment === null) return;
       if (item.category === 'users') {
-        await postApprovalCenterAction(item.approveUrl, { method: 'PATCH' });
+        await postApprovalCenterAction(item.approveUrl, { comment, method: 'PATCH' });
       } else {
-        await postApprovalCenterAction(item.approveUrl);
+        await postApprovalCenterAction(item.approveUrl, { comment });
       }
       showToast('Approved successfully.', 'success');
       await renderApprovalCenter(true);
@@ -331,16 +477,17 @@
   async function rejectApprovalItem(index) {
     const item = approvalCenterItems[Number(index || 0)];
     if (!item?.rejectUrl) return;
-    const reason = window.prompt(`Reason for rejecting ${item.type}: ${item.title}`);
-    if (reason === null) return;
-    const safeReason = String(reason || '').trim();
-    if (!safeReason) {
-      showToast('Rejection reason is required.', 'error');
-      return;
-    }
+    const safeReason = await openApprovalCommentDialog({
+      title: 'Reject Request',
+      message: `Reject ${item.type}: ${item.title}? Reason is required and will be shown to staff.`,
+      placeholder: 'Reason for rejection / revision note...',
+      submitText: 'Reject',
+      required: true
+    });
+    if (safeReason === null) return;
     try {
       const method = item.category === 'users' ? 'PATCH' : 'POST';
-      await postApprovalCenterAction(item.rejectUrl, { reason: safeReason, method });
+      await postApprovalCenterAction(item.rejectUrl, { reason: safeReason, comment: safeReason, method });
       showToast('Rejected and returned for revision.', 'success');
       await renderApprovalCenter(true);
       if (item.category === 'projects') {
@@ -385,12 +532,14 @@
       all: items.length,
       projects: items.filter(item => item.category === 'projects').length,
       procurement: items.filter(item => item.category === 'procurement').length,
+      inventory: items.filter(item => item.category === 'inventory').length,
       finance: items.filter(item => item.category === 'finance').length,
       users: items.filter(item => item.category === 'users').length
     };
     setApprovalMetric('approval-count-all', counts.all);
     setApprovalMetric('approval-count-projects', counts.projects);
     setApprovalMetric('approval-count-procurement', counts.procurement);
+    setApprovalMetric('approval-count-inventory', counts.inventory);
     setApprovalMetric('approval-count-finance', counts.finance);
     setApprovalMetric('approval-count-users', counts.users);
     syncApprovalSidebarBadge(counts.all);
@@ -405,6 +554,7 @@
       all: 'Showing all pending approvals',
       projects: 'Showing submitted project drafts',
       procurement: 'Showing purchase requests and orders',
+      inventory: 'Showing inventory requests',
       finance: 'Showing bills and payments',
       users: 'Showing pending user accounts'
     };
@@ -452,6 +602,8 @@
     updateApprovalCenterSummaryCard,
     filterApprovalCenter,
     postApprovalCenterAction,
+    openApprovalCommentDialog,
+    closeApprovalCommentDialog,
     approveApprovalItem,
     rejectApprovalItem,
     showApprovalItemTimeline,

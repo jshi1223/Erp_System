@@ -20,6 +20,7 @@ let editingPurchaseOrderId = null;
 let editingGoodsReceiptId = null;
 let editingQuotationId = null;
 let editingVendorId = null;
+let editingVendorRequestId = null;
 let currentRequisitionProjectId = null;
 let viewingProjectLinkedRequisition = false;
 let currentRequisitionReadOnlyReason = '';
@@ -350,9 +351,12 @@ async function loadVendorNumberPreview() {
   input.value = '';
 
   try {
-    const data = await apiFetch('/api/vendors/next-no', { cache: 'no-store' });
+    const endpoint = isStaffMasterDataWorkspace()
+      ? '/api/vendor-registry-requests/next-draft-no'
+      : '/api/vendors/next-no';
+    const data = await apiFetch(endpoint, { cache: 'no-store' });
     if (token !== vendorNumberPreviewToken) return;
-    const vendorNo = String(data?.vendor_no || '').trim();
+    const vendorNo = String(data?.draft_no || data?.vendor_no || '').trim();
     input.value = vendorNo;
     return vendorNo;
   } catch (_) {
@@ -1275,6 +1279,7 @@ function filterVendorDirectory() {
 }
 
 function resetVendorForm() {
+  editingVendorRequestId = null;
   ['f-vendor-no', 'f-vendor-name', 'f-vendor-contact', 'f-vendor-email', 'f-vendor-phone', 'f-vendor-address', 'f-vendor-tin'].forEach((id) => {
     const el = $(id);
     if (el) el.value = '';
@@ -1288,14 +1293,38 @@ function syncVendorModalMode() {
   const staffRequest = isStaffMasterDataWorkspace();
   if (title) {
     title.textContent = staffRequest
-      ? (editingVendorId ? 'View Vendor' : 'Request Vendor')
+      ? (editingVendorRequestId ? 'Edit Vendor Draft' : editingVendorId ? 'View Vendor' : 'Request Vendor')
       : (editingVendorId ? 'Edit Vendor' : 'Add Vendor');
   }
   if (saveBtn) {
     saveBtn.textContent = staffRequest
-      ? 'Submit Request'
+      ? (editingVendorRequestId ? 'Update Draft' : 'Save Draft')
       : (editingVendorId ? 'Save Changes' : 'Create Vendor');
   }
+}
+
+function openVendorRequestDraft(requestId) {
+  const rows = Array.isArray(window.masterDataRequestsDb) ? window.masterDataRequestsDb : (typeof masterDataRequestsDb !== 'undefined' ? masterDataRequestsDb : []);
+  const row = rows.find((entry) => Number(entry.id || 0) === Number(requestId || 0) && entry.request_type === 'vendor');
+  if (!row || String(row.status || '').toLowerCase() !== 'draft') {
+    showToast('Only draft vendor requests can be edited.', 'error');
+    return;
+  }
+  editingVendorId = null;
+  resetVendorForm();
+  editingVendorRequestId = Number(row.id || 0);
+  const payload = row.payload || {};
+  if ($('f-vendor-no')) $('f-vendor-no').value = row.request_no || payload.vendor_no || '';
+  if ($('f-vendor-name')) $('f-vendor-name').value = payload.vendor_name || '';
+  if ($('f-vendor-contact')) $('f-vendor-contact').value = payload.contact_person || '';
+  if ($('f-vendor-email')) $('f-vendor-email').value = payload.email || '';
+  if ($('f-vendor-phone')) $('f-vendor-phone').value = payload.phone || '';
+  if ($('f-vendor-tin')) $('f-vendor-tin').value = formatTinValue(payload.tin || '');
+  if ($('f-vendor-address')) $('f-vendor-address').value = payload.address || '';
+  clearProcurementFieldMessages();
+  syncVendorModalMode();
+  bindVendorTinMask();
+  openBackdrop('vendor-modal-backdrop');
 }
 
 function findDuplicateVendorEntry(phone, tin, email, excludeId = null) {
@@ -1372,6 +1401,7 @@ async function openVendorModal(id = null) {
 
 function closeVendorModal() {
   editingVendorId = null;
+  editingVendorRequestId = null;
   vendorNumberPreviewToken += 1;
   forceCloseVendorModal();
   resetVendorForm();
@@ -1477,13 +1507,14 @@ async function saveVendor() {
   const originalSaveText = saveBtn?.textContent || 'Create Vendor';
   if (saveBtn) {
     saveBtn.disabled = true;
-    saveBtn.textContent = isStaffMasterDataWorkspace() ? 'Submitting...' : 'Saving...';
+    saveBtn.textContent = isStaffMasterDataWorkspace() ? 'Saving Draft...' : 'Saving...';
   }
 
   try {
     if (isStaffMasterDataWorkspace()) {
-      await apiFetch('/api/vendor-registry-requests', {
-        method: 'POST',
+      const requestEditId = Number(editingVendorRequestId || 0) || 0;
+      await apiFetch(requestEditId ? `/api/vendor-registry-requests/${requestEditId}` : '/api/vendor-registry-requests', {
+        method: requestEditId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
@@ -1493,7 +1524,7 @@ async function saveVendor() {
       resetVendorForm();
       clearProcurementFieldMessages();
       syncVendorModalMode();
-      showToast('Vendor request submitted for admin approval.', 'success');
+      showToast(requestEditId ? 'Vendor draft updated.' : 'Vendor draft saved. Submit it from Requests when ready.', 'success');
       if (typeof loadMasterDataRequests === 'function') await loadMasterDataRequests();
       if (typeof switchApWorkspaceTab === 'function') {
         switchApWorkspaceTab('requests', document.querySelector('.ap-workspace-tab[data-workspace-tab="requests"]'));

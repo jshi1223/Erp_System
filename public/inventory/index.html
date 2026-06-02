@@ -92,6 +92,7 @@
       <button class="module-tab inventory-tab" type="button" data-tab="warehouses" onclick="switchInventoryTab('warehouses')">Warehouses</button>
       <button class="module-tab inventory-tab" type="button" data-tab="stock" onclick="switchInventoryTab('stock')">Stock Levels</button>
       <button class="module-tab inventory-tab" type="button" data-tab="movements" onclick="switchInventoryTab('movements')">Movements</button>
+      <button class="module-tab inventory-tab" type="button" data-tab="requests" onclick="switchInventoryTab('requests')" data-staff-inventory-requests hidden>Requests</button>
     </section>
 
     <section class="content-section inventory-panel inventory-section active" id="inventory-tab-products">
@@ -177,6 +178,27 @@
           </table>
         </div>
     </section>
+
+    <section class="content-section inventory-panel inventory-section" id="inventory-tab-requests" data-staff-inventory-requests hidden>
+      <div class="panel-head">
+        <h2>Inventory Requests</h2>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Draft No.</th>
+              <th>Type</th>
+              <th>Details</th>
+              <th>Status</th>
+              <th>Notes</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="inventory-requests-tbody"></tbody>
+        </table>
+      </div>
+    </section>
   </main>
 
   <div class="modal-backdrop" id="inventory-modal" aria-hidden="true">
@@ -248,6 +270,17 @@
       </form>
 
       <div id="inventory-status" class="inventory-status"></div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="inventory-confirm-modal" aria-hidden="true">
+    <div class="inventory-modal-card inventory-confirm-card" role="dialog" aria-modal="true" aria-labelledby="inventory-confirm-title">
+      <div class="modal-title" id="inventory-confirm-title">Confirm Action</div>
+      <p class="inventory-confirm-copy" id="inventory-confirm-message">Are you sure?</p>
+      <div class="inventory-modal-actions">
+        <button class="btn btn-cancel" type="button" id="inventory-confirm-no-btn" onclick="closeInventoryConfirmDialog(false)">Cancel</button>
+        <button class="btn btn-save" type="button" id="inventory-confirm-yes-btn" onclick="closeInventoryConfirmDialog(true)">Submit</button>
+      </div>
     </div>
   </div>
 

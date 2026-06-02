@@ -2720,11 +2720,15 @@ function initApp() {
       approved_by VARCHAR(255),
       approved_at TIMESTAMP NULL DEFAULT NULL,
       reject_reason TEXT,
+      approval_comment TEXT,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `, (err) => {
     if (err) console.error('Company registry requests table error:', err);
     else console.log('âœ… Table "company_registry_requests" ready');
+  });
+  db.query(`ALTER TABLE company_registry_requests ADD COLUMN IF NOT EXISTS approval_comment TEXT`, (err) => {
+    if (err) console.error('Company registry requests approval_comment migration error:', err);
   });
 
   db.query(`
@@ -2739,11 +2743,15 @@ function initApp() {
       approved_by VARCHAR(255),
       approved_at TIMESTAMP NULL DEFAULT NULL,
       reject_reason TEXT,
+      approval_comment TEXT,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `, (err) => {
     if (err) console.error('Vendor registry requests table error:', err);
     else console.log('âœ… Table "vendor_registry_requests" ready');
+  });
+  db.query(`ALTER TABLE vendor_registry_requests ADD COLUMN IF NOT EXISTS approval_comment TEXT`, (err) => {
+    if (err) console.error('Vendor registry requests approval_comment migration error:', err);
   });
 
   db.query(`
@@ -2764,6 +2772,7 @@ function initApp() {
       total_amount DECIMAL(12,2) NOT NULL,
       status      text DEFAULT 'draft',
       notes       TEXT,
+      approval_comment TEXT,
       created_at  TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (vendor_id) REFERENCES vendors(id),
       FOREIGN KEY (company_id) REFERENCES company_registry(id)
@@ -2810,6 +2819,9 @@ function initApp() {
   });
   db.query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS cancel_reason TEXT NULL`, (err) => {
     if (err) console.error('Purchase orders cancel_reason migration error:', err);
+  });
+  db.query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS approval_comment TEXT`, (err) => {
+    if (err) console.error('Purchase orders approval_comment migration error:', err);
   });
   addForeignKeyIfMissing(`
     ALTER TABLE purchase_orders
@@ -2959,6 +2971,7 @@ function initApp() {
       approved_by VARCHAR(255),
       approved_at TIMESTAMP,
       notes       TEXT,
+      approval_comment TEXT,
       pdfFilename VARCHAR(255),
       created_at  TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (vendor_id) REFERENCES vendors(id),
@@ -3021,6 +3034,9 @@ function initApp() {
   });
   db.query(`ALTER TABLE accounts_payable ADD COLUMN IF NOT EXISTS draft_bill_number VARCHAR(50) NULL`, (err) => {
     if (err) console.error('Accounts payable draft_bill_number migration error:', err);
+  });
+  db.query(`ALTER TABLE accounts_payable ADD COLUMN IF NOT EXISTS approval_comment TEXT`, (err) => {
+    if (err) console.error('Accounts payable approval_comment migration error:', err);
   });
 
   db.query(`
@@ -3138,6 +3154,7 @@ function initApp() {
       approved_by VARCHAR(255),
       approved_at TIMESTAMP,
       notes       TEXT,
+      approval_comment TEXT,
       created_at  TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (ap_id) REFERENCES accounts_payable(id),
       FOREIGN KEY (ar_id) REFERENCES accounts_receivable(id)
@@ -3192,6 +3209,9 @@ function initApp() {
   });
   db.query(`ALTER TABLE payments ADD COLUMN IF NOT EXISTS notes TEXT NULL`, (err) => {
     if (err) console.error('Payments notes migration error:', err);
+  });
+  db.query(`ALTER TABLE payments ADD COLUMN IF NOT EXISTS approval_comment TEXT`, (err) => {
+    if (err) console.error('Payments approval_comment migration error:', err);
   });
   db.query(`UPDATE payments SET payment_type = 'ar' WHERE COALESCE(ar_id, 0) > 0 AND COALESCE(payment_type, '') <> 'ar'`, (err) => {
     if (err) console.error('Payments legacy AR migration error:', err);
@@ -3325,6 +3345,9 @@ function initApp() {
   });
   db.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS assigned_to integer NULL`, (err) => {
     if (err) console.error('Projects assigned_to migration error:', err);
+  });
+  db.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS approval_comment TEXT`, (err) => {
+    if (err) console.error('Projects approval_comment migration error:', err);
   });
   db.query(`UPDATE projects SET assigned_to = created_by WHERE assigned_to IS NULL AND created_by IS NOT NULL`, (err) => {
     if (err) console.error('Projects assigned_to backfill error:', err);
@@ -3732,6 +3755,7 @@ function initApp() {
       needed_by     DATE,
       status        text NOT NULL DEFAULT 'draft',
       notes        TEXT,
+      approval_comment TEXT,
       created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (company_id) REFERENCES company_registry(id) ON DELETE SET NULL
     )
@@ -3782,6 +3806,9 @@ function initApp() {
   });
   db.query(`ALTER TABLE purchase_requisitions ADD COLUMN IF NOT EXISTS draft_pr_number VARCHAR(50) NULL`, (err) => {
     if (err) console.error('Purchase requisitions draft_pr_number migration error:', err);
+  });
+  db.query(`ALTER TABLE purchase_requisitions ADD COLUMN IF NOT EXISTS approval_comment TEXT`, (err) => {
+    if (err) console.error('Purchase requisitions approval_comment migration error:', err);
   });
   addForeignKeyIfMissing(`
     ALTER TABLE purchase_requisitions
@@ -3940,6 +3967,30 @@ function initApp() {
   });
   db.query(`ALTER TABLE goods_receipt_items ADD COLUMN IF NOT EXISTS warehouse_id integer NULL`, (err) => {
     if (err) console.error('Goods receipt items warehouse_id migration error:', err);
+  });
+
+  db.query(`
+    CREATE TABLE IF NOT EXISTS inventory_requests (
+      id integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+      request_no VARCHAR(50) NOT NULL UNIQUE,
+      request_type VARCHAR(30) NOT NULL,
+      payload TEXT NOT NULL,
+      status VARCHAR(30) NOT NULL DEFAULT 'draft',
+      requested_by VARCHAR(255),
+      requested_by_email VARCHAR(255),
+      submitted_at TIMESTAMP NULL DEFAULT NULL,
+      approved_by VARCHAR(255),
+      approved_at TIMESTAMP NULL DEFAULT NULL,
+      reject_reason TEXT,
+      approval_comment TEXT,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `, (err) => {
+    if (err) console.error('Inventory requests table error:', err);
+    else console.log('Table "inventory_requests" ready');
+  });
+  db.query(`ALTER TABLE inventory_requests ADD COLUMN IF NOT EXISTS approval_comment TEXT`, (err) => {
+    if (err) console.error('Inventory requests approval_comment migration error:', err);
   });
 
   db.query(`
@@ -4138,6 +4189,15 @@ function logAction(req, action, details, moduleName = '') {
   insertLog();
 }
 
+function getApprovalComment(req) {
+  return String(req.body?.comment || req.body?.approval_comment || '').trim();
+}
+
+function appendApprovalComment(details, comment) {
+  const safeComment = String(comment || '').trim();
+  return safeComment ? `${details} | Comment: ${safeComment}` : details;
+}
+
 function toNumber(value, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -4148,6 +4208,46 @@ function generateCode(prefix) {
   const rand = Math.floor(Math.random() * 9000) + 1000;
   return `${String(prefix || 'DOC').toUpperCase()}-${stamp}-${rand}`;
 }
+
+function generateDraftRequestNo(prefix) {
+  return new Promise((resolve, reject) => {
+    const prefixUpper = String(prefix || 'REQ').toUpperCase();
+    db.query(
+      `SELECT COALESCE(MAX(CAST(regexp_replace(request_no, '^DRAFT-[A-Z]+-', '') AS integer)), 0) AS max_seq
+       FROM company_registry_requests
+       WHERE request_no ~ ?
+       UNION ALL
+       SELECT COALESCE(MAX(CAST(regexp_replace(request_no, '^DRAFT-[A-Z]+-', '') AS integer)), 0) AS max_seq
+       FROM vendor_registry_requests
+       WHERE request_no ~ ?`,
+      [`^DRAFT-${prefixUpper}-[0-9]+$`, `^DRAFT-${prefixUpper}-[0-9]+$`],
+      (err, rows) => {
+        if (err) return reject(err);
+        const maxSeq = Math.max(...(rows || []).map(r => Number(r?.max_seq || 0)));
+        const nextNum = maxSeq + 1;
+        resolve(`DRAFT-${prefixUpper}-${String(nextNum).padStart(3, '0')}`);
+      }
+    );
+  });
+}
+
+function generateInventoryDraftRequestNo() {
+  return new Promise((resolve, reject) => {
+    db.query(
+      `SELECT COALESCE(MAX(CAST(regexp_replace(request_no, '^DRAFT-INV-', '') AS integer)), 0) AS max_seq
+       FROM inventory_requests
+       WHERE request_no ~ ?`,
+      ['^DRAFT-INV-[0-9]+$'],
+      (err, rows) => {
+        if (err) return reject(err);
+        const nextNum = (Number(rows?.[0]?.max_seq || 0) || 0) + 1;
+        resolve(`DRAFT-INV-${String(nextNum).padStart(3, '0')}`);
+      }
+    );
+  });
+}
+
+
 
 function queryAsync(sql, params = []) {
   return new Promise((resolve, reject) => {
@@ -8960,6 +9060,36 @@ function assertCompanyRegistryPayloadUnique(payload = {}) {
   });
 }
 
+async function insertApprovedCompanyRegistryFromRequest(payload = {}) {
+  let lastErr = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const companyNo = await generateNextCompanyNoPromise();
+    try {
+      await queryAsync(`
+        INSERT INTO company_registry
+          (company_no, business_entity_id, branch_code, company_name, address, contact_person, phone, email, tin, industry, status, notes)
+        VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+      `, [
+        companyNo,
+        payload.branch_code || '000',
+        payload.company_name,
+        payload.address || null,
+        payload.contact_person || null,
+        payload.phone || null,
+        payload.email || null,
+        payload.tin || null,
+        payload.status || 'active',
+        payload.notes || null
+      ]);
+      return companyNo;
+    } catch (err) {
+      if (!isPostgresUniqueViolation(err)) throw err;
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error('Unable to assign a company number.');
+}
+
 async function findProjectDuplicateByIdentity({
   businessEntityId,
   companyId,
@@ -10089,6 +10219,15 @@ app.get('/api/company-registry/next-no', protectAdmin, (req, res) => {
   });
 });
 
+app.get('/api/company-registry-requests/next-draft-no', protectAdmin, async (req, res) => {
+  try {
+    const draftNo = await generateDraftRequestNo('CMP');
+    res.json({ draft_no: draftNo });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/company-registry-requests', protectAdmin, async (req, res) => {
   try {
     const actor = getAuthenticatedUser(req);
@@ -10112,23 +10251,71 @@ app.get('/api/company-registry-requests', protectAdmin, async (req, res) => {
 app.post('/api/company-registry-requests', protectAdmin, async (req, res) => {
   try {
     const actor = getAuthenticatedUser(req);
+    const isStaff = isStaffRole(actor?.role || '');
     const payload = sanitizeCompanyRegistryPayload(req.body || {});
     validateCompanyRegistryPayload(payload);
-    const requestNo = generateCode('CRR');
+    const requestNo = isStaff ? await generateDraftRequestNo('CMP') : generateCode('CRR');
     await queryAsync(`
       INSERT INTO company_registry_requests
         (request_no, payload, status, requested_by, requested_by_email, submitted_at)
-      VALUES (?, ?, 'submitted', ?, ?, NOW())
+      VALUES (?, ?, ?, ?, ?, ${isStaff ? 'NULL' : 'NOW()'})
     `, [
       requestNo,
       JSON.stringify(payload),
+      isStaff ? 'draft' : 'submitted',
       actor?.fullname || actor?.username || null,
       actor?.email || null
     ]);
-    logAction(req, 'REQUEST_COMPANY_REGISTRY', `Request No: ${requestNo} | Company Name: ${payload.company_name}`);
-    res.status(201).json({ success: true, request_no: requestNo, status: 'submitted' });
+    logAction(req, isStaff ? 'CREATE_COMPANY_REGISTRY_DRAFT' : 'REQUEST_COMPANY_REGISTRY', `${isStaff ? 'Draft' : 'Request'}: ${requestNo} | Company Name: ${payload.company_name}`);
+    res.status(201).json({ success: true, request_no: requestNo, status: isStaff ? 'draft' : 'submitted' });
   } catch (err) {
-    res.status(400).json({ error: err.message || 'Unable to submit company registry request.', field: err.field || null });
+    res.status(400).json({ error: err.message || 'Unable to create company registry request.', field: err.field || null });
+  }
+});
+
+app.post('/api/company-registry-requests/:id/submit', protectAdmin, async (req, res) => {
+  try {
+    const requestId = Number(req.params.id || 0);
+    if (!requestId) return res.status(400).json({ error: 'Invalid request ID.' });
+    const rows = await queryAsync('SELECT * FROM company_registry_requests WHERE id = ? LIMIT 1', [requestId]);
+    const requestRow = rows?.[0];
+    if (!requestRow) return res.status(404).json({ error: 'Company registry request not found.' });
+    const currentStatus = String(requestRow.status || '').toLowerCase();
+    if (currentStatus === 'submitted') return res.json({ success: true, status: 'submitted', alreadySubmitted: true });
+    if (currentStatus !== 'draft') return res.status(400).json({ error: 'Only draft company requests can be submitted.' });
+
+    await queryAsync(
+      "UPDATE company_registry_requests SET status = 'submitted', submitted_at = NOW() WHERE id = ?",
+      [requestId]
+    );
+    logAction(req, 'SUBMIT_COMPANY_REGISTRY_REQUEST', `Request No: ${requestRow.request_no || requestId}`);
+    res.json({ success: true, status: 'submitted' });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Unable to submit company registry request.' });
+  }
+});
+
+app.put('/api/company-registry-requests/:id', protectAdmin, async (req, res) => {
+  try {
+    const actor = getAuthenticatedUser(req);
+    const requestId = Number(req.params.id || 0);
+    if (!requestId) return res.status(400).json({ error: 'Invalid request ID.' });
+    const rows = await queryAsync('SELECT * FROM company_registry_requests WHERE id = ? LIMIT 1', [requestId]);
+    const requestRow = rows?.[0];
+    if (!requestRow) return res.status(404).json({ error: 'Company registry request not found.' });
+    if (String(requestRow.status || '').toLowerCase() !== 'draft') {
+      return res.status(400).json({ error: 'Only draft company requests can be edited.' });
+    }
+    if (isStaffRole(actor?.role) && String(requestRow.requested_by_email || '') !== String(actor?.email || '')) {
+      return res.status(403).json({ error: 'You can edit your own draft requests only.' });
+    }
+    const payload = sanitizeCompanyRegistryPayload(req.body || {});
+    validateCompanyRegistryPayload(payload);
+    await queryAsync('UPDATE company_registry_requests SET payload = ? WHERE id = ?', [JSON.stringify(payload), requestId]);
+    logAction(req, 'UPDATE_COMPANY_REGISTRY_DRAFT', `Draft No: ${requestRow.request_no || requestId} | Company Name: ${payload.company_name}`);
+    res.json({ success: true, status: 'draft', request_no: requestRow.request_no });
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Unable to update company request.', field: err.field || null });
   }
 });
 
@@ -10148,30 +10335,15 @@ app.post('/api/company-registry-requests/:id/approve', protectAdminOnly, async (
     payload = sanitizeCompanyRegistryPayload(payload);
     validateCompanyRegistryPayload(payload);
     await assertCompanyRegistryPayloadUnique(payload);
-    const companyNo = payload.company_no || await generateNextCompanyNoPromise();
-    await queryAsync(`
-      INSERT INTO company_registry
-        (company_no, business_entity_id, branch_code, company_name, address, contact_person, phone, email, tin, industry, status, notes)
-      VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
-    `, [
-      companyNo,
-      payload.branch_code || '000',
-      payload.company_name,
-      payload.address || null,
-      payload.contact_person || null,
-      payload.phone || null,
-      payload.email || null,
-      payload.tin || null,
-      payload.status || 'active',
-      payload.notes || null
-    ]);
+    const companyNo = await insertApprovedCompanyRegistryFromRequest(payload);
     const approvedBy = getApprovalActorName(req);
+    const comment = getApprovalComment(req);
     await queryAsync(
-      "UPDATE company_registry_requests SET status = 'approved', approved_by = ?, approved_at = NOW(), reject_reason = NULL WHERE id = ?",
-      [approvedBy, requestId]
+      "UPDATE company_registry_requests SET status = 'approved', approved_by = ?, approved_at = NOW(), reject_reason = NULL, approval_comment = ? WHERE id = ?",
+      [approvedBy, comment || null, requestId]
     );
-    logAction(req, 'APPROVE_COMPANY_REGISTRY_REQUEST', `Request No: ${requestRow.request_no || requestId} | Company No: ${companyNo} | Company Name: ${payload.company_name}`);
-    res.json({ success: true, status: 'approved', company_no: companyNo, approved_by: approvedBy });
+    logAction(req, 'APPROVE_COMPANY_REGISTRY_REQUEST', appendApprovalComment(`Draft No: ${requestRow.request_no || requestId} | Company No: ${companyNo} | Company Name: ${payload.company_name}`, comment));
+    res.json({ success: true, status: 'approved', company_no: companyNo, request_no: requestRow.request_no, approved_by: approvedBy, approval_comment: comment });
   } catch (err) {
     res.status(400).json({ error: err.message || 'Unable to approve company registry request.', field: err.field || null });
   }
@@ -10188,8 +10360,8 @@ app.post('/api/company-registry-requests/:id/reject', protectAdminOnly, async (r
       return res.status(400).json({ error: 'Only submitted company requests can be rejected.' });
     }
     await queryAsync(
-      "UPDATE company_registry_requests SET status = 'rejected', approved_by = ?, approved_at = NOW(), reject_reason = ? WHERE id = ?",
-      [getApprovalActorName(req), reason, requestId]
+      "UPDATE company_registry_requests SET status = 'rejected', approved_by = ?, approved_at = NOW(), reject_reason = ?, approval_comment = ? WHERE id = ?",
+      [getApprovalActorName(req), reason, reason, requestId]
     );
     logAction(req, 'REJECT_COMPANY_REGISTRY_REQUEST', `Request No: ${rows[0].request_no || requestId} | Reason: ${reason}`);
     res.json({ success: true, status: 'rejected', reason });
@@ -10282,6 +10454,33 @@ async function assertVendorRegistryPayloadUnique(payload = {}) {
   throw err;
 }
 
+async function insertApprovedVendorRegistryFromRequest(payload = {}) {
+  let lastErr = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const vendorNo = await generateNextVendorNoPromise();
+    try {
+      await queryAsync(`
+        INSERT INTO vendors
+          (company_id, vendor_no, vendor_name, contact_person, email, phone, address, tin, is_active)
+        VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, TRUE)
+      `, [
+        vendorNo,
+        payload.vendor_name,
+        payload.contact_person || null,
+        payload.email || null,
+        payload.phone || null,
+        payload.address || null,
+        payload.tin || null
+      ]);
+      return vendorNo;
+    } catch (err) {
+      if (!isPostgresUniqueViolation(err)) throw err;
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error('Unable to assign a vendor number.');
+}
+
 app.get('/api/vendor-registry-requests', protectAdmin, async (req, res) => {
   try {
     const actor = getAuthenticatedUser(req);
@@ -10302,27 +10501,84 @@ app.get('/api/vendor-registry-requests', protectAdmin, async (req, res) => {
   }
 });
 
+app.get('/api/vendor-registry-requests/next-draft-no', protectAdmin, async (req, res) => {
+  try {
+    const draftNo = await generateDraftRequestNo('VND');
+    res.json({ draft_no: draftNo });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/vendor-registry-requests', protectAdmin, async (req, res) => {
   try {
     const actor = getAuthenticatedUser(req);
+    const isStaff = isStaffRole(actor?.role || '');
     const payload = sanitizeVendorRegistryPayload(req.body || {});
     validateVendorRegistryPayload(payload);
     await assertVendorRegistryPayloadUnique(payload);
-    const requestNo = generateCode('VRR');
+    const requestNo = isStaff ? await generateDraftRequestNo('VND') : generateCode('VRR');
     await queryAsync(`
       INSERT INTO vendor_registry_requests
         (request_no, payload, status, requested_by, requested_by_email, submitted_at)
-      VALUES (?, ?, 'submitted', ?, ?, NOW())
+      VALUES (?, ?, ?, ?, ?, ${isStaff ? 'NULL' : 'NOW()'})
     `, [
       requestNo,
       JSON.stringify(payload),
+      isStaff ? 'draft' : 'submitted',
       actor?.fullname || actor?.username || null,
       actor?.email || null
     ]);
-    logAction(req, 'REQUEST_VENDOR_REGISTRY', `Request No: ${requestNo} | Vendor Name: ${payload.vendor_name}`);
-    res.status(201).json({ success: true, request_no: requestNo, status: 'submitted' });
+    logAction(req, isStaff ? 'CREATE_VENDOR_REGISTRY_DRAFT' : 'REQUEST_VENDOR_REGISTRY', `${isStaff ? 'Draft' : 'Request'}: ${requestNo} | Vendor Name: ${payload.vendor_name}`);
+    res.status(201).json({ success: true, request_no: requestNo, status: isStaff ? 'draft' : 'submitted' });
   } catch (err) {
-    res.status(400).json({ error: err.message || 'Unable to submit vendor request.', field: err.field || null });
+    res.status(400).json({ error: err.message || 'Unable to create vendor request.', field: err.field || null });
+  }
+});
+
+app.post('/api/vendor-registry-requests/:id/submit', protectAdmin, async (req, res) => {
+  try {
+    const requestId = Number(req.params.id || 0);
+    if (!requestId) return res.status(400).json({ error: 'Invalid request ID.' });
+    const rows = await queryAsync('SELECT * FROM vendor_registry_requests WHERE id = ? LIMIT 1', [requestId]);
+    const requestRow = rows?.[0];
+    if (!requestRow) return res.status(404).json({ error: 'Vendor registry request not found.' });
+    const currentStatus = String(requestRow.status || '').toLowerCase();
+    if (currentStatus === 'submitted') return res.json({ success: true, status: 'submitted', alreadySubmitted: true });
+    if (currentStatus !== 'draft') return res.status(400).json({ error: 'Only draft vendor requests can be submitted.' });
+
+    await queryAsync(
+      "UPDATE vendor_registry_requests SET status = 'submitted', submitted_at = NOW() WHERE id = ?",
+      [requestId]
+    );
+    logAction(req, 'SUBMIT_VENDOR_REGISTRY_REQUEST', `Request No: ${requestRow.request_no || requestId}`);
+    res.json({ success: true, status: 'submitted' });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Unable to submit vendor registry request.' });
+  }
+});
+
+app.put('/api/vendor-registry-requests/:id', protectAdmin, async (req, res) => {
+  try {
+    const actor = getAuthenticatedUser(req);
+    const requestId = Number(req.params.id || 0);
+    if (!requestId) return res.status(400).json({ error: 'Invalid request ID.' });
+    const rows = await queryAsync('SELECT * FROM vendor_registry_requests WHERE id = ? LIMIT 1', [requestId]);
+    const requestRow = rows?.[0];
+    if (!requestRow) return res.status(404).json({ error: 'Vendor registry request not found.' });
+    if (String(requestRow.status || '').toLowerCase() !== 'draft') {
+      return res.status(400).json({ error: 'Only draft vendor requests can be edited.' });
+    }
+    if (isStaffRole(actor?.role) && String(requestRow.requested_by_email || '') !== String(actor?.email || '')) {
+      return res.status(403).json({ error: 'You can edit your own draft requests only.' });
+    }
+    const payload = sanitizeVendorRegistryPayload(req.body || {});
+    validateVendorRegistryPayload(payload);
+    await queryAsync('UPDATE vendor_registry_requests SET payload = ? WHERE id = ?', [JSON.stringify(payload), requestId]);
+    logAction(req, 'UPDATE_VENDOR_REGISTRY_DRAFT', `Draft No: ${requestRow.request_no || requestId} | Vendor Name: ${payload.vendor_name}`);
+    res.json({ success: true, status: 'draft', request_no: requestRow.request_no });
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Unable to update vendor request.', field: err.field || null });
   }
 });
 
@@ -10342,27 +10598,15 @@ app.post('/api/vendor-registry-requests/:id/approve', protectAdminOnly, async (r
     payload = sanitizeVendorRegistryPayload(payload);
     validateVendorRegistryPayload(payload);
     await assertVendorRegistryPayloadUnique(payload);
-    const vendorNo = await generateNextVendorNoPromise();
-    await queryAsync(`
-      INSERT INTO vendors
-        (company_id, vendor_no, vendor_name, contact_person, email, phone, address, tin, is_active)
-      VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, TRUE)
-    `, [
-      vendorNo,
-      payload.vendor_name,
-      payload.contact_person || null,
-      payload.email || null,
-      payload.phone || null,
-      payload.address || null,
-      payload.tin || null
-    ]);
+    const vendorNo = await insertApprovedVendorRegistryFromRequest(payload);
     const approvedBy = getApprovalActorName(req);
+    const comment = getApprovalComment(req);
     await queryAsync(
-      "UPDATE vendor_registry_requests SET status = 'approved', approved_by = ?, approved_at = NOW(), reject_reason = NULL WHERE id = ?",
-      [approvedBy, requestId]
+      "UPDATE vendor_registry_requests SET status = 'approved', approved_by = ?, approved_at = NOW(), reject_reason = NULL, approval_comment = ? WHERE id = ?",
+      [approvedBy, comment || null, requestId]
     );
-    logAction(req, 'APPROVE_VENDOR_REGISTRY_REQUEST', `Request No: ${requestRow.request_no || requestId} | Vendor No: ${vendorNo} | Vendor Name: ${payload.vendor_name}`);
-    res.json({ success: true, status: 'approved', vendor_no: vendorNo, approved_by: approvedBy });
+    logAction(req, 'APPROVE_VENDOR_REGISTRY_REQUEST', appendApprovalComment(`Draft No: ${requestRow.request_no || requestId} | Vendor No: ${vendorNo} | Vendor Name: ${payload.vendor_name}`, comment));
+    res.json({ success: true, status: 'approved', vendor_no: vendorNo, request_no: requestRow.request_no, approved_by: approvedBy, approval_comment: comment });
   } catch (err) {
     res.status(400).json({ error: err.message || 'Unable to approve vendor request.', field: err.field || null });
   }
@@ -10379,8 +10623,8 @@ app.post('/api/vendor-registry-requests/:id/reject', protectAdminOnly, async (re
       return res.status(400).json({ error: 'Only submitted vendor requests can be rejected.' });
     }
     await queryAsync(
-      "UPDATE vendor_registry_requests SET status = 'rejected', approved_by = ?, approved_at = NOW(), reject_reason = ? WHERE id = ?",
-      [getApprovalActorName(req), reason, requestId]
+      "UPDATE vendor_registry_requests SET status = 'rejected', approved_by = ?, approved_at = NOW(), reject_reason = ?, approval_comment = ? WHERE id = ?",
+      [getApprovalActorName(req), reason, reason, requestId]
     );
     logAction(req, 'REJECT_VENDOR_REGISTRY_REQUEST', `Request No: ${rows[0].request_no || requestId} | Reason: ${reason}`);
     res.json({ success: true, status: 'rejected', reason });
@@ -11932,17 +12176,18 @@ app.post('/api/bills/:id/approve', protectAdminOnly, async (req, res) => {
     }
 
     const approvedBy = getApprovalActorName(req);
+    const comment = getApprovalComment(req);
     await queryAsync(
-      "UPDATE accounts_payable SET approval_status = 'approved', approved_by = ?, approved_at = COALESCE(approved_at, NOW()) WHERE id = ?",
-      [approvedBy, billId]
+      "UPDATE accounts_payable SET approval_status = 'approved', approved_by = ?, approved_at = COALESCE(approved_at, NOW()), approval_comment = ? WHERE id = ?",
+      [approvedBy, comment || null, billId]
     );
     await syncPayableBalance(billId);
     await postApprovedBillJournal(billId);
-    logAction(req, 'APPROVE_AP_BILL', `Approved AP bill ${rows[0].bill_number || billId}`);
+    logAction(req, 'APPROVE_AP_BILL', appendApprovalComment(`Approved AP bill ${rows[0].bill_number || billId}`, comment));
     sendBackgroundNotification(() => notifyFinanceApproval(req, 'bill', billId, {
       approvedBy: getApprovalActorLabel(req)
     }), 'ap bill approved email');
-    res.json({ success: true, approval_status: 'approved', approved_by: approvedBy });
+    res.json({ success: true, approval_status: 'approved', approved_by: approvedBy, approval_comment: comment });
   } catch (err) {
     console.error('Approve AP bill error:', err);
     res.status(500).json({ error: err.message || 'Unable to approve AP bill.' });
@@ -11965,8 +12210,8 @@ app.post('/api/bills/:id/reject', protectAdminOnly, async (req, res) => {
     const actor = getApprovalActorName(req);
     const notes = [rows[0].notes, `Rejected by ${actor}: ${reason}`].filter(Boolean).join('\n');
     await queryAsync(
-      "UPDATE accounts_payable SET approval_status = 'rejected', approved_by = ?, approved_at = COALESCE(approved_at, NOW()), notes = ? WHERE id = ?",
-      [actor, notes, billId]
+      "UPDATE accounts_payable SET approval_status = 'rejected', approved_by = ?, approved_at = COALESCE(approved_at, NOW()), notes = ?, approval_comment = ? WHERE id = ?",
+      [actor, notes, reason, billId]
     );
     await syncPayableBalance(billId);
     logAction(req, 'REJECT_AP_BILL', `Rejected AP bill ${rows[0].bill_number || billId} | Reason: ${reason}`);
@@ -12104,6 +12349,9 @@ app.get('/api/inventory/products', protectAdmin, async (req, res) => {
 
 app.post('/api/inventory/products', protectAdmin, async (req, res) => {
   try {
+    if (isStaffRole(getAuthenticatedUser(req)?.role)) {
+      return res.status(403).json({ error: 'Staff must save product requests as drafts and submit them for approval.' });
+    }
     const businessEntityId = await resolveBusinessEntityId(req.body.business_entity_id);
     const sku = String(req.body.sku || '').trim();
     const productName = String(req.body.product_name || '').trim();
@@ -12152,6 +12400,9 @@ app.get('/api/inventory/warehouses', protectAdmin, async (req, res) => {
 
 app.post('/api/inventory/warehouses', protectAdmin, async (req, res) => {
   try {
+    if (isStaffRole(getAuthenticatedUser(req)?.role)) {
+      return res.status(403).json({ error: 'Staff must save warehouse requests as drafts and submit them for approval.' });
+    }
     const businessEntityId = await resolveBusinessEntityId(req.body.business_entity_id);
     const warehouseCode = String(req.body.warehouse_code || '').trim();
     const warehouseName = String(req.body.warehouse_name || '').trim();
@@ -12215,8 +12466,266 @@ app.get('/api/inventory/movements', protectAdmin, async (req, res) => {
   }
 });
 
+function normalizeInventoryRequestType(value = '') {
+  const type = String(value || '').trim().toLowerCase();
+  if (['product', 'warehouse', 'movement'].includes(type)) return type;
+  return '';
+}
+
+async function applyInventoryRequestPayload(requestType, payload = {}, req = null) {
+  const type = normalizeInventoryRequestType(requestType);
+  const businessEntityId = await resolveBusinessEntityId(payload.business_entity_id);
+
+  if (type === 'product') {
+    const sku = String(payload.sku || '').trim();
+    const productName = String(payload.product_name || '').trim();
+    if (!sku) throw new Error('SKU is required.');
+    if (!productName) throw new Error('Product name is required.');
+    const rows = await queryAsync(
+      `INSERT INTO products (business_entity_id, sku, product_name, category, unit, reorder_level, unit_cost, selling_price)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       RETURNING *`,
+      [
+        businessEntityId,
+        sku,
+        productName,
+        String(payload.category || '').trim() || null,
+        String(payload.unit || 'pcs').trim() || 'pcs',
+        Number(payload.reorder_level || 0) || 0,
+        Number(payload.unit_cost || 0) || 0,
+        Number(payload.selling_price || payload.unit_price || 0) || 0
+      ]
+    );
+    return rows[0];
+  }
+
+  if (type === 'warehouse') {
+    const warehouseCode = String(payload.warehouse_code || '').trim();
+    const warehouseName = String(payload.warehouse_name || '').trim();
+    if (!warehouseCode) throw new Error('Warehouse code is required.');
+    if (!warehouseName) throw new Error('Warehouse name is required.');
+    const rows = await queryAsync(
+      `INSERT INTO warehouses (business_entity_id, warehouse_code, warehouse_name, location)
+       VALUES (?, ?, ?, ?)
+       RETURNING *`,
+      [businessEntityId, warehouseCode, warehouseName, String(payload.location || '').trim() || null]
+    );
+    return rows[0];
+  }
+
+  if (type === 'movement') {
+    const productId = Number(payload.product_id || 0) || 0;
+    const warehouseId = Number(payload.warehouse_id || 0) || 0;
+    const projectId = Number(payload.project_id || 0) || null;
+    const movementType = String(payload.movement_type || '').trim().toLowerCase();
+    const quantity = Number(payload.quantity || 0) || 0;
+    if (!productId) throw new Error('Product is required.');
+    if (!warehouseId) throw new Error('Warehouse is required.');
+    if (!['in', 'out', 'adjustment'].includes(movementType)) throw new Error('Movement type is required.');
+    if (quantity <= 0) throw new Error('Quantity must be greater than zero.');
+
+    const [productRows, warehouseRows] = await Promise.all([
+      queryAsync('SELECT id FROM products WHERE id = ? AND business_entity_id = ? LIMIT 1', [productId, businessEntityId]),
+      queryAsync('SELECT id FROM warehouses WHERE id = ? AND business_entity_id = ? LIMIT 1', [warehouseId, businessEntityId])
+    ]);
+    if (!productRows.length) throw new Error('Selected product was not found.');
+    if (!warehouseRows.length) throw new Error('Selected warehouse was not found.');
+    if (projectId) {
+      await assertProjectAcceptsNewActivity(projectId);
+      const projectRows = await queryAsync('SELECT id FROM projects WHERE id = ? AND business_entity_id = ? LIMIT 1', [projectId, businessEntityId]);
+      if (!projectRows.length) throw new Error('Selected project was not found.');
+    }
+
+    const signedQty = movementType === 'out' ? -quantity : quantity;
+    const stockRows = await queryAsync(
+      `INSERT INTO stock (business_entity_id, product_id, warehouse_id, quantity_on_hand, updated_at)
+       VALUES (?, ?, ?, ?, NOW())
+       ON CONFLICT (product_id, warehouse_id)
+       DO UPDATE SET quantity_on_hand = stock.quantity_on_hand + EXCLUDED.quantity_on_hand, updated_at = NOW()
+       RETURNING *`,
+      [businessEntityId, productId, warehouseId, signedQty]
+    );
+    if (Number(stockRows[0]?.quantity_on_hand || 0) < 0) {
+      await queryAsync(
+        `UPDATE stock
+         SET quantity_on_hand = quantity_on_hand - ?, updated_at = NOW()
+         WHERE product_id = ? AND warehouse_id = ?`,
+        [signedQty, productId, warehouseId]
+      );
+      throw new Error('Stock cannot go below zero.');
+    }
+
+    const rows = await queryAsync(
+      `INSERT INTO stock_movements (business_entity_id, product_id, warehouse_id, movement_type, quantity, reference_type, reference_no, project_id, notes, movement_date, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       RETURNING *`,
+      [
+        businessEntityId,
+        productId,
+        warehouseId,
+        movementType,
+        quantity,
+        String(payload.reference_type || '').trim() || (projectId ? 'project_issue' : null),
+        String(payload.reference_no || '').trim() || null,
+        projectId,
+        String(payload.notes || '').trim() || null,
+        payload.movement_date || new Date().toISOString().slice(0, 10),
+        req?.session?.user?.fullname || req?.session?.user?.username || null
+      ]
+    );
+    return { movement: rows[0], stock: stockRows[0] };
+  }
+
+  throw new Error('Invalid inventory request type.');
+}
+
+app.get('/api/inventory/requests', protectAdmin, async (req, res) => {
+  try {
+    const actor = getAuthenticatedUser(req);
+    const admin = isAdminRole(actor?.role);
+    const rows = await queryAsync(`
+      SELECT *
+      FROM inventory_requests
+      ${admin ? '' : 'WHERE requested_by_email = ? OR requested_by = ?'}
+      ORDER BY COALESCE(submitted_at, created_at) DESC, id DESC
+    `, admin ? [] : [actor?.email || '', actor?.fullname || actor?.username || '']);
+    res.json((Array.isArray(rows) ? rows : []).map((row) => {
+      let payload = {};
+      try { payload = JSON.parse(row.payload || '{}'); } catch (_) {}
+      return { ...row, payload };
+    }));
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Unable to load inventory requests.' });
+  }
+});
+
+app.post('/api/inventory/requests', protectAdmin, async (req, res) => {
+  try {
+    const actor = getAuthenticatedUser(req);
+    const isStaff = isStaffRole(actor?.role || '');
+    const requestType = normalizeInventoryRequestType(req.body?.request_type);
+    if (!requestType) return res.status(400).json({ error: 'Invalid inventory request type.' });
+    const payload = { ...(req.body?.payload || {}) };
+    const requestNo = isStaff ? await generateInventoryDraftRequestNo() : generateCode('INVREQ');
+    await queryAsync(
+      `INSERT INTO inventory_requests
+        (request_no, request_type, payload, status, requested_by, requested_by_email, submitted_at)
+       VALUES (?, ?, ?, ?, ?, ?, ${isStaff ? 'NULL' : 'NOW()'})`,
+      [
+        requestNo,
+        requestType,
+        JSON.stringify(payload),
+        isStaff ? 'draft' : 'submitted',
+        actor?.fullname || actor?.username || null,
+        actor?.email || null
+      ]
+    );
+    logAction(req, isStaff ? 'CREATE_INVENTORY_DRAFT' : 'REQUEST_INVENTORY', `${isStaff ? 'Draft' : 'Request'}: ${requestNo} | Type: ${requestType}`);
+    res.status(201).json({ success: true, request_no: requestNo, status: isStaff ? 'draft' : 'submitted' });
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Unable to create inventory request.' });
+  }
+});
+
+app.post('/api/inventory/requests/:id/submit', protectAdmin, async (req, res) => {
+  try {
+    const requestId = Number(req.params.id || 0);
+    if (!requestId) return res.status(400).json({ error: 'Invalid request ID.' });
+    const rows = await queryAsync('SELECT * FROM inventory_requests WHERE id = ? LIMIT 1', [requestId]);
+    const requestRow = rows?.[0];
+    if (!requestRow) return res.status(404).json({ error: 'Inventory request not found.' });
+    const currentStatus = String(requestRow.status || '').toLowerCase();
+    if (currentStatus === 'submitted') return res.json({ success: true, status: 'submitted', alreadySubmitted: true });
+    if (currentStatus !== 'draft') return res.status(400).json({ error: 'Only draft inventory requests can be submitted.' });
+    await queryAsync("UPDATE inventory_requests SET status = 'submitted', submitted_at = NOW() WHERE id = ?", [requestId]);
+    logAction(req, 'SUBMIT_INVENTORY_REQUEST', `Request No: ${requestRow.request_no || requestId}`);
+    res.json({ success: true, status: 'submitted' });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Unable to submit inventory request.' });
+  }
+});
+
+app.put('/api/inventory/requests/:id', protectAdmin, async (req, res) => {
+  try {
+    const actor = getAuthenticatedUser(req);
+    const requestId = Number(req.params.id || 0);
+    if (!requestId) return res.status(400).json({ error: 'Invalid request ID.' });
+    const rows = await queryAsync('SELECT * FROM inventory_requests WHERE id = ? LIMIT 1', [requestId]);
+    const requestRow = rows?.[0];
+    if (!requestRow) return res.status(404).json({ error: 'Inventory request not found.' });
+    if (String(requestRow.status || '').toLowerCase() !== 'draft') {
+      return res.status(400).json({ error: 'Only draft inventory requests can be edited.' });
+    }
+    if (isStaffRole(actor?.role) && String(requestRow.requested_by_email || '') !== String(actor?.email || '')) {
+      return res.status(403).json({ error: 'You can edit your own draft requests only.' });
+    }
+    const requestType = normalizeInventoryRequestType(req.body?.request_type || requestRow.request_type);
+    if (!requestType) return res.status(400).json({ error: 'Invalid inventory request type.' });
+    const payload = { ...(req.body?.payload || {}) };
+    await queryAsync(
+      'UPDATE inventory_requests SET request_type = ?, payload = ? WHERE id = ?',
+      [requestType, JSON.stringify(payload), requestId]
+    );
+    logAction(req, 'UPDATE_INVENTORY_DRAFT', `Draft No: ${requestRow.request_no || requestId} | Type: ${requestType}`);
+    res.json({ success: true, status: 'draft', request_no: requestRow.request_no });
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Unable to update inventory request.' });
+  }
+});
+
+app.post('/api/inventory/requests/:id/approve', protectAdminOnly, async (req, res) => {
+  try {
+    const requestId = Number(req.params.id || 0);
+    if (!requestId) return res.status(400).json({ error: 'Invalid request ID.' });
+    const rows = await queryAsync('SELECT * FROM inventory_requests WHERE id = ? LIMIT 1', [requestId]);
+    const requestRow = rows?.[0];
+    if (!requestRow) return res.status(404).json({ error: 'Inventory request not found.' });
+    const currentStatus = String(requestRow.status || '').toLowerCase();
+    if (currentStatus === 'approved') return res.json({ success: true, status: 'approved', alreadyApproved: true });
+    if (currentStatus !== 'submitted') return res.status(400).json({ error: 'Only submitted inventory requests can be approved.' });
+    let payload = {};
+    try { payload = JSON.parse(requestRow.payload || '{}'); } catch (_) {}
+    const applied = await applyInventoryRequestPayload(requestRow.request_type, payload, req);
+    const approvedBy = getApprovalActorName(req);
+    const comment = getApprovalComment(req);
+    await queryAsync(
+      "UPDATE inventory_requests SET status = 'approved', approved_by = ?, approved_at = NOW(), reject_reason = NULL, approval_comment = ? WHERE id = ?",
+      [approvedBy, comment || null, requestId]
+    );
+    logAction(req, 'APPROVE_INVENTORY_REQUEST', appendApprovalComment(`Draft No: ${requestRow.request_no || requestId} | Type: ${requestRow.request_type}`, comment));
+    res.json({ success: true, status: 'approved', request_no: requestRow.request_no, approved_by: approvedBy, approval_comment: comment, applied });
+  } catch (err) {
+    const isDuplicate = String(err.message || '').toLowerCase().includes('duplicate') || String(err.code || '') === '23505';
+    res.status(isDuplicate ? 409 : 400).json({ error: isDuplicate ? 'Inventory record already exists.' : (err.message || 'Unable to approve inventory request.') });
+  }
+});
+
+app.post('/api/inventory/requests/:id/reject', protectAdminOnly, async (req, res) => {
+  try {
+    const requestId = Number(req.params.id || 0);
+    const reason = String(req.body?.reason || '').trim() || 'Rejected by admin.';
+    if (!requestId) return res.status(400).json({ error: 'Invalid request ID.' });
+    const rows = await queryAsync('SELECT request_no, status FROM inventory_requests WHERE id = ? LIMIT 1', [requestId]);
+    if (!rows?.[0]) return res.status(404).json({ error: 'Inventory request not found.' });
+    if (String(rows[0].status || '').toLowerCase() !== 'submitted') {
+      return res.status(400).json({ error: 'Only submitted inventory requests can be rejected.' });
+    }
+    await queryAsync(
+      "UPDATE inventory_requests SET status = 'rejected', approved_by = ?, approved_at = NOW(), reject_reason = ?, approval_comment = ? WHERE id = ?",
+      [getApprovalActorName(req), reason, reason, requestId]
+    );
+    logAction(req, 'REJECT_INVENTORY_REQUEST', `Request No: ${rows[0].request_no || requestId} | Reason: ${reason}`);
+    res.json({ success: true, status: 'rejected', reason });
+  } catch (err) {
+    res.status(400).json({ error: err.message || 'Unable to reject inventory request.' });
+  }
+});
+
 app.post('/api/inventory/movements', protectAdmin, async (req, res) => {
   try {
+    if (isStaffRole(getAuthenticatedUser(req)?.role)) {
+      return res.status(403).json({ error: 'Staff must save stock movement requests as drafts and submit them for approval.' });
+    }
     const businessEntityId = await resolveBusinessEntityId(req.body.business_entity_id);
     const productId = Number(req.body.product_id || 0) || 0;
     const warehouseId = Number(req.body.warehouse_id || 0) || 0;
@@ -13845,7 +14354,7 @@ app.post('/api/procurement/requisitions/:id/approve', protectAdminOnly, async (r
   if (!requisitionId) return res.status(400).json({ error: 'Requisition ID is required.' });
 
   try {
-    const rows = await queryAsync('SELECT id, pr_number, status FROM purchase_requisitions WHERE id = ? LIMIT 1', [requisitionId]);
+    const rows = await queryAsync('SELECT id, pr_number, draft_pr_number, business_entity_id, status FROM purchase_requisitions WHERE id = ? LIMIT 1', [requisitionId]);
     if (!Array.isArray(rows) || !rows.length) return res.status(404).json({ error: 'Requisition not found.' });
 
     assertStatusTransition(rows[0].status, 'approved', {
@@ -13862,11 +14371,12 @@ app.post('/api/procurement/requisitions/:id/approve', protectAdminOnly, async (r
           columnName: 'pr_number'
         })
       : rows[0].pr_number;
+    const comment = getApprovalComment(req);
     await queryAsync(
-      "UPDATE purchase_requisitions SET pr_number = ?, draft_pr_number = COALESCE(draft_pr_number, ?), status = 'approved', approved_by = COALESCE(approved_by, ?), approved_at = COALESCE(approved_at, NOW()) WHERE id = ?",
-      [officialPrNumber, rows[0].pr_number, getApprovalActorName(req), requisitionId]
+      "UPDATE purchase_requisitions SET pr_number = ?, draft_pr_number = COALESCE(draft_pr_number, ?), status = 'approved', approved_by = COALESCE(approved_by, ?), approved_at = COALESCE(approved_at, NOW()), approval_comment = ? WHERE id = ?",
+      [officialPrNumber, rows[0].pr_number, getApprovalActorName(req), comment || null, requisitionId]
     );
-    logAction(req, 'APPROVE_PURCHASE_REQUISITION', `Approved requisition ${officialPrNumber} (Draft ${rows[0].draft_pr_number || rows[0].pr_number || '-'})`);
+    logAction(req, 'APPROVE_PURCHASE_REQUISITION', appendApprovalComment(`Approved requisition ${officialPrNumber} (Draft ${rows[0].draft_pr_number || rows[0].pr_number || '-'})`, comment));
     sendBackgroundNotification(() => notifyPurchaseRequisitionRequester(req, requisitionId, 'approved', {
       approvedBy: getApprovalActorLabel(req)
     }), 'purchase requisition approved email');
@@ -13896,8 +14406,8 @@ app.post('/api/procurement/requisitions/:id/reject', protectAdminOnly, async (re
     }, 'Purchase requisition');
 
     await queryAsync(
-      "UPDATE purchase_requisitions SET status = 'draft', submitted_at = NULL, approved_by = NULL, approved_at = NULL, cancel_reason = ? WHERE id = ?",
-      [`Rejected: ${reason}`, requisitionId]
+      "UPDATE purchase_requisitions SET status = 'draft', submitted_at = NULL, approved_by = NULL, approved_at = NULL, cancel_reason = ?, approval_comment = ? WHERE id = ?",
+      [`Rejected: ${reason}`, reason, requisitionId]
     );
     logAction(req, 'REJECT_PURCHASE_REQUISITION', `Rejected requisition ${rows[0].pr_number} | Reason: ${reason}`);
     sendBackgroundNotification(() => notifyPurchaseRequisitionRequester(req, requisitionId, 'cancelled', {
@@ -14147,11 +14657,12 @@ app.post('/api/procurement/purchase-orders/:id/approve', protectAdminOnly, async
           columnName: 'po_number'
         })
       : rows[0].po_number;
+    const comment = getApprovalComment(req);
     await queryAsync(
-      "UPDATE purchase_orders SET po_number = ?, draft_po_number = COALESCE(draft_po_number, ?), status = 'approved', approved_by = ?, approved_at = COALESCE(approved_at, NOW()) WHERE id = ?",
-      [officialPoNumber, rows[0].po_number, approvedBy, poId]
+      "UPDATE purchase_orders SET po_number = ?, draft_po_number = COALESCE(draft_po_number, ?), status = 'approved', approved_by = ?, approved_at = COALESCE(approved_at, NOW()), approval_comment = ? WHERE id = ?",
+      [officialPoNumber, rows[0].po_number, approvedBy, comment || null, poId]
     );
-    logAction(req, 'APPROVE_PURCHASE_ORDER', `Approved purchase order ${officialPoNumber} (Draft ${rows[0].draft_po_number || rows[0].po_number || '-'})`);
+    logAction(req, 'APPROVE_PURCHASE_ORDER', appendApprovalComment(`Approved purchase order ${officialPoNumber} (Draft ${rows[0].draft_po_number || rows[0].po_number || '-'})`, comment));
     sendBackgroundNotification(() => notifyPurchaseOrderRequester(req, poId, 'approved', {
       approvedBy: getApprovalActorLabel(req)
     }), 'purchase order approved email');
@@ -14182,8 +14693,8 @@ app.post('/api/procurement/purchase-orders/:id/reject', protectAdminOnly, async 
     const actor = getApprovalActorName(req);
     const notes = [rows[0].notes, `Rejected by ${actor}: ${reason}`].filter(Boolean).join('\n');
     await queryAsync(
-      "UPDATE purchase_orders SET status = 'draft', submitted_at = NULL, approved_by = NULL, approved_at = NULL, notes = ? WHERE id = ?",
-      [notes, poId]
+      "UPDATE purchase_orders SET status = 'draft', submitted_at = NULL, approved_by = NULL, approved_at = NULL, notes = ?, approval_comment = ? WHERE id = ?",
+      [notes, reason, poId]
     );
     logAction(req, 'REJECT_PURCHASE_ORDER', `Rejected purchase order ${rows[0].po_number} | Reason: ${reason}`);
     sendBackgroundNotification(() => notifyPurchaseOrderRequester(req, poId, 'cancelled', {
@@ -14844,9 +15355,10 @@ app.post('/api/payments/:id/approve', protectAdminOnly, async (req, res) => {
       amount: payment.amount
     }, { excludePaymentId: paymentId });
     const approvedBy = getApprovalActorName(req);
+    const comment = getApprovalComment(req);
     await queryAsync(
-      "UPDATE payments SET approval_status = 'approved', approved_by = ?, approved_at = COALESCE(approved_at, NOW()) WHERE id = ?",
-      [approvedBy, paymentId]
+      "UPDATE payments SET approval_status = 'approved', approved_by = ?, approved_at = COALESCE(approved_at, NOW()), approval_comment = ? WHERE id = ?",
+      [approvedBy, comment || null, paymentId]
     );
 
     if (Number(payment.ap_id || 0)) {
@@ -14857,11 +15369,11 @@ app.post('/api/payments/:id/approve', protectAdminOnly, async (req, res) => {
     }
     await postApprovedPaymentJournal(paymentId);
 
-    logAction(req, 'APPROVE_PAYMENT', `Approved ${payment.payment_type || 'payment'} payment ID ${paymentId}`);
+    logAction(req, 'APPROVE_PAYMENT', appendApprovalComment(`Approved ${payment.payment_type || 'payment'} payment ID ${paymentId}`, comment));
     sendBackgroundNotification(() => notifyFinanceApproval(req, 'payment', paymentId, {
       approvedBy: getApprovalActorLabel(req)
     }), 'payment approved email');
-    res.json({ success: true, approval_status: 'approved', approved_by: approvedBy });
+    res.json({ success: true, approval_status: 'approved', approved_by: approvedBy, approval_comment: comment });
   } catch (err) {
     const validationMessage = String(err?.message || '').toLowerCase();
     if (validationMessage.includes('exceeds') || validationMessage.includes('not found')) {
@@ -14886,8 +15398,8 @@ app.post('/api/payments/:id/reject', protectAdminOnly, async (req, res) => {
     const actor = getApprovalActorName(req);
     const notes = [payment.notes, `Rejected by ${actor}: ${reason}`].filter(Boolean).join('\n');
     await queryAsync(
-      "UPDATE payments SET approval_status = 'rejected', approved_by = ?, approved_at = COALESCE(approved_at, NOW()), notes = ? WHERE id = ?",
-      [actor, notes, paymentId]
+      "UPDATE payments SET approval_status = 'rejected', approved_by = ?, approved_at = COALESCE(approved_at, NOW()), notes = ?, approval_comment = ? WHERE id = ?",
+      [actor, notes, reason, paymentId]
     );
     if (Number(payment.ap_id || 0)) await syncPayableBalance(payment.ap_id);
     if (Number(payment.ar_id || 0)) await syncReceivableBalance(payment.ar_id);
@@ -14946,6 +15458,9 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
       purchaseOrderRows,
       billRows,
       paymentRows,
+      companyRequestRows,
+      vendorRequestRows,
+      inventoryRequestRows,
       receivableRows,
       payableDueRows,
       inventoryRows,
@@ -14997,6 +15512,27 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
          FROM payments
          WHERE COALESCE(approval_status, 'approved') = 'pending'
          ORDER BY payment_date ASC, id ASC
+         LIMIT 8`
+      ).catch(() => []),
+      queryAsync(
+        `SELECT id, request_no, payload, requested_by, requested_by_email, submitted_at, created_at, status
+         FROM company_registry_requests
+         WHERE status = 'submitted'
+         ORDER BY COALESCE(submitted_at, created_at) ASC
+         LIMIT 8`
+      ).catch(() => []),
+      queryAsync(
+        `SELECT id, request_no, payload, requested_by, requested_by_email, submitted_at, created_at, status
+         FROM vendor_registry_requests
+         WHERE status = 'submitted'
+         ORDER BY COALESCE(submitted_at, created_at) ASC
+         LIMIT 8`
+      ).catch(() => []),
+      queryAsync(
+        `SELECT id, request_no, request_type, payload, requested_by, requested_by_email, submitted_at, created_at, status
+         FROM inventory_requests
+         WHERE status = 'submitted'
+         ORDER BY COALESCE(submitted_at, created_at) ASC
          LIMIT 8`
       ).catch(() => []),
       queryAsync(
@@ -15198,6 +15734,47 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
         message: 'Payment is waiting for approval.',
         meta: `Amount PHP ${Number(row.amount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`,
         date: row.payment_date || null
+      })),
+      ...(companyRequestRows || []).map((row) => {
+        let payload = {};
+        try { payload = JSON.parse(row.payload || '{}'); } catch (_) {}
+        return {
+          id: `approval-company-${row.id}`,
+          level: 'warning',
+          type: 'approval',
+          category: 'Approvals',
+          href: '/master-data?tab=requests',
+          title: row.request_no || payload.company_name || 'Company Registry Request',
+          message: 'Company registry request is waiting for approval.',
+          meta: `Requested by ${row.requested_by || row.requested_by_email || 'Staff'}`,
+          date: row.submitted_at || row.created_at || null
+        };
+      }),
+      ...(vendorRequestRows || []).map((row) => {
+        let payload = {};
+        try { payload = JSON.parse(row.payload || '{}'); } catch (_) {}
+        return {
+          id: `approval-vendor-${row.id}`,
+          level: 'warning',
+          type: 'approval',
+          category: 'Approvals',
+          href: '/master-data?tab=requests',
+          title: row.request_no || payload.vendor_name || 'Vendor Registry Request',
+          message: 'Vendor registry request is waiting for approval.',
+          meta: `Requested by ${row.requested_by || row.requested_by_email || 'Staff'}`,
+          date: row.submitted_at || row.created_at || null
+        };
+      }),
+      ...(inventoryRequestRows || []).map((row) => ({
+        id: `approval-inventory-${row.id}`,
+        level: 'warning',
+        type: 'approval',
+        category: 'Approvals',
+        href: '/inventory?tab=requests',
+        title: row.request_no || 'Inventory Request',
+        message: 'Inventory request is waiting for approval.',
+        meta: `${row.request_type || 'inventory'} requested by ${row.requested_by || row.requested_by_email || 'Staff'}`,
+        date: row.submitted_at || row.created_at || null
       }))
     ];
 
@@ -15278,11 +15855,15 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
       const staffWhere = staffTerms.length
         ? staffTerms.map(() => `(LOWER(COALESCE(requested_by, '')) LIKE ? OR LOWER(COALESCE(requested_by_email, '')) LIKE ? OR LOWER(COALESCE(submitted_by, '')) LIKE ?)`).join(' OR ')
         : '1=0';
+      const requestWhere = staffTerms.length
+        ? staffTerms.map(() => `(LOWER(COALESCE(requested_by, '')) LIKE ? OR LOWER(COALESCE(requested_by_email, '')) LIKE ?)`).join(' OR ')
+        : '1=0';
       const projectWhere = staffTerms.length
         ? staffTerms.map(() => `(LOWER(COALESCE(project_manager, '')) LIKE ? OR LOWER(COALESCE(members, '')) LIKE ? OR LOWER(COALESCE(project_members, '')) LIKE ?)`).join(' OR ')
         : '1=0';
+      const makeRequestLikeParams = () => staffTerms.flatMap((term) => [`%${term}%`, `%${term}%`]);
 
-      const [staffPrRows, staffProjectRows] = await Promise.all([
+      const [staffPrRows, staffProjectRows, staffCompanyRows, staffVendorRows, staffInventoryRows] = await Promise.all([
         queryAsync(
           `SELECT id, pr_number, requested_by, requested_by_email, submitted_by, status, cancel_reason, approved_by, approved_at, cancelled_by, cancelled_at, submitted_at, created_at
            FROM purchase_requisitions
@@ -15300,6 +15881,33 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
            ORDER BY COALESCE(approved_at, created_at) DESC
            LIMIT 12`,
           makeLikeParams(3)
+        ).catch(() => []),
+        queryAsync(
+          `SELECT id, request_no, payload, status, reject_reason, approval_comment, approved_by, approved_at, submitted_at, created_at
+           FROM company_registry_requests
+           WHERE (${requestWhere})
+             AND status IN ('approved', 'rejected')
+           ORDER BY COALESCE(approved_at, submitted_at, created_at) DESC
+           LIMIT 12`,
+          makeRequestLikeParams()
+        ).catch(() => []),
+        queryAsync(
+          `SELECT id, request_no, payload, status, reject_reason, approval_comment, approved_by, approved_at, submitted_at, created_at
+           FROM vendor_registry_requests
+           WHERE (${requestWhere})
+             AND status IN ('approved', 'rejected')
+           ORDER BY COALESCE(approved_at, submitted_at, created_at) DESC
+           LIMIT 12`,
+          makeRequestLikeParams()
+        ).catch(() => []),
+        queryAsync(
+          `SELECT id, request_no, request_type, status, reject_reason, approval_comment, approved_by, approved_at, submitted_at, created_at
+           FROM inventory_requests
+           WHERE (${requestWhere})
+             AND status IN ('approved', 'rejected')
+           ORDER BY COALESCE(approved_at, submitted_at, created_at) DESC
+           LIMIT 12`,
+          makeRequestLikeParams()
         ).catch(() => [])
       ]);
 
@@ -15332,7 +15940,46 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
             meta: needsRevision ? (row.status_reason || 'Please review admin note.') : `Reviewed by ${row.approved_by || 'Admin'}`,
             date: row.approved_at || row.created_at || null
           };
-        })
+        }),
+        ...(staffCompanyRows || []).map((row) => ({
+          id: `staff-company-${row.id}-${row.status}`,
+          level: String(row.status || '').toLowerCase() === 'rejected' ? 'warning' : 'success',
+          type: 'staff-company',
+          category: 'My Work',
+          href: '/master-data?tab=requests',
+          title: row.request_no || 'Company Registry Request',
+          message: String(row.status || '').toLowerCase() === 'rejected'
+            ? 'Company request needs revision from admin.'
+            : 'Company request approved by admin.',
+          meta: row.approval_comment || row.reject_reason || `Reviewed by ${row.approved_by || 'Admin'}`,
+          date: row.approved_at || row.submitted_at || row.created_at || null
+        })),
+        ...(staffVendorRows || []).map((row) => ({
+          id: `staff-vendor-${row.id}-${row.status}`,
+          level: String(row.status || '').toLowerCase() === 'rejected' ? 'warning' : 'success',
+          type: 'staff-vendor',
+          category: 'My Work',
+          href: '/master-data?tab=requests',
+          title: row.request_no || 'Vendor Registry Request',
+          message: String(row.status || '').toLowerCase() === 'rejected'
+            ? 'Vendor request needs revision from admin.'
+            : 'Vendor request approved by admin.',
+          meta: row.approval_comment || row.reject_reason || `Reviewed by ${row.approved_by || 'Admin'}`,
+          date: row.approved_at || row.submitted_at || row.created_at || null
+        })),
+        ...(staffInventoryRows || []).map((row) => ({
+          id: `staff-inventory-${row.id}-${row.status}`,
+          level: String(row.status || '').toLowerCase() === 'rejected' ? 'warning' : 'success',
+          type: 'staff-inventory',
+          category: 'My Work',
+          href: '/inventory?tab=requests',
+          title: row.request_no || 'Inventory Request',
+          message: String(row.status || '').toLowerCase() === 'rejected'
+            ? 'Inventory request needs revision from admin.'
+            : 'Inventory request approved by admin.',
+          meta: row.approval_comment || row.reject_reason || `${row.request_type || 'inventory'} reviewed by ${row.approved_by || 'Admin'}`,
+          date: row.approved_at || row.submitted_at || row.created_at || null
+        }))
       ];
     }
 
@@ -15515,10 +16162,8 @@ app.post('/api/projects', protectAdmin, upload.single('pdf_file'), (req, res) =>
   const actor = getAuthenticatedUser(req) || {};
   const actorRole = normalizeAccessRole(actor.role);
   const isStaffCreator = isStaffRole(actorRole);
-  const projectSubmitAction = String(req.body.project_submit_action || '').trim().toLowerCase();
-  const isProjectSubmitAction = projectSubmitAction === 'submit';
   const resolvedProjectStatus = isStaffCreator
-    ? (isProjectSubmitAction ? 'submitted' : 'draft')
+    ? 'draft'
     : 'planning';
   const resolvedProjectPriority = computeProjectPriority(resolvedPlannedEnd, actual_end_date, resolvedProjectStatus);
   const approvedBy = ['draft', 'submitted'].includes(resolvedProjectStatus) ? null : getApprovalActorName(req);
@@ -15832,7 +16477,7 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
     let resolvedProjectStatus = isStaffRole(actorRole)
       ? currentProjectStatus
       : normalizeProjectStatusForSave(status || currentProjectStatus, actual_start_date, actual_end_date, resolvedPlannedEnd);
-    if (currentProjectStatus === 'draft' || currentProjectStatus === 'submitted') {
+    if (!isStaffRole(actorRole) && (currentProjectStatus === 'draft' || currentProjectStatus === 'submitted')) {
       resolvedProjectStatus = projectSubmitAction === 'submit' ? 'submitted' : 'draft';
     }
     const resolvedProjectPriority = computeProjectPriority(resolvedPlannedEnd, actual_end_date, resolvedProjectStatus);
@@ -16182,15 +16827,16 @@ app.post('/api/projects/:id/approve', protectAdminOnly, async (req, res) => {
       || await generateNextProjectDocnoAsync(rows[0].business_entity_id || null);
     const projectArInvoiceNo = getProjectInvoiceNumber(officialProjectDocno);
     const projectApBillNo = getProjectBillNumber(officialProjectDocno);
+    const comment = getApprovalComment(req);
     await queryAsync(
-      "UPDATE projects SET project_docno = ?, project_ar_invoice_no = ?, project_ap_bill_no = ?, status = 'planning', approved_by = ?, approved_at = COALESCE(approved_at, NOW()) WHERE id = ?",
-      [officialProjectDocno, projectArInvoiceNo, projectApBillNo, approvedBy, projectId]
+      "UPDATE projects SET project_docno = ?, project_ar_invoice_no = ?, project_ap_bill_no = ?, status = 'planning', approved_by = ?, approved_at = COALESCE(approved_at, NOW()), approval_comment = ? WHERE id = ?",
+      [officialProjectDocno, projectArInvoiceNo, projectApBillNo, approvedBy, comment || null, projectId]
     );
-    logAction(req, 'APPROVE_PROJECT', `Draft No: ${rows[0].draft_docno || '-'} | Project No: ${officialProjectDocno || projectId} | Project Name: ${rows[0].project_name || ''} | Approved by ${approvedBy}`);
+    logAction(req, 'APPROVE_PROJECT', appendApprovalComment(`Draft No: ${rows[0].draft_docno || '-'} | Project No: ${officialProjectDocno || projectId} | Project Name: ${rows[0].project_name || ''} | Approved by ${approvedBy}`, comment));
     sendBackgroundNotification(() => notifyProjectRequester(req, projectId, 'approved', {
       approvedBy: getApprovalActorLabel(req)
     }), 'project approved staff email');
-    res.json({ success: true, status: 'planning', project_docno: officialProjectDocno, approved_by: approvedBy });
+    res.json({ success: true, status: 'planning', project_docno: officialProjectDocno, approved_by: approvedBy, approval_comment: comment });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Unable to approve project.' });
   }
@@ -16219,8 +16865,8 @@ app.post('/api/projects/:id/reject', protectAdminOnly, async (req, res) => {
 
     const actor = getApprovalActorName(req);
     await queryAsync(
-      "UPDATE projects SET status = 'draft', status_reason = ?, approved_by = ?, approved_at = COALESCE(approved_at, NOW()) WHERE id = ?",
-      [`Rejected by ${actor}: ${reason}`, actor, projectId]
+      "UPDATE projects SET status = 'draft', status_reason = ?, approved_by = ?, approved_at = COALESCE(approved_at, NOW()), approval_comment = ? WHERE id = ?",
+      [`Rejected by ${actor}: ${reason}`, actor, reason, projectId]
     );
     logAction(req, 'REJECT_PROJECT', `Project No: ${rows[0].project_docno || rows[0].draft_docno || projectId} | Project Name: ${rows[0].project_name || ''} | Reason: ${reason}`);
     res.json({ success: true, status: 'draft', reason });

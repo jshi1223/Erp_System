@@ -82,6 +82,10 @@ body.inventory-page .module-page-toolbar .section-back-btn {
   display: none !important;
 }
 
+[data-staff-inventory-requests][hidden] {
+  display: none !important;
+}
+
 .inventory-summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(150px, 1fr));
@@ -233,6 +237,44 @@ body.inventory-page .module-tab.active {
   color: #047857;
 }
 
+.inventory-status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 0 10px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.inventory-status-pill.status-draft {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.inventory-status-pill.status-submitted {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.inventory-status-pill.status-approved {
+  background: #dcfce7;
+  color: #047857;
+}
+
+.inventory-status-pill.status-rejected {
+  background: #fee2e2;
+  color: #b42318;
+}
+
+.inventory-muted {
+  color: var(--muted, #667085);
+  font-size: 0.8rem;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -256,6 +298,16 @@ body.inventory-page .module-tab.active {
   background: #fff;
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
   padding: 20px;
+}
+
+.inventory-confirm-card {
+  width: min(420px, 94vw);
+}
+
+.inventory-confirm-copy {
+  margin: 10px 0 18px;
+  color: var(--muted, #667085);
+  line-height: 1.5;
 }
 
 body.inventory-page .inventory-modal-card .modal-header-tight {
