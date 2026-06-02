@@ -22,7 +22,7 @@
     const path = window.location.pathname.replace(/\/+$/, '') || '/';
     let activeId = 'menu-dashboard';
 
-    if (panel === 'staff-workspace' || panel === 'project-records' || panel === 'project-ledger' || panel === 'ongoing-projects') activeId = 'menu-projects';
+    if (panel === 'project-records' || panel === 'project-ledger' || panel === 'ongoing-projects') activeId = 'menu-projects';
     else if (path === '/master-data') activeId = 'menu-company-registry';
     else if (path === '/sales-management') activeId = 'menu-sales-management';
     else if (path === '/service-operations') activeId = 'menu-service-operations';
@@ -45,9 +45,6 @@
       applyStaffRoleState();
       window.KinaadmanStaffDashboardCards?.render();
       syncStaffSidebarActive();
-      if (typeof syncStaffWorkspaceVisibility === 'function') {
-        syncStaffWorkspaceVisibility('staff');
-      }
     },
     register: function () {}
   };

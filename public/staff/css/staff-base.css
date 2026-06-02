@@ -39,18 +39,13 @@
 
 body.admin-page[data-initial-dashboard-panel="project-records"] main > .dashboard-stats,
 body.admin-page[data-initial-dashboard-panel="project-ledger"] main > .dashboard-stats,
-body.admin-page[data-initial-dashboard-panel="ongoing-projects"] main > .dashboard-stats,
-body.admin-page[data-initial-dashboard-panel="staff-workspace"] main > .dashboard-stats {
+body.admin-page[data-initial-dashboard-panel="ongoing-projects"] main > .dashboard-stats {
   display: none !important;
 }
 
 body.admin-page[data-initial-dashboard-panel="project-records"] #project-records-section,
 body.admin-page[data-initial-dashboard-panel="project-ledger"] #project-ledger-page-section,
 body.admin-page[data-initial-dashboard-panel="ongoing-projects"] #ongoing-projects-section {
-  display: block !important;
-}
-
-body.admin-page[data-initial-dashboard-panel="staff-workspace"][data-access-role="staff"] #staff-workspace {
   display: block !important;
 }
 

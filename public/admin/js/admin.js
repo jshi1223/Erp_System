@@ -17,27 +17,86 @@ function isPrivilegedRoleValue(role) {
   return ['super_admin', 'admin', 'staff'].includes(normalizeAccessRole(role));
 }
 
-function isStaffWorkspaceRoute() {
+function isStaffRoute() {
   return window.location.pathname.replace(/\/+$/, '') === '/staff';
 }
 
 function getWorkspaceHomePath() {
-  return isStaffWorkspaceRoute() || normalizeAccessRole(currentUser?.role) === 'staff'
+  return isStaffRoute() || normalizeAccessRole(currentUser?.role) === 'staff'
     ? '/staff'
     : '/admin';
 }
 
-function safeRenderStaffDashboard() {
-  if (typeof renderStaffDashboard === 'function') {
-    renderStaffDashboard();
-  }
+function getStaffIdentityTerms() {
+  const user = currentUser || {};
+  return [
+    user.fullname,
+    user.name,
+    user.username,
+    user.email
+  ]
+    .map(value => String(value || '').trim().toLowerCase())
+    .filter(value => value.length >= 3);
 }
 
-function safeUpdateStaffWorkspaceSummaryCard() {
-  if (typeof updateStaffWorkspaceSummaryCard === 'function') {
-    return updateStaffWorkspaceSummaryCard();
-  }
-  return Promise.resolve();
+function textContainsStaffTerm(value, terms = getStaffIdentityTerms()) {
+  const text = String(value || '').trim().toLowerCase();
+  if (!text || !terms.length) return false;
+  return terms.some(term => text.includes(term));
+}
+
+function isRecordOwnedByCurrentStaff(record) {
+  const userId = Number(currentUser?.id || 0) || 0;
+  if (!record) return false;
+  const ownerIds = [
+    record.created_by,
+    record.user_id,
+    record.owner_id,
+    record.assigned_to,
+    record.assigned_to_id
+  ].map(value => Number(value || 0)).filter(Boolean);
+  if (userId && ownerIds.includes(userId)) return true;
+
+  const terms = getStaffIdentityTerms();
+  return [
+    record.created_by_name,
+    record.created_by_username,
+    record.created_by_email,
+    record.assigned_to_name,
+    record.assigned_to_username,
+    record.assigned_to_email,
+    record.created_by_label,
+    record.owner_name,
+    record.assignee_name
+  ].some(value => textContainsStaffTerm(value, terms));
+}
+
+function projectAssignedToCurrentStaff(project) {
+  if (!project) return false;
+  if (isRecordOwnedByCurrentStaff(project)) return true;
+
+  const terms = getStaffIdentityTerms();
+  return [
+    project.assigned_to_name,
+    project.assigned_to_username,
+    project.assigned_to_email,
+    project.project_manager,
+    project.manager,
+    project.members,
+    project.project_members,
+    project.member_role,
+    project.project_members_2,
+    project.member_role_2,
+    project.project_members_3,
+    project.member_role_3,
+    project.source_member_name,
+    project.source_member_name_2,
+    project.source_member_name_3
+  ].some(value => textContainsStaffTerm(value, terms));
+}
+
+function projectVisibleToCurrentStaff(project) {
+  return projectAssignedToCurrentStaff(project);
 }
 
 function normalizeWorkspaceHref(href) {
@@ -182,14 +241,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     applyPermissionMatrix();
-    if (isStaffUser()) {
-      if (currentDashboardPanel === 'staff-workspace') {
-        safeRenderStaffDashboard();
-      } else {
-        safeUpdateStaffWorkspaceSummaryCard();
-      }
-    }
-
     if (document.querySelector('.stats')) {
       loadRecords();
       applyInitialAdminView(user);
@@ -234,6 +285,7 @@ document.addEventListener('DOMContentLoaded', () => {
   syncSidebarActiveLinks();
   syncBackButtonLabels();
   loadBusinessEntities();
+  updateDeployStatusCard();
 
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
@@ -259,7 +311,7 @@ function applyInitialAdminView(user) {
   const requestedTab = params.get('tab');
   const rememberedProjectWorkspaceTab = localStorage.getItem('kinaadman_projectWorkspaceTab');
   const staffView = normalizeAccessRole(user?.role) === 'staff';
-  const allowedPanels = ['home', 'project-records', 'project-ledger', 'total-projects', 'ongoing-projects', 'system-logs', 'archive-center', 'approval-center', 'staff-workspace'];
+  const allowedPanels = ['home', 'project-records', 'project-ledger', 'total-projects', 'ongoing-projects', 'system-logs', 'archive-center', 'approval-center'];
   const allowedTabs = isAdminRoleValue(user?.role) ? ['all', 'archived', 'users'] : ['all'];
   const menuByTab = {
     all: document.getElementById('menu-all'),
@@ -362,17 +414,6 @@ function applyInitialAdminView(user) {
       return;
     }
 
-    if (requestedPanel === 'staff-workspace') {
-      if (normalizeAccessRole(user?.role) === 'staff') {
-        currentProjectWorkspaceTab = 'requests';
-        localStorage.setItem('kinaadman_projectWorkspaceTab', currentProjectWorkspaceTab);
-        openDashboardPanel('project-records');
-      } else {
-        openDashboardPanel('home');
-      }
-      return;
-    }
-
     if (requestedPanel === 'ongoing-projects') {
       if (staffView) {
         currentProjectWorkspaceTab = 'projects';
@@ -443,10 +484,6 @@ function syncAdminViewUrl(panel, tab) {
       url.searchParams.set('panel', 'approval-center');
       url.searchParams.delete('tab');
       url.searchParams.delete('project_id');
-    } else if (panel === 'staff-workspace') {
-      url.searchParams.set('panel', 'staff-workspace');
-      url.searchParams.delete('tab');
-      url.searchParams.delete('project_id');
     } else if (panel === 'system-logs') {
       url.searchParams.set('panel', 'system-logs');
       url.searchParams.delete('tab');
@@ -483,8 +520,7 @@ function clearTransactionLaunchUrlParams() {
 function updateSidebarMenuState(tab) {
   const menuIdMap = {
     'archive-center': 'menu-archive-center',
-    'approval-center': 'menu-approval-center',
-    'staff-workspace': 'menu-staff-workspace'
+    'approval-center': 'menu-approval-center'
   };
   const activeMenuId = menuIdMap[tab] || `menu-${tab}`;
   document.querySelectorAll('.sidebar-link').forEach(l => {
@@ -539,12 +575,6 @@ function updateDashboardHero(panel) {
   if (panel === 'approval-center') {
     pageTitle.textContent = 'Approval Center';
     pageSub.textContent = 'Pending decisions and approval actions';
-    return;
-  }
-
-  if (panel === 'staff-workspace') {
-    pageTitle.textContent = 'Project Requests';
-    pageSub.textContent = 'Draft and submitted project requests';
     return;
   }
 
@@ -621,8 +651,7 @@ function openDashboardPanel(panel = 'home', opts = {}) {
     'ongoing-projects': document.getElementById('ongoing-projects-section'),
     'system-logs': document.getElementById('system-logs-section'),
     'archive-center': document.getElementById('archive-center-section'),
-    'approval-center': document.getElementById('approval-center'),
-    'staff-workspace': document.getElementById('staff-workspace')
+    'approval-center': document.getElementById('approval-center')
   };
 
   Object.entries(sections).forEach(([key, section]) => {
@@ -647,17 +676,12 @@ function openDashboardPanel(panel = 'home', opts = {}) {
   if (roleAccessPanel) {
     roleAccessPanel.classList.toggle('is-hidden', panel !== 'home');
   }
-  const staffWorkspace = document.getElementById('staff-workspace');
-  if (staffWorkspace) {
-    staffWorkspace.classList.toggle('is-hidden', panel !== 'staff-workspace' || !isStaffUser());
-  }
   const approvalCenter = document.getElementById('approval-center');
   if (approvalCenter) {
     approvalCenter.classList.toggle('is-hidden', panel !== 'approval-center' || !isAdminUser());
   }
   if (panel === 'home') {
     updateSidebarMenuState('dashboard');
-    if (isStaffUser()) safeUpdateStaffWorkspaceSummaryCard();
   } else if (panel === 'reports') {
     updateSidebarMenuState('reports');
   } else if (panel === 'project-records') {
@@ -674,8 +698,6 @@ function openDashboardPanel(panel = 'home', opts = {}) {
     updateSidebarMenuState('archive-center');
   } else if (panel === 'approval-center') {
     updateSidebarMenuState('approval-center');
-  } else if (panel === 'staff-workspace') {
-    updateSidebarMenuState('staff-workspace');
   }
 
   updateDashboardHero(panel);
@@ -689,8 +711,6 @@ function openDashboardPanel(panel = 'home', opts = {}) {
     loadArchiveCenter();
   } else if (panel === 'approval-center') {
     renderApprovalCenter(true);
-  } else if (panel === 'staff-workspace') {
-    safeRenderStaffDashboard();
   } else if (panel === 'project-records') {
     renderProjectWorkspace();
   } else if (panel === 'project-ledger') {
@@ -723,11 +743,6 @@ function loadProjectsDashboardData() {
         updateStats().catch((err) => {
           console.error('Dashboard stats refresh error:', err);
         });
-      }
-      if (currentDashboardPanel === 'staff-workspace') {
-        safeRenderStaffDashboard();
-      } else {
-        safeUpdateStaffWorkspaceSummaryCard();
       }
       if (currentDashboardPanel === 'project-records') {
         renderProjectWorkspace();
@@ -1640,7 +1655,7 @@ function renderProjectRecordsTable() {
   const list = getProjectWorkspaceProjects()
     .filter(project => {
       if (!isStaffUser()) return true;
-      return !['draft', 'submitted', 'rejected'].includes(String(project.status || '').trim().toLowerCase());
+      return !['draft', 'needs_revision', 'submitted', 'rejected'].includes(String(project.status || '').trim().toLowerCase());
     })
     .filter(project => {
       if (!q) return true;
@@ -1737,7 +1752,7 @@ function getProjectWorkspaceProjects({ includeArchived = false } = {}) {
     .filter((project) => {
       if (!isStaffUser()) return companyMatchesDashboardFilter(getProjectCompanyName(project));
       const status = String(project.status || '').trim().toLowerCase();
-      return status === 'draft' || status === 'submitted' || companyMatchesDashboardFilter(getProjectCompanyName(project));
+      return status === 'draft' || status === 'needs_revision' || status === 'submitted' || companyMatchesDashboardFilter(getProjectCompanyName(project));
     });
 }
 
@@ -1812,7 +1827,7 @@ function updateProjectWorkspaceSummary() {
 
   if (isStaffUser()) {
     const requestCount = getProjectWorkspaceProjects({ includeArchived: true })
-      .filter((project) => ['draft', 'submitted', 'rejected'].includes(String(project.status || '').trim().toLowerCase()))
+      .filter((project) => ['draft', 'needs_revision', 'submitted', 'rejected'].includes(String(project.status || '').trim().toLowerCase()))
       .length;
     const companyCount = new Set(metrics.projects.map((project) => getProjectCompanyName(project)).filter(Boolean)).size;
     setProjectWorkspaceSummaryCard(0, 'Requests', String(requestCount), 'Drafts and for approval');
@@ -2070,7 +2085,7 @@ function renderProjectWorkspaceDocuments() {
 function renderProjectWorkspaceRequests() {
   const query = getProjectWorkspaceQuery();
   const rows = getProjectWorkspaceProjects({ includeArchived: true })
-    .filter((project) => ['draft', 'submitted', 'rejected'].includes(String(project.status || '').trim().toLowerCase()))
+    .filter((project) => ['draft', 'needs_revision', 'submitted', 'rejected'].includes(String(project.status || '').trim().toLowerCase()))
     .filter((project) => projectWorkspaceMatchesSearch([
       project.draft_docno,
       project.project_docno,
@@ -2081,17 +2096,17 @@ function renderProjectWorkspaceRequests() {
       project.status_reason
     ], query))
     .sort((a, b) => {
-      const rank = { rejected: 0, submitted: 1, draft: 2 };
+      const rank = { needs_revision: 0, rejected: 0, submitted: 1, draft: 2 };
       const statusA = String(a.status || 'draft').toLowerCase();
       const statusB = String(b.status || 'draft').toLowerCase();
       return (rank[statusA] ?? 9) - (rank[statusB] ?? 9);
     })
     .map((project) => {
       const status = String(project.status || 'draft').toLowerCase();
-      const needsRevision = status === 'rejected' || Boolean(String(project.status_reason || '').trim());
+      const needsRevision = status === 'needs_revision' || status === 'rejected' || Boolean(String(project.status_reason || '').trim());
       const statusLabel = needsRevision ? 'Needs Revision' : (status === 'submitted' ? 'Submitted' : 'Draft');
       const statusClass = needsRevision ? 'status-rejected' : (status === 'submitted' ? 'status-submitted' : 'status-draft');
-      const canEdit = status === 'draft' || status === 'rejected';
+      const canEdit = status === 'draft' || status === 'needs_revision' || status === 'rejected';
       const docNo = project.draft_docno || project.project_docno || '-';
       return `
         <tr>
@@ -4376,6 +4391,59 @@ function isStaffUser() {
   return currentUser && normalizeAccessRole(currentUser.role) === 'staff';
 }
 
+function getAssignableStaffUsers() {
+  const rows = Array.isArray(usersDb) ? usersDb : [];
+  const staffRows = rows
+    .filter(user => normalizeAccessRole(user.role) === 'staff')
+    .filter(user => Number(user.active || 0) === 1)
+    .filter(user => String(user.approval_status || 'approved').toLowerCase() !== 'rejected')
+    .sort((a, b) => String(a.fullname || a.username || '').localeCompare(String(b.fullname || b.username || '')));
+
+  if (isStaffUser() && currentUser?.id && !staffRows.some(user => Number(user.id) === Number(currentUser.id))) {
+    staffRows.unshift({
+      id: currentUser.id,
+      fullname: currentUser.fullname,
+      username: currentUser.username,
+      email: currentUser.email,
+      role: 'staff',
+      active: 1,
+      approval_status: 'approved'
+    });
+  }
+
+  return staffRows;
+}
+
+async function ensureAssignableStaffUsersLoaded() {
+  if (isStaffUser()) return getAssignableStaffUsers();
+  if (!Array.isArray(usersDb) || !usersDb.length) {
+    await loadUsers().catch(() => []);
+  }
+  return getAssignableStaffUsers();
+}
+
+function getUserDisplayName(user = {}) {
+  return String(user.fullname || user.username || user.email || `User #${user.id || ''}`).trim();
+}
+
+function renderAssignedStaffOptions(selectedId = null) {
+  const select = document.getElementById('p-assigned-to');
+  if (!select) return;
+  const staffUsers = getAssignableStaffUsers();
+  const safeSelectedId = Number(selectedId || 0) || 0;
+  const placeholder = staffUsers.length ? '<option value="">Search/select staff...</option>' : '<option value="">No active staff users</option>';
+  select.innerHTML = placeholder + staffUsers.map(user => {
+    const id = Number(user.id || 0);
+    const label = [getUserDisplayName(user), user.email].filter(Boolean).join(' - ');
+    return `<option value="${id}"${id === safeSelectedId ? ' selected' : ''}>${escHtml(label)}</option>`;
+  }).join('');
+  if (safeSelectedId) select.value = String(safeSelectedId);
+  select.disabled = Boolean(isStaffUser());
+  select.title = isStaffUser()
+    ? 'Staff-created projects are assigned to you automatically.'
+    : 'Assigned staff sees this project in Project Records and Requests.';
+}
+
 function applyPermissionMatrix() {
   const role = normalizeAccessRole(currentUser?.role);
   const canCreateDrafts = role === 'staff' || role === 'admin' || role === 'super_admin';
@@ -4402,16 +4470,6 @@ function applyPermissionMatrix() {
     if ('disabled' in node) node.disabled = !canApproveOperations;
   });
 
-  document.querySelectorAll('[data-staff-only="1"]').forEach((node) => {
-    node.style.display = role === 'staff' ? '' : 'none';
-    node.setAttribute('aria-hidden', role === 'staff' ? 'false' : 'true');
-    if ('disabled' in node) node.disabled = role !== 'staff';
-  });
-
-  document.querySelectorAll('[data-staff-draft-note]').forEach((node) => {
-    node.style.display = role === 'staff' ? '' : 'none';
-  });
-
   document.querySelectorAll('#stat-card-company-registry, #stat-card-projects, #stat-card-service-operations, #stat-card-procurement, #stat-card-inventory').forEach((node) => {
     if (!node) return;
     if (role === 'staff') {
@@ -4434,40 +4492,19 @@ function applyPermissionMatrix() {
     node.setAttribute('aria-hidden', hideForStaff ? 'true' : 'false');
   });
 
-  const staffWorkspace = document.getElementById('staff-workspace');
-  if (staffWorkspace) {
-    staffWorkspace.classList.toggle('is-hidden', role !== 'staff' || currentDashboardPanel !== 'staff-workspace');
-  }
   const approvalCenter = document.getElementById('approval-center');
   if (approvalCenter) {
     approvalCenter.classList.toggle('is-hidden', !isAdminRoleValue(role) || currentDashboardPanel !== 'approval-center');
   }
 
-  syncStaffWorkspaceVisibility(role);
   window.KinaadmanDashboardCards?.render(role);
-  syncDashboardRoleLabels(role);
   renderRoleAccessPanel(role);
-}
-
-function syncStaffWorkspaceVisibility(roleValue = currentUser?.role) {
-  const role = normalizeAccessRole(roleValue);
-  const isStaff = role === 'staff';
-
-  const workspace = document.getElementById('staff-workspace');
-  if (workspace) {
-    workspace.classList.toggle('is-hidden', !isStaff || currentDashboardPanel !== 'staff-workspace');
-  }
 }
 
 function syncDashboardRoleLabels(roleValue = normalizeAccessRole(currentUser?.role)) {
   const role = normalizeAccessRole(roleValue || getCachedAccessRole());
   const projectLabel = document.querySelector('#stat-card-projects .stat-label');
   if (projectLabel) projectLabel.textContent = getDashboardProjectLabel(role);
-
-  const requestCardLabel = document.querySelector('.staff-summary-card[onclick*="requests"] span');
-  const requestCardMini = document.querySelector('.staff-summary-card[onclick*="requests"] small');
-  if (requestCardLabel) requestCardLabel.textContent = 'Drafts / For Approval';
-  if (requestCardMini) requestCardMini.textContent = 'Not yet in module count';
 }
 
 function renderRoleAccessPanel(roleValue = normalizeAccessRole(currentUser?.role)) {
@@ -4516,6 +4553,70 @@ function renderRoleAccessPanel(roleValue = normalizeAccessRole(currentUser?.role
   }
 }
 
+async function updateDeployStatusCard() {
+  const card = document.getElementById('deploy-status-card');
+  const label = document.getElementById('deploy-status-label');
+  const detail = document.getElementById('deploy-status-detail');
+  const list = document.getElementById('deploy-preflight-list');
+  if (!card || !label || !detail) return;
+
+  card.dataset.status = 'checking';
+  label.textContent = 'Checking...';
+  detail.textContent = 'Verifying app and database health.';
+  if (list) list.innerHTML = '';
+
+  try {
+    const res = await fetch('/healthz', { cache: 'no-store', credentials: 'same-origin' });
+    const data = await res.json().catch(() => ({}));
+    const ok = res.ok && String(data.status || '').toLowerCase() === 'ok' && String(data.database || '').toLowerCase() === 'ready';
+    card.dataset.status = ok ? 'ok' : 'degraded';
+    label.textContent = ok ? 'Ready' : 'Needs Check';
+    detail.textContent = [
+      `DB: ${data.database || 'unknown'}`,
+      `Env: ${data.environment || 'unknown'}`,
+      `Up: ${formatUptime(Number(data.uptime || 0))}`
+    ].join(' | ');
+    renderDeployPreflightList(data);
+  } catch (err) {
+    card.dataset.status = 'degraded';
+    label.textContent = 'Needs Check';
+    detail.textContent = 'Health check unavailable. Verify server and database before deploy.';
+    renderDeployPreflightList(null);
+  }
+}
+
+function renderDeployPreflightList(data) {
+  const list = document.getElementById('deploy-preflight-list');
+  if (!list) return;
+  if (!data) {
+    list.innerHTML = '<span class="preflight-item is-bad">Health check unavailable</span>';
+    return;
+  }
+
+  const checks = [
+    { label: 'Database', ok: String(data.database || '').toLowerCase() === 'ready' },
+    { label: 'Session', ok: String(data.session || '').toLowerCase() === 'configured' },
+    { label: 'JWT', ok: String(data.jwt || '').toLowerCase() === 'configured' },
+    { label: 'Email', ok: String(data.email || '').toLowerCase() === 'configured', optional: true },
+    { label: `Mode: ${data.environment || 'unknown'}`, ok: true }
+  ];
+
+  list.innerHTML = checks.map(check => {
+    const className = check.ok ? 'is-good' : (check.optional ? 'is-warn' : 'is-bad');
+    const suffix = check.ok ? 'OK' : (check.optional ? 'Optional' : 'Check');
+    return `<span class="preflight-item ${className}">${escHtml(check.label)}: ${suffix}</span>`;
+  }).join('');
+}
+
+function formatUptime(seconds = 0) {
+  const safeSeconds = Math.max(0, Number(seconds || 0));
+  const hours = Math.floor(safeSeconds / 3600);
+  const minutes = Math.floor((safeSeconds % 3600) / 60);
+  if (hours) return `${hours}h ${minutes}m`;
+  if (minutes) return `${minutes}m`;
+  return `${Math.floor(safeSeconds)}s`;
+}
+
 async function fetchJsonOrEmpty(url) {
   try {
     const res = await fetch(url, { cache: 'no-store' });
@@ -4529,11 +4630,15 @@ async function fetchJsonOrEmpty(url) {
 }
 
 function projectHiddenFromAdmin(project) {
-  return isAdminUser() && String(project?.status || '').trim().toLowerCase() === 'draft';
+  return isAdminUser() && ['draft', 'needs_revision'].includes(String(project?.status || '').trim().toLowerCase());
 }
 
 function isProjectDraft(project) {
   return String(project?.status || '').trim().toLowerCase() === 'draft';
+}
+
+function isProjectNeedsRevision(project) {
+  return String(project?.status || '').trim().toLowerCase() === 'needs_revision';
 }
 
 function isProjectSubmitted(project) {
@@ -4541,12 +4646,12 @@ function isProjectSubmitted(project) {
 }
 
 function isProjectPendingApproval(project) {
-  return isProjectDraft(project) || isProjectSubmitted(project);
+  return isProjectDraft(project) || isProjectNeedsRevision(project) || isProjectSubmitted(project);
 }
 
 function getComputedProjectPriority(project) {
   const status = String(project?.status || '').trim().toLowerCase();
-  if (status === 'draft' || status === 'submitted' || status === 'completed' || status === 'cancelled' || project?.actual_end_date) return 'low';
+  if (status === 'draft' || status === 'needs_revision' || status === 'submitted' || status === 'completed' || status === 'cancelled' || project?.actual_end_date) return 'low';
 
   const end = toDateOnly(project?.planned_end_date || project?.end_date);
   if (!end) return 'medium';
@@ -5342,7 +5447,7 @@ function setProjectRoleValue(id, value) {
   select.value = roleValue;
 }
 
-function openProjectModal(projectId = null) {
+async function openProjectModal(projectId = null) {
   editingProjectId = Number(projectId) || null;
   const modal = document.getElementById('project-modal-backdrop');
   const title = document.getElementById('project-modal-title');
@@ -5355,6 +5460,7 @@ function openProjectModal(projectId = null) {
     ? (projectsDashboardDb || []).find(entry => Number(entry.id) === Number(editingProjectId))
     : null;
   const projectData = project || {};
+  await ensureAssignableStaffUsersLoaded();
 
   if (modal) {
     modal.classList.add('open');
@@ -5391,6 +5497,8 @@ function openProjectModal(projectId = null) {
     if (projectDocNoInput) projectDocNoInput.value = String(projectData.draft_docno || projectData.project_docno || '').trim();
     populateBusinessEntitySelect('p-business-entity-id', projectData.business_entity_id || '');
     setProjectModalValue('p-project-manager', projectData.project_manager || '');
+    const selectedAssignee = Number(projectData.assigned_to || 0) || (isStaffUser() ? Number(currentUser?.id || 0) : 0);
+    renderAssignedStaffOptions(selectedAssignee);
     const statusInput = document.getElementById('p-status');
     const statusValue = isStaffUser()
       ? (project ? (projectData.status || 'draft') : 'draft')
@@ -5673,6 +5781,7 @@ function getProjectFieldNodes(fieldName) {
     project_docno: ['p-project-docno'],
     project_name: ['p-project-name'],
     project_manager: ['p-project-manager'],
+    assigned_to: ['p-assigned-to'],
     planned_start_date: ['p-planned-start-date'],
     planned_end_date: ['p-planned-end-date'],
     actual_start_date: ['p-actual-start-date'],
@@ -5743,6 +5852,7 @@ function setupProjectModalValidationListeners() {
     }],
     ['p-project-name', 'project_name', 'input'],
     ['p-project-manager', 'project_manager', 'input'],
+    ['p-assigned-to', 'assigned_to', 'change'],
     ['p-planned-start-date', 'planned_start_date', 'change'],
     ['p-planned-end-date', 'planned_end_date', 'change'],
     ['p-actual-start-date', 'actual_start_date', 'change'],
@@ -5790,11 +5900,11 @@ async function saveProject(submitAction = 'draft') {
   const actualStartDate = document.getElementById('p-actual-start-date')?.value || '';
   const actualEndDate = document.getElementById('p-actual-end-date')?.value || '';
   const currentStatus = String(existingProject?.status || '').trim().toLowerCase();
-  if (isStaffUser() && existingProject && currentStatus !== 'draft') {
+  if (isStaffUser() && existingProject && !['draft', 'needs_revision'].includes(currentStatus)) {
     setProjectModalNotice(
       currentStatus === 'submitted'
         ? 'This project is already submitted and waiting for Admin approval.'
-        : 'This project is no longer editable from the Staff workspace.'
+        : 'This project is no longer editable from the staff project records.'
     );
     showToast('Staff can only edit draft project requests.', 'error');
     return null;
@@ -5817,6 +5927,8 @@ async function saveProject(submitAction = 'draft') {
     actual_end_date: actualEndDate
   });
   const projectManager = String(document.getElementById('p-project-manager')?.value || '').trim();
+  const assignedToSelect = document.getElementById('p-assigned-to');
+  const assignedTo = Number(assignedToSelect?.value || (isStaffUser() ? currentUser?.id : 0) || 0) || 0;
   const description = String(document.getElementById('p-description')?.value || '').trim();
   const statusReason = String(document.getElementById('p-status-reason')?.value || '').trim();
   const checkNo = String(document.getElementById('p-checkno')?.value || '').trim();
@@ -5854,6 +5966,7 @@ async function saveProject(submitAction = 'draft') {
   requireProjectField('project_name', !projectName, 'Project title is required.', 'Project Title');
   requireProjectField('company', !companyId, hasCompanyOptions ? 'Type an exact company no/name, or a search with one match.' : 'No companies available yet. Please add a company in Company Registry first.', 'Company');
   requireProjectField('project_manager', !projectManager, 'Project manager is required.', 'Project Manager');
+  requireProjectField('assigned_to', !assignedTo, 'Assigned staff is required.', 'Assigned Staff');
   requireProjectField('description', !description, 'Scope / Description is required.', 'Scope / Description');
   requireProjectField('planned_start_date', !plannedStartDate, 'Start date is required.', 'Planned Start Date');
   requireProjectField('planned_end_date', !plannedEndDate, 'End date is required.', 'Planned End Date');
@@ -5873,6 +5986,7 @@ async function saveProject(submitAction = 'draft') {
       project_docno: ['p-project-docno'],
       company: ['p-company-search'],
       project_manager: ['p-project-manager'],
+      assigned_to: ['p-assigned-to'],
       description: ['p-description'],
       planned_start_date: ['p-planned-start-date'],
       planned_end_date: ['p-planned-end-date'],
@@ -5938,6 +6052,7 @@ async function saveProject(submitAction = 'draft') {
   formData.append('client_name', companyName || '');
   formData.append('description', description);
   formData.append('project_manager', projectManager);
+  formData.append('assigned_to', assignedTo || '');
   formData.append('checkno', checkNo);
   formData.append('pono', customerPoRef);
   formData.append('budget', budgetValue || 0);
@@ -8104,6 +8219,7 @@ async function updateStats() {
     .filter(project => Number(project.is_archived || 0) === 0)
     .filter(project => businessEntityMatches(project))
     .filter(project => String(project.status || '').trim().toLowerCase() !== 'draft')
+    .filter(project => String(project.status || '').trim().toLowerCase() !== 'needs_revision')
     .filter(project => String(project.status || '').trim().toLowerCase() !== 'submitted')
     .filter(project => companyMatchesDashboardFilter(getProjectCompanyName(project)));
   const totalProjectsCount = visibleProjects.filter(project => String(project.status || '').toLowerCase() !== 'cancelled').length;
@@ -8114,7 +8230,7 @@ async function updateStats() {
   }).length;
   const overdueProjectsCount = visibleProjects.filter(project => {
     const status = String(project.status || '').toLowerCase();
-    if (status === 'completed' || status === 'cancelled' || status === 'draft' || status === 'submitted') return false;
+    if (status === 'completed' || status === 'cancelled' || status === 'draft' || status === 'needs_revision' || status === 'submitted') return false;
     return getProjectPhase(project) === 'ended';
   }).length;
 
@@ -8320,14 +8436,6 @@ async function updateStats() {
     if (statApprovals) statApprovals.textContent = '0';
     if (statApprovalsMini) statApprovalsMini.textContent = 'Admin approvals only';
   }
-  if (isStaffUser()) {
-    if (currentDashboardPanel === 'staff-workspace') {
-      safeRenderStaffDashboard();
-    } else {
-      await safeUpdateStaffWorkspaceSummaryCard();
-    }
-  }
-  syncStaffWorkspaceVisibility(currentUser?.role);
   window.KinaadmanDashboardCards?.render(currentUser?.role);
   syncDashboardRoleLabels(currentUser?.role || getCachedAccessRole());
   await loadNotifications();

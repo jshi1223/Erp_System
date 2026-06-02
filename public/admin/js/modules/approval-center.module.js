@@ -3,6 +3,7 @@
 
   let currentApprovalFilter = 'all';
   let approvalCenterItems = [];
+  let currentApprovalSearch = '';
 
   function approvalStatusPending(value) {
     const status = String(value || '').trim().toLowerCase();
@@ -354,6 +355,24 @@
     renderApprovalCenter(false, true);
   }
 
+  function getApprovalSearchQuery() {
+    currentApprovalSearch = String(document.getElementById('approval-center-search-input')?.value || '').trim().toLowerCase();
+    return currentApprovalSearch;
+  }
+
+  function approvalItemMatchesSearch(item, query = getApprovalSearchQuery()) {
+    if (!query) return true;
+    return [
+      item.type,
+      item.title,
+      item.requestedBy,
+      item.date,
+      item.status,
+      item.category,
+      ...(Array.isArray(item.checklist) ? item.checklist : [])
+    ].map(value => String(value || '')).join(' ').toLowerCase().includes(query);
+  }
+
   let approvalCommentResolver = null;
 
   function closeApprovalCommentDialog(result = null) {
@@ -503,9 +522,122 @@
   function showApprovalItemTimeline(index) {
     const item = approvalCenterItems[Number(index || 0)];
     if (!item) return;
-    const timeline = item.timeline.length ? item.timeline.join('\n') : 'No timeline yet.';
-    const checklist = item.checklist.length ? item.checklist.map(row => `- ${row}`).join('\n') : '- No checklist items.';
-    window.alert(`${item.type}: ${item.title}\n\nTimeline\n${timeline}\n\nDocument / Data Checklist\n${checklist}`);
+    openApprovalTimelineModal(item);
+  }
+
+  function getApprovalMissingFields(item = {}) {
+    const checklist = Array.isArray(item.checklist) ? item.checklist : [];
+    return checklist.filter(row => /\b(missing|incomplete|invalid)\b/i.test(String(row || '')));
+  }
+
+  function getApprovalAuditTrail(item = {}) {
+    return [
+      `Type: ${item.type || '-'}`,
+      `Category: ${item.category || '-'}`,
+      `Requester: ${item.requestedBy || '-'}`,
+      `Submitted date: ${item.date || '-'}`,
+      `Current status: ${String(item.status || 'pending').replace(/_/g, ' ')}`
+    ];
+  }
+
+  function closeApprovalTimelineModal() {
+    const backdrop = document.getElementById('approval-timeline-modal-backdrop');
+    if (backdrop) {
+      backdrop.classList.remove('open');
+      backdrop.setAttribute('aria-hidden', 'true');
+    }
+  }
+
+  function ensureApprovalTimelineModal() {
+    let backdrop = document.getElementById('approval-timeline-modal-backdrop');
+    if (backdrop) return backdrop;
+    backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+    backdrop.id = 'approval-timeline-modal-backdrop';
+    backdrop.setAttribute('aria-hidden', 'true');
+    backdrop.innerHTML = `
+      <div class="modal approval-timeline-modal" role="dialog" aria-modal="true" aria-labelledby="approval-timeline-modal-title">
+        <div class="modal-header">
+          <div>
+            <div class="approval-modal-kicker" id="approval-timeline-modal-type">Approval Details</div>
+            <div class="modal-title" id="approval-timeline-modal-title">Approval Timeline</div>
+          </div>
+          <button class="modal-close" type="button" id="approval-timeline-modal-close" aria-label="Close">&times;</button>
+        </div>
+        <div class="approval-timeline-grid">
+          <section>
+            <h3>Timeline</h3>
+            <div id="approval-timeline-modal-timeline"></div>
+          </section>
+          <section>
+            <h3>Checklist</h3>
+            <div id="approval-timeline-modal-checklist"></div>
+          </section>
+          <section>
+            <h3>Missing Fields</h3>
+            <div id="approval-timeline-modal-missing"></div>
+          </section>
+          <section>
+            <h3>Audit Trail</h3>
+            <div id="approval-timeline-modal-audit"></div>
+          </section>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-cancel btn-sm" type="button" id="approval-timeline-modal-open">Open Record</button>
+          <button class="btn btn-primary btn-sm" type="button" id="approval-timeline-modal-done">Done</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(backdrop);
+    backdrop.addEventListener('click', (event) => {
+      if (event.target === event.currentTarget) closeApprovalTimelineModal();
+    });
+    backdrop.querySelector('#approval-timeline-modal-close')?.addEventListener('click', closeApprovalTimelineModal);
+    backdrop.querySelector('#approval-timeline-modal-done')?.addEventListener('click', closeApprovalTimelineModal);
+    return backdrop;
+  }
+
+  function openApprovalTimelineModal(item) {
+    const backdrop = ensureApprovalTimelineModal();
+    const type = document.getElementById('approval-timeline-modal-type');
+    const title = document.getElementById('approval-timeline-modal-title');
+    const timeline = document.getElementById('approval-timeline-modal-timeline');
+    const checklist = document.getElementById('approval-timeline-modal-checklist');
+    const missing = document.getElementById('approval-timeline-modal-missing');
+    const audit = document.getElementById('approval-timeline-modal-audit');
+    const openBtn = document.getElementById('approval-timeline-modal-open');
+    if (type) type.textContent = `${item.type} | ${String(item.status || 'pending').replace(/_/g, ' ')}`;
+    if (title) title.textContent = item.title || 'Approval Details';
+    if (timeline) {
+      const rows = item.timeline.length ? item.timeline : ['No timeline yet.'];
+      timeline.innerHTML = rows.map(row => `<div class="approval-timeline-line">${escHtml(row)}</div>`).join('');
+    }
+    if (checklist) {
+      const rows = item.checklist.length ? item.checklist : ['No checklist items.'];
+      checklist.innerHTML = rows.map(row => {
+        const bad = /\b(missing|incomplete|invalid)\b/i.test(String(row || ''));
+        return `<div class="approval-checklist-line ${bad ? 'is-warning' : 'is-ok'}">${escHtml(row)}</div>`;
+      }).join('');
+    }
+    if (missing) {
+      const rows = getApprovalMissingFields(item);
+      missing.innerHTML = rows.length
+        ? rows.map(row => `<div class="approval-missing-line">${escHtml(row)}</div>`).join('')
+        : '<div class="approval-empty-line">No missing fields detected.</div>';
+    }
+    if (audit) {
+      audit.innerHTML = getApprovalAuditTrail(item)
+        .map(row => `<div class="approval-audit-line">${escHtml(row)}</div>`)
+        .join('');
+    }
+    if (openBtn) {
+      openBtn.onclick = () => {
+        closeApprovalTimelineModal();
+        navigateDashboardCard(item.url);
+      };
+    }
+    backdrop.classList.add('open');
+    backdrop.setAttribute('aria-hidden', 'false');
   }
 
   function getApprovalSlaState(dateValue) {
@@ -518,6 +650,25 @@
     if (diffDays < 0) return { label: 'Overdue', className: 'status-overdue' };
     if (diffDays === 0) return { label: 'Due today', className: 'status-pending' };
     return { label: 'Within SLA', className: 'status-approved' };
+  }
+
+  function getApprovalStatusClass(statusValue) {
+    const status = String(statusValue || '').trim().toLowerCase().replace(/\s+/g, '_');
+    if (['submitted', 'pending', 'for_approval'].includes(status)) return 'status-submitted';
+    if (status === 'needs_revision') return 'status-needs-revision';
+    if (status === 'approved') return 'status-approved';
+    if (status === 'rejected') return 'status-cancelled';
+    return 'status-pending';
+  }
+
+  function getApprovalActionNeeded(item = {}) {
+    const checklist = Array.isArray(item.checklist) ? item.checklist : [];
+    const issue = checklist.find(row => /\b(missing|incomplete|invalid)\b/i.test(String(row || '')));
+    if (issue) return issue;
+    if (item.category === 'users') return 'Confirm role, identity, and account access.';
+    if (item.category === 'finance') return 'Review amount, reference, and linked records.';
+    if (item.category === 'projects') return 'Review scope, company, dates, and assigned staff.';
+    return 'Review document details before approving or returning for revision.';
   }
 
   async function renderApprovalCenter(force = false, useCache = false) {
@@ -560,25 +711,45 @@
     };
     if (subtitle) subtitle.textContent = subtitleMap[currentApprovalFilter] || subtitleMap.all;
 
+    const query = getApprovalSearchQuery();
     const visibleItems = items
       .map((item, index) => ({ ...item, index }))
-      .filter(item => currentApprovalFilter === 'all' || item.category === currentApprovalFilter);
+      .filter(item => currentApprovalFilter === 'all' || item.category === currentApprovalFilter)
+      .filter(item => approvalItemMatchesSearch(item, query));
     const tbody = document.getElementById('approval-center-body');
     if (!tbody) return;
     if (!visibleItems.length) {
-      tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No pending approvals for this view.</td></tr>';
+      tbody.innerHTML = `
+        <tr class="empty-row">
+          <td colspan="6">
+            <div class="approval-empty-state">
+              <strong>Approval queue is clear.</strong>
+              <span>${query ? 'No approvals match your search.' : 'No pending approvals for this view.'}</span>
+              <button class="btn btn-cancel btn-sm" type="button" onclick="renderApprovalCenter(true)">Refresh</button>
+            </div>
+          </td>
+        </tr>
+      `;
       return;
     }
 
     tbody.innerHTML = visibleItems.map((item) => {
       const sla = getApprovalSlaState(item.date);
+      const statusClass = getApprovalStatusClass(item.status);
+      const actionNeeded = getApprovalActionNeeded(item);
       return `
         <tr>
           <td>${escHtml(item.type)}</td>
-          <td>${escHtml(item.title)}</td>
-          <td>${escHtml(item.requestedBy)}</td>
+          <td>
+            <strong>${escHtml(item.title)}</strong>
+            <div class="approval-row-note">${escHtml(actionNeeded)}</div>
+          </td>
+          <td>
+            ${escHtml(item.requestedBy)}
+            <div class="approval-row-note">${escHtml(item.category)}</div>
+          </td>
           <td>${escHtml(item.date)}<div style="margin-top:4px;"><span class="status-pill ${escHtml(sla.className)}">${escHtml(sla.label)}</span></div></td>
-          <td><span class="status-pill status-submitted">${escHtml(String(item.status || 'pending').replace(/_/g, ' '))}</span></td>
+          <td><span class="status-pill ${escHtml(statusClass)}">${escHtml(String(item.status || 'pending').replace(/_/g, ' '))}</span></td>
           <td class="text-center">
             <button class="btn btn-add btn-sm" type="button" onclick="approveApprovalItem(${Number(item.index)})">Approve</button>
             <button class="btn btn-delete btn-sm" type="button" onclick="rejectApprovalItem(${Number(item.index)})">Reject</button>
@@ -601,13 +772,22 @@
     syncApprovalSidebarBadge,
     updateApprovalCenterSummaryCard,
     filterApprovalCenter,
+    getApprovalSearchQuery,
+    approvalItemMatchesSearch,
     postApprovalCenterAction,
     openApprovalCommentDialog,
     closeApprovalCommentDialog,
     approveApprovalItem,
     rejectApprovalItem,
     showApprovalItemTimeline,
+    getApprovalMissingFields,
+    getApprovalAuditTrail,
+    closeApprovalTimelineModal,
+    ensureApprovalTimelineModal,
+    openApprovalTimelineModal,
     getApprovalSlaState,
+    getApprovalStatusClass,
+    getApprovalActionNeeded,
     renderApprovalCenter
   });
 })();

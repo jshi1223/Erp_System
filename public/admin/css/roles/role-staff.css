@@ -1,9 +1,0 @@
-/* Legacy staff role hook.
-   Staff-owned layout now lives in /staff/css/staff.css. This file is kept
-   intentionally tiny so old cache references do not hide admin markup. */
-
-html[data-access-role="staff"],
-body[data-access-role="staff"],
-body.is-staff-role {
-  --active-role: staff;
-}

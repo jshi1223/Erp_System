@@ -10,7 +10,7 @@ const BROWSER_PATHS = [
   'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe'
 ];
 
-const BASE_URL = 'http://localhost:3000';
+const BASE_URL = process.env.KVSK_DOCS_BASE_URL || 'http://localhost:3000';
 const DEBUG_PORT = 9222;
 const VIEWPORT = { width: 1920, height: 1080, deviceScaleFactor: 1 };
 const LOGIN_USERNAME = process.env.KVSK_DOCS_LOGIN_USER || 'admin';
@@ -21,7 +21,7 @@ const screenshots = [
   { file: '02-projects.png', url: `${BASE_URL}/admin?panel=project-records`, waitFor: '#project-records-section' },
   { file: '03-ongoing-projects.png', url: `${BASE_URL}/admin?view=ongoing-projects`, waitFor: '#ongoing-projects-body' },
   { file: '04-project-transactions.png', url: `${BASE_URL}/admin?view=all`, waitFor: '#table-body' },
-  { file: '05-service-orders.png', url: `${BASE_URL}/admin?panel=service-orders`, waitFor: '#service-orders-section' },
+  { file: '05-service-orders.png', url: `${BASE_URL}/service-operations`, waitFor: '#accounts-receivable-page, .accounts-receivable-page' },
   { file: '06-ap-purchasing.png', url: `${BASE_URL}/accounts-payable?tab=purchase-orders`, waitFor: '#ap-purchasing-root' },
   { file: '07-accounts-payable.png', url: `${BASE_URL}/accounts-payable`, waitFor: '#accounts-payable-page, .accounts-payable-page' },
   { file: '08-accounts-receivable.png', url: `${BASE_URL}/accounts-receivable`, waitFor: '#accounts-receivable-page, .accounts-receivable-page' },

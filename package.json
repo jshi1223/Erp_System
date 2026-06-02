@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "test": "node test/run-tests.js",
-    "check": "node --check server.js && node --check public/admin/admin.js && node --check public/accounts-payable/accounts-payable.js && node --check public/accounts-payable/ap-purchasing.js && node --check public/accounts-receivable/accounts-receivable.js && node --check public/company/company.js && node --check public/inventory/inventory.js && node --check public/reports/reports.js && node --check public/user-index/user-index.js && node --check public/login/login.js && node --check public/reset-password/reset-password.js && node --check public/assets/js/auth-guard.js && node --check public/assets/js/erp-core.js",
+    "check": "node --check server.js && node --check public/admin/js/admin.js && node --check public/accounts-payable/accounts-payable.js && node --check public/accounts-payable/ap-purchasing.js && node --check public/accounts-receivable/accounts-receivable.js && node --check public/company/company.js && node --check public/inventory/inventory.js && node --check public/reports/reports.js && node --check public/user-index/user-index.js && node --check public/login/login.js && node --check public/reset-password/reset-password.js && node --check public/assets/js/auth-guard.js && node --check public/assets/js/erp-core.js",
     "predeploy": "npm test && npm run check",
     "start": "node server.js",
     "render:start": "npm run postgres:migrate && npm start",

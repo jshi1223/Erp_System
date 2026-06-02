@@ -127,6 +127,12 @@
         <p id="role-access-summary">Loading permissions...</p>
       </div>
       <div class="role-access-chips" id="role-access-chips" aria-label="Allowed capabilities"></div>
+      <div class="deploy-status-card" id="deploy-status-card" aria-live="polite">
+        <span>Deploy Status</span>
+        <strong id="deploy-status-label">Checking...</strong>
+        <small id="deploy-status-detail">Verifying app and database health.</small>
+        <div class="deploy-preflight-list" id="deploy-preflight-list" aria-label="Deploy preflight checks"></div>
+      </div>
     </section>
     <script>
       (function () {
@@ -344,6 +350,9 @@
           <div>
             <strong>Approval Queue</strong>
             <span id="approval-center-subtitle">Showing all pending approvals</span>
+          </div>
+          <div class="search-wrap approval-search-wrap">
+            <input id="approval-center-search-input" type="text" placeholder="Search approvals..." oninput="renderApprovalCenter(false, true)">
           </div>
         </div>
         <div class="table-wrap approval-table-wrap">
@@ -1124,6 +1133,11 @@
             <div class="project-field-message is-hidden" data-project-field-message="project_manager" aria-live="polite"></div>
           </div>
           <div class="field">
+            <label data-label-base="Assigned Staff">Assigned Staff<span class="field-label-status is-required">Required</span></label>
+            <select id="p-assigned-to" required aria-required="true"></select>
+            <div class="project-field-message is-hidden" data-project-field-message="assigned_to" aria-live="polite"></div>
+          </div>
+          <div class="field">
             <label data-label-base="Status">Status<span class="field-label-status is-required">Required</span></label>
             <select id="p-status" required aria-required="true">
               <option value="draft">Draft / For Approval</option>
@@ -1742,8 +1756,6 @@
 <script src="/admin/js/dashboard-cards/role-dashboard-admin.js?v=20260531a"></script>
 <script src="/admin/js/dashboard-cards/role-dashboard-super-admin.js?v=20260531a"></script>
 <script src="/admin/js/roles/role-flow.js?v=20260531c"></script>
-<script src="/admin/js/roles/role-admin-flow.js?v=20260531a"></script>
-<script src="/admin/js/roles/role-super-admin-flow.js?v=20260531a"></script>
 <script src="/admin/js/modules/notifications.module.js?v=20260531a"></script>
 <script src="/admin/js/admin.js?v=20260601h"></script>
 <script src="/admin/js/modules/approval-center.module.js?v=20260601a"></script>

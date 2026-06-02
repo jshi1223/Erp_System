@@ -28,11 +28,6 @@
         dashboardCardTemplates.set(card.id, card.cloneNode(true));
       }
     });
-    const staffTemplate = document.getElementById('staff-workspace-card-template');
-    const staffCard = staffTemplate?.content?.firstElementChild?.cloneNode(true);
-    if (staffCard?.id && !dashboardCardTemplates.has(staffCard.id)) {
-      dashboardCardTemplates.set(staffCard.id, staffCard);
-    }
   }
 
   function getRoleCardStore(role) {
@@ -40,22 +35,6 @@
       roleDashboardCardStores.set(role, new Map());
     }
     return roleDashboardCardStores.get(role);
-  }
-
-  function createStaffWorkspaceCard() {
-    const card = document.createElement('div');
-    card.className = 'stat-card stat-card-warning stat-card-link';
-    card.id = 'stat-card-staff-workspace';
-    card.setAttribute('onclick', 'openStaffWorkspaceFromDashboard()');
-    card.innerHTML = [
-      '<div class="stat-icon" aria-hidden="true">',
-        '<svg viewBox="0 0 24 24"><path d="M7 7h10M7 12h10M7 17h6"></path><rect x="5" y="4" width="14" height="16" rx="2"></rect></svg>',
-      '</div>',
-      '<div class="stat-label">Staff Workspace</div>',
-      '<div class="stat-val gold" id="stat-staff-workspace">0</div>',
-      '<div class="stat-mini" id="stat-staff-workspace-mini">My requests and assigned work</div>'
-    ].join('');
-    return card;
   }
 
   function renderRoleDashboardCards(roleValue) {
@@ -91,13 +70,10 @@
         let card = existingCards.get(id) || roleStore.get(id);
         if (!card) {
           const template = dashboardCardTemplates.get(id) || document.getElementById(id)?.cloneNode(true);
-          card = template ? template.cloneNode(true) : (id === 'stat-card-staff-workspace' ? createStaffWorkspaceCard() : null);
+          card = template ? template.cloneNode(true) : null;
           if (card) roleStore.set(id, card);
         }
         if (!card) return null;
-        if (id === 'stat-card-staff-workspace' && role === 'staff') {
-          delete card.dataset.staffOnly;
-        }
         card.style.setProperty('display', 'grid', 'important');
         card.style.setProperty('visibility', 'visible', 'important');
         card.style.setProperty('grid-column', 'auto', 'important');

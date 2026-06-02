@@ -22,7 +22,6 @@
     var view = String(params.get('view') || '').trim();
     var initialPanel = 'home';
     if (panel === 'project-records' || view === 'all' || view === 'project-records' || panel === 'project-ledger' || panel === 'ongoing-projects' || view === 'ongoing' || view === 'ongoing-projects') initialPanel = 'project-records';
-    else if (panel === 'staff-workspace') initialPanel = 'project-records';
     try {
       document.documentElement.dataset.accessRole = 'staff';
       document.body.dataset.accessRole = 'staff';
@@ -677,6 +676,11 @@
             <div class="project-field-message is-hidden" data-project-field-message="project_manager" aria-live="polite"></div>
           </div>
           <div class="field">
+            <label data-label-base="Assigned Staff">Assigned Staff<span class="field-label-status is-required">Required</span></label>
+            <select id="p-assigned-to" required aria-required="true"></select>
+            <div class="project-field-message is-hidden" data-project-field-message="assigned_to" aria-live="polite"></div>
+          </div>
+          <div class="field">
             <label data-label-base="Status">Status<span class="field-label-status is-required">Required</span></label>
             <select id="p-status" required aria-required="true">
               <option value="draft">Draft</option>
@@ -899,7 +903,6 @@
 <script src="/staff/js/staff-dashboard-cards.js?v=20260601c"></script>
 <script src="/staff/js/staff-page.js?v=20260601c"></script>
 <script src="/admin/js/admin.js?v=20260601h"></script>
-<script src="/staff/js/staff-workspace.js?v=20260601b"></script>
 
 
 

@@ -1302,14 +1302,93 @@ function isStaffRole(role) {
   return normalizeAccessRole(role) === 'staff';
 }
 
+function getActorIdentityTerms(actor = {}) {
+  return [actor.fullname, actor.username, actor.email]
+    .map(value => String(value || '').trim().toLowerCase())
+    .filter(value => value.length >= 3);
+}
+
+function valueMatchesActorIdentity(value, terms = []) {
+  const text = String(value || '').trim().toLowerCase();
+  if (!text || !terms.length) return false;
+  return terms.some(term => text === term || text.includes(term));
+}
+
+function projectRowMatchesStaffActor(row = {}, actor = {}) {
+  const actorId = Number(actor.id || 0) || 0;
+  if (actorId) {
+    const ownerIds = [row.created_by, row.assigned_to]
+      .map(value => Number(value || 0))
+      .filter(Boolean);
+    if (ownerIds.includes(actorId)) return true;
+  }
+
+  const terms = getActorIdentityTerms(actor);
+  return [
+    row.project_manager,
+    row.members,
+    row.project_members,
+    row.project_members_2,
+    row.project_members_3,
+    row.created_by_name,
+    row.created_by_username,
+    row.created_by_email,
+    row.assigned_to_name,
+    row.assigned_to_username,
+    row.assigned_to_email
+  ].some(value => valueMatchesActorIdentity(value, terms));
+}
+
+function requisitionRowMatchesStaffActor(row = {}, actor = {}) {
+  if (projectRowMatchesStaffActor(row, actor)) return true;
+  const terms = getActorIdentityTerms(actor);
+  return [
+    row.requested_by,
+    row.requested_by_email,
+    row.submitted_by,
+    row.department
+  ].some(value => valueMatchesActorIdentity(value, terms));
+}
+
+function sendStaffRecordAccessDenied(res, label = 'record') {
+  return res.status(404).json({ error: `${label} not found.` });
+}
+
+async function resolveProjectAssignedStaffId(req, requestedAssignedTo = null) {
+  const actor = getAuthenticatedUser(req) || {};
+  if (isStaffRole(actor.role)) return Number(actor.id || 0) || null;
+
+  const assignedTo = Number(requestedAssignedTo || 0) || 0;
+  if (!assignedTo) {
+    const err = new Error('Assigned staff is required for admin-created projects.');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const rows = await queryAsync(
+    `SELECT id, role, active, COALESCE(NULLIF(approval_status, ''), 'approved') AS approval_status
+     FROM users
+     WHERE id = ?
+     LIMIT 1`,
+    [assignedTo]
+  );
+  const user = rows?.[0];
+  if (!user || !isStaffRole(user.role) || Number(user.active || 0) !== 1 || String(user.approval_status || 'approved').toLowerCase() !== 'approved') {
+    const err = new Error('Assigned staff must be an active approved staff user.');
+    err.statusCode = 400;
+    throw err;
+  }
+  return assignedTo;
+}
+
 function normalizeProjectStatusForSave(status, actualStartDate = null, actualEndDate = null, plannedEndDate = null) {
   const requestedStatus = String(status || '').trim().toLowerCase();
-  const allowedProjectStatuses = new Set(['draft', 'submitted', 'planning', 'active', 'on_hold', 'completed', 'cancelled', 'overdue']);
+  const allowedProjectStatuses = new Set(['draft', 'needs_revision', 'submitted', 'planning', 'active', 'on_hold', 'completed', 'cancelled', 'overdue']);
   const safeStatus = allowedProjectStatuses.has(requestedStatus) ? requestedStatus : 'planning';
   const hasActualStart = Boolean(String(actualStartDate || '').trim());
   const hasActualEnd = Boolean(String(actualEndDate || '').trim());
 
-  if (safeStatus === 'draft' || safeStatus === 'submitted' || safeStatus === 'cancelled' || safeStatus === 'on_hold') return safeStatus;
+  if (safeStatus === 'draft' || safeStatus === 'needs_revision' || safeStatus === 'submitted' || safeStatus === 'cancelled' || safeStatus === 'on_hold') return safeStatus;
   if (hasActualEnd) return 'completed';
   const plannedEnd = new Date(String(plannedEndDate || '').slice(0, 10));
   if (!Number.isNaN(plannedEnd.getTime())) {
@@ -1325,7 +1404,7 @@ function normalizeProjectStatusForSave(status, actualStartDate = null, actualEnd
 
 function computeProjectPriority(plannedEndDate = null, actualEndDate = null, status = '') {
   const safeStatus = String(status || '').trim().toLowerCase();
-  if (safeStatus === 'draft' || safeStatus === 'submitted' || safeStatus === 'completed' || safeStatus === 'cancelled' || actualEndDate) return 'low';
+  if (safeStatus === 'draft' || safeStatus === 'needs_revision' || safeStatus === 'submitted' || safeStatus === 'completed' || safeStatus === 'cancelled' || actualEndDate) return 'low';
 
   const end = new Date(String(plannedEndDate || '').slice(0, 10));
   if (Number.isNaN(end.getTime())) return 'medium';
@@ -1343,7 +1422,7 @@ function computeProjectPriority(plannedEndDate = null, actualEndDate = null, sta
 }
 
 function isProjectAwaitingApprovalStatus(status = '') {
-  return ['draft', 'submitted'].includes(String(status || '').trim().toLowerCase());
+  return ['draft', 'needs_revision', 'submitted'].includes(String(status || '').trim().toLowerCase());
 }
 
 function getProjectAwaitingApprovalMessage(activity = 'creating new activity') {
@@ -2111,7 +2190,7 @@ app.use((req, res, next) => {
         return sendAdminWorkspacePage(req, res);
       }
       if (requestPath === '/staff/index.html') {
-        return sendStaffWorkspacePage(req, res);
+        return sendStaffPage(req, res);
       }
       next();
     });
@@ -3319,7 +3398,7 @@ function initApp() {
         project_docno = NULL,
         project_ar_invoice_no = NULL,
         project_ap_bill_no = NULL
-    WHERE LOWER(COALESCE(status, '')) IN ('draft', 'submitted')
+    WHERE LOWER(COALESCE(status, '')) IN ('draft', 'needs_revision', 'submitted')
       AND draft_docno IS NULL
       AND project_docno IS NOT NULL
   `, (err) => {
@@ -7708,7 +7787,11 @@ app.get('/healthz', (req, res) => {
     status: 'ok',
     uptime: Math.floor(process.uptime()),
     environment: process.env.NODE_ENV || 'development',
-    database: db ? 'ready' : 'initializing'
+    database: db ? 'ready' : 'initializing',
+    email: hasEmailConfig || RESEND_API_KEY ? 'configured' : 'missing',
+    session: sessionSecret ? 'configured' : 'missing',
+    jwt: jwtSecret ? 'configured' : 'missing',
+    registration: allowPublicRegistration ? 'public' : 'restricted'
   };
 
   if (!db) {
@@ -8257,7 +8340,7 @@ function sendAdminWorkspacePage(req, res) {
   res.sendFile(path.join(__dirname, 'public', 'admin', 'index.html'));
 }
 
-function sendStaffWorkspacePage(req, res) {
+function sendStaffPage(req, res) {
   noCache(res);
   res.sendFile(path.join(__dirname, 'public', 'staff', 'index.html'));
 }
@@ -8267,7 +8350,7 @@ app.get('/admin', protectAdminOnly, (req, res) => {
 });
 
 app.get('/staff', protectStaffOnly, (req, res) => {
-  sendStaffWorkspacePage(req, res);
+  sendStaffPage(req, res);
 });
 
 app.get('/accounts-payable', protectAdmin, handleAccountsPayablePage);
@@ -9851,7 +9934,7 @@ app.get('/api/archive-center', protectAdminOnly, async (req, res) => {
         FROM projects p
         LEFT JOIN company_registry c ON c.id = p.company_id
         WHERE COALESCE(p.is_archived, FALSE) = TRUE
-          AND LOWER(COALESCE(p.status, '')) <> 'draft'
+          AND LOWER(COALESCE(p.status, '')) NOT IN ('draft', 'needs_revision')
         ORDER BY COALESCE(p.archived_at, p.created_at) DESC, p.id DESC
       `),
       queryAsync(`
@@ -11151,8 +11234,8 @@ app.get('/api/company-registry/:id/overview', protectAdmin, async (req, res) => 
   try {
     const actor = getAuthenticatedUser(req) || {};
     const hideDraftRecords = isAdminRole(actor.role);
-    const projectVisibleCondition = hideDraftRecords ? " AND LOWER(COALESCE(status, '')) <> 'draft'" : '';
-    const projectVisibleConditionWithAlias = hideDraftRecords ? " AND LOWER(COALESCE(p.status, '')) <> 'draft'" : '';
+    const projectVisibleCondition = hideDraftRecords ? " AND LOWER(COALESCE(status, '')) NOT IN ('draft', 'needs_revision')" : '';
+    const projectVisibleConditionWithAlias = hideDraftRecords ? " AND LOWER(COALESCE(p.status, '')) NOT IN ('draft', 'needs_revision')" : '';
     const purchaseOrderVisibleCondition = hideDraftRecords ? " AND LOWER(COALESCE(status, 'draft')) <> 'draft'" : '';
     const [companyRows, countRows, recentProjects, recentServiceOrders, vendorRows] = await Promise.all([
       queryAsync(
@@ -12953,7 +13036,36 @@ app.get('/api/procurement/requisitions', protectAdmin, async (req, res) => {
   try {
     const actor = getAuthenticatedUser(req) || {};
     const conditions = [];
+    const params = [];
     if (isAdminRole(actor.role)) conditions.push("LOWER(COALESCE(r.status, 'draft')) <> 'draft'");
+    if (isStaffRole(actor.role)) {
+      const staffTerms = [actor.fullname, actor.username, actor.email]
+        .map(value => String(value || '').trim().toLowerCase())
+        .filter(value => value.length >= 3);
+      const staffClauses = [];
+      staffTerms.forEach((term) => {
+        const like = `%${term}%`;
+        staffClauses.push(`(
+          LOWER(COALESCE(r.requested_by, '')) LIKE ?
+          OR LOWER(COALESCE(r.requested_by_email, '')) LIKE ?
+          OR LOWER(COALESCE(r.submitted_by, '')) LIKE ?
+          OR LOWER(COALESCE(p.project_manager, '')) LIKE ?
+          OR LOWER(COALESCE(p.members, '')) LIKE ?
+          OR LOWER(COALESCE(p.project_members, '')) LIKE ?
+          OR LOWER(COALESCE(p.project_members_2, '')) LIKE ?
+          OR LOWER(COALESCE(p.project_members_3, '')) LIKE ?
+        )`);
+        params.push(like, like, like, like, like, like, like, like);
+      });
+      const actorId = Number(actor.id || 0) || 0;
+      if (actorId) {
+        staffClauses.push('p.created_by = ?');
+        params.push(actorId);
+        staffClauses.push('p.assigned_to = ?');
+        params.push(actorId);
+      }
+      conditions.push(staffClauses.length ? `(${staffClauses.join(' OR ')})` : '1=0');
+    }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const [requisitions, items] = await Promise.all([
       queryAsync(`
@@ -12974,7 +13086,7 @@ app.get('/api/procurement/requisitions', protectAdmin, async (req, res) => {
         LEFT JOIN projects p ON p.id = r.project_id
         ${where}
         ORDER BY r.request_date DESC, r.id DESC
-      `),
+      `, params),
       queryAsync(`
         SELECT *
         FROM purchase_requisition_items
@@ -13340,7 +13452,7 @@ function normalizeProcurementWorkflowStatus(status) {
 
 function procurementRequisitionIsLocked(status) {
   const normalizedStatus = normalizeProcurementWorkflowStatus(status || 'draft') || 'draft';
-  return normalizedStatus !== 'draft';
+  return !['draft', 'needs_revision'].includes(normalizedStatus);
 }
 
 function resolveProcurementStatusForActor(req, requestedStatus, {
@@ -13500,7 +13612,11 @@ async function resolvePurchaseOrderProjectContext(projectId = 0, companyId = 0) 
   if (!normalizedProjectId) return null;
 
   const rows = await queryAsync(
-    'SELECT id, project_docno, project_name, business_entity_id, company_id, status, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ? LIMIT 1',
+    `SELECT id, project_docno, project_name, business_entity_id, company_id, status,
+            created_by, assigned_to, project_manager, members,
+            project_members, project_members_2, project_members_3,
+            COALESCE(is_archived, FALSE) AS is_archived
+     FROM projects WHERE id = ? LIMIT 1`,
     [normalizedProjectId]
   );
   if (!Array.isArray(rows) || !rows.length) {
@@ -13978,9 +14094,21 @@ app.put('/api/procurement/requisitions/:id', protectAdmin, async (req, res) => {
   }
 
   try {
-    const requisitionRows = await queryAsync('SELECT id, status, requested_by_email FROM purchase_requisitions WHERE id = ? LIMIT 1', [requisitionId]);
+    const requisitionRows = await queryAsync(`
+      SELECT r.id, r.status, r.requested_by, r.requested_by_email, r.submitted_by, r.department,
+             p.created_by, p.assigned_to, p.project_manager, p.members,
+             p.project_members, p.project_members_2, p.project_members_3
+      FROM purchase_requisitions r
+      LEFT JOIN projects p ON p.id = r.project_id
+      WHERE r.id = ?
+      LIMIT 1
+    `, [requisitionId]);
     if (!Array.isArray(requisitionRows) || !requisitionRows.length) {
       return res.status(404).json({ error: 'Requisition not found.' });
+    }
+    const actor = getAuthenticatedUser(req) || {};
+    if (isStaffRole(actor.role) && !requisitionRowMatchesStaffActor(requisitionRows[0], actor)) {
+      return sendStaffRecordAccessDenied(res, 'Requisition');
     }
     status = normalizeProcurementWorkflowStatus(requisitionRows[0].status) || 'draft';
     if (procurementRequisitionIsLocked(status)) {
@@ -13988,6 +14116,9 @@ app.put('/api/procurement/requisitions/:id', protectAdmin, async (req, res) => {
     }
 
     const projectRecord = await resolvePurchaseOrderProjectContext(projectId, companyId);
+    if (isStaffRole(actor.role) && !projectRowMatchesStaffActor(projectRecord || {}, actor)) {
+      return sendStaffRecordAccessDenied(res, 'Project');
+    }
     companyId = Number(projectRecord?.company_id || 0) || 0;
     const businessEntityId = await resolveBusinessEntityId(projectRecord?.business_entity_id || req.body.business_entity_id);
     if (!prNumber) {
@@ -14288,11 +14419,25 @@ app.post('/api/procurement/requisitions/:id/submit', protectAdmin, async (req, r
   if (!requisitionId) return res.status(400).json({ error: 'Requisition ID is required.' });
 
   try {
-    const rows = await queryAsync('SELECT id, pr_number, draft_pr_number, business_entity_id, status FROM purchase_requisitions WHERE id = ? LIMIT 1', [requisitionId]);
+    const rows = await queryAsync(`
+      SELECT r.id, r.pr_number, r.draft_pr_number, r.business_entity_id, r.status,
+             r.requested_by, r.requested_by_email, r.submitted_by, r.department,
+             p.created_by, p.assigned_to, p.project_manager, p.members,
+             p.project_members, p.project_members_2, p.project_members_3
+      FROM purchase_requisitions r
+      LEFT JOIN projects p ON p.id = r.project_id
+      WHERE r.id = ?
+      LIMIT 1
+    `, [requisitionId]);
     if (!Array.isArray(rows) || !rows.length) return res.status(404).json({ error: 'Requisition not found.' });
+    const actor = getAuthenticatedUser(req) || {};
+    if (isStaffRole(actor.role) && !requisitionRowMatchesStaffActor(rows[0], actor)) {
+      return sendStaffRecordAccessDenied(res, 'Requisition');
+    }
 
     assertStatusTransition(rows[0].status, 'submitted', {
       draft: ['submitted', 'cancelled'],
+      needs_revision: ['submitted', 'cancelled'],
       submitted: ['submitted', 'approved', 'cancelled']
     }, 'Purchase requisition');
 
@@ -14399,14 +14544,14 @@ app.post('/api/procurement/requisitions/:id/reject', protectAdminOnly, async (re
     const rows = await queryAsync('SELECT id, pr_number, status FROM purchase_requisitions WHERE id = ? LIMIT 1', [requisitionId]);
     if (!Array.isArray(rows) || !rows.length) return res.status(404).json({ error: 'Requisition not found.' });
 
-    assertStatusTransition(rows[0].status, 'draft', {
-      submitted: ['approved', 'cancelled', 'draft'],
+    assertStatusTransition(rows[0].status, 'needs_revision', {
+      submitted: ['approved', 'cancelled', 'needs_revision'],
       approved: ['cancelled'],
       draft: ['submitted', 'cancelled']
     }, 'Purchase requisition');
 
     await queryAsync(
-      "UPDATE purchase_requisitions SET status = 'draft', submitted_at = NULL, approved_by = NULL, approved_at = NULL, cancel_reason = ?, approval_comment = ? WHERE id = ?",
+      "UPDATE purchase_requisitions SET status = 'needs_revision', submitted_at = NULL, approved_by = NULL, approved_at = NULL, cancel_reason = ?, approval_comment = ? WHERE id = ?",
       [`Rejected: ${reason}`, reason, requisitionId]
     );
     logAction(req, 'REJECT_PURCHASE_REQUISITION', `Rejected requisition ${rows[0].pr_number} | Reason: ${reason}`);
@@ -14414,7 +14559,7 @@ app.post('/api/procurement/requisitions/:id/reject', protectAdminOnly, async (re
       reason,
       cancelledBy: getApprovalActorLabel(req)
     }), 'purchase requisition rejection email');
-    res.json({ success: true, status: 'draft', reason });
+    res.json({ success: true, status: 'needs_revision', reason });
   } catch (err) {
     const validationMessage = String(err?.message || '').toLowerCase();
     if (validationMessage.includes('cannot move')) return res.status(400).json({ error: err.message });
@@ -14433,6 +14578,7 @@ app.post('/api/procurement/requisitions/:id/cancel', protectAdminOnly, async (re
 
     assertStatusTransition(rows[0].status, 'cancelled', {
       draft: ['submitted', 'approved', 'cancelled'],
+      needs_revision: ['submitted', 'approved', 'cancelled'],
       submitted: ['approved', 'cancelled'],
       approved: ['cancelled'],
       cancelled: ['cancelled']
@@ -14808,8 +14954,34 @@ app.get('/api/projects', protectAdmin, (req, res) => {
     const includeArchived = String(req.query.include_archived || '0') === '1';
     const actor = getAuthenticatedUser(req) || {};
     const conditions = [];
+    const params = [];
     if (!includeArchived) conditions.push('COALESCE(p.is_archived, FALSE) = FALSE');
-    if (isAdminRole(actor.role)) conditions.push("LOWER(COALESCE(p.status, '')) <> 'draft'");
+    if (isAdminRole(actor.role)) conditions.push("LOWER(COALESCE(p.status, '')) NOT IN ('draft', 'needs_revision')");
+    if (isStaffRole(actor.role)) {
+      const staffTerms = [actor.fullname, actor.username, actor.email]
+        .map(value => String(value || '').trim().toLowerCase())
+        .filter(value => value.length >= 3);
+      const staffClauses = [];
+      const actorId = Number(actor.id || 0) || 0;
+      if (actorId) {
+        staffClauses.push('p.created_by = ?');
+        params.push(actorId);
+        staffClauses.push('p.assigned_to = ?');
+        params.push(actorId);
+      }
+      staffTerms.forEach((term) => {
+        const like = `%${term}%`;
+        staffClauses.push(`(
+          LOWER(COALESCE(p.project_manager, '')) LIKE ?
+          OR LOWER(COALESCE(p.members, '')) LIKE ?
+          OR LOWER(COALESCE(p.project_members, '')) LIKE ?
+          OR LOWER(COALESCE(p.project_members_2, '')) LIKE ?
+          OR LOWER(COALESCE(p.project_members_3, '')) LIKE ?
+        )`);
+        params.push(like, like, like, like, like);
+      });
+      conditions.push(staffClauses.length ? `(${staffClauses.join(' OR ')})` : '1=0');
+    }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     db.query(`
       SELECT
@@ -14830,7 +15002,7 @@ app.get('/api/projects', protectAdmin, (req, res) => {
       LEFT JOIN users assignee ON assignee.id = p.assigned_to
       ${where}
       ORDER BY COALESCE(p.start_date, p.planned_start_date, p.created_at) DESC, p.id DESC
-    `, (err, rows) => {
+    `, params, (err, rows) => {
       if (err) {
         console.error('Projects API error:', err);
         return res.status(500).json({ error: err.message });
@@ -15868,7 +16040,7 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
           `SELECT id, pr_number, requested_by, requested_by_email, submitted_by, status, cancel_reason, approved_by, approved_at, cancelled_by, cancelled_at, submitted_at, created_at
            FROM purchase_requisitions
            WHERE (${staffWhere})
-             AND (status = 'approved' OR (status = 'draft' AND cancel_reason IS NOT NULL) OR status = 'cancelled')
+             AND (status = 'approved' OR status = 'needs_revision' OR (status = 'draft' AND cancel_reason IS NOT NULL) OR status = 'cancelled')
            ORDER BY COALESCE(approved_at, cancelled_at, submitted_at, created_at) DESC
            LIMIT 12`,
           makeLikeParams(3)
@@ -15877,7 +16049,7 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
           `SELECT id, project_docno, draft_docno, project_name, project_manager, status, status_reason, approved_by, approved_at, created_at
            FROM projects
            WHERE (${projectWhere})
-             AND (status = 'planning' OR (status = 'draft' AND status_reason IS NOT NULL))
+             AND (status = 'planning' OR status = 'needs_revision' OR (status = 'draft' AND status_reason IS NOT NULL))
            ORDER BY COALESCE(approved_at, created_at) DESC
            LIMIT 12`,
           makeLikeParams(3)
@@ -15914,7 +16086,7 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
       staffDecisionItems = [
         ...(staffPrRows || []).map((row) => {
           const status = String(row.status || '').toLowerCase();
-          const rejected = status === 'draft' && row.cancel_reason;
+          const rejected = status === 'needs_revision' || (status === 'draft' && row.cancel_reason);
           return {
             id: `staff-pr-${row.id}-${rejected ? 'revision' : status}`,
             level: rejected || status === 'cancelled' ? 'warning' : 'success',
@@ -15928,7 +16100,8 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
           };
         }),
         ...(staffProjectRows || []).map((row) => {
-          const needsRevision = String(row.status || '').toLowerCase() === 'draft' && row.status_reason;
+          const status = String(row.status || '').toLowerCase();
+          const needsRevision = status === 'needs_revision' || (status === 'draft' && row.status_reason);
           return {
             id: `staff-project-${row.id}-${needsRevision ? 'revision' : 'approved'}`,
             level: needsRevision ? 'warning' : 'success',
@@ -16027,7 +16200,7 @@ app.get('/api/projects/stats', protectAdmin, (req, res) => {
       params.push(companyFilter);
     }
     if (isAdminRole(actor.role)) {
-      whereParts.push("LOWER(COALESCE(p.status, '')) NOT IN ('draft', 'submitted')");
+      whereParts.push("LOWER(COALESCE(p.status, '')) NOT IN ('draft', 'needs_revision', 'submitted')");
     }
     db.query(`
       SELECT
@@ -16108,7 +16281,7 @@ function getMissingProjectRequiredFields(input = {}) {
     .map(([, label]) => label);
 }
 
-app.post('/api/projects', protectAdmin, upload.single('pdf_file'), (req, res) => {
+app.post('/api/projects', protectAdmin, upload.single('pdf_file'), async (req, res) => {
   const {
     project_name,
     business_entity_id,
@@ -16147,6 +16320,7 @@ app.post('/api/projects', protectAdmin, upload.single('pdf_file'), (req, res) =>
     members,
     status,
     priority,
+    assigned_to,
     createDefaultTask
   } = req.body;
   const pdfFilename = req.file ? req.file.filename : String(req.body.pdfFilename || '').trim() || null;
@@ -16162,6 +16336,13 @@ app.post('/api/projects', protectAdmin, upload.single('pdf_file'), (req, res) =>
   const actor = getAuthenticatedUser(req) || {};
   const actorRole = normalizeAccessRole(actor.role);
   const isStaffCreator = isStaffRole(actorRole);
+  let resolvedAssignedTo = null;
+  try {
+    resolvedAssignedTo = await resolveProjectAssignedStaffId(req, assigned_to);
+  } catch (assignErr) {
+    if (req.file) deleteUploadedPdfIfPresent(req.file.filename);
+    return res.status(assignErr.statusCode || 400).json({ error: assignErr.message || 'Assigned staff is required.' });
+  }
   const resolvedProjectStatus = isStaffCreator
     ? 'draft'
     : 'planning';
@@ -16280,7 +16461,7 @@ app.post('/api/projects', protectAdmin, upload.single('pdf_file'), (req, res) =>
           resolvedProjectStatus,
           resolvedProjectPriority,
           actor.id || null,
-          actor.id || null,
+          resolvedAssignedTo,
           approvedBy,
           approvedBy ? new Date() : null
         ],
@@ -16413,6 +16594,7 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
     status,
     priority,
     remove_pdf,
+    assigned_to,
     createDefaultTask
   } = req.body;
   const incomingPdfFilename = req.file ? req.file.filename : String(req.body.pdfFilename || '').trim() || null;
@@ -16445,9 +16627,25 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
     project_members_3 && member_role_3 && normalizedMemberPhone3 ? `${project_members_3} (${member_role_3}) - ${normalizedMemberPhone3}` : ''
   ].filter(Boolean).join(' | ') || null;
 
-    db.query('SELECT project_docno, draft_docno, pdfFilename, budget, downpayment, qty, unit_cost, status, created_by, assigned_to FROM projects WHERE id = ?', [req.params.id], (findErr, rows) => {
+    db.query(`SELECT project_docno, draft_docno, pdfFilename, budget, downpayment, qty, unit_cost, status,
+                     created_by, assigned_to, project_manager, members,
+                     project_members, project_members_2, project_members_3
+              FROM projects WHERE id = ?`, [req.params.id], async (findErr, rows) => {
     if (findErr) return res.status(500).json({ error: findErr.message });
     if (!rows || !rows.length) return res.status(404).json({ error: 'Project not found' });
+    const actor = getAuthenticatedUser(req) || {};
+    const actorRole = normalizeAccessRole(actor.role);
+    if (isStaffRole(actorRole) && !projectRowMatchesStaffActor(rows[0], actor)) {
+      if (req.file) deleteUploadedPdfIfPresent(req.file.filename);
+      return sendStaffRecordAccessDenied(res, 'Project');
+    }
+    let resolvedAssignedTo = null;
+    try {
+      resolvedAssignedTo = await resolveProjectAssignedStaffId(req, assigned_to || rows[0].assigned_to);
+    } catch (assignErr) {
+      if (req.file) deleteUploadedPdfIfPresent(req.file.filename);
+      return res.status(assignErr.statusCode || 400).json({ error: assignErr.message || 'Assigned staff is required.' });
+    }
 
     const finalProjectDocno = String(rows[0].project_docno || '').trim();
     const finalDraftDocno = String(rows[0].draft_docno || '').trim();
@@ -16470,18 +16668,16 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
     const resolvedDownpayment = toNumber(downpayment, rows[0].downpayment || 0);
     const resolvedQty = toNumber(qty, rows[0].qty || 0);
     const resolvedUnitCost = toNumber(unit_cost, rows[0].unit_cost || 0);
-    const actor = getAuthenticatedUser(req) || {};
-    const actorRole = normalizeAccessRole(actor.role);
     const currentProjectStatus = String(rows[0].status || 'planning').trim().toLowerCase() || 'planning';
     const projectSubmitAction = String(req.body.project_submit_action || '').trim().toLowerCase();
     let resolvedProjectStatus = isStaffRole(actorRole)
       ? currentProjectStatus
       : normalizeProjectStatusForSave(status || currentProjectStatus, actual_start_date, actual_end_date, resolvedPlannedEnd);
-    if (!isStaffRole(actorRole) && (currentProjectStatus === 'draft' || currentProjectStatus === 'submitted')) {
+    if (!isStaffRole(actorRole) && (currentProjectStatus === 'draft' || currentProjectStatus === 'needs_revision' || currentProjectStatus === 'submitted')) {
       resolvedProjectStatus = projectSubmitAction === 'submit' ? 'submitted' : 'draft';
     }
     const resolvedProjectPriority = computeProjectPriority(resolvedPlannedEnd, actual_end_date, resolvedProjectStatus);
-    const newlyApprovedBy = ['draft', 'submitted'].includes(currentProjectStatus) && !['draft', 'submitted'].includes(resolvedProjectStatus)
+    const newlyApprovedBy = ['draft', 'needs_revision', 'submitted'].includes(currentProjectStatus) && !['draft', 'needs_revision', 'submitted'].includes(resolvedProjectStatus)
       ? getApprovalActorName(req)
       : null;
     const todayYmd = new Date().toISOString().slice(0, 10);
@@ -16533,7 +16729,7 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
                actual_start_date = ?, actual_end_date = ?,
                status_reason = COALESCE(?, status_reason), paused_at = ?, cancelled_at = ?,
                project_manager = ?, pdfFilename = ?, budget = ?, qty = ?, unit_cost = ?, members = ?,
-               assigned_to = COALESCE(assigned_to, created_by, ?),
+               assigned_to = ?,
                status = COALESCE(?, status), priority = COALESCE(?, priority),
                approved_by = COALESCE(?, approved_by), approved_at = COALESCE(?, approved_at),
                is_archived = FALSE, archived_at = NULL, archived_auto = FALSE
@@ -16578,7 +16774,7 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
             resolvedQty,
             resolvedUnitCost,
             members || projectMembersSummary,
-            actor.id || null,
+            resolvedAssignedTo,
             resolvedProjectStatus,
             resolvedProjectPriority,
             newlyApprovedBy,
@@ -16678,7 +16874,14 @@ app.get('/api/procurement/requisitions/:id/pdf', protectAdmin, async (req, res) 
 
   try {
     const rows = await queryAsync(
-      'SELECT id, pr_number, status, pdfFilename AS "pdfFilename" FROM purchase_requisitions WHERE id = ? LIMIT 1',
+      `SELECT r.id, r.pr_number, r.status, r.pdfFilename AS "pdfFilename",
+              r.requested_by, r.requested_by_email, r.submitted_by, r.department,
+              p.created_by, p.assigned_to, p.project_manager, p.members,
+              p.project_members, p.project_members_2, p.project_members_3
+       FROM purchase_requisitions r
+       LEFT JOIN projects p ON p.id = r.project_id
+       WHERE r.id = ?
+       LIMIT 1`,
       [requisitionId]
     );
     if (!rows.length) {
@@ -16686,6 +16889,10 @@ app.get('/api/procurement/requisitions/:id/pdf', protectAdmin, async (req, res) 
     }
 
     const record = rows[0];
+    const actor = getAuthenticatedUser(req) || {};
+    if (isStaffRole(actor.role) && !requisitionRowMatchesStaffActor(record, actor)) {
+      return sendStaffRecordAccessDenied(res, 'Purchase requisition');
+    }
     if (isAdminRole(getAuthenticatedUser(req)?.role) && normalizeProcurementWorkflowStatus(record.status || 'draft') === 'draft') {
       return res.status(404).json({ error: 'Purchase requisition not found.' });
     }
@@ -16712,8 +16919,17 @@ app.get('/api/projects/:id/pdf', protectAdmin, async (req, res) => {
   if (!projectId) return res.status(400).json({ error: 'Invalid project id' });
 
   try {
-    const rows = await queryAsync('SELECT id, status FROM projects WHERE id = ? LIMIT 1', [projectId]);
+    const rows = await queryAsync(
+      `SELECT id, status, created_by, assigned_to, project_manager, members,
+              project_members, project_members_2, project_members_3
+       FROM projects WHERE id = ? LIMIT 1`,
+      [projectId]
+    );
     if (!rows.length) return res.status(404).json({ error: 'Project not found.' });
+    const actor = getAuthenticatedUser(req) || {};
+    if (isStaffRole(actor.role) && !projectRowMatchesStaffActor(rows[0], actor)) {
+      return sendStaffRecordAccessDenied(res, 'Project');
+    }
     if (isAdminRole(getAuthenticatedUser(req)?.role) && String(rows[0].status || '').trim().toLowerCase() === 'draft') {
       return res.status(404).json({ error: 'Project not found.' });
     }
@@ -16815,7 +17031,7 @@ app.post('/api/projects/:id/approve', protectAdminOnly, async (req, res) => {
     }
 
     const currentStatus = String(rows[0].status || '').trim().toLowerCase();
-    if (currentStatus === 'draft') {
+    if (currentStatus === 'draft' || currentStatus === 'needs_revision') {
       return res.status(400).json({ error: 'Submit the project for approval before approving it.' });
     }
     if (currentStatus !== 'submitted') {
@@ -16865,11 +17081,11 @@ app.post('/api/projects/:id/reject', protectAdminOnly, async (req, res) => {
 
     const actor = getApprovalActorName(req);
     await queryAsync(
-      "UPDATE projects SET status = 'draft', status_reason = ?, approved_by = ?, approved_at = COALESCE(approved_at, NOW()), approval_comment = ? WHERE id = ?",
-      [`Rejected by ${actor}: ${reason}`, actor, reason, projectId]
+      "UPDATE projects SET status = 'needs_revision', status_reason = ?, approved_by = ?, approved_at = COALESCE(approved_at, NOW()), approval_comment = ? WHERE id = ?",
+      [`Needs revision by ${actor}: ${reason}`, actor, reason, projectId]
     );
     logAction(req, 'REJECT_PROJECT', `Project No: ${rows[0].project_docno || rows[0].draft_docno || projectId} | Project Name: ${rows[0].project_name || ''} | Reason: ${reason}`);
-    res.json({ success: true, status: 'draft', reason });
+    res.json({ success: true, status: 'needs_revision', reason });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Unable to reject project.' });
   }
@@ -16881,10 +17097,17 @@ app.post('/api/projects/:id/submit', protectAdmin, async (req, res) => {
 
   try {
     const rows = await queryAsync(
-      'SELECT id, project_docno, draft_docno, project_name, status, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ? LIMIT 1',
+      `SELECT id, project_docno, draft_docno, project_name, status, COALESCE(is_archived, FALSE) AS is_archived,
+              created_by, assigned_to, project_manager, members,
+              project_members, project_members_2, project_members_3
+       FROM projects WHERE id = ? LIMIT 1`,
       [projectId]
     );
     if (!rows.length) return res.status(404).json({ error: 'Project not found' });
+    const actor = getAuthenticatedUser(req) || {};
+    if (isStaffRole(actor.role) && !projectRowMatchesStaffActor(rows[0], actor)) {
+      return sendStaffRecordAccessDenied(res, 'Project');
+    }
     if (rows[0].is_archived === true || Number(rows[0].is_archived || 0) === 1) {
       return res.status(400).json({ error: 'Restore the project before submitting it.' });
     }
@@ -16893,8 +17116,8 @@ app.post('/api/projects/:id/submit', protectAdmin, async (req, res) => {
     if (currentStatus === 'submitted') {
       return res.json({ success: true, status: 'submitted', alreadySubmitted: true });
     }
-    if (currentStatus !== 'draft') {
-      return res.status(400).json({ error: 'Only draft projects can be submitted for approval.' });
+    if (!['draft', 'needs_revision'].includes(currentStatus)) {
+      return res.status(400).json({ error: 'Only draft or needs revision projects can be submitted for approval.' });
     }
 
     await queryAsync("UPDATE projects SET status = 'submitted', approved_by = NULL, approved_at = NULL WHERE id = ?", [projectId]);
@@ -16930,12 +17153,26 @@ app.put('/api/projects/:id/restore', protectAdminOnly, (req, res) => {
   });
 });
 
-app.get('/api/projects/:projectId/tasks', protectAdmin, (req, res) => {
-  db.query('SELECT * FROM tasks WHERE project_id = ? ORDER BY start_date ASC',
-    [req.params.projectId], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
+app.get('/api/projects/:projectId/tasks', protectAdmin, async (req, res) => {
+  const projectId = Number(req.params.projectId || 0);
+  if (!projectId) return res.status(400).json({ error: 'Invalid project id' });
+  try {
+    const projectRows = await queryAsync(
+      `SELECT id, created_by, assigned_to, project_manager, members,
+              project_members, project_members_2, project_members_3
+       FROM projects WHERE id = ? LIMIT 1`,
+      [projectId]
+    );
+    if (!projectRows.length) return res.status(404).json({ error: 'Project not found' });
+    const actor = getAuthenticatedUser(req) || {};
+    if (isStaffRole(actor.role) && !projectRowMatchesStaffActor(projectRows[0], actor)) {
+      return sendStaffRecordAccessDenied(res, 'Project');
+    }
+    const rows = await queryAsync('SELECT * FROM tasks WHERE project_id = ? ORDER BY start_date ASC', [projectId]);
     res.json(rows);
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Unable to load tasks.' });
+  }
 });
 
 app.post('/api/tasks', protectAdmin, async (req, res) => {
@@ -16944,6 +17181,19 @@ app.post('/api/tasks', protectAdmin, async (req, res) => {
     return res.status(400).json({ error: 'Missing required fields' });
 
   try {
+    const actor = getAuthenticatedUser(req) || {};
+    if (isStaffRole(actor.role)) {
+      const projectRows = await queryAsync(
+        `SELECT id, created_by, assigned_to, project_manager, members,
+                project_members, project_members_2, project_members_3
+         FROM projects WHERE id = ? LIMIT 1`,
+        [project_id]
+      );
+      if (!projectRows.length) return res.status(404).json({ error: 'Project not found' });
+      if (!projectRowMatchesStaffActor(projectRows[0], actor)) {
+        return sendStaffRecordAccessDenied(res, 'Project');
+      }
+    }
     await assertProjectAcceptsNewActivity(project_id);
     const duration = Math.ceil((new Date(end_date) - new Date(start_date)) / (1000 * 60 * 60 * 24));
     db.query(
@@ -16967,9 +17217,16 @@ app.put('/api/projects/:projectId/tasks', protectAdmin, (req, res) => {
     return res.status(400).json({ error: 'Invalid project id' });
   }
 
-  db.query('SELECT id, status, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ?', [projectId], (projectErr, rows) => {
+  db.query(`SELECT id, status, COALESCE(is_archived, FALSE) AS is_archived,
+                   created_by, assigned_to, project_manager, members,
+                   project_members, project_members_2, project_members_3
+            FROM projects WHERE id = ?`, [projectId], (projectErr, rows) => {
     if (projectErr) return res.status(500).json({ error: projectErr.message });
     if (!rows || !rows.length) return res.status(404).json({ error: 'Project not found' });
+    const actor = getAuthenticatedUser(req) || {};
+    if (isStaffRole(actor.role) && !projectRowMatchesStaffActor(rows[0], actor)) {
+      return sendStaffRecordAccessDenied(res, 'Project');
+    }
     if (rows[0].is_archived === true || Number(rows[0].is_archived || 0) === 1) {
       return res.status(400).json({ error: 'Selected project is archived. Restore the project before creating new activity.' });
     }
@@ -17092,12 +17349,26 @@ app.put('/api/tasks/:taskId', protectAdmin, (req, res) => {
   );
 });
 
-app.get('/api/projects/:projectId/costs', protectAdmin, (req, res) => {
-  db.query('SELECT * FROM project_costs WHERE project_id = ? ORDER BY cost_date DESC',
-    [req.params.projectId], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
+app.get('/api/projects/:projectId/costs', protectAdmin, async (req, res) => {
+  const projectId = Number(req.params.projectId || 0);
+  if (!projectId) return res.status(400).json({ error: 'Invalid project id' });
+  try {
+    const projectRows = await queryAsync(
+      `SELECT id, created_by, assigned_to, project_manager, members,
+              project_members, project_members_2, project_members_3
+       FROM projects WHERE id = ? LIMIT 1`,
+      [projectId]
+    );
+    if (!projectRows.length) return res.status(404).json({ error: 'Project not found' });
+    const actor = getAuthenticatedUser(req) || {};
+    if (isStaffRole(actor.role) && !projectRowMatchesStaffActor(projectRows[0], actor)) {
+      return sendStaffRecordAccessDenied(res, 'Project');
+    }
+    const rows = await queryAsync('SELECT * FROM project_costs WHERE project_id = ? ORDER BY cost_date DESC', [projectId]);
     res.json(rows);
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Unable to load project costs.' });
+  }
 });
 
 app.post('/api/project-costs', protectAdmin, async (req, res) => {
@@ -17106,6 +17377,19 @@ app.post('/api/project-costs', protectAdmin, async (req, res) => {
     return res.status(400).json({ error: 'Missing required fields' });
 
   try {
+    const actor = getAuthenticatedUser(req) || {};
+    if (isStaffRole(actor.role)) {
+      const projectRows = await queryAsync(
+        `SELECT id, created_by, assigned_to, project_manager, members,
+                project_members, project_members_2, project_members_3
+         FROM projects WHERE id = ? LIMIT 1`,
+        [project_id]
+      );
+      if (!projectRows.length) return res.status(404).json({ error: 'Project not found' });
+      if (!projectRowMatchesStaffActor(projectRows[0], actor)) {
+        return sendStaffRecordAccessDenied(res, 'Project');
+      }
+    }
     await assertProjectAcceptsNewActivity(project_id);
     const variance = (actual_amount || 0) - plan_amount;
     db.query(
@@ -17121,8 +17405,22 @@ app.post('/api/project-costs', protectAdmin, async (req, res) => {
   }
 });
 
-app.get('/api/projects/:projectId/summary', protectAdmin, (req, res) => {
-  db.query(`
+app.get('/api/projects/:projectId/summary', protectAdmin, async (req, res) => {
+  const projectId = Number(req.params.projectId || 0);
+  if (!projectId) return res.status(400).json({ error: 'Invalid project id' });
+  try {
+    const projectRows = await queryAsync(
+      `SELECT id, created_by, assigned_to, project_manager, members,
+              project_members, project_members_2, project_members_3
+       FROM projects WHERE id = ? LIMIT 1`,
+      [projectId]
+    );
+    if (!projectRows.length) return res.status(404).json({ error: 'Project not found' });
+    const actor = getAuthenticatedUser(req) || {};
+    if (isStaffRole(actor.role) && !projectRowMatchesStaffActor(projectRows[0], actor)) {
+      return sendStaffRecordAccessDenied(res, 'Project');
+    }
+    const rows = await queryAsync(`
     SELECT 
       p.*,
       COUNT(DISTINCT t.id) AS total_tasks,
@@ -17135,10 +17433,11 @@ app.get('/api/projects/:projectId/summary', protectAdmin, (req, res) => {
     LEFT JOIN tasks t ON p.id = t.project_id
     WHERE p.id = ?
     GROUP BY p.id
-  `, [req.params.projectId], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
+  `, [projectId]);
     res.json(rows[0] || {});
-  });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Unable to load project summary.' });
+  }
 });
 
 // ==================== USER MANAGEMENT (ADMIN ONLY) ====================

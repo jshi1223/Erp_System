@@ -632,7 +632,7 @@ function renderMasterDataRequests() {
     const type = String(row.request_type || 'company');
     const status = String(row.status || 'submitted').toLowerCase();
     const endpoint = type === 'vendor' ? 'vendor-registry-requests' : 'company-registry-requests';
-    let actions = '<span class="staff-audit-muted">No action</span>';
+    let actions = '<span class="text-muted">No action</span>';
     if (isStaff && status === 'draft') {
       const editAction = type === 'vendor'
         ? `openVendorRequestDraft(${id})`

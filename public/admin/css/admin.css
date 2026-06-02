@@ -42,8 +42,7 @@ body.admin-page[data-initial-dashboard-panel="project-ledger"] main > .dashboard
 body.admin-page[data-initial-dashboard-panel="ongoing-projects"] main > .dashboard-stats,
 body.admin-page[data-initial-dashboard-panel="system-logs"] main > .dashboard-stats,
 body.admin-page[data-initial-dashboard-panel="archive-center"] main > .dashboard-stats,
-body.admin-page[data-initial-dashboard-panel="approval-center"] main > .dashboard-stats,
-body.admin-page[data-initial-dashboard-panel="staff-workspace"] main > .dashboard-stats {
+body.admin-page[data-initial-dashboard-panel="approval-center"] main > .dashboard-stats {
   display: none !important;
 }
 
@@ -56,8 +55,7 @@ body.admin-page[data-initial-dashboard-panel="archive-center"] #archive-center-s
 }
 
 body.admin-page[data-initial-dashboard-panel="approval-center"][data-access-role="admin"] #approval-center,
-body.admin-page[data-initial-dashboard-panel="approval-center"][data-access-role="super_admin"] #approval-center,
-body.admin-page[data-initial-dashboard-panel="staff-workspace"][data-access-role="staff"] #staff-workspace {
+body.admin-page[data-initial-dashboard-panel="approval-center"][data-access-role="super_admin"] #approval-center {
   display: block !important;
 }
 
@@ -361,6 +359,82 @@ body.admin-page .role-access-panel {
   box-shadow: 0 16px 38px rgba(75, 18, 16, 0.08);
 }
 
+body.admin-page .deploy-status-card {
+  display: grid;
+  gap: 5px;
+  min-width: 220px;
+  max-width: 300px;
+  padding: 12px 14px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+body.admin-page .deploy-status-card span {
+  color: #6f322d;
+  font-size: 0.64rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+body.admin-page .deploy-status-card strong {
+  color: #7a1d16;
+  font-size: 0.96rem;
+  font-weight: 900;
+}
+
+body.admin-page .deploy-status-card small {
+  color: #786762;
+  font-size: 0.7rem;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+body.admin-page .deploy-preflight-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 5px;
+}
+
+body.admin-page .preflight-item {
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.05);
+  color: #475569;
+  font-size: 0.63rem;
+  font-weight: 850;
+  line-height: 1;
+  padding: 6px 8px;
+}
+
+body.admin-page .preflight-item.is-good {
+  border-color: rgba(22, 101, 52, 0.16);
+  background: rgba(22, 101, 52, 0.08);
+  color: #166534;
+}
+
+body.admin-page .preflight-item.is-warn {
+  border-color: rgba(180, 83, 9, 0.18);
+  background: rgba(245, 158, 11, 0.1);
+  color: #92400e;
+}
+
+body.admin-page .preflight-item.is-bad {
+  border-color: rgba(180, 35, 24, 0.18);
+  background: rgba(180, 35, 24, 0.08);
+  color: #b42318;
+}
+
+body.admin-page .deploy-status-card[data-status="ok"] strong {
+  color: #166534;
+}
+
+body.admin-page .deploy-status-card[data-status="degraded"] strong {
+  color: #b42318;
+}
+
 body.admin-page .role-access-copy {
   min-width: 0;
 }
@@ -523,6 +597,10 @@ body.admin-page .approval-table-head {
   margin-bottom: 12px;
 }
 
+body.admin-page .approval-search-wrap {
+  min-width: min(320px, 100%);
+}
+
 body.admin-page .approval-table-head strong {
   display: block;
   color: #281716;
@@ -536,6 +614,122 @@ body.admin-page .approval-table-head span {
   color: #786762;
   font-size: 0.72rem;
   font-weight: 700;
+}
+
+body.admin-page .approval-row-note {
+  margin-top: 4px;
+  color: #786762;
+  font-size: 0.72rem;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+body.admin-page .approval-empty-state {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 18px 10px;
+  color: #786762;
+}
+
+body.admin-page .approval-empty-state strong {
+  color: #281716;
+  font-size: 0.96rem;
+  font-weight: 900;
+}
+
+body.admin-page .approval-table .status-approved {
+  background: rgba(22, 101, 52, 0.1) !important;
+  color: #166534 !important;
+}
+
+body.admin-page .approval-table .status-submitted,
+body.admin-page .approval-table .status-pending {
+  background: rgba(180, 83, 9, 0.12) !important;
+  color: #92400e !important;
+}
+
+body.admin-page .approval-table .status-needs-revision,
+body.admin-page .approval-table .status-overdue,
+body.admin-page .approval-table .status-cancelled {
+  background: rgba(180, 35, 24, 0.1) !important;
+  color: #b42318 !important;
+}
+
+body.admin-page .approval-table .status-muted {
+  background: rgba(100, 116, 139, 0.1) !important;
+  color: #475569 !important;
+}
+
+body.admin-page .approval-timeline-modal {
+  max-width: min(780px, 94vw);
+}
+
+body.admin-page .approval-modal-kicker {
+  color: #7a1d16;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+body.admin-page .approval-timeline-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+
+body.admin-page .approval-timeline-grid section {
+  border: 1px solid rgba(180, 35, 24, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 249, 248, 0.72);
+  padding: 12px;
+}
+
+body.admin-page .approval-timeline-grid h3 {
+  margin: 0 0 10px;
+  color: #281716;
+  font-size: 0.86rem;
+  font-weight: 900;
+}
+
+body.admin-page .approval-timeline-line,
+body.admin-page .approval-checklist-line,
+body.admin-page .approval-missing-line,
+body.admin-page .approval-audit-line,
+body.admin-page .approval-empty-line {
+  border-left: 3px solid rgba(180, 35, 24, 0.18);
+  color: #5f514c;
+  font-size: 0.76rem;
+  font-weight: 750;
+  line-height: 1.4;
+  margin-bottom: 8px;
+  padding-left: 9px;
+}
+
+body.admin-page .approval-checklist-line.is-ok {
+  border-left-color: rgba(22, 101, 52, 0.28);
+}
+
+body.admin-page .approval-checklist-line.is-warning {
+  border-left-color: rgba(180, 35, 24, 0.3);
+  color: #7a1d16;
+}
+
+body.admin-page .approval-missing-line {
+  border-left-color: rgba(180, 35, 24, 0.34);
+  background: rgba(180, 35, 24, 0.04);
+  color: #7a1d16;
+}
+
+body.admin-page .approval-audit-line {
+  border-left-color: rgba(15, 23, 42, 0.16);
+}
+
+body.admin-page .approval-empty-line {
+  border-left-color: rgba(22, 101, 52, 0.26);
+  color: #166534;
 }
 
 body.admin-page .approval-table-wrap {
@@ -1643,10 +1837,23 @@ body.admin-page .archive-center-tab.active .archive-tab-count {
     justify-content: flex-start;
   }
 
+  body.admin-page .deploy-status-card {
+    max-width: none;
+    width: 100%;
+  }
+
   body.admin-page .approval-center-head,
   body.admin-page .approval-table-head {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  body.admin-page .approval-search-wrap {
+    width: 100%;
+  }
+
+  body.admin-page .approval-timeline-grid {
+    grid-template-columns: 1fr;
   }
 
   body.admin-page .approval-summary-grid {
