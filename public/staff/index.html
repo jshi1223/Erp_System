@@ -566,8 +566,8 @@
         <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/procurement?tab=requests" class="sidebar-link is-subitem" id="menu-procurement">Requests</a>
-        <a href="/procurement?tab=requisitions" class="sidebar-link is-subitem">Purchase Requisitions</a>
+        <a href="/procurement?tab=requisitions" class="sidebar-link is-subitem" id="menu-procurement">Purchase Requisitions</a>
+        <a href="/procurement?tab=requests" class="sidebar-link is-subitem" id="menu-procurement-requests">Requests</a>
       </div>
     </div>
 
@@ -741,8 +741,8 @@
             <div class="project-field-message is-hidden" data-project-field-message="budget" aria-live="polite"></div>
           </div>
           <div class="field">
-            <label data-label-base="Downpayment">Downpayment<span class="field-label-status is-required">Required</span></label>
-            <input id="p-downpayment" type="number" step="0.01" min="0" placeholder="0.00" required aria-required="true">
+            <label data-label-base="Downpayment">Downpayment<span class="field-label-status is-optional">Optional</span></label>
+            <input id="p-downpayment" type="number" step="0.01" min="0" placeholder="0.00" aria-required="false">
           </div>
           <div class="field">
             <label data-label-base="Balance">Balance<span class="field-label-status is-optional">Optional</span></label>
@@ -751,14 +751,6 @@
           <div class="field">
             <label data-label-base="Payment Status">Payment Status<span class="field-label-status is-optional">Optional</span></label>
             <span id="p-payment-status-display" class="status-pill status-unpaid">Unpaid</span>
-          </div>
-          <div class="field">
-            <label data-label-base="Check No.">Check No.<span class="field-label-status is-required">Required</span></label>
-            <input id="p-checkno" type="text" placeholder="Check reference" required aria-required="true">
-          </div>
-          <div class="field">
-            <label data-label-base="Customer PO Ref.">Customer PO Ref.<span class="field-label-status is-required">Required</span></label>
-            <input id="p-pono" type="text" placeholder="Customer purchase order no." required aria-required="true">
           </div>
         </div>
       </div>
@@ -902,7 +894,7 @@
 <script src="/staff/js/staff-notifications.js?v=20260601b"></script>
 <script src="/staff/js/staff-dashboard-cards.js?v=20260601c"></script>
 <script src="/staff/js/staff-page.js?v=20260601c"></script>
-<script src="/admin/js/admin.js?v=20260601h"></script>
+<script src="/admin/js/admin.js?v=20260602projectfields"></script>
 
 
 

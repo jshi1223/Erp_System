@@ -205,8 +205,8 @@
     ]);
 
     var procurementHtml = buildGroup('procurement', 'Procurement Management', [
-      buildLink('/procurement?tab=requests', 'Requests'),
       buildLink('/procurement?tab=requisitions', 'Purchase Requisitions'),
+      buildLink('/procurement?tab=requests', 'Requests'),
       buildLink('/procurement?tab=rfq', 'RFQ'),
       buildLink('/procurement?tab=quotations', 'Quotations & Evaluation'),
       buildLink('/procurement?tab=purchase-orders', 'Purchase Orders'),
@@ -929,8 +929,8 @@
             key: 'procurement',
             label: 'Procurement',
             items: [
-              { href: '/procurement?tab=requests', label: 'Requests' },
-              { href: '/procurement?tab=requisitions', label: 'Purchase Requisitions' }
+              { href: '/procurement?tab=requisitions', label: 'Purchase Requisitions' },
+              { href: '/procurement?tab=requests', label: 'Requests' }
             ]
           },
           {
@@ -988,8 +988,8 @@
             key: 'procurement',
             label: 'Procurement',
             items: [
-              { href: '/procurement?tab=requests', label: 'Requests' },
               { href: '/procurement?tab=requisitions', label: 'Purchase Requisitions', aliases: ['/procurement', '/accounts-payable?tab=requisitions'] },
+              { href: '/procurement?tab=requests', label: 'Requests' },
               { href: '/procurement?tab=rfq', label: 'RFQ' },
               { href: '/procurement?tab=quotations', label: 'Quotations & Evaluation', aliases: ['/procurement?tab=bid-evaluation', '/accounts-payable?tab=quotations', '/accounts-payable?tab=bid-evaluation'] },
               { href: '/procurement?tab=purchase-orders', label: 'Purchase Orders', aliases: ['/accounts-payable?tab=purchase-orders'] },

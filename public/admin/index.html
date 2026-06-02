@@ -1203,8 +1203,8 @@
             <div class="project-field-message is-hidden" data-project-field-message="budget" aria-live="polite"></div>
           </div>
           <div class="field">
-            <label data-label-base="Downpayment">Downpayment<span class="field-label-status is-required">Required</span></label>
-            <input id="p-downpayment" type="number" step="0.01" min="0" placeholder="0.00" required aria-required="true">
+            <label data-label-base="Downpayment">Downpayment<span class="field-label-status is-optional">Optional</span></label>
+            <input id="p-downpayment" type="number" step="0.01" min="0" placeholder="0.00" aria-required="false">
           </div>
           <div class="field">
             <label data-label-base="Balance">Balance<span class="field-label-status is-optional">Optional</span></label>
@@ -1213,14 +1213,6 @@
           <div class="field">
             <label data-label-base="Payment Status">Payment Status<span class="field-label-status is-optional">Optional</span></label>
             <span id="p-payment-status-display" class="status-pill status-unpaid">Unpaid</span>
-          </div>
-          <div class="field">
-            <label data-label-base="Check No.">Check No.<span class="field-label-status is-required">Required</span></label>
-            <input id="p-checkno" type="text" placeholder="Check reference" required aria-required="true">
-          </div>
-          <div class="field">
-            <label data-label-base="Customer PO Ref.">Customer PO Ref.<span class="field-label-status is-required">Required</span></label>
-            <input id="p-pono" type="text" placeholder="Customer purchase order no." required aria-required="true">
           </div>
         </div>
       </div>
@@ -1757,7 +1749,7 @@
 <script src="/admin/js/dashboard-cards/role-dashboard-super-admin.js?v=20260531a"></script>
 <script src="/admin/js/roles/role-flow.js?v=20260531c"></script>
 <script src="/admin/js/modules/notifications.module.js?v=20260531a"></script>
-<script src="/admin/js/admin.js?v=20260601h"></script>
+<script src="/admin/js/admin.js?v=20260602projectfields"></script>
 <script src="/admin/js/modules/approval-center.module.js?v=20260601a"></script>
 
 

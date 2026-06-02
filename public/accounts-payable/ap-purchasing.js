@@ -712,10 +712,11 @@ function initProcurementPage() {
       return;
     }
     if (openRequisition) {
+      const requestTab = isStaffProcurementWorkspace() ? 'requests' : 'requisitions';
       if (typeof window.switchApWorkspaceTab === 'function') {
-        window.switchApWorkspaceTab('requisitions', getProcurementTabButton('requisitions'));
+        window.switchApWorkspaceTab(requestTab, getProcurementTabButton(requestTab));
       } else {
-        switchProcTab('requisitions', getProcurementTabButton('requisitions'));
+        switchProcTab(requestTab, getProcurementTabButton(requestTab));
       }
       openRequisitionModal(null, {
         companyId: pendingRequisitionCompanyId,
@@ -837,13 +838,13 @@ function renderProcurementToolbarControls(tab) {
       <div class="search-wrap top-search-bar module-toolbar-search">
         <input id="procurement-search-input" type="text" placeholder="Search request no., company, item, or status..." value="${escHtml(state.search || '')}" oninput="renderProcurementRequests()" />
       </div>
-      <button class="btn btn-add btn-sm" type="button" onclick="openRequisitionModal()">Request Purchase</button>
+      <button class="btn btn-add btn-sm" type="button" onclick="openRequisitionModal()">Request PR</button>
     `;
     return;
   }
 
   if (tab === 'requisitions') {
-    const requestLabel = isStaffProcurementWorkspace() ? 'Add PR' : 'Add Requisition';
+    const requestLabel = isStaffProcurementWorkspace() ? 'Request PR' : 'Add Requisition';
     actions.innerHTML = `
       <div class="search-wrap top-search-bar module-toolbar-search">
         <input id="procurement-search-input" type="text" placeholder="Search PR no., company, item, or status..." value="${escHtml(state.search || '')}" oninput="renderRequisitions()" />
@@ -2958,7 +2959,7 @@ function renderRequisitions() {
   if (!tbody) return;
 
   const rows = getVisibleRequisitionRows($('procurement-search-input')?.value)
-    .filter((row) => !isStaffProcurementWorkspace() || !isProcurementRequestRow(row));
+    .filter((row) => !isProcurementRequestRow(row));
 
   tbody.innerHTML = rows.length ? rows.map((row) => {
     const projectLabel = getProcurementProjectLabel(Number(row.project_id || 0) || 0);
@@ -3956,7 +3957,7 @@ function syncRequisitionModalMode() {
     title.textContent = viewingProjectLinkedRequisition
       ? (staffRequest ? 'View Purchase Request' : 'View Requisition')
       : staffRequest
-      ? (editingRequisitionId ? 'Edit Purchase Request' : 'Request Purchase')
+      ? (editingRequisitionId ? 'Edit Purchase Request' : 'Request PR')
       : (editingRequisitionId ? 'Edit Requisition' : 'Add Requisition');
   }
   if (saveBtn) {

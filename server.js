@@ -1317,10 +1317,9 @@ function valueMatchesActorIdentity(value, terms = []) {
 function projectRowMatchesStaffActor(row = {}, actor = {}) {
   const actorId = Number(actor.id || 0) || 0;
   if (actorId) {
-    const ownerIds = [row.created_by, row.assigned_to]
-      .map(value => Number(value || 0))
-      .filter(Boolean);
-    if (ownerIds.includes(actorId)) return true;
+    const assignedTo = Number(row.assigned_to || row.assigned_to_id || 0) || 0;
+    if (assignedTo) return assignedTo === actorId;
+    if (Number(row.created_by || 0) === actorId) return true;
   }
 
   const terms = getActorIdentityTerms(actor);
@@ -1332,10 +1331,7 @@ function projectRowMatchesStaffActor(row = {}, actor = {}) {
     row.project_members_3,
     row.created_by_name,
     row.created_by_username,
-    row.created_by_email,
-    row.assigned_to_name,
-    row.assigned_to_username,
-    row.assigned_to_email
+    row.created_by_email
   ].some(value => valueMatchesActorIdentity(value, terms));
 }
 
@@ -14964,20 +14960,20 @@ app.get('/api/projects', protectAdmin, (req, res) => {
       const staffClauses = [];
       const actorId = Number(actor.id || 0) || 0;
       if (actorId) {
-        staffClauses.push('p.created_by = ?');
-        params.push(actorId);
         staffClauses.push('p.assigned_to = ?');
+        params.push(actorId);
+        staffClauses.push('(p.assigned_to IS NULL AND p.created_by = ?)');
         params.push(actorId);
       }
       staffTerms.forEach((term) => {
         const like = `%${term}%`;
-        staffClauses.push(`(
+        staffClauses.push(`(p.assigned_to IS NULL AND (
           LOWER(COALESCE(p.project_manager, '')) LIKE ?
           OR LOWER(COALESCE(p.members, '')) LIKE ?
           OR LOWER(COALESCE(p.project_members, '')) LIKE ?
           OR LOWER(COALESCE(p.project_members_2, '')) LIKE ?
           OR LOWER(COALESCE(p.project_members_3, '')) LIKE ?
-        )`);
+        ))`);
         params.push(like, like, like, like, like);
       });
       conditions.push(staffClauses.length ? `(${staffClauses.join(' OR ')})` : '1=0');
@@ -16256,25 +16252,22 @@ function getMissingProjectRequiredFields(input = {}) {
     ['project_name', 'Project title'],
     ['company_id', 'Company'],
     ['description', 'Scope / Description'],
-    ['checkno', 'Check No.'],
-    ['pono', 'Customer PO Ref.'],
     ['project_manager', 'Project manager'],
     ['project_members', 'Member 1'],
     ['member_role', 'Role 1'],
     ['member_phone', 'Phone 1'],
     ['start_date', 'Planned start date'],
     ['end_date', 'Planned end date'],
-    ['budget', 'Contract amount'],
-    ['downpayment', 'Downpayment']
+    ['budget', 'Contract amount']
   ];
 
   return requiredFields
     .filter(([key]) => {
       if (key === 'company_id') return !Number(input[key] || 0);
-      if (key === 'budget' || key === 'downpayment') {
+      if (key === 'budget') {
         const raw = String(input[key] ?? '').trim();
         if (raw === '' || Number.isNaN(Number(raw))) return true;
-        return key === 'budget' ? Number(raw) <= 0 : Number(raw) < 0;
+        return Number(raw) <= 0;
       }
       return !String(input[key] || '').trim();
     })

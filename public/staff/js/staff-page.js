@@ -27,7 +27,8 @@
     else if (path === '/sales-management') activeId = 'menu-sales-management';
     else if (path === '/service-operations') activeId = 'menu-service-operations';
     else if (path === '/inventory') activeId = 'menu-inventory';
-    else if (path === '/procurement' || tab === 'requisitions') activeId = 'menu-procurement';
+    else if (path === '/procurement') activeId = tab === 'requests' ? 'menu-procurement-requests' : 'menu-procurement';
+    else if (tab === 'requisitions') activeId = 'menu-procurement';
 
     nav.querySelectorAll('.sidebar-link').forEach(function (link) {
       link.classList.toggle('active', link.id === activeId);

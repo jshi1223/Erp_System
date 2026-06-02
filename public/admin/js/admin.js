@@ -73,6 +73,9 @@ function isRecordOwnedByCurrentStaff(record) {
 
 function projectAssignedToCurrentStaff(project) {
   if (!project) return false;
+  const currentStaffId = Number(currentUser?.id || 0) || 0;
+  const assignedTo = Number(project.assigned_to || project.assigned_to_id || 0) || 0;
+  if (assignedTo) return currentStaffId && assignedTo === currentStaffId;
   if (isRecordOwnedByCurrentStaff(project)) return true;
 
   const terms = getStaffIdentityTerms();
@@ -1675,6 +1678,15 @@ function renderProjectRecordsTable() {
     .sort((a, b) => String(b.project_docno || '').localeCompare(String(a.project_docno || '')));
 
   if (!list.length) {
+    if (isStaffUser()) {
+      const requestCount = getProjectWorkspaceProjects({ includeArchived: true })
+        .filter(project => ['draft', 'needs_revision', 'submitted', 'rejected'].includes(String(project.status || '').trim().toLowerCase()))
+        .length;
+      if (requestCount) {
+        tbody.innerHTML = `<tr class="empty-row"><td colspan="10">No approved project records yet. You have ${requestCount} assigned request${requestCount === 1 ? '' : 's'} in the Requests tab. <button class="btn btn-sm btn-edit" type="button" onclick="switchProjectWorkspaceTab('requests')">Open Requests</button></td></tr>`;
+        return;
+      }
+    }
     tbody.innerHTML = `<tr class="empty-row"><td colspan="10">No project records found.</td></tr>`;
     return;
   }
@@ -4430,14 +4442,19 @@ function renderAssignedStaffOptions(selectedId = null) {
   const select = document.getElementById('p-assigned-to');
   if (!select) return;
   const staffUsers = getAssignableStaffUsers();
-  const safeSelectedId = Number(selectedId || 0) || 0;
+  const requestedSelectedId = Number(selectedId || 0) || 0;
+  const selectedIsValidStaff = staffUsers.some(user => Number(user.id || 0) === requestedSelectedId);
+  const safeSelectedId = selectedIsValidStaff ? requestedSelectedId : 0;
   const placeholder = staffUsers.length ? '<option value="">Search/select staff...</option>' : '<option value="">No active staff users</option>';
   select.innerHTML = placeholder + staffUsers.map(user => {
     const id = Number(user.id || 0);
     const label = [getUserDisplayName(user), user.email].filter(Boolean).join(' - ');
     return `<option value="${id}"${id === safeSelectedId ? ' selected' : ''}>${escHtml(label)}</option>`;
   }).join('');
-  if (safeSelectedId) select.value = String(safeSelectedId);
+  select.value = safeSelectedId ? String(safeSelectedId) : '';
+  if (requestedSelectedId && !selectedIsValidStaff && !isStaffUser()) {
+    setProjectFieldHint('assigned_to', 'Previous assignee is not an active approved staff user. Please select a staff account.');
+  }
   select.disabled = Boolean(isStaffUser());
   select.title = isStaffUser()
     ? 'Staff-created projects are assigned to you automatically.'
@@ -5522,8 +5539,6 @@ async function openProjectModal(projectId = null) {
     setProjectModalValue('p-description', projectData.description || '');
     setProjectModalValue('p-budget', Number(projectData.budget || 0) > 0 ? Number(projectData.budget || 0).toFixed(2) : '');
     setProjectModalValue('p-downpayment', Number(projectData.downpayment || 0) > 0 ? Number(projectData.downpayment || 0).toFixed(2) : '');
-    setProjectModalValue('p-checkno', projectData.checkno || '');
-    setProjectModalValue('p-pono', projectData.pono || '');
     setProjectModalValue('p-project-members', projectData.project_members || '');
     setProjectRoleValue('p-member-role', projectData.member_role || '');
     setProjectModalValue('p-member-phone', projectData.member_phone || '');
@@ -5789,8 +5804,6 @@ function getProjectFieldNodes(fieldName) {
     description: ['p-description'],
     budget: ['p-budget'],
     downpayment: ['p-downpayment'],
-    checkno: ['p-checkno'],
-    pono: ['p-pono'],
     project_members: ['p-project-members'],
     member_role: ['p-member-role'],
     member_phone: ['p-member-phone']
@@ -5840,7 +5853,7 @@ function setProjectFieldHint(fieldName, message = '') {
 }
 
 function clearProjectFieldMessages() {
-  ['company', 'project_docno', 'project_name', 'project_manager', 'planned_start_date', 'planned_end_date', 'actual_start_date', 'actual_end_date', 'description', 'budget', 'downpayment', 'checkno', 'pono', 'project_members', 'member_role', 'member_phone'].forEach((fieldName) => {
+  ['company', 'project_docno', 'project_name', 'project_manager', 'assigned_to', 'planned_start_date', 'planned_end_date', 'actual_start_date', 'actual_end_date', 'description', 'budget', 'downpayment', 'project_members', 'member_role', 'member_phone'].forEach((fieldName) => {
     setProjectFieldMessage(fieldName, '');
   });
 }
@@ -5860,8 +5873,6 @@ function setupProjectModalValidationListeners() {
     ['p-description', 'description', 'input'],
     ['p-budget', 'budget', 'input'],
     ['p-downpayment', 'downpayment', 'input'],
-    ['p-checkno', 'checkno', 'input'],
-    ['p-pono', 'pono', 'input'],
     ['p-project-members', 'project_members', 'input'],
     ['p-member-role', 'member_role', 'change'],
     ['p-member-phone', 'member_phone', 'input']
@@ -5931,8 +5942,8 @@ async function saveProject(submitAction = 'draft') {
   const assignedTo = Number(assignedToSelect?.value || (isStaffUser() ? currentUser?.id : 0) || 0) || 0;
   const description = String(document.getElementById('p-description')?.value || '').trim();
   const statusReason = String(document.getElementById('p-status-reason')?.value || '').trim();
-  const checkNo = String(document.getElementById('p-checkno')?.value || '').trim();
-  const customerPoRef = String(document.getElementById('p-pono')?.value || '').trim();
+  const checkNo = '';
+  const customerPoRef = '';
   const budgetValue = Number(document.getElementById('p-budget')?.value || 0) || 0;
   const downpaymentValue = Number(document.getElementById('p-downpayment')?.value || 0) || 0;
   const teamFields = {
@@ -5971,9 +5982,7 @@ async function saveProject(submitAction = 'draft') {
   requireProjectField('planned_start_date', !plannedStartDate, 'Start date is required.', 'Planned Start Date');
   requireProjectField('planned_end_date', !plannedEndDate, 'End date is required.', 'Planned End Date');
   requireProjectField('budget', !rawBudgetValue || budgetValue <= 0, 'Contract amount is required and must be greater than zero.', 'Contract Amount');
-  requireProjectField('downpayment', !rawDownpaymentValue || downpaymentValue < 0, 'Downpayment is required and cannot be negative.', 'Downpayment');
-  requireProjectField('checkno', !checkNo, 'Check No. is required.', 'Check No.');
-  requireProjectField('pono', !customerPoRef, 'Customer PO Ref. is required.', 'Customer PO Ref.');
+  requireProjectField('downpayment', Boolean(rawDownpaymentValue) && downpaymentValue < 0, 'Downpayment cannot be negative.', 'Downpayment');
   requireProjectField('project_members', !teamFields.project_members, 'Member 1 is required.', 'Member 1');
   requireProjectField('member_role', !teamFields.member_role, 'Role 1 is required.', 'Role 1');
   requireProjectField('member_phone', !teamFields.member_phone, 'Phone 1 is required.', 'Phone 1');
@@ -5994,8 +6003,6 @@ async function saveProject(submitAction = 'draft') {
       actual_end_date: ['p-actual-end-date'],
       budget: ['p-budget'],
       downpayment: ['p-downpayment'],
-      checkno: ['p-checkno'],
-      pono: ['p-pono'],
       project_members: ['p-project-members'],
       member_role: ['p-member-role'],
       member_phone: ['p-member-phone']
@@ -6101,12 +6108,17 @@ async function saveProject(submitAction = 'draft') {
     const savedStatus = String(data?.status || '').toLowerCase();
     const draftSaved = savedStatus === 'draft';
     const submittedForApproval = savedStatus === 'submitted' || data?.requiresApproval;
+    const staffDestination = ['draft', 'needs_revision', 'submitted', 'rejected'].includes(savedStatus)
+      ? 'Staff Requests'
+      : 'Staff Project Records';
     showToast(
       submittedForApproval
         ? 'Project submitted for approval.'
         : draftSaved
         ? 'Project saved as Draft. Submit it when ready for approval.'
-        : (isEdit ? 'Project record updated successfully.' : 'Project record created successfully.'),
+        : isStaffUser()
+          ? (isEdit ? 'Project request updated successfully.' : 'Project request saved successfully.')
+          : `${isEdit ? 'Project record updated' : 'Project record created'} successfully. Assigned staff will see it in ${staffDestination}.`,
       'success'
     );
     return data;
