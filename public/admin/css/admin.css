@@ -513,6 +513,12 @@ body.admin-page .approval-center-head {
   padding: 16px 18px;
 }
 
+body.admin-page .approval-center-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
 body.admin-page .approval-center-kicker {
   color: #7a1d16;
   font-size: 0.66rem;

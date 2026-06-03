@@ -255,11 +255,11 @@ async function getApprovalNotificationRecipients() {
     const rows = await queryAsync(`
       SELECT email
       FROM users
-      WHERE role IN ('super_admin', 'admin')
-        AND active = TRUE
+      WHERE LOWER(TRIM(COALESCE(role, ''))) IN ('super_admin', 'admin')
+        AND LOWER(TRIM(CAST(active AS TEXT))) IN ('true', '1', 'yes', 't')
         AND email IS NOT NULL
         AND TRIM(email) <> ''
-      ORDER BY CASE role WHEN 'super_admin' THEN 0 ELSE 1 END, id ASC
+      ORDER BY CASE LOWER(TRIM(COALESCE(role, ''))) WHEN 'super_admin' THEN 0 ELSE 1 END, id ASC
     `);
     adminRecipients.push(...parseEmailList((rows || []).map((row) => row.email).join(',')));
   } catch (err) {
@@ -515,9 +515,11 @@ async function notifyPurchaseRequisitionRequester(req, requisitionId, decision =
     return { sent: false, reason: 'no-requester-email' };
   }
 
-  const cancelled = String(decision || '').toLowerCase() === 'cancelled';
-  const approved = !cancelled;
-  const statusText = approved ? 'Approved' : 'Cancelled';
+  const decisionText = String(decision || '').toLowerCase();
+  const rejected = ['rejected', 'needs_revision'].includes(decisionText);
+  const cancelled = decisionText === 'cancelled';
+  const approved = !cancelled && !rejected;
+  const statusText = rejected ? 'Rejected' : approved ? 'Approved' : 'Cancelled';
   const actor = String(options.decidedBy || (approved ? options.approvedBy : options.cancelledBy) || (approved ? row.approved_by : row.cancelled_by) || '').trim();
   const decidedAt = approved ? row.approved_at : row.cancelled_at;
   const reviewUrl = buildAppUrl('/procurement?tab=requisitions');
@@ -531,9 +533,9 @@ async function notifyPurchaseRequisitionRequester(req, requisitionId, decision =
     ['Project', row.project_name],
     ['Request Date', row.request_date],
     ['Needed By', row.needed_by],
-    [approved ? 'Approved By' : 'Cancelled By', actor],
-    [approved ? 'Approved At' : 'Cancelled At', decidedAt],
-    cancelled ? ['Reason', reason] : null
+    [approved ? 'Approved By' : rejected ? 'Rejected By' : 'Cancelled By', actor],
+    [approved ? 'Approved At' : rejected ? 'Rejected At' : 'Cancelled At', decidedAt],
+    (cancelled || rejected) ? ['Reason', reason] : null
   ].filter(Boolean)
     .filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== '')
     .map(([label, value]) => `
@@ -544,10 +546,18 @@ async function notifyPurchaseRequisitionRequester(req, requisitionId, decision =
     `)
     .join('');
 
+  const attachments = [];
+  try {
+    attachments.push(await buildPurchaseRequisitionEmailAttachment(requisitionId));
+  } catch (pdfErr) {
+    console.error('PR requester PDF attachment warning:', pdfErr);
+  }
+
   return sendSystemEmail({
     from: `Kinaadman ERP <${SMTP_FROM}>`,
     to: email,
     subject: `Purchase Requisition ${statusText}: ${row.pr_number || requisitionId}`,
+    attachments: attachments.length ? attachments : undefined,
     text: [
       `Hello ${requesterName},`,
       `Your purchase requisition ${row.pr_number || requisitionId} has been ${statusText.toLowerCase()}.`,
@@ -631,10 +641,12 @@ async function notifyPurchaseOrderRequester(req, poId, decision = 'approved', op
     return { sent: false, reason: 'no-recipients' };
   }
 
-  const cancelled = String(decision || '').toLowerCase() === 'cancelled';
-  const statusText = cancelled ? 'Cancelled' : 'Approved';
-  const actor = String(options.decidedBy || (cancelled ? options.cancelledBy : options.approvedBy) || (cancelled ? row.cancelled_by : row.approved_by) || '').trim();
-  const decidedAt = cancelled ? row.cancelled_at : row.approved_at;
+  const decisionText = String(decision || '').toLowerCase();
+  const rejected = decisionText === 'rejected';
+  const cancelled = decisionText === 'cancelled';
+  const statusText = rejected ? 'Rejected' : cancelled ? 'Cancelled' : 'Approved';
+  const actor = String(options.decidedBy || ((cancelled || rejected) ? options.cancelledBy : options.approvedBy) || ((cancelled || rejected) ? row.cancelled_by : row.approved_by) || '').trim();
+  const decidedAt = (cancelled || rejected) ? row.cancelled_at : row.approved_at;
   const reason = String(options.reason || row.cancel_reason || '').trim();
   const reviewUrl = buildAppUrl('/procurement?tab=purchase-orders');
   const detailRows = [
@@ -647,9 +659,9 @@ async function notifyPurchaseOrderRequester(req, poId, decision = 'approved', op
     ['PO Date', row.po_date],
     ['Delivery Date', row.delivery_date],
     ['Amount', row.total_amount],
-    [cancelled ? 'Cancelled By' : 'Approved By', actor],
-    [cancelled ? 'Cancelled At' : 'Approved At', decidedAt],
-    cancelled ? ['Reason', reason] : null
+    [(cancelled || rejected) ? `${statusText} By` : 'Approved By', actor],
+    [(cancelled || rejected) ? `${statusText} At` : 'Approved At', decidedAt],
+    (cancelled || rejected) ? ['Reason', reason] : null
   ].filter(Boolean)
     .filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== '')
     .map(([label, value]) => `
@@ -660,10 +672,20 @@ async function notifyPurchaseOrderRequester(req, poId, decision = 'approved', op
     `)
     .join('');
 
+  const attachments = [];
+  try {
+    attachments.push(await buildPurchaseOrderPdfAttachment(poId, {
+      status: options.statusOverride || (rejected ? 'rejected' : cancelled ? 'cancelled' : '')
+    }));
+  } catch (pdfErr) {
+    console.error('PO requester PDF attachment warning:', pdfErr);
+  }
+
   return sendSystemEmail({
     from: `Kinaadman ERP <${SMTP_FROM}>`,
     to: recipients.join(','),
     subject: `Purchase Order ${statusText}: ${row.po_number || poId}`,
+    attachments: attachments.length ? attachments : undefined,
     text: `Purchase order ${row.po_number || poId} has been ${statusText.toLowerCase()}. View: ${reviewUrl}`,
     html: `
       <div style="font-family:Arial,sans-serif;color:#1f2937;line-height:1.5;">
@@ -747,6 +769,7 @@ async function notifyRfqAwardedRequester(req, quotationId) {
 
 async function notifyFinanceApproval(req, type = 'bill', recordId = 0, options = {}) {
   const isPayment = String(type || '').toLowerCase() === 'payment';
+  const rejected = String(options.decision || '').toLowerCase() === 'rejected';
   const rows = await queryAsync(isPayment ? `
     SELECT
       pay.id,
@@ -786,12 +809,14 @@ async function notifyFinanceApproval(req, type = 'bill', recordId = 0, options =
 
   const recipients = await getApprovalNotificationRecipients();
   if (!recipients.length) return { sent: false, reason: 'no-recipients' };
-  const title = isPayment ? 'Payment Approved' : 'AP Bill Approved';
+  const title = isPayment
+    ? (rejected ? 'Payment Rejected' : 'Payment Approved')
+    : (rejected ? 'AP Bill Rejected' : 'AP Bill Approved');
   const recordNo = isPayment
     ? (row.reference_number || `Payment #${recordId}`)
     : (row.bill_number || `Bill #${recordId}`);
   const reviewUrl = buildAppUrl(isPayment ? '/accounts-payable?tab=payments' : '/accounts-payable?tab=bills');
-  const approvedBy = String(options.approvedBy || row.approved_by || '').trim();
+  const approvedBy = String(options.approvedBy || options.rejectedBy || row.approved_by || '').trim();
   const detailRows = (isPayment ? [
     ['Payment Type', row.payment_type],
     ['Reference No.', row.reference_number],
@@ -799,8 +824,9 @@ async function notifyFinanceApproval(req, type = 'bill', recordId = 0, options =
     ['Payment Date', row.payment_date],
     ['Amount', row.amount],
     ['Method', row.payment_method],
-    ['Approved By', approvedBy],
-    ['Approved At', row.approved_at]
+    [rejected ? 'Rejected By' : 'Approved By', approvedBy],
+    [rejected ? 'Rejected At' : 'Approved At', row.approved_at],
+    rejected ? ['Reason', options.reason] : null
   ] : [
     ['Bill No.', row.bill_number],
     ['PO No.', row.po_number],
@@ -808,9 +834,11 @@ async function notifyFinanceApproval(req, type = 'bill', recordId = 0, options =
     ['Bill Date', row.bill_date],
     ['Due Date', row.due_date],
     ['Amount', row.total_amount],
-    ['Approved By', approvedBy],
-    ['Approved At', row.approved_at]
-  ]).filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== '')
+    [rejected ? 'Rejected By' : 'Approved By', approvedBy],
+    [rejected ? 'Rejected At' : 'Approved At', row.approved_at],
+    rejected ? ['Reason', options.reason] : null
+  ]).filter(Boolean)
+    .filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== '')
     .map(([label, value]) => `
       <tr>
         <td style="padding:6px 10px;border:1px solid #d9e2ec;font-weight:600;">${htmlEscape(label)}</td>
@@ -819,10 +847,20 @@ async function notifyFinanceApproval(req, type = 'bill', recordId = 0, options =
     `)
     .join('');
 
+  const attachments = [];
+  try {
+    attachments.push(isPayment
+      ? await buildPaymentVoucherPdfAttachment(recordId)
+      : await buildBillSummaryEmailAttachment(recordId));
+  } catch (pdfErr) {
+    console.error('Finance approval PDF attachment warning:', pdfErr);
+  }
+
   return sendSystemEmail({
     from: `Kinaadman ERP <${SMTP_FROM}>`,
     to: recipients.join(','),
     subject: `${title}: ${recordNo}`,
+    attachments: attachments.length ? attachments : undefined,
     text: `${title}: ${recordNo}. View: ${reviewUrl}`,
     html: `
       <div style="font-family:Arial,sans-serif;color:#1f2937;line-height:1.5;">
@@ -914,6 +952,13 @@ async function notifyPaymentApprovalRequest(req, paymentId) {
     return { sent: false, reason: 'not-ap-payment' };
   }
 
+  const attachments = [];
+  try {
+    attachments.push(await buildPaymentVoucherPdfAttachment(paymentId));
+  } catch (pdfErr) {
+    console.error('Payment approval request PDF attachment warning:', pdfErr);
+  }
+
   return notifyApprovalRequest(req, {
     title: 'AP Payment',
     recordNo: row.reference_number || `Payment #${paymentId}`,
@@ -926,7 +971,8 @@ async function notifyPaymentApprovalRequest(req, paymentId) {
       Amount: row.amount,
       Method: row.payment_method,
       Notes: row.notes
-    }
+    },
+    attachments: attachments.length ? attachments : undefined
   });
 }
 
@@ -2071,7 +2117,15 @@ function createSessionStore(cookieMaxAgeMs) {
 
 
 // SESSION SETUP
-const sessionMaxAgeMs = Number(process.env.SESSION_MAX_AGE_MS || 24 * 60 * 60 * 1000);
+const defaultSessionInactivityTimeoutMs = 30 * 60 * 1000;
+const configuredSessionInactivityTimeoutMs = Number(
+  process.env.SESSION_INACTIVITY_TIMEOUT_MS ||
+  process.env.SESSION_MAX_AGE_MS ||
+  defaultSessionInactivityTimeoutMs
+);
+const sessionMaxAgeMs = Number.isFinite(configuredSessionInactivityTimeoutMs) && configuredSessionInactivityTimeoutMs > 0
+  ? configuredSessionInactivityTimeoutMs
+  : defaultSessionInactivityTimeoutMs;
 const sessionStore = createSessionStore(sessionMaxAgeMs);
 app.use(session(buildSessionOptions({
   isProduction,
@@ -5783,9 +5837,16 @@ function buildProfessionalTablePdfBuffer({ title = 'ERP REPORT', subtitle = '', 
     const content = [];
     const text = (x, y, value, options = {}) => {
       const font = options.bold ? 'F2' : 'F1';
-      const size = Number(options.size || 8);
+      let size = Number(options.size || 8);
       const color = options.color || '0.12 0.12 0.12';
-      content.push(`BT /${font} ${size} Tf ${color} rg 1 0 0 1 ${x} ${y} Tm (${escapePdfText(value)}) Tj ET`);
+      let safeValue = options.maxWidth ? fitPdfValue(value, options.maxWidth, size) : String(value || '');
+      if (options.fitSize && options.maxWidth) {
+        const fitted = fitPdfValueToWidth(value, options.maxWidth, size, options.minSize || 6.5);
+        safeValue = fitted.text;
+        size = fitted.size;
+      }
+      const safeX = pdfTextXForAlign(Number(x), Number(options.width || 0), safeValue, size, options.align || 'left');
+      content.push(`BT /${font} ${size} Tf ${color} rg 1 0 0 1 ${safeX.toFixed(2)} ${y} Tm (${escapePdfText(safeValue)}) Tj ET`);
     };
     const rect = (x, y, w, h, options = {}) => {
       if (options.fill) content.push(`${options.fill} rg ${x} ${y} ${w} ${h} re f`);
@@ -5797,20 +5858,19 @@ function buildProfessionalTablePdfBuffer({ title = 'ERP REPORT', subtitle = '', 
 
     rect(32, 42, 548, 708, { stroke: '0.86 0.88 0.90' });
     rect(50, 724, 512, 4, { fill: brand.accent });
-    text(450, 759, 'ERP GENERATED DOCUMENT', { bold: true, size: 7, color: '0.38 0.40 0.44' });
     text(50, 755, brand.name, { bold: true, size: 14, color: brand.accent });
     text(50, 739, brand.subtitle, { size: 8, color: '0.25 0.25 0.25' });
     line(50, 728, 562, 728, brand.accent);
 
     rect(50, 670, 512, 36, { fill: '0.96 0.97 0.98', stroke: '0.80 0.83 0.86' });
     text(64, 690, String(title || 'ERP REPORT').toUpperCase(), { bold: true, size: 16, color: '0.08 0.08 0.08' });
-    text(398, 691, `PAGE ${pageIndex + 1} OF ${pageCount}`, { bold: true, size: 9, color: brand.accent });
-    text(64, 676, subtitle || `Generated: ${new Date().toLocaleString('en-PH')}`, { size: 8, color: '0.36 0.38 0.42' });
+    text(398, 691, `PAGE ${pageIndex + 1} OF ${pageCount}`, { bold: true, size: 9, color: brand.accent, width: 140, align: 'right' });
+    if (subtitle) text(64, 676, subtitle, { size: 8, color: '0.36 0.38 0.42', maxWidth: 320 });
 
     let y = 630;
     rect(50, y, 512, 22, { fill: brand.accent });
     safeHeaders.forEach((header, index) => {
-      text(58 + (index * colWidth), y + 8, truncatePdfValue(formatPdfHeaderLabel(header), Math.max(8, Math.floor(colWidth / 5))), { bold: true, size: 7, color: '1 1 1' });
+      text(58 + (index * colWidth), y + 8, formatPdfHeaderLabel(header), { bold: true, size: 7, color: '1 1 1', maxWidth: colWidth - 12 });
     });
     y -= 24;
 
@@ -5822,16 +5882,12 @@ function buildProfessionalTablePdfBuffer({ title = 'ERP REPORT', subtitle = '', 
         rect(50, y - 6, 512, 22, { fill: rowIndex % 2 === 0 ? '1 1 1' : '0.98 0.98 0.98', stroke: '0.88 0.89 0.91' });
         safeHeaders.forEach((header, colIndex) => {
           const maxLength = Math.max(8, Math.floor(colWidth / 4.6));
-          text(58 + (colIndex * colWidth), y + 2, truncatePdfValue(row?.[header] ?? '', maxLength), { size: 7 });
+          text(58 + (colIndex * colWidth), y + 2, truncatePdfValue(row?.[header] ?? '', maxLength), { size: 7, maxWidth: colWidth - 12 });
         });
         y -= 22;
       });
     }
 
-    rect(50, 86, 512, 34, { fill: '0.96 0.97 0.98', stroke: '0.82 0.84 0.87' });
-    text(62, 105, 'System Note', { bold: true, size: 8, color: '0.36 0.38 0.42' });
-    text(126, 105, 'This document was generated by the KVSK ERP system. Validate against the live ERP record before external release.', { size: 7, color: '0.45 0.48 0.52' });
-    text(50, 58, `Generated: ${formatPdfDate(new Date())}`, { size: 7, color: '0.45 0.48 0.52' });
     text(470, 58, `Rows: ${safeRows.length}`, { size: 7, color: '0.45 0.48 0.52' });
 
     const contentStream = content.join('\n');
@@ -5927,12 +5983,72 @@ function wrapPdfValue(value, maxLength = 34) {
   return lines;
 }
 
-function getPurchaseRequisitionPdfBrand(row = {}) {
-  void row;
+function estimatePdfTextWidth(value, size = 9) {
+  return String(value || '').length * Number(size || 9) * 0.52;
+}
+
+function fitPdfValue(value, maxWidth, size = 9) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!text || estimatePdfTextWidth(text, size) <= maxWidth) return text;
+  let fitted = text;
+  while (fitted.length > 1 && estimatePdfTextWidth(`${fitted}...`, size) > maxWidth) {
+    fitted = fitted.slice(0, -1);
+  }
+  return `${fitted.trim()}...`;
+}
+
+function fitPdfValueToWidth(value, maxWidth, preferredSize = 9, minSize = 6.5) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  let size = Number(preferredSize || 9);
+  while (text && size > minSize && estimatePdfTextWidth(text, size) > maxWidth) {
+    size -= 0.5;
+  }
   return {
-    name: 'KVSK CCTV & IT Solutions',
-    subtitle: 'Tanauan City, Batangas, 4232 | info@kvsk.com.ph',
-    accent: '0.70 0.12 0.08'
+    text: size <= minSize && estimatePdfTextWidth(text, size) > maxWidth ? fitPdfValue(text, maxWidth, size) : text,
+    size
+  };
+}
+
+function formatPdfStatusLabel(value = '') {
+  return String(value || '-').replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim().toUpperCase();
+}
+
+function pdfTextXForAlign(x, width, value, size = 9, align = 'left') {
+  if (align === 'right') return x + width - estimatePdfTextWidth(value, size);
+  if (align === 'center') return x + ((width - estimatePdfTextWidth(value, size)) / 2);
+  return x;
+}
+
+function drawPdfWrappedText(drawText, x, y, value, options = {}) {
+  const width = Number(options.width || 260);
+  const size = Number(options.size || 8);
+  const lineHeight = Number(options.lineHeight || 10);
+  const maxLines = Number(options.maxLines || 3);
+  const maxChars = Math.max(12, Math.floor(width / (size * 0.52)));
+  const lines = wrapPdfValue(value || '-', maxChars).slice(0, maxLines);
+  lines.forEach((lineText, index) => {
+    const isLast = index === maxLines - 1 && wrapPdfValue(value || '-', maxChars).length > maxLines;
+    drawText(x, y - (index * lineHeight), isLast ? fitPdfValue(`${lineText}...`, width, size) : lineText, {
+      ...options,
+      maxWidth: width
+    });
+  });
+}
+
+function getPurchaseRequisitionPdfBrand(row = {}) {
+  const entityName = String(row.business_entity_name || row.entity_name || '').trim();
+  const entityCode = String(row.business_entity_code || row.entity_code || '').trim();
+  const address = String(row.business_entity_address || row.entity_address || '').trim();
+  const phone = String(row.business_entity_phone || row.entity_phone || '').trim();
+  const email = String(row.business_entity_email || row.entity_email || '').trim();
+  const fallbackName = 'KVSK CCTV & IT Solutions';
+  const subtitleParts = [address, phone, email].filter(Boolean);
+  const brandKey = `${entityCode} ${entityName}`.toLowerCase();
+  const isKitsi = /\bkitsi\b|\bkits\b/.test(brandKey);
+  return {
+    name: entityName || entityCode || fallbackName,
+    subtitle: subtitleParts.length ? subtitleParts.join(' | ') : 'Tanauan City, Batangas, 4232 | info@kvsk.com.ph',
+    accent: isKitsi ? '0.00 0.58 0.78' : '0.70 0.12 0.08'
   };
 }
 
@@ -5961,9 +6077,16 @@ function buildProfessionalPurchaseRequisitionPdf(row, itemRows = [], total = 0) 
   const content = [];
   function text(x, y, value, options = {}) {
     const font = options.bold ? 'F2' : 'F1';
-    const size = Number(options.size || 9);
+    let size = Number(options.size || 9);
     const color = options.color || '0.12 0.12 0.12';
-    content.push(`BT /${font} ${size} Tf ${color} rg 1 0 0 1 ${x} ${y} Tm (${escapePdfText(value)}) Tj ET`);
+    let safeValue = options.maxWidth ? fitPdfValue(value, options.maxWidth, size) : String(value || '');
+    if (options.fitSize && options.maxWidth) {
+      const fitted = fitPdfValueToWidth(value, options.maxWidth, size, options.minSize || 6.5);
+      safeValue = fitted.text;
+      size = fitted.size;
+    }
+    const safeX = pdfTextXForAlign(Number(x), Number(options.width || 0), safeValue, size, options.align || 'left');
+    content.push(`BT /${font} ${size} Tf ${color} rg 1 0 0 1 ${safeX.toFixed(2)} ${y} Tm (${escapePdfText(safeValue)}) Tj ET`);
   }
   function rect(x, y, w, h, options = {}) {
     const fill = options.fill || null;
@@ -5974,70 +6097,83 @@ function buildProfessionalPurchaseRequisitionPdf(row, itemRows = [], total = 0) 
   function line(x1, y1, x2, y2, color = '0.70 0.70 0.70') {
     content.push(`${color} RG 0.6 w ${x1} ${y1} m ${x2} ${y2} l S`);
   }
+  function noteText(x, y, value, options = {}) {
+    drawPdfWrappedText(text, x, y, value, options);
+  }
 
-  rect(32, 42, 548, 708, { stroke: '0.86 0.88 0.90' });
-  rect(50, 724, 512, 4, { fill: brand.accent });
-  text(450, 759, 'ERP GENERATED DOCUMENT', { bold: true, size: 7, color: '0.38 0.40 0.44' });
-  text(50, 755, brand.name, { bold: true, size: 14, color: brand.accent });
-  text(50, 739, brand.subtitle, { size: 8, color: '0.25 0.25 0.25' });
-  line(50, 728, 562, 728, brand.accent);
+  rect(32, 42, 548, 724, { stroke: '0.86 0.88 0.90' });
+  rect(50, 718, 512, 42, { fill: '1 1 1', stroke: '0.82 0.84 0.87' });
+  rect(50, 756, 512, 4, { fill: brand.accent });
+  text(64, 741, brand.name, { bold: true, size: 14, color: brand.accent, maxWidth: 320 });
+  text(64, 727, brand.subtitle, { size: 8, color: '0.25 0.25 0.25', maxWidth: 320 });
 
-  rect(50, 670, 512, 36, { fill: '0.96 0.97 0.98', stroke: '0.80 0.83 0.86' });
-  text(64, 690, 'PURCHASE REQUISITION', { bold: true, size: 16, color: '0.08 0.08 0.08' });
-  text(420, 691, row.pr_number || `PR-${row.id || ''}`, { bold: true, size: 12, color: brand.accent });
-  rect(420, 674, 118, 16, { fill: statusTone.fill, stroke: statusTone.stroke });
-  text(430, 679, String(row.status || 'draft').toUpperCase(), { bold: true, size: 7, color: statusTone.text });
+  rect(50, 666, 512, 46, { fill: '0.96 0.97 0.98', stroke: '0.80 0.83 0.86' });
+  text(64, 688, 'PURCHASE REQUISITION', { bold: true, size: 16, color: '0.08 0.08 0.08', maxWidth: 300 });
+  rect(398, 673, 140, 28, { fill: '1 1 1', stroke: '0.80 0.83 0.86' });
+  text(408, 689, row.pr_number || `PR-${row.id || ''}`, { bold: true, size: 10, color: brand.accent, width: 120, align: 'center', maxWidth: 120, fitSize: true });
+  rect(408, 676, 120, 10, { fill: statusTone.fill, stroke: statusTone.stroke });
+  text(408, 679, formatPdfStatusLabel(row.status || 'draft'), { bold: true, size: 6, color: statusTone.text, width: 120, align: 'center', maxWidth: 112, fitSize: true, minSize: 5 });
 
   rect(50, 543, 248, 108, { stroke: '0.82 0.84 0.87' });
   rect(50, 631, 248, 20, { fill: '0.94 0.95 0.96' });
   text(62, 638, 'REQUEST DETAILS', { bold: true, size: 9 });
   text(62, 615, 'Request Date', { bold: true, size: 8, color: '0.36 0.38 0.42' });
-  text(150, 615, formatPdfDate(row.request_date) || '-', { size: 9 });
+  text(150, 615, formatPdfDate(row.request_date) || '-', { size: 9, maxWidth: 130 });
   text(62, 597, 'Needed By', { bold: true, size: 8, color: '0.36 0.38 0.42' });
-  text(150, 597, formatPdfDate(row.needed_by) || '-', { size: 9 });
+  text(150, 597, formatPdfDate(row.needed_by) || '-', { size: 9, maxWidth: 130 });
   text(62, 579, 'Requested By', { bold: true, size: 8, color: '0.36 0.38 0.42' });
-  text(150, 579, truncatePdfValue(row.requested_by || '-', 24), { size: 9 });
+  text(150, 579, row.requested_by || '-', { size: 9, maxWidth: 130 });
   text(62, 561, 'Submitted By', { bold: true, size: 8, color: '0.36 0.38 0.42' });
-  text(150, 561, truncatePdfValue(row.submitted_by || '-', 24), { size: 9 });
+  text(150, 561, row.submitted_by || '-', { size: 9, maxWidth: 130 });
 
   rect(314, 543, 248, 108, { stroke: '0.82 0.84 0.87' });
   rect(314, 631, 248, 20, { fill: '0.94 0.95 0.96' });
   text(326, 638, 'PROJECT / COMPANY', { bold: true, size: 9 });
-  text(326, 615, 'Entity', { bold: true, size: 8, color: '0.36 0.38 0.42' });
-  text(400, 615, truncatePdfValue([row.business_entity_code, row.business_entity_name].filter(Boolean).join(' - ') || '-', 30), { size: 9 });
-  text(326, 597, 'Company', { bold: true, size: 8, color: '0.36 0.38 0.42' });
-  text(400, 597, truncatePdfValue([row.company_no, row.company_name].filter(Boolean).join(' - ') || '-', 30), { size: 9 });
-  text(326, 579, 'Project', { bold: true, size: 8, color: '0.36 0.38 0.42' });
-  text(400, 579, truncatePdfValue([row.project_docno, row.project_name].filter(Boolean).join(' - ') || '-', 30), { size: 9 });
-  text(326, 561, 'Submitted', { bold: true, size: 8, color: '0.36 0.38 0.42' });
-  text(400, 561, truncatePdfValue(row.submitted_by || '-', 30), { size: 9 });
+  text(326, 615, 'Company', { bold: true, size: 8, color: '0.36 0.38 0.42' });
+  noteText(400, 615, [row.company_no, row.company_name].filter(Boolean).join(' - ') || '-', {
+    size: 8,
+    color: '0.12 0.12 0.12',
+    width: 140,
+    maxLines: 2,
+    lineHeight: 9
+  });
+  text(326, 587, 'Project', { bold: true, size: 8, color: '0.36 0.38 0.42' });
+  noteText(400, 587, [row.project_docno, row.project_name].filter(Boolean).join(' - ') || '-', {
+    size: 8,
+    color: '0.12 0.12 0.12',
+    width: 140,
+    maxLines: 2,
+    lineHeight: 9
+  });
+  text(326, 559, 'Submitted', { bold: true, size: 8, color: '0.36 0.38 0.42' });
+  text(400, 559, row.submitted_by || '-', { size: 8, maxWidth: 140 });
 
   text(50, 517, 'REQUESTED ITEMS', { bold: true, size: 10 });
   rect(50, 492, 512, 20, { fill: brand.accent });
   text(58, 499, '#', { bold: true, size: 8, color: '1 1 1' });
   text(78, 499, 'Item', { bold: true, size: 8, color: '1 1 1' });
-  text(210, 499, 'Description', { bold: true, size: 8, color: '1 1 1' });
-  text(365, 499, 'Qty', { bold: true, size: 8, color: '1 1 1' });
-  text(420, 499, 'Unit Cost', { bold: true, size: 8, color: '1 1 1' });
-  text(505, 499, 'Total', { bold: true, size: 8, color: '1 1 1' });
+  text(194, 499, 'Description', { bold: true, size: 8, color: '1 1 1' });
+  text(342, 499, 'Qty', { bold: true, size: 8, color: '1 1 1' });
+  text(386, 499, 'Unit Cost', { bold: true, size: 8, color: '1 1 1', width: 82, align: 'right' });
+  text(474, 499, 'Total', { bold: true, size: 8, color: '1 1 1', width: 82, align: 'right' });
 
   const visibleItems = Array.isArray(itemRows) ? itemRows : [];
   let y = 469;
   let renderedItemCount = 0;
   visibleItems.forEach((item, index) => {
-    const descriptionLines = wrapPdfValue(item.description || '-', 34);
+    const descriptionLines = wrapPdfValue(item.description || '-', 30);
     const rowHeight = Math.max(22, 16 + (descriptionLines.length * 10));
     if (y - rowHeight < 210) return;
 
     rect(50, y - rowHeight + 11, 512, rowHeight, { fill: index % 2 === 0 ? '1 1 1' : '0.98 0.98 0.98', stroke: '0.88 0.89 0.91' });
     text(58, y + 3, String(index + 1), { size: 8 });
-    text(78, y + 3, truncatePdfValue(item.item_name || 'Item', 24), { size: 8 });
+    text(78, y + 3, item.item_name || 'Item', { size: 8, maxWidth: 108 });
     descriptionLines.forEach((lineText, lineIndex) => {
-      text(210, y + 3 - (lineIndex * 10), lineText, { size: 8, color: '0.24 0.25 0.28' });
+      text(194, y + 3 - (lineIndex * 10), lineText, { size: 8, color: '0.24 0.25 0.28', maxWidth: 136 });
     });
-    text(365, y + 3, `${Number(item.quantity || 0)} ${truncatePdfValue(item.unit || '', 5)}`.trim(), { size: 8 });
-    text(420, y + 3, formatPdfMoney(item.estimated_unit_price), { size: 8 });
-    text(505, y + 3, formatPdfMoney(item.line_total), { size: 8 });
+    text(342, y + 3, `${Number(item.quantity || 0)} ${truncatePdfValue(item.unit || '', 5)}`.trim(), { size: 8, maxWidth: 44 });
+    text(386, y + 3, formatPdfMoney(item.estimated_unit_price), { size: 8, width: 82, align: 'right', maxWidth: 82, fitSize: true });
+    text(474, y + 3, formatPdfMoney(item.line_total), { size: 8, width: 82, align: 'right', maxWidth: 82, fitSize: true });
     y -= rowHeight;
     renderedItemCount += 1;
   });
@@ -6045,21 +6181,18 @@ function buildProfessionalPurchaseRequisitionPdf(row, itemRows = [], total = 0) 
     text(58, y + 3, `+ ${itemRows.length - renderedItemCount} more item(s)`, { size: 8, color: '0.36 0.38 0.42' });
   }
 
-  rect(360, 150, 202, 46, { fill: '0.96 0.97 0.98', stroke: '0.80 0.83 0.86' });
-  text(374, 178, 'Grand Total', { bold: true, size: 10 });
-  text(450, 178, formatPdfMoney(total), { bold: true, size: 12, color: brand.accent });
-  text(374, 162, `Generated: ${formatPdfDate(new Date())}`, { size: 8, color: '0.36 0.38 0.42' });
-
-  text(50, 178, 'Notes', { bold: true, size: 9 });
-  rect(50, 150, 290, 46, { stroke: '0.82 0.84 0.87' });
-  text(62, 174, truncatePdfValue(row.notes || '-', 54), { size: 8, color: '0.24 0.25 0.28' });
+  rect(50, 142, 512, 62, { stroke: '0.82 0.84 0.87' });
+  rect(50, 184, 512, 20, { fill: '0.94 0.95 0.96' });
+  text(62, 191, 'NOTES', { bold: true, size: 9, color: '0.28 0.30 0.34' });
+  noteText(62, 174, row.notes || '-', { size: 8, color: '0.24 0.25 0.28', width: 312, maxLines: 3, lineHeight: 10 });
+  rect(392, 154, 138, 28, { fill: '0.96 0.97 0.98', stroke: '0.80 0.83 0.86' });
+  text(404, 171, 'Grand Total', { bold: true, size: 8, color: '0.36 0.38 0.42' });
+  text(404, 159, formatPdfMoney(total), { bold: true, size: 11, color: brand.accent, width: 114, align: 'right', maxWidth: 114, fitSize: true, minSize: 7 });
 
   line(72, 105, 220, 105);
   line(390, 105, 538, 105);
   text(96, 90, 'Prepared / Submitted By', { size: 8, color: '0.36 0.38 0.42' });
   text(430, 90, 'Approved By', { size: 8, color: '0.36 0.38 0.42' });
-  text(50, 58, 'This document was generated by the KVSK ERP system. Validate figures against the live ERP record before external release.', { size: 7, color: '0.45 0.48 0.52' });
-  text(470, 58, `Record ID: ${row.id || '-'}`, { size: 7, color: '0.45 0.48 0.52' });
 
   const contentStream = content.join('\n');
   const contentObjectNumber = objects.length + 1;
@@ -6111,9 +6244,16 @@ function buildProfessionalSummaryPdf({
   const content = [];
   function text(x, y, value, options = {}) {
     const font = options.bold ? 'F2' : 'F1';
-    const size = Number(options.size || 9);
+    let size = Number(options.size || 9);
     const color = options.color || '0.12 0.12 0.12';
-    content.push(`BT /${font} ${size} Tf ${color} rg 1 0 0 1 ${x} ${y} Tm (${escapePdfText(value)}) Tj ET`);
+    let safeValue = options.maxWidth ? fitPdfValue(value, options.maxWidth, size) : String(value || '');
+    if (options.fitSize && options.maxWidth) {
+      const fitted = fitPdfValueToWidth(value, options.maxWidth, size, options.minSize || 6.5);
+      safeValue = fitted.text;
+      size = fitted.size;
+    }
+    const safeX = pdfTextXForAlign(Number(x), Number(options.width || 0), safeValue, size, options.align || 'left');
+    content.push(`BT /${font} ${size} Tf ${color} rg 1 0 0 1 ${safeX.toFixed(2)} ${y} Tm (${escapePdfText(safeValue)}) Tj ET`);
   }
   function rect(x, y, w, h, options = {}) {
     const fill = options.fill || null;
@@ -6124,27 +6264,30 @@ function buildProfessionalSummaryPdf({
   function line(x1, y1, x2, y2, color = '0.70 0.70 0.70') {
     content.push(`${color} RG 0.6 w ${x1} ${y1} m ${x2} ${y2} l S`);
   }
+  function noteText(x, y, value, options = {}) {
+    drawPdfWrappedText(text, x, y, value, options);
+  }
   function fieldRows(x, y, rows) {
     let currentY = y;
     (rows || []).slice(0, 7).forEach(([label, value]) => {
-      text(x, currentY, label, { bold: true, size: 8, color: '0.36 0.38 0.42' });
-      text(x + 88, currentY, truncatePdfValue(value || '-', 28), { size: 9 });
+      text(x, currentY, label, { bold: true, size: 8, color: '0.36 0.38 0.42', maxWidth: 76 });
+      text(x + 88, currentY, value || '-', { size: 9, maxWidth: 132 });
       currentY -= 18;
     });
   }
 
-  rect(32, 42, 548, 708, { stroke: '0.86 0.88 0.90' });
-  rect(50, 724, 512, 4, { fill: brand.accent });
-  text(450, 759, 'ERP GENERATED DOCUMENT', { bold: true, size: 7, color: '0.38 0.40 0.44' });
-  text(50, 755, brand.name, { bold: true, size: 14, color: brand.accent });
-  text(50, 739, brand.subtitle, { size: 8, color: '0.25 0.25 0.25' });
-  line(50, 728, 562, 728, brand.accent);
+  rect(32, 42, 548, 724, { stroke: '0.86 0.88 0.90' });
+  rect(50, 718, 512, 42, { fill: '1 1 1', stroke: '0.82 0.84 0.87' });
+  rect(50, 756, 512, 4, { fill: brand.accent });
+  text(64, 741, brand.name, { bold: true, size: 14, color: brand.accent, maxWidth: 320 });
+  text(64, 727, brand.subtitle, { size: 8, color: '0.25 0.25 0.25', maxWidth: 320 });
 
-  rect(50, 670, 512, 36, { fill: '0.96 0.97 0.98', stroke: '0.80 0.83 0.86' });
-  text(64, 690, title, { bold: true, size: 16, color: '0.08 0.08 0.08' });
-  text(420, 691, documentNo || '-', { bold: true, size: 12, color: brand.accent });
-  rect(420, 674, 118, 16, { fill: statusTone.fill, stroke: statusTone.stroke });
-  text(430, 679, String(status || '-').toUpperCase(), { bold: true, size: 7, color: statusTone.text });
+  rect(50, 666, 512, 46, { fill: '0.96 0.97 0.98', stroke: '0.80 0.83 0.86' });
+  text(64, 688, title, { bold: true, size: 16, color: '0.08 0.08 0.08', maxWidth: 300 });
+  rect(398, 673, 140, 28, { fill: '1 1 1', stroke: '0.80 0.83 0.86' });
+  text(408, 689, documentNo || '-', { bold: true, size: 10, color: brand.accent, width: 120, align: 'center', maxWidth: 120, fitSize: true });
+  rect(408, 676, 120, 10, { fill: statusTone.fill, stroke: statusTone.stroke });
+  text(408, 679, formatPdfStatusLabel(status || '-'), { bold: true, size: 6, color: statusTone.text, width: 120, align: 'center', maxWidth: 112, fitSize: true, minSize: 5 });
 
   rect(50, 512, 248, 139, { stroke: '0.82 0.84 0.87' });
   rect(50, 631, 248, 20, { fill: '0.94 0.95 0.96' });
@@ -6161,37 +6304,52 @@ function buildProfessionalSummaryPdf({
     text(50, y, tableTitle, { bold: true, size: 10 });
     y -= 25;
     rect(50, y, 512, 20, { fill: brand.accent });
-    const colXs = tableHeaders.length <= 3 ? [62, 250, 430] : [58, 190, 315, 455];
-    tableHeaders.slice(0, colXs.length).forEach((header, index) => {
-      text(colXs[index], y + 7, formatPdfHeaderLabel(header), { bold: true, size: 8, color: '1 1 1' });
+    const columnLayouts = {
+      1: [{ x: 62, width: 488 }],
+      2: [{ x: 62, width: 170 }, { x: 250, width: 300 }],
+      3: [{ x: 62, width: 170 }, { x: 250, width: 150 }, { x: 430, width: 120 }],
+      4: [{ x: 58, width: 120 }, { x: 190, width: 105 }, { x: 315, width: 115 }, { x: 455, width: 95 }]
+    };
+    const activeHeaders = tableHeaders.slice(0, 4);
+    const layout = columnLayouts[Math.min(activeHeaders.length, 4)] || columnLayouts[4];
+    activeHeaders.forEach((header, index) => {
+      text(layout[index].x, y + 7, formatPdfHeaderLabel(header), { bold: true, size: 8, color: '1 1 1', maxWidth: layout[index].width });
     });
     y -= 24;
     (tableRows || []).slice(0, 8).forEach((row, rowIndex) => {
       rect(50, y - 6, 512, 22, { fill: rowIndex % 2 === 0 ? '1 1 1' : '0.98 0.98 0.98', stroke: '0.88 0.89 0.91' });
-      tableHeaders.slice(0, colXs.length).forEach((header, colIndex) => {
-        text(colXs[colIndex], y + 1, truncatePdfValue(row?.[header] || '-', colIndex === 0 ? 22 : 26), { size: 8 });
+      activeHeaders.forEach((header, colIndex) => {
+        const isAmount = /amount|total|balance|value/i.test(String(header || '')) && tableHeaders.length > 2 && colIndex === tableHeaders.length - 1;
+        text(layout[colIndex].x, y + 1, row?.[header] || '-', {
+          size: 8,
+          maxWidth: layout[colIndex].width,
+          width: layout[colIndex].width,
+          align: isAmount ? 'right' : 'left',
+          fitSize: isAmount,
+          minSize: 6.5
+        });
       });
       y -= 22;
     });
   }
 
-  rect(50, 150, 290, 46, { stroke: '0.82 0.84 0.87' });
-  text(62, 178, 'Notes', { bold: true, size: 9 });
-  text(62, 162, truncatePdfValue(notes || '-', 54), { size: 8, color: '0.24 0.25 0.28' });
+  rect(50, 142, 512, 62, { stroke: '0.82 0.84 0.87' });
+  rect(50, 184, 512, 20, { fill: '0.94 0.95 0.96' });
+  text(62, 191, 'NOTES', { bold: true, size: 9, color: '0.28 0.30 0.34' });
 
   if (totalLabel) {
-    rect(360, 150, 202, 46, { fill: '0.96 0.97 0.98', stroke: '0.80 0.83 0.86' });
-    text(374, 178, totalLabel, { bold: true, size: 10 });
-    text(450, 178, totalValue === null ? '-' : formatPdfMoney(totalValue), { bold: true, size: 12, color: brand.accent });
-    text(374, 162, `Generated: ${formatPdfDate(new Date())}`, { size: 8, color: '0.36 0.38 0.42' });
+    noteText(62, 174, notes || '-', { size: 8, color: '0.24 0.25 0.28', width: 312, maxLines: 3, lineHeight: 10 });
+    rect(392, 154, 138, 28, { fill: '0.96 0.97 0.98', stroke: '0.80 0.83 0.86' });
+    text(404, 171, totalLabel, { bold: true, size: 8, color: '0.36 0.38 0.42', maxWidth: 114 });
+    text(404, 159, totalValue === null ? '-' : formatPdfMoney(totalValue), { bold: true, size: 11, color: brand.accent, width: 114, align: 'right', maxWidth: 114, fitSize: true, minSize: 7 });
+  } else {
+    noteText(62, 174, notes || '-', { size: 8, color: '0.24 0.25 0.28', width: 468, maxLines: 3, lineHeight: 10 });
   }
 
   line(72, 105, 220, 105);
   line(390, 105, 538, 105);
   text(96, 90, 'Prepared / Submitted By', { size: 8, color: '0.36 0.38 0.42' });
   text(430, 90, 'Approved By', { size: 8, color: '0.36 0.38 0.42' });
-  text(50, 58, 'This document was generated by the KVSK ERP system. Validate figures against the live ERP record before external release.', { size: 7, color: '0.45 0.48 0.52' });
-  text(470, 58, `Doc No: ${truncatePdfValue(documentNo || '-', 18)}`, { size: 7, color: '0.45 0.48 0.52' });
 
   const contentStream = content.join('\n');
   const contentObjectNumber = objects.length + 1;
@@ -6223,6 +6381,9 @@ async function buildPurchaseRequisitionPdf(requisitionId) {
       pr.*,
       be.company_name AS business_entity_name,
       be.entity_code AS business_entity_code,
+      be.address AS business_entity_address,
+      be.phone AS business_entity_phone,
+      be.email AS business_entity_email,
       c.company_name,
       c.company_no,
       p.project_docno,
@@ -6255,6 +6416,163 @@ async function generatePurchaseRequisitionPdfFile(requisitionId) {
   await fs.promises.writeFile(filePath, pdf);
   await queryAsync('UPDATE purchase_requisitions SET pdfFilename = ? WHERE id = ?', [filename, requisitionId]);
   return { filename, filePath };
+}
+
+async function buildPurchaseRequisitionEmailAttachment(requisitionId) {
+  const generated = await generatePurchaseRequisitionPdfFile(requisitionId);
+  return {
+    filename: generated.filename,
+    path: generated.filePath,
+    contentType: 'application/pdf'
+  };
+}
+
+async function buildPurchaseOrderPdfAttachment(poId, options = {}) {
+  const rows = await queryAsync(`
+    SELECT
+      po.*,
+      be.company_name AS business_entity_name,
+      be.entity_code AS business_entity_code,
+      be.address AS business_entity_address,
+      be.phone AS business_entity_phone,
+      be.email AS business_entity_email,
+      pr.pr_number,
+      v.vendor_name,
+      c.company_no,
+      c.company_name,
+      p.project_docno,
+      p.project_name
+    FROM purchase_orders po
+    LEFT JOIN business_entities be ON be.id = po.business_entity_id
+    LEFT JOIN purchase_requisitions pr ON pr.id = po.requisition_id
+    LEFT JOIN vendors v ON v.id = po.vendor_id
+    LEFT JOIN company_registry c ON c.id = po.company_id
+    LEFT JOIN projects p ON p.id = po.project_id
+    WHERE po.id = ?
+    LIMIT 1
+  `, [poId]);
+  const row = rows?.[0];
+  if (!row) throw new Error('Purchase order not found.');
+
+  const lineItems = await queryAsync(`
+    SELECT description, quantity, unit_price, line_total
+    FROM po_line_items
+    WHERE po_id = ?
+    ORDER BY id ASC
+  `, [poId]);
+  const total = (Array.isArray(lineItems) ? lineItems : []).reduce((sum, item) => sum + Number(item.line_total || 0), 0) || Number(row.total_amount || 0);
+  const pdf = buildProfessionalSummaryPdf({
+    title: 'PURCHASE ORDER',
+    documentNo: row.po_number || `PO-${row.id || ''}`,
+    status: options.status || row.status || 'draft',
+    brandSource: row,
+    leftTitle: 'ORDER DETAILS',
+    leftRows: [
+      ['PO Date', formatPdfDate(row.po_date)],
+      ['Delivery Date', formatPdfDate(row.delivery_date)],
+      ['Vendor', row.vendor_name],
+      ['Payment Terms', row.payment_terms],
+      ['Prepared By', row.prepared_by],
+      ['Approved By', row.approved_by]
+    ],
+    rightTitle: 'REFERENCE',
+    rightRows: [
+      ['PR No.', row.pr_number],
+      ['Company', [row.company_no, row.company_name].filter(Boolean).join(' - ')],
+      ['Project', [row.project_docno, row.project_name].filter(Boolean).join(' - ')],
+      ['Approved At', formatPdfDate(row.approved_at)]
+    ],
+    tableTitle: 'ORDER ITEMS',
+    tableHeaders: ['Description', 'Qty', 'Unit Cost', 'Amount'],
+    tableRows: (Array.isArray(lineItems) ? lineItems : []).map((item) => ({
+      Description: item.description,
+      Qty: Number(item.quantity || 0),
+      'Unit Cost': formatPdfMoney(item.unit_price),
+      Amount: formatPdfMoney(item.line_total)
+    })),
+    notes: row.notes || row.approval_comment || '',
+    totalLabel: 'Total Amount',
+    totalValue: total
+  });
+
+  return {
+    filename: `${toSafeAttachmentFilename(`purchase-order-${row.po_number || poId}`)}.pdf`,
+    content: pdf,
+    contentType: 'application/pdf'
+  };
+}
+
+async function buildPaymentVoucherPdfAttachment(paymentId) {
+  const rows = await queryAsync(`
+    SELECT
+      pay.*,
+      ap.bill_number,
+      ap.bill_date,
+      ap.due_date,
+      v.vendor_name,
+      po.po_number,
+      ar.invoice_number,
+      ar.customer_name,
+      be.company_name AS business_entity_name,
+      be.entity_code AS business_entity_code,
+      be.address AS business_entity_address,
+      be.phone AS business_entity_phone,
+      be.email AS business_entity_email
+    FROM payments pay
+    LEFT JOIN accounts_payable ap ON ap.id = pay.ap_id
+    LEFT JOIN vendors v ON v.id = ap.vendor_id
+    LEFT JOIN purchase_orders po ON po.id = ap.po_id
+    LEFT JOIN accounts_receivable ar ON ar.id = pay.ar_id
+    LEFT JOIN business_entities be ON be.id = COALESCE(ap.business_entity_id, ar.business_entity_id)
+    WHERE pay.id = ?
+    LIMIT 1
+  `, [paymentId]);
+  const row = rows?.[0];
+  if (!row) throw new Error('Payment not found.');
+
+  const isAp = String(row.payment_type || '').toLowerCase() === 'ap';
+  const recordNo = row.reference_number || `PAY-${row.id || paymentId}`;
+  const pdf = buildProfessionalSummaryPdf({
+    title: isAp ? 'PAYMENT VOUCHER' : 'COLLECTION RECEIPT',
+    documentNo: recordNo,
+    status: row.approval_status || 'approved',
+    brandSource: row,
+    leftTitle: 'PAYMENT DETAILS',
+    leftRows: [
+      ['Payment Type', String(row.payment_type || '').toUpperCase()],
+      ['Payment Date', formatPdfDate(row.payment_date)],
+      ['Method', row.payment_method],
+      ['Reference No.', row.reference_number],
+      ['Approved By', row.approved_by],
+      ['Approved At', formatPdfDate(row.approved_at)]
+    ],
+    rightTitle: isAp ? 'PAYABLE REFERENCE' : 'RECEIVABLE REFERENCE',
+    rightRows: isAp ? [
+      ['Vendor', row.vendor_name],
+      ['Bill No.', row.bill_number],
+      ['PO No.', row.po_number],
+      ['Bill Date', formatPdfDate(row.bill_date)],
+      ['Due Date', formatPdfDate(row.due_date)]
+    ] : [
+      ['Customer', row.customer_name],
+      ['Invoice No.', row.invoice_number]
+    ],
+    tableTitle: 'AMOUNT SUMMARY',
+    tableHeaders: ['Item', 'Value', 'Amount'],
+    tableRows: [
+      { Item: isAp ? 'Payment' : 'Collection', Value: row.payment_method || '-', Amount: formatPdfMoney(row.amount) },
+      { Item: 'Reference', Value: row.reference_number || '-', Amount: formatPdfMoney(row.amount) }
+    ],
+    notes: row.notes || row.approval_comment || '',
+    totalLabel: 'Payment Amount',
+    totalValue: row.amount
+  });
+
+  return {
+    filename: `${toSafeAttachmentFilename(`payment-voucher-${recordNo}`)}.pdf`,
+    content: pdf,
+    contentType: 'application/pdf'
+  };
 }
 
 function buildProjectSummaryPdf(row = {}) {
@@ -6294,7 +6612,10 @@ async function generateProjectPdfFile(projectId) {
     SELECT
       p.*,
       be.company_name AS business_entity_name,
-      be.entity_code AS business_entity_code
+      be.entity_code AS business_entity_code,
+      be.address AS business_entity_address,
+      be.phone AS business_entity_phone,
+      be.email AS business_entity_email
     FROM projects p
     LEFT JOIN business_entities be ON be.id = p.business_entity_id
     WHERE p.id = ?
@@ -6360,6 +6681,9 @@ async function generateTransactionPdfFile(transactionId) {
       t.*,
       be.company_name AS business_entity_name,
       be.entity_code AS business_entity_code,
+      be.address AS business_entity_address,
+      be.phone AS business_entity_phone,
+      be.email AS business_entity_email,
       c.company_no,
       c.company_name,
       p.project_docno,
@@ -6423,6 +6747,9 @@ async function generateBillPdfFile(billId) {
       ap.*,
       be.company_name AS business_entity_name,
       be.entity_code AS business_entity_code,
+      be.address AS business_entity_address,
+      be.phone AS business_entity_phone,
+      be.email AS business_entity_email,
       v.vendor_name,
       po.po_number,
       p.project_docno,
@@ -6447,6 +6774,15 @@ async function generateBillPdfFile(billId) {
   await fs.promises.writeFile(filePath, pdf);
   await queryAsync('UPDATE accounts_payable SET pdfFilename = ? WHERE id = ?', [filename, billId]);
   return { filename, filePath };
+}
+
+async function buildBillSummaryEmailAttachment(billId) {
+  const generated = await generateBillPdfFile(billId);
+  return {
+    filename: generated.filename,
+    path: generated.filePath,
+    contentType: 'application/pdf'
+  };
 }
 
 function buildServiceOrderSummaryPdf(row = {}) {
@@ -6483,6 +6819,9 @@ async function generateServiceOrderPdfFile(serviceOrderId) {
       so.*,
       be.company_name AS business_entity_name,
       be.entity_code AS business_entity_code,
+      be.address AS business_entity_address,
+      be.phone AS business_entity_phone,
+      be.email AS business_entity_email,
       v.vendor_name,
       c.company_no,
       c.company_name,
@@ -8458,12 +8797,23 @@ app.get('/api/me', async (req, res) => {
       role: currentUser.role,
       email: currentUser.email,
       permissions: getRolePermissions(currentUser.role),
+      inactivityTimeoutMs: sessionMaxAgeMs,
       csrfToken
     });
   } catch (err) {
     console.error('Current user lookup error:', err);
     res.status(500).json({ loggedIn: false, message: 'Unable to verify current user' });
   }
+});
+
+app.get('/api/session/refresh', protectAuthenticated, (req, res) => {
+  noCache(res);
+  const csrfToken = req.session?.user ? ensureSessionCsrfToken(req) : '';
+  res.json({
+    loggedIn: true,
+    inactivityTimeoutMs: sessionMaxAgeMs,
+    csrfToken
+  });
 });
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -9906,7 +10256,7 @@ app.get('/api/transactions/archived', protectAdminOnly, (req, res) => {
   });
 });
 
-app.get('/api/archive-center', protectAdminOnly, async (req, res) => {
+app.get('/api/archive-center', protectAdmin, async (req, res) => {
   try {
     const [
       projectRows,
@@ -14551,7 +14901,7 @@ app.post('/api/procurement/requisitions/:id/reject', protectAdminOnly, async (re
       [`Rejected: ${reason}`, reason, requisitionId]
     );
     logAction(req, 'REJECT_PURCHASE_REQUISITION', `Rejected requisition ${rows[0].pr_number} | Reason: ${reason}`);
-    sendBackgroundNotification(() => notifyPurchaseRequisitionRequester(req, requisitionId, 'cancelled', {
+    sendBackgroundNotification(() => notifyPurchaseRequisitionRequester(req, requisitionId, 'rejected', {
       reason,
       cancelledBy: getApprovalActorLabel(req)
     }), 'purchase requisition rejection email');
@@ -14754,6 +15104,12 @@ app.post('/api/procurement/purchase-orders/:id/submit', protectAdmin, async (req
       LIMIT 1
     `, [poId]);
     const details = detailRows[0] || {};
+    const attachments = [];
+    try {
+      attachments.push(await buildPurchaseOrderPdfAttachment(poId));
+    } catch (pdfErr) {
+      console.error('Purchase order approval request PDF generation warning:', pdfErr);
+    }
     sendBackgroundNotification(() => notifyApprovalRequest(req, {
       title: 'Purchase Order',
       recordNo: rows[0].po_number,
@@ -14765,7 +15121,8 @@ app.post('/api/procurement/purchase-orders/:id/submit', protectAdmin, async (req
         'PO Date': details.po_date,
         'Delivery Date': details.delivery_date,
         Amount: details.total_amount
-      }
+      },
+      attachments: attachments.length ? attachments : undefined
     }), 'purchase order approval email');
     res.json({ success: true, status: 'pending' });
   } catch (err) {
@@ -14839,9 +15196,10 @@ app.post('/api/procurement/purchase-orders/:id/reject', protectAdminOnly, async 
       [notes, reason, poId]
     );
     logAction(req, 'REJECT_PURCHASE_ORDER', `Rejected purchase order ${rows[0].po_number} | Reason: ${reason}`);
-    sendBackgroundNotification(() => notifyPurchaseOrderRequester(req, poId, 'cancelled', {
+    sendBackgroundNotification(() => notifyPurchaseOrderRequester(req, poId, 'rejected', {
       reason,
-      cancelledBy: getApprovalActorLabel(req)
+      cancelledBy: getApprovalActorLabel(req),
+      statusOverride: 'rejected'
     }), 'purchase order rejection email');
     res.json({ success: true, status: 'draft', reason });
   } catch (err) {
@@ -15572,6 +15930,11 @@ app.post('/api/payments/:id/reject', protectAdminOnly, async (req, res) => {
     if (Number(payment.ap_id || 0)) await syncPayableBalance(payment.ap_id);
     if (Number(payment.ar_id || 0)) await syncReceivableBalance(payment.ar_id);
     logAction(req, 'REJECT_PAYMENT', `Rejected ${payment.payment_type || 'payment'} payment ID ${paymentId} | Reason: ${reason}`);
+    sendBackgroundNotification(() => notifyFinanceApproval(req, 'payment', paymentId, {
+      decision: 'rejected',
+      reason,
+      rejectedBy: getApprovalActorLabel(req)
+    }), 'payment rejected email');
     res.json({ success: true, approval_status: 'rejected', reason });
   } catch (err) {
     console.error('Reject payment error:', err);
@@ -17555,7 +17918,9 @@ app.patch('/api/admin/users/:id', protectAdminOnly, async (req, res) => {
     const isPrivilegeChange = !isSelf && isPrivilegedRole(updateRole) && updateRole !== previousRole;
     const isApprovingAsPrivileged = !isSelf && previousApprovalStatus === 'pending' && updateActive === 1 && isPrivilegedRole(updateRole);
 
-    assertCanManageUserTarget(req, previousRole, 'edit');
+    if (!isSelf) {
+      assertCanManageUserTarget(req, previousRole, 'edit');
+    }
     if (!actorIsSuperAdmin && updateRole !== previousRole) {
       return res.status(403).json({ error: 'Only Super Admin can change user roles.' });
     }
@@ -17636,7 +18001,7 @@ app.patch('/api/admin/users/:id', protectAdminOnly, async (req, res) => {
   }
 });
 
-app.get('/api/admin/logs', protectAdminOnly, (req, res) => {
+app.get('/api/admin/logs', protectSuperAdmin, (req, res) => {
   if (!isAdminRole(req.session.user.role)) {
     return res.status(403).json({ error: 'Access denied' });
   }
@@ -17802,7 +18167,7 @@ app.patch('/api/admin/users/:id/reject', protectAdminOnly, async (req, res) => {
   }
 });
 
-app.get('/api/admin/logs/export', protectAdminOnly, async (req, res) => {
+app.get('/api/admin/logs/export', protectSuperAdmin, async (req, res) => {
   if (!isAdminRole(req.session.user.role)) {
     return res.status(403).json({ error: 'Access denied' });
   }

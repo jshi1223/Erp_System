@@ -8,6 +8,15 @@
   'use strict';
 
   var BUSINESS_ENTITY_THEME_KEY = 'kinaadman_businessEntityTheme';
+  var DEFAULT_INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000;
+  var MIN_INACTIVITY_TIMEOUT_MS = 60 * 1000;
+  var inactivityTimeoutMs = DEFAULT_INACTIVITY_TIMEOUT_MS;
+  var inactivityTimer = null;
+  var inactivityLogoutInProgress = false;
+  var lastActivityAt = Date.now();
+  var lastSessionRefreshAt = 0;
+  var sessionRefreshInProgress = false;
+  var sessionRefreshIntervalMs = 5 * 60 * 1000;
   var activeBusinessEntityLogoProfile = null;
   var activeBusinessEntityBrandTitle = '';
   var businessEntityLogoObserver = null;
@@ -54,6 +63,7 @@
   }
   installSharedUiFallbacks();
   watchSharedSidebarMount();
+  setupInactivityLogout();
   verifySession();
 
   function isAdminRoleManagedPage() {
@@ -129,6 +139,116 @@
           .catch(function () { window.location.href = '/'; });
       };
     }
+  }
+
+  function normalizeInactivityTimeout(value) {
+    var numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) return DEFAULT_INACTIVITY_TIMEOUT_MS;
+    return Math.max(MIN_INACTIVITY_TIMEOUT_MS, numeric);
+  }
+
+  function configureInactivityLogout(timeoutMs) {
+    inactivityTimeoutMs = normalizeInactivityTimeout(timeoutMs);
+    sessionRefreshIntervalMs = Math.max(
+      60 * 1000,
+      Math.min(5 * 60 * 1000, Math.floor(inactivityTimeoutMs / 3))
+    );
+    scheduleInactivityLogout();
+  }
+
+  function setupInactivityLogout() {
+    configureInactivityLogout(window.KINAADMAN_INACTIVITY_TIMEOUT_MS || DEFAULT_INACTIVITY_TIMEOUT_MS);
+    [
+      'click',
+      'keydown',
+      'mousemove',
+      'mousedown',
+      'pointerdown',
+      'scroll',
+      'touchstart',
+      'input'
+    ].forEach(function (eventName) {
+      window.addEventListener(eventName, handleUserActivity, { passive: true });
+    });
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') {
+        handleUserActivity();
+      }
+    });
+  }
+
+  function handleUserActivity() {
+    if (inactivityLogoutInProgress) return;
+    lastActivityAt = Date.now();
+    scheduleInactivityLogout();
+    maybeRefreshSession();
+  }
+
+  function scheduleInactivityLogout() {
+    if (inactivityTimer) {
+      clearTimeout(inactivityTimer);
+      inactivityTimer = null;
+    }
+    var elapsed = Date.now() - lastActivityAt;
+    var delay = Math.max(0, inactivityTimeoutMs - elapsed);
+    inactivityTimer = setTimeout(function () {
+      performInactivityLogout();
+    }, delay);
+  }
+
+  function maybeRefreshSession(force) {
+    var now = Date.now();
+    if (sessionRefreshInProgress) return;
+    if (!force && now - lastSessionRefreshAt < sessionRefreshIntervalMs) return;
+    sessionRefreshInProgress = true;
+    fetch('/api/session/refresh', { credentials: 'same-origin' })
+      .then(function (res) {
+        if (res.status === 401) {
+          redirectToLogin();
+          return null;
+        }
+        return res.ok ? res.json() : null;
+      })
+      .then(function (data) {
+        if (data && data.csrfToken) {
+          window.__CSRF_TOKEN__ = data.csrfToken;
+        }
+        if (data && data.inactivityTimeoutMs) {
+          configureInactivityLogout(data.inactivityTimeoutMs);
+        }
+      })
+      .catch(function () {})
+      .finally(function () {
+        lastSessionRefreshAt = Date.now();
+        sessionRefreshInProgress = false;
+      });
+  }
+
+  function clearSessionUiState() {
+    localStorage.removeItem('kinaadman_activeTab');
+    localStorage.removeItem('kinaadman_dashboardPanel');
+    localStorage.removeItem('kinaadman_currentUserBadge');
+  }
+
+  function performInactivityLogout() {
+    if (inactivityLogoutInProgress) return;
+    inactivityLogoutInProgress = true;
+    clearSessionUiState();
+    try {
+      sessionStorage.setItem('kinaadman_logoutReason', 'inactivity');
+    } catch (_) {}
+
+    var headers = {};
+    var token = String(window.__CSRF_TOKEN__ || '').trim();
+    if (token) headers['X-CSRF-Token'] = token;
+    fetch('/logout', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: headers
+    })
+      .finally(function () {
+        window.location.href = '/';
+      });
   }
 
   function applyCachedAccessRoleEarly() {
@@ -774,6 +894,10 @@
         if (data.csrfToken) {
           window.__CSRF_TOKEN__ = data.csrfToken;
         }
+        if (data.inactivityTimeoutMs) {
+          configureInactivityLogout(data.inactivityTimeoutMs);
+        }
+        lastSessionRefreshAt = Date.now();
         try {
           localStorage.setItem('kinaadman_currentUserBadge', JSON.stringify({
             id: data.id || '',
@@ -1029,8 +1153,7 @@
             items: [
               { href: '/user-management', label: 'User Management', id: 'menu-users' },
               { href: '/admin?panel=approval-center', label: 'Approval Center', id: 'menu-approval-center' },
-              { href: '/admin?panel=archive-center', label: 'Archive Center', id: 'menu-archive-center', aliases: ['/admin?view=archive-center', '/admin?view=archived', '/admin?panel=archived'] },
-              { href: '/admin?view=logs', label: 'System Logs', id: 'menu-logs', aliases: ['/admin?panel=logs'] }
+              { href: '/admin?panel=archive-center', label: 'Archive Center', id: 'menu-archive-center', aliases: ['/admin?view=archive-center', '/admin?view=archived', '/admin?panel=archived'] }
             ]
           }
         ]

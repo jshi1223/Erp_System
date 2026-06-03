@@ -198,7 +198,10 @@ document.addEventListener('DOMContentLoaded', () => {
       if (menuBusinessEntities) menuBusinessEntities.style.display = safeCurrentRole === 'super_admin' ? 'block' : 'none';
       
       const menuLogs = document.getElementById('menu-logs');
-      if (menuLogs) menuLogs.style.display = 'block';
+      if (menuLogs) menuLogs.style.display = safeCurrentRole === 'super_admin' ? 'block' : 'none';
+
+      const menuArchiveCenter = document.getElementById('menu-archive-center');
+      if (menuArchiveCenter) menuArchiveCenter.style.display = isAdminRoleValue(safeCurrentRole) ? 'block' : 'none';
     } else {
       const adminSidebarGroup = document.querySelector('.sidebar-group[data-sidebar-group="admin"]');
       if (adminSidebarGroup) {

@@ -68,7 +68,7 @@ function dateInputValue(value) {
 function statusClass(status) {
   const normalized = String(status || 'draft').trim().toLowerCase();
   if (['approved', 'received', 'selected'].includes(normalized)) return `status-${normalized === 'selected' ? 'approved' : normalized}`;
-  if (['submitted', 'pending', 'ordered', 'draft', 'cancelled', 'rejected'].includes(normalized)) return `status-${normalized}`;
+  if (['submitted', 'pending', 'ordered', 'draft', 'cancelled', 'rejected', 'needs_revision'].includes(normalized)) return `status-${normalized}`;
   return 'status-draft';
 }
 
@@ -100,6 +100,23 @@ function getRequisitionLockedReason(requisition) {
 
 function normalizeWorkflowStatus(status) {
   return String(status || '').trim().toLowerCase();
+}
+
+function formatWorkflowStatusLabel(status) {
+  const normalized = normalizeWorkflowStatus(status || 'draft');
+  const labels = {
+    draft: 'Draft',
+    submitted: 'Submitted',
+    pending: 'Pending Approval',
+    needs_revision: 'Needs Revision',
+    rejected: 'Needs Revision',
+    approved: 'Approved',
+    ordered: 'Ordered',
+    received: 'Received',
+    cancelled: 'Cancelled',
+    awarded: 'Awarded'
+  };
+  return labels[normalized] || normalized.replace(/_/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
 
 function requisitionCanShowInPurchaseOrderSelect(requisition, selectedValue = '') {
@@ -137,7 +154,7 @@ function isStaffMasterDataWorkspace() {
 
 function procurementRecordVisibleForCurrentUser(row = {}) {
   if (!userCanApproveProcurement()) return true;
-  return normalizeWorkflowStatus(row.status || 'draft') !== 'draft';
+  return !isProcurementRequestRow(row);
 }
 
 function syncProcurementStatusSelect(selectId, staffAllowed = ['draft'], { lockStaff = true } = {}) {
@@ -175,7 +192,10 @@ function normalizeProcurementTab(value) {
   let tab = String(value || '').trim().toLowerCase();
   if (tab === 'bid-evaluation') tab = 'quotations';
   if (isStaffProcurementWorkspace()) return ['requests', 'requisitions'].includes(tab) ? tab : 'requests';
-  return ['vendors', 'requests', 'requisitions', 'rfq', 'quotations', 'purchase-orders', 'goods-receipts'].includes(tab) ? tab : 'vendors';
+  const path = (window.location.pathname || '').replace(/\/+$/, '');
+  const adminProcurementTabs = ['requisitions', 'rfq', 'quotations', 'purchase-orders', 'goods-receipts'];
+  if (path === '/procurement') return adminProcurementTabs.includes(tab) ? tab : 'requisitions';
+  return ['vendors', ...adminProcurementTabs].includes(tab) ? tab : 'vendors';
 }
 
 function getSavedProcurementTab() {
@@ -2892,7 +2912,7 @@ function filteredRows(rows, searchValue, fields) {
 
 function isProcurementRequestRow(row = {}) {
   const status = normalizeWorkflowStatus(row.status || 'draft');
-  return ['draft', 'submitted', 'pending', 'rejected'].includes(status);
+  return ['draft', 'submitted', 'pending', 'for_approval', 'for approval', 'needs_revision', 'rejected'].includes(status);
 }
 
 function getVisibleRequisitionRows(searchValue) {
@@ -2940,7 +2960,7 @@ function renderProcurementRequests() {
         <td>${escHtml(dateText(row.request_date))}</td>
         <td>${escHtml(row.requested_by || '-')}</td>
         <td>${escHtml(dateText(row.needed_by))}</td>
-        <td><span class="status-chip ${statusClass(row.status)}">${escHtml(row.status || 'draft')}</span></td>
+        <td><span class="status-chip ${statusClass(row.status)}">${escHtml(formatWorkflowStatusLabel(row.status || 'draft'))}</span></td>
         <td>${renderRequisitionItemsCell(row)}</td>
         <td class="text-right" style="font-weight:600;">${escHtml(money(row.total_amount || 0))}</td>
         <td>
@@ -3007,7 +3027,7 @@ function renderRequisitions() {
         <td>${escHtml(dateText(row.request_date))}</td>
         <td>${escHtml(row.requested_by || '-')}</td>
         <td>${escHtml(dateText(row.needed_by))}</td>
-        <td><span class="status-chip ${statusClass(row.status)}">${escHtml(row.status || 'draft')}</span></td>
+        <td><span class="status-chip ${statusClass(row.status)}">${escHtml(formatWorkflowStatusLabel(row.status || 'draft'))}</span></td>
         <td style="min-width:180px;">${renderProcurementApprovalTrail(row)}</td>
         <td>${renderRequisitionItemsCell(row)}</td>
         <td class="text-right">${escHtml(Number(row.item_count || getRequisitionLineItems(row).length || 0))}</td>

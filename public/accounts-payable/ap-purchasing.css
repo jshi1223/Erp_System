@@ -25,6 +25,12 @@
   border-color: #e4d9db;
 }
 
+.status-pending {
+  color: #9a3412;
+  background: #fff7ed;
+  border-color: #fed7aa;
+}
+
 .status-approved {
   color: #5b1a24;
   background: #f7f1f1;
@@ -44,7 +50,8 @@
 }
 
 .status-cancelled,
-.status-rejected {
+.status-rejected,
+.status-needs_revision {
   color: #8f1f14;
   background: #fbe9e7;
   border-color: #f3c2bc;

@@ -4,6 +4,7 @@
 - `NODE_ENV=production`
 - `APP_BASE_URL=https://your-domain.example`
 - `SESSION_SECRET` set to a long random string
+- `SESSION_INACTIVITY_TIMEOUT_MS` idle auto-logout timeout in milliseconds, for example `1800000` for 30 minutes
 - `DATABASE_URL` for production PostgreSQL
 - `PGSSLMODE=require` when using Supabase pooled/direct PostgreSQL
 - SMTP settings if you want email reset links

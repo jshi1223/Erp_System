@@ -4,6 +4,11 @@
   let currentApprovalFilter = 'all';
   let approvalCenterItems = [];
   let currentApprovalSearch = '';
+  let approvalCenterPollTimer = null;
+  let approvalCenterPollBusy = false;
+  let approvalCenterLastSignature = '';
+  let approvalCenterLastCount = null;
+  const APPROVAL_CENTER_POLL_MS = 30000;
 
   function approvalStatusPending(value) {
     const status = String(value || '').trim().toLowerCase();
@@ -48,6 +53,89 @@
 
   function buildApprovalChecklist(items = []) {
     return items.filter(Boolean).map(item => String(item));
+  }
+
+  function getApprovalItemKey(item = {}) {
+    return [
+      item.category,
+      item.type,
+      item.title,
+      item.approveUrl || item.url
+    ].map(value => String(value || '').trim()).join('|');
+  }
+
+  function getApprovalItemsSignature(items = []) {
+    return (Array.isArray(items) ? items : [])
+      .map(getApprovalItemKey)
+      .sort()
+      .join('||');
+  }
+
+  function getApprovalCounts(items = []) {
+    const source = Array.isArray(items) ? items : [];
+    return {
+      all: source.length,
+      projects: source.filter(item => item.category === 'projects').length,
+      procurement: source.filter(item => item.category === 'procurement').length,
+      inventory: source.filter(item => item.category === 'inventory').length,
+      finance: source.filter(item => item.category === 'finance').length,
+      users: source.filter(item => item.category === 'users').length
+    };
+  }
+
+  function applyApprovalCenterSummary(items = []) {
+    const counts = getApprovalCounts(items);
+    setApprovalMetric('approval-count-all', counts.all);
+    setApprovalMetric('approval-count-projects', counts.projects);
+    setApprovalMetric('approval-count-procurement', counts.procurement);
+    setApprovalMetric('approval-count-inventory', counts.inventory);
+    setApprovalMetric('approval-count-finance', counts.finance);
+    setApprovalMetric('approval-count-users', counts.users);
+    syncApprovalSidebarBadge(counts.all);
+    const valueNode = document.getElementById('stat-approvals');
+    const miniNode = document.getElementById('stat-approvals-mini');
+    if (valueNode) valueNode.textContent = String(counts.all);
+    if (miniNode) {
+      miniNode.textContent = `${counts.projects} projects | ${counts.procurement} procurement | ${counts.inventory} inventory | ${counts.finance} finance | ${counts.users} users`;
+    }
+    return counts;
+  }
+
+  function openApprovalCenterFromNotification() {
+    if (typeof navigateDashboardCard === 'function') {
+      navigateDashboardCard('/admin?panel=approval-center');
+      return;
+    }
+    window.location.href = '/admin?panel=approval-center';
+  }
+
+  function showApprovalPendingToast(message) {
+    const toast = document.getElementById('toast');
+    if (!toast) {
+      if (typeof showToast === 'function') showToast(message, 'success');
+      return;
+    }
+    clearTimeout(toast._timer);
+    toast.textContent = message;
+    toast.className = 'show success approval-toast-clickable';
+    toast.setAttribute('role', 'button');
+    toast.setAttribute('tabindex', '0');
+    toast.setAttribute('title', 'Open Approval Center');
+    toast.onclick = openApprovalCenterFromNotification;
+    toast.onkeydown = (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        openApprovalCenterFromNotification();
+      }
+    };
+    toast._timer = window.setTimeout(() => {
+      toast.className = '';
+      toast.onclick = null;
+      toast.onkeydown = null;
+      toast.removeAttribute('role');
+      toast.removeAttribute('tabindex');
+      toast.removeAttribute('title');
+    }, 6000);
   }
 
   async function loadApprovalCenterItems() {
@@ -159,7 +247,7 @@
 
     projects
       .filter(row => Number(row.is_archived || 0) === 0)
-      .filter(row => String(row.status || '').toLowerCase() === 'submitted')
+      .filter(row => approvalStatusPending(row.status))
       .forEach(row => {
         items.push(makeApprovalItem({
           category: 'projects',
@@ -167,7 +255,7 @@
           title: getProjectLinkLabel(row) || row.project_name,
           requestedBy: row.created_by_name || row.project_manager || row.project_members || '-',
           date: getApprovalDate(row, ['submitted_at', 'updated_at', 'created_at', 'planned_start_date']),
-          status: 'submitted',
+          status: row.status || 'submitted',
           url: '/admin?panel=project-records&tab=projects',
           approveUrl: `/api/projects/${Number(row.id || 0)}/approve`,
           rejectUrl: `/api/projects/${Number(row.id || 0)}/reject`,
@@ -336,18 +424,7 @@
       return;
     }
     const items = await loadApprovalCenterItems();
-    const counts = {
-      projects: items.filter(item => item.category === 'projects').length,
-      procurement: items.filter(item => item.category === 'procurement').length,
-      inventory: items.filter(item => item.category === 'inventory').length,
-      finance: items.filter(item => item.category === 'finance').length,
-      users: items.filter(item => item.category === 'users').length
-    };
-    if (valueNode) valueNode.textContent = String(items.length);
-    if (miniNode) {
-      miniNode.textContent = `${counts.projects} projects | ${counts.procurement} procurement | ${counts.inventory} inventory | ${counts.finance} finance | ${counts.users} users`;
-    }
-    syncApprovalSidebarBadge(items.length);
+    applyApprovalCenterSummary(items);
   }
 
   function filterApprovalCenter(filter = 'all') {
@@ -679,21 +756,7 @@
     if (!showPanel) return;
 
     const items = useCache && approvalCenterItems.length ? approvalCenterItems : await loadApprovalCenterItems(force);
-    const counts = {
-      all: items.length,
-      projects: items.filter(item => item.category === 'projects').length,
-      procurement: items.filter(item => item.category === 'procurement').length,
-      inventory: items.filter(item => item.category === 'inventory').length,
-      finance: items.filter(item => item.category === 'finance').length,
-      users: items.filter(item => item.category === 'users').length
-    };
-    setApprovalMetric('approval-count-all', counts.all);
-    setApprovalMetric('approval-count-projects', counts.projects);
-    setApprovalMetric('approval-count-procurement', counts.procurement);
-    setApprovalMetric('approval-count-inventory', counts.inventory);
-    setApprovalMetric('approval-count-finance', counts.finance);
-    setApprovalMetric('approval-count-users', counts.users);
-    syncApprovalSidebarBadge(counts.all);
+    const counts = applyApprovalCenterSummary(items);
 
     document.querySelectorAll('.approval-summary-card').forEach((card) => {
       const onclick = String(card.getAttribute('onclick') || '');
@@ -761,6 +824,68 @@
     }).join('');
   }
 
+  async function pollApprovalCenterUpdates({ announce = true } = {}) {
+    if (approvalCenterPollBusy || typeof isAdminUser !== 'function' || !isAdminUser()) return;
+    approvalCenterPollBusy = true;
+    try {
+      const previousSignature = approvalCenterLastSignature;
+      const previousCount = approvalCenterLastCount;
+      const previousKeys = new Set((approvalCenterItems || []).map(getApprovalItemKey));
+      const items = await loadApprovalCenterItems();
+      const signature = getApprovalItemsSignature(items);
+      const counts = applyApprovalCenterSummary(items);
+
+      const hasBaseline = previousCount !== null && previousSignature;
+      const hasNewPending = hasBaseline && counts.all > Number(previousCount || 0);
+      const newItems = hasBaseline
+        ? items.filter(item => !previousKeys.has(getApprovalItemKey(item)))
+        : [];
+
+      approvalCenterLastSignature = signature;
+      approvalCenterLastCount = counts.all;
+
+      if (typeof currentDashboardPanel !== 'undefined' && currentDashboardPanel === 'approval-center') {
+        await renderApprovalCenter(false, true);
+      }
+
+      if (announce && hasNewPending && newItems.length && typeof showToast === 'function') {
+        const first = newItems[0];
+        const extra = newItems.length > 1 ? ` +${newItems.length - 1} more` : '';
+        showApprovalPendingToast(`New ${first.type} pending approval: ${first.title}${extra}`);
+      }
+    } catch (err) {
+      console.warn('Approval polling warning:', err);
+    } finally {
+      approvalCenterPollBusy = false;
+    }
+  }
+
+  function startApprovalCenterPolling() {
+    if (approvalCenterPollTimer || typeof isAdminUser !== 'function') return;
+    if (!isAdminUser()) return;
+    pollApprovalCenterUpdates({ announce: false });
+    approvalCenterPollTimer = window.setInterval(() => {
+      if (document.hidden) return;
+      pollApprovalCenterUpdates({ announce: true });
+    }, APPROVAL_CENTER_POLL_MS);
+  }
+
+  function stopApprovalCenterPolling() {
+    if (!approvalCenterPollTimer) return;
+    window.clearInterval(approvalCenterPollTimer);
+    approvalCenterPollTimer = null;
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) pollApprovalCenterUpdates({ announce: true });
+  });
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startApprovalCenterPolling);
+  } else {
+    window.setTimeout(startApprovalCenterPolling, 0);
+  }
+
   Object.assign(window, {
     approvalStatusPending,
     getApprovalDate,
@@ -788,6 +913,9 @@
     getApprovalSlaState,
     getApprovalStatusClass,
     getApprovalActionNeeded,
-    renderApprovalCenter
+    renderApprovalCenter,
+    pollApprovalCenterUpdates,
+    startApprovalCenterPolling,
+    stopApprovalCenterPolling
   });
 })();

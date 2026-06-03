@@ -7,11 +7,11 @@
   <meta http-equiv="Expires" content="0">
   <title>KVSK CCTV &amp; IT Solutions - Staff Dashboard</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<script src="/assets/js/auth-guard.js?v=20260601h"></script>
+<script src="/assets/js/auth-guard.js?v=20260602archive"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Orbitron:wght@500;700;800&amp;family=Playfair+Display:wght@600;700&amp;family=IBM+Plex+Mono:wght@300;400;500&amp;display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260531a">
+  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260603a">
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a">
-  <link rel="stylesheet" href="/staff/css/staff-base.css?v=20260601c">
+  <link rel="stylesheet" href="/staff/css/staff-base.css?v=20260602projectflow">
   <link rel="stylesheet" href="/staff/css/staff.css?v=20260601c">
 </head>
 <body class="admin-page staff-page is-staff-role" data-access-role="staff">
@@ -275,6 +275,7 @@
       <div class="section-divider">Project Operations</div>
       <div class="project-workspace-tabs" role="tablist" aria-label="Project workspace">
         <button class="project-workspace-tab active" type="button" data-project-workspace-tab="projects" onclick="switchProjectWorkspaceTab('projects')" aria-selected="true">Projects</button>
+        <button class="project-workspace-tab" type="button" data-project-workspace-tab="needs-revision" onclick="switchProjectWorkspaceTab('needs-revision')" aria-selected="false">Needs Revision</button>
         <button class="project-workspace-tab" type="button" data-project-workspace-tab="requests" onclick="switchProjectWorkspaceTab('requests')" aria-selected="false">Requests</button>
       </div>
       <div class="stats dashboard-stats dashboard-project-summary project-workspace-summary">
@@ -525,7 +526,7 @@
       <div class="sidebar-group-items">
         <a href="/master-data?tab=companies" class="sidebar-link is-subitem" id="menu-company-registry">Company Registry</a>
         <a href="/master-data?tab=vendors" class="sidebar-link is-subitem">Vendors</a>
-        <a href="/master-data?tab=requests" class="sidebar-link is-subitem">Requests</a>
+        <a href="/master-data?tab=requests" class="sidebar-link is-subitem" id="menu-master-data-requests">Requests</a>
       </div>
     </div>
 
@@ -581,6 +582,7 @@
         <a href="/inventory?tab=warehouses" class="sidebar-link is-subitem">Warehouses</a>
         <a href="/inventory?tab=stock" class="sidebar-link is-subitem">Stock Levels</a>
         <a href="/inventory?tab=movements" class="sidebar-link is-subitem">Stock Movements</a>
+        <a href="/inventory?tab=requests" class="sidebar-link is-subitem" id="menu-inventory-requests">Requests</a>
       </div>
     </div>
   </nav>
@@ -893,8 +895,8 @@
 <!-- Scripts -->
 <script src="/staff/js/staff-notifications.js?v=20260601b"></script>
 <script src="/staff/js/staff-dashboard-cards.js?v=20260601c"></script>
-<script src="/staff/js/staff-page.js?v=20260601c"></script>
-<script src="/admin/js/admin.js?v=20260602projectfields"></script>
+<script src="/staff/js/staff-page.js?v=20260603statuspoll"></script>
+<script src="/admin/js/admin.js?v=20260602projectflow"></script>
 
 
 

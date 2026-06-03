@@ -36,7 +36,9 @@ function getWorkspaceAllowedTabs() {
     return isCurrentStaffRole() ? AP_MASTER_DATA_TABS : new Set(['companies', 'vendors']);
   }
   if (isProcurementWorkspacePage() && isCurrentStaffRole()) return new Set(['requests', 'requisitions']);
-  return isProcurementWorkspacePage() ? AP_PROCUREMENT_TABS : AP_NATIVE_TABS;
+  return isProcurementWorkspacePage()
+    ? new Set(['requisitions', 'rfq', 'quotations', 'purchase-orders', 'goods-receipts'])
+    : AP_NATIVE_TABS;
 }
 
 function getWorkspaceDefaultTab() {
@@ -1633,6 +1635,10 @@ function normalizeApprovalStatus(value) {
   return 'approved';
 }
 
+function recordApprovedForAdminModule(row = {}) {
+  return normalizeApprovalStatus(row.approval_status) === 'approved';
+}
+
 function canApproveApRecords() {
   if (typeof isAdminUser === 'function') return Boolean(isAdminUser());
   const user = typeof currentUser !== 'undefined' ? currentUser : window.currentUser;
@@ -1704,7 +1710,10 @@ function filterBills() {
     saveApUiState();
   }
   const tbody = document.getElementById('bills-tbody');
-  let filtered = billsDb.filter(b => businessEntityMatches(b)).filter(b => {
+  let filtered = billsDb
+    .filter(b => businessEntityMatches(b))
+    .filter(b => !canApproveApRecords() || recordApprovedForAdminModule(b))
+    .filter(b => {
     const vendorName = vendorsDb.find(v => v.id === b.vendor_id)?.vendor_name || '-';
     const projectLabel = getBillProjectLabel(b);
     const haystack = [b.bill_number, vendorName, projectLabel, getPayableUiStatus(b).label, getApprovalUiStatus(b).label, b.status, b.invoice_number, b.due_date].join(' ').toLowerCase();
@@ -2229,6 +2238,7 @@ function filterPayments() {
   }
   const tbody = document.getElementById('payments-tbody');
   const filtered = paymentsDb.filter((p) => {
+    if (canApproveApRecords() && !recordApprovedForAdminModule(p)) return false;
     const bill = billsDb.find((b) => Number(b.id || 0) === Number(p.ap_id || 0));
     if (!businessEntityMatches(bill || p)) return false;
     if (!q) return true;

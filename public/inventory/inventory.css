@@ -260,12 +260,18 @@ body.inventory-page .module-tab.active {
   color: #1d4ed8;
 }
 
+.inventory-status-pill.status-pending {
+  background: #fff7ed;
+  color: #9a3412;
+}
+
 .inventory-status-pill.status-approved {
   background: #dcfce7;
   color: #047857;
 }
 
-.inventory-status-pill.status-rejected {
+.inventory-status-pill.status-rejected,
+.inventory-status-pill.status-needs_revision {
   background: #fee2e2;
   color: #b42318;
 }

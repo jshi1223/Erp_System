@@ -90,8 +90,7 @@
       items: [
         { label: 'User Management', href: '/user-management', id: 'menu-users' },
         { label: 'Approval Center', href: '/admin?panel=approval-center', id: 'menu-approval-center', adminOnly: true },
-        { label: 'Archive Center', href: '/admin?panel=archive-center', id: 'menu-archive-center' },
-        { label: 'System Logs', href: '/admin?view=logs', id: 'menu-logs' }
+        { label: 'Archive Center', href: '/admin?panel=archive-center', id: 'menu-archive-center' }
       ]
     }
   ]);

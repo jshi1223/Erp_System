@@ -1802,6 +1802,170 @@ body.admin-page #dashboard .dashboard-stats .stat-card.stat-card-accent::before 
   background: linear-gradient(180deg, #ef5b4f, #8f2119) !important;
 }
 
+body.admin-page.staff-page .stat-card.has-staff-action,
+body.admin-page.staff-page .sidebar-link.has-staff-action {
+  position: relative;
+}
+
+body.admin-page.staff-page .stat-card > .staff-action-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+}
+
+body.admin-page.staff-page .sidebar-link.has-staff-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+body.admin-page.staff-page .staff-action-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: #fef2f2;
+  color: #991b1b;
+  font-size: 0.68rem;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: 0 8px 18px rgba(153, 27, 27, 0.12);
+}
+
+body.admin-page.staff-page .staff-action-badge[data-tone="waiting"] {
+  background: #fff7ed;
+  color: #9a3412;
+  box-shadow: 0 8px 18px rgba(154, 52, 18, 0.12);
+}
+
+body.admin-page.staff-page .project-workspace-tab.has-project-tab-count::after {
+  content: attr(data-count);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  margin-left: 7px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #fef2f2;
+  color: #991b1b;
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+body.admin-page.staff-page .project-staff-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+body.admin-page.staff-page .project-staff-badge {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+body.admin-page.staff-page .project-staff-badge[data-tone="both"] {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+body.admin-page.staff-page .project-staff-badge[data-tone="created"] {
+  background: #f5f3ff;
+  color: #6d28d9;
+}
+
+body.admin-page.staff-page .project-staff-badge[data-tone="assigned"] {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+body.admin-page.staff-page .staff-project-timeline-modal {
+  max-width: 620px;
+}
+
+body.admin-page.staff-page .staff-project-timeline-record {
+  display: grid;
+  gap: 5px;
+  margin: 10px 0 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 8px;
+  background: #f8fafc;
+  color: var(--text);
+}
+
+body.admin-page.staff-page .staff-project-timeline-record span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+body.admin-page.staff-page .staff-project-timeline-steps {
+  display: grid;
+  gap: 10px;
+  margin: 10px 0 14px;
+}
+
+body.admin-page.staff-page .staff-project-timeline-step {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+body.admin-page.staff-page .staff-project-timeline-dot {
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
+  border-radius: 999px;
+  border: 3px solid #cbd5e1;
+  background: #fff;
+}
+
+body.admin-page.staff-page .staff-project-timeline-step[data-state="done"] .staff-project-timeline-dot {
+  border-color: #16a34a;
+  background: #22c55e;
+}
+
+body.admin-page.staff-page .staff-project-timeline-step[data-state="warning"] .staff-project-timeline-dot {
+  border-color: #dc2626;
+  background: #ef4444;
+}
+
+body.admin-page.staff-page .staff-project-timeline-step strong {
+  display: block;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+body.admin-page.staff-page .staff-project-timeline-step p,
+body.admin-page.staff-page .staff-project-timeline-note p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+body.admin-page.staff-page .staff-project-timeline-note {
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: #fff7ed;
+  border: 1px solid rgba(251, 146, 60, 0.28);
+}
+
 @media (max-width: 720px) {
   body.admin-page #dashboard .stats.dashboard-stats {
     grid-template-columns: 1fr !important;

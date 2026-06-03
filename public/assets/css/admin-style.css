@@ -2300,6 +2300,13 @@ mark {
 #toast.show { transform: none; opacity: 1; }
 #toast.success { background: var(--accent); }
 #toast.error   { background: var(--danger); }
+#toast.approval-toast-clickable {
+  cursor: pointer;
+}
+#toast.approval-toast-clickable:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
 
 .empty-pdf-state {
   padding: 10px;

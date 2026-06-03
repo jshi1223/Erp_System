@@ -50,6 +50,19 @@ function escHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+function formatInventoryStatusLabel(status) {
+  const normalized = String(status || 'draft').trim().toLowerCase();
+  const labels = {
+    draft: 'Draft',
+    submitted: 'Submitted',
+    pending: 'Pending Approval',
+    needs_revision: 'Needs Revision',
+    rejected: 'Needs Revision',
+    approved: 'Approved'
+  };
+  return labels[normalized] || normalized.replace(/_/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
 function getDefaultBusinessEntityId() {
   const defaultRow = businessEntitiesDb.find(row => Number(row.is_default || 0) === 1) || businessEntitiesDb[0] || null;
   return defaultRow ? String(defaultRow.id || '') : '';
@@ -527,7 +540,7 @@ function renderInventoryRequests() {
         <td><strong>${escHtml(row.request_no || '-')}</strong></td>
         <td>${escHtml(row.request_type || '-')}</td>
         <td>${escHtml(getInventoryRequestDetails(row) || '-')}</td>
-        <td><span class="inventory-status-pill status-${escHtml(status)}">${escHtml(status)}</span></td>
+        <td><span class="inventory-status-pill status-${escHtml(status)}">${escHtml(formatInventoryStatusLabel(status))}</span></td>
         <td>${escHtml(row.reject_reason || (status === 'submitted' ? 'Waiting for admin approval' : status === 'draft' ? 'Ready to submit' : '-'))}</td>
         <td>${actions}</td>
       </tr>

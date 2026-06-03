@@ -71,6 +71,22 @@ function isRecordOwnedByCurrentStaff(record) {
   ].some(value => textContainsStaffTerm(value, terms));
 }
 
+function projectCreatedByCurrentStaff(project) {
+  if (!project) return false;
+  const currentStaffId = Number(currentUser?.id || 0) || 0;
+  const createdBy = Number(project.created_by || project.created_by_id || 0) || 0;
+  if (currentStaffId && createdBy) return currentStaffId === createdBy;
+
+  const terms = getStaffIdentityTerms();
+  return [
+    project.created_by_name,
+    project.created_by_username,
+    project.created_by_email,
+    project.created_by_label,
+    project.owner_name
+  ].some(value => textContainsStaffTerm(value, terms));
+}
+
 function projectAssignedToCurrentStaff(project) {
   if (!project) return false;
   const currentStaffId = Number(currentUser?.id || 0) || 0;
@@ -96,6 +112,47 @@ function projectAssignedToCurrentStaff(project) {
     project.source_member_name_2,
     project.source_member_name_3
   ].some(value => textContainsStaffTerm(value, terms));
+}
+
+function projectExplicitlyAssignedToCurrentStaff(project) {
+  if (!project) return false;
+  const currentStaffId = Number(currentUser?.id || 0) || 0;
+  const assignedTo = Number(project.assigned_to || project.assigned_to_id || 0) || 0;
+  if (currentStaffId && assignedTo) return currentStaffId === assignedTo;
+
+  const terms = getStaffIdentityTerms();
+  return [
+    project.assigned_to_name,
+    project.assigned_to_username,
+    project.assigned_to_email,
+    project.project_manager,
+    project.manager,
+    project.members,
+    project.project_members,
+    project.member_role,
+    project.project_members_2,
+    project.member_role_2,
+    project.project_members_3,
+    project.member_role_3,
+    project.source_member_name,
+    project.source_member_name_2,
+    project.source_member_name_3
+  ].some(value => textContainsStaffTerm(value, terms));
+}
+
+function getProjectStaffOwnershipMeta(project) {
+  const created = projectCreatedByCurrentStaff(project);
+  const assigned = projectExplicitlyAssignedToCurrentStaff(project);
+  if (created && assigned) return { label: 'Created + Assigned to me', tone: 'both' };
+  if (created) return { label: 'Created by me', tone: 'created' };
+  if (assigned) return { label: 'Assigned to me', tone: 'assigned' };
+  return { label: 'Shared project', tone: 'shared' };
+}
+
+function renderProjectStaffOwnershipBadge(project) {
+  if (!isStaffUser()) return '';
+  const meta = getProjectStaffOwnershipMeta(project);
+  return `<div class="project-staff-meta"><span class="project-staff-badge" data-tone="${escHtml(meta.tone)}">${escHtml(meta.label)}</span></div>`;
 }
 
 function projectVisibleToCurrentStaff(project) {
@@ -199,10 +256,10 @@ document.addEventListener('DOMContentLoaded', () => {
       if (menuBusinessEntities) menuBusinessEntities.style.display = canManageSettings ? 'block' : 'none';
       
       const menuLogs = document.getElementById('menu-logs');
-      if (menuLogs) menuLogs.style.display = 'block';
+      if (menuLogs) menuLogs.style.display = canManageSettings ? 'block' : 'none';
 
       const menuArchiveCenter = document.getElementById('menu-archive-center');
-      if (menuArchiveCenter) menuArchiveCenter.style.display = 'block';
+      if (menuArchiveCenter) menuArchiveCenter.style.display = canManageUsers ? 'block' : 'none';
     } else {
       const adminSidebarGroup = document.querySelector('.sidebar-group[data-sidebar-group="admin"]');
       if (adminSidebarGroup) {
@@ -630,6 +687,10 @@ function openDashboardPanel(panel = 'home', opts = {}) {
   if (isStaffUser() && ['project-ledger', 'total-projects', 'ongoing-projects'].includes(panel)) {
     panel = 'project-records';
     currentProjectWorkspaceTab = 'projects';
+  }
+  if (!isSuperAdminUser() && panel === 'system-logs') {
+    showToast('Super Admin access is required for system control pages.', 'error');
+    panel = 'home';
   }
   if (panel === 'total-projects' && activeTab !== 'archived') {
     panel = 'project-records';
@@ -1658,7 +1719,7 @@ function renderProjectRecordsTable() {
   const list = getProjectWorkspaceProjects()
     .filter(project => {
       if (!isStaffUser()) return true;
-      return !['draft', 'needs_revision', 'submitted', 'rejected'].includes(String(project.status || '').trim().toLowerCase());
+      return !projectIsApprovalOnlyStatus(project.status);
     })
     .filter(project => {
       if (!q) return true;
@@ -1669,6 +1730,7 @@ function renderProjectRecordsTable() {
         project.company_no || project.registry_company_no || '',
         project.project_manager || '',
         project.status || '',
+        getProjectStaffOwnershipMeta(project).label,
         getComputedProjectPriority(project),
         project.description || '',
         project.pono || '',
@@ -1680,7 +1742,7 @@ function renderProjectRecordsTable() {
   if (!list.length) {
     if (isStaffUser()) {
       const requestCount = getProjectWorkspaceProjects({ includeArchived: true })
-        .filter(project => ['draft', 'needs_revision', 'submitted', 'rejected'].includes(String(project.status || '').trim().toLowerCase()))
+        .filter(project => projectIsApprovalOnlyStatus(project.status))
         .length;
       if (requestCount) {
         tbody.innerHTML = `<tr class="empty-row"><td colspan="10">No approved project records yet. You have ${requestCount} assigned request${requestCount === 1 ? '' : 's'} in the Requests tab. <button class="btn btn-sm btn-edit" type="button" onclick="switchProjectWorkspaceTab('requests')">Open Requests</button></td></tr>`;
@@ -1710,7 +1772,7 @@ function renderProjectRecordsTable() {
     return `
       <tr>
         <td style="padding: 15px 20px; font-size: 0.85rem;">${highlight(projectDocNo, rawQuery)}</td>
-        <td style="padding: 15px 20px; font-size: 0.92rem;"><strong>${highlight(projectTitle, rawQuery)}</strong></td>
+        <td style="padding: 15px 20px; font-size: 0.92rem;"><strong>${highlight(projectTitle, rawQuery)}</strong>${renderProjectStaffOwnershipBadge(project)}</td>
         <td style="padding: 15px 20px; font-size: 0.85rem;">${highlight(companyName, rawQuery)}</td>
         <td style="padding: 15px 20px; font-size: 0.85rem;">${highlight(manager, rawQuery)}</td>
         <td class="text-center" style="padding: 15px 20px;"><span class="status-pill ${projectStatusClass}">${highlight(projectStatusLabel, rawQuery)}</span></td>
@@ -1722,6 +1784,7 @@ function renderProjectRecordsTable() {
           <div class="project-master-actions">
             <button class="btn btn-sm btn-edit" type="button" onclick="openProjectModal(${Number(project.id)})">Edit</button>
             <button class="btn btn-sm btn-pdf" type="button" onclick="openProjectLedger(${Number(project.id)})">Overview</button>
+            ${isStaffUser() ? `<button class="btn btn-sm btn-pdf" type="button" onclick="openStaffProjectTimeline(${Number(project.id)})">Timeline</button>` : ''}
             ${isDraft
               ? `<button class="btn btn-sm btn-add" type="button" onclick="submitProject(${Number(project.id)})">Submit</button>`
               : ''}
@@ -1745,7 +1808,7 @@ function renderProjectRecordsTable() {
 
 function normalizeProjectWorkspaceTab(tab) {
   const safeTab = String(tab || '').trim().toLowerCase();
-  if (isStaffUser()) return ['projects', 'requests'].includes(safeTab) ? safeTab : 'projects';
+  if (isStaffUser()) return ['projects', 'needs-revision', 'requests'].includes(safeTab) ? safeTab : 'projects';
   return ['projects', 'ongoing', 'transactions', 'service-orders', 'ledger', 'documents'].includes(safeTab)
     ? safeTab
     : 'projects';
@@ -1764,7 +1827,7 @@ function getProjectWorkspaceProjects({ includeArchived = false } = {}) {
     .filter((project) => {
       if (!isStaffUser()) return companyMatchesDashboardFilter(getProjectCompanyName(project));
       const status = String(project.status || '').trim().toLowerCase();
-      return status === 'draft' || status === 'needs_revision' || status === 'submitted' || companyMatchesDashboardFilter(getProjectCompanyName(project));
+      return projectIsApprovalOnlyStatus(status) || companyMatchesDashboardFilter(getProjectCompanyName(project));
     });
 }
 
@@ -1838,12 +1901,13 @@ function updateProjectWorkspaceSummary() {
   const activeTab = normalizeProjectWorkspaceTab(currentProjectWorkspaceTab);
 
   if (isStaffUser()) {
-    const requestCount = getProjectWorkspaceProjects({ includeArchived: true })
-      .filter((project) => ['draft', 'needs_revision', 'submitted', 'rejected'].includes(String(project.status || '').trim().toLowerCase()))
-      .length;
+    const requestProjects = getProjectWorkspaceProjects({ includeArchived: true })
+      .filter((project) => projectIsApprovalOnlyStatus(project.status));
+    const requestCount = requestProjects.length;
+    const revisionCount = requestProjects.filter(projectNeedsStaffRevision).length;
     const companyCount = new Set(metrics.projects.map((project) => getProjectCompanyName(project)).filter(Boolean)).size;
     setProjectWorkspaceSummaryCard(0, 'Requests', String(requestCount), 'Drafts and for approval');
-    setProjectWorkspaceSummaryCard(1, 'Ongoing', String(metrics.ongoing.length), 'Currently active');
+    setProjectWorkspaceSummaryCard(1, 'Needs Revision', String(revisionCount), 'Returned by admin');
     setProjectWorkspaceSummaryCard(2, 'Upcoming', String(metrics.upcoming.length), 'Scheduled projects');
     setProjectWorkspaceSummaryCard(3, 'Companies', String(companyCount), 'With approved projects');
     return;
@@ -1897,10 +1961,17 @@ function updateProjectWorkspaceSummary() {
 
 function syncProjectWorkspaceTabs() {
   const activeTab = normalizeProjectWorkspaceTab(currentProjectWorkspaceTab);
+  const revisionCount = isStaffUser()
+    ? getProjectWorkspaceProjects({ includeArchived: true }).filter(projectNeedsStaffRevision).length
+    : 0;
   document.querySelectorAll('[data-project-workspace-tab]').forEach((node) => {
     const isActive = node.getAttribute('data-project-workspace-tab') === activeTab;
     node.classList.toggle('active', isActive);
     node.setAttribute('aria-selected', String(isActive));
+    if (node.getAttribute('data-project-workspace-tab') === 'needs-revision') {
+      node.classList.toggle('has-project-tab-count', revisionCount > 0);
+      node.setAttribute('data-count', revisionCount > 0 ? String(revisionCount) : '');
+    }
   });
 }
 
@@ -2094,10 +2165,27 @@ function renderProjectWorkspaceDocuments() {
   );
 }
 
-function renderProjectWorkspaceRequests() {
+function projectNeedsStaffRevision(project) {
+  const status = String(project?.status || '').trim().toLowerCase();
+  return status === 'needs_revision' || status === 'rejected' || Boolean(String(project?.status_reason || '').trim());
+}
+
+function getProjectRequestStatusMeta(project) {
+  const status = String(project?.status || 'draft').toLowerCase();
+  const needsRevision = projectNeedsStaffRevision(project);
+  if (needsRevision) return { status, needsRevision, label: 'Needs Revision', className: 'status-rejected' };
+  if (!projectIsApprovalOnlyStatus(status)) return { status, needsRevision, label: 'Approved', className: 'status-active' };
+  if (['submitted', 'pending', 'for_approval', 'for approval'].includes(status)) {
+    return { status, needsRevision, label: 'Submitted', className: 'status-submitted' };
+  }
+  return { status, needsRevision, label: 'Draft', className: 'status-draft' };
+}
+
+function renderProjectWorkspaceRequests(mode = 'all') {
   const query = getProjectWorkspaceQuery();
   const rows = getProjectWorkspaceProjects({ includeArchived: true })
-    .filter((project) => ['draft', 'needs_revision', 'submitted', 'rejected'].includes(String(project.status || '').trim().toLowerCase()))
+    .filter((project) => projectIsApprovalOnlyStatus(project.status))
+    .filter((project) => mode === 'needs-revision' ? projectNeedsStaffRevision(project) : true)
     .filter((project) => projectWorkspaceMatchesSearch([
       project.draft_docno,
       project.project_docno,
@@ -2105,6 +2193,7 @@ function renderProjectWorkspaceRequests() {
       getProjectCompanyName(project),
       project.project_manager,
       project.status,
+      getProjectStaffOwnershipMeta(project).label,
       project.status_reason
     ], query))
     .sort((a, b) => {
@@ -2114,22 +2203,22 @@ function renderProjectWorkspaceRequests() {
       return (rank[statusA] ?? 9) - (rank[statusB] ?? 9);
     })
     .map((project) => {
-      const status = String(project.status || 'draft').toLowerCase();
-      const needsRevision = status === 'needs_revision' || status === 'rejected' || Boolean(String(project.status_reason || '').trim());
-      const statusLabel = needsRevision ? 'Needs Revision' : (status === 'submitted' ? 'Submitted' : 'Draft');
-      const statusClass = needsRevision ? 'status-rejected' : (status === 'submitted' ? 'status-submitted' : 'status-draft');
+      const statusMeta = getProjectRequestStatusMeta(project);
+      const status = statusMeta.status;
+      const needsRevision = statusMeta.needsRevision;
       const canEdit = status === 'draft' || status === 'needs_revision' || status === 'rejected';
       const docNo = project.draft_docno || project.project_docno || '-';
       return `
         <tr>
           <td>${highlight(docNo, query)}</td>
-          <td><strong>${highlight(project.project_name || 'Untitled Project', query)}</strong></td>
+          <td><strong>${highlight(project.project_name || 'Untitled Project', query)}</strong>${renderProjectStaffOwnershipBadge(project)}</td>
           <td>${highlight(getProjectCompanyName(project) || '-', query)}</td>
           <td>${highlight(project.project_manager || '-', query)}</td>
-          <td class="text-center"><span class="status-pill ${statusClass}">${escHtml(statusLabel)}</span></td>
+          <td class="text-center"><span class="status-pill ${statusMeta.className}">${escHtml(statusMeta.label)}</span></td>
           <td>${escHtml(project.status_reason || (status === 'submitted' ? 'Waiting for admin approval' : '-'))}</td>
           <td class="text-center">
             <div class="project-master-actions">
+              <button class="btn btn-pdf btn-sm" type="button" onclick="openStaffProjectTimeline(${Number(project.id || 0)})">Timeline</button>
               ${canEdit ? `<button class="btn btn-edit btn-sm" type="button" onclick="openProjectModal(${Number(project.id || 0)})">Edit</button>` : ''}
               ${canEdit ? `<button class="btn btn-add btn-sm" type="button" onclick="submitProject(${Number(project.id || 0)})">${needsRevision ? 'Resubmit' : 'Submit'}</button>` : '<span class="status-pill status-submitted">Waiting for Admin</span>'}
             </div>
@@ -2139,7 +2228,7 @@ function renderProjectWorkspaceRequests() {
     });
 
   return renderProjectWorkspaceTable(
-    'Project Requests',
+    mode === 'needs-revision' ? 'Needs Revision' : 'Project Requests',
     [
       { label: 'Request No.' },
       { label: 'Project Title' },
@@ -2150,8 +2239,114 @@ function renderProjectWorkspaceRequests() {
       { label: 'Actions', className: 'text-center' }
     ],
     rows,
-    'No draft or submitted project requests found.'
+    mode === 'needs-revision' ? 'No project requests need revision.' : 'No draft or submitted project requests found.'
   );
+}
+
+function getStaffProjectTimelineSteps(project) {
+  const status = String(project?.status || 'draft').trim().toLowerCase();
+  const isSubmitted = ['submitted', 'pending', 'for_approval', 'for approval'].includes(status);
+  const isApproved = !projectIsApprovalOnlyStatus(status);
+  const needsRevision = projectNeedsStaffRevision(project);
+  const adminNote = String(project?.approval_comment || project?.status_reason || '').trim();
+  const reviewer = String(project?.approved_by || '').trim() || 'Admin';
+  const createdAt = formatDateYmd(project?.created_at || project?.createdAt || '') || '-';
+  const submittedAt = formatDateYmd(project?.submitted_at || project?.updated_at || project?.created_at || '') || '-';
+  const decidedAt = formatDateYmd(project?.approved_at || project?.updated_at || '') || '-';
+
+  return [
+    {
+      label: 'Draft',
+      state: 'done',
+      meta: createdAt === '-' ? 'Saved as draft/request.' : `Saved ${createdAt}.`
+    },
+    {
+      label: 'Submitted',
+      state: (isSubmitted || isApproved || needsRevision) ? 'done' : 'pending',
+      meta: (isSubmitted || isApproved || needsRevision)
+        ? (submittedAt === '-' ? 'Sent to admin approval.' : `Sent to admin approval ${submittedAt}.`)
+        : 'Not submitted yet.'
+    },
+    {
+      label: needsRevision ? 'Needs Revision' : (isApproved ? 'Approved' : 'Admin Review'),
+      state: needsRevision ? 'warning' : (isApproved ? 'done' : 'pending'),
+      meta: needsRevision
+        ? (adminNote || 'Admin returned this project for revision.')
+        : (isApproved ? `Reviewed by ${reviewer}${decidedAt === '-' ? '' : ` on ${decidedAt}`}.` : 'Waiting for admin decision.')
+    }
+  ];
+}
+
+function ensureStaffProjectTimelineModal() {
+  let backdrop = document.getElementById('staff-project-timeline-backdrop');
+  if (backdrop) return backdrop;
+  backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop staff-project-timeline-backdrop';
+  backdrop.id = 'staff-project-timeline-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal staff-project-timeline-modal" role="dialog" aria-modal="true" aria-labelledby="staff-project-timeline-title">
+      <button class="modal-close" type="button" onclick="closeStaffProjectTimeline()" aria-label="Close timeline">&times;</button>
+      <div class="approval-modal-kicker">Project Request Flow</div>
+      <div class="modal-title" id="staff-project-timeline-title">Project Timeline</div>
+      <div class="staff-project-timeline-record" id="staff-project-timeline-record"></div>
+      <div class="staff-project-timeline-steps" id="staff-project-timeline-steps"></div>
+      <div class="staff-project-timeline-note" id="staff-project-timeline-note"></div>
+      <div class="modal-actions">
+        <button class="btn btn-cancel btn-sm" type="button" onclick="closeStaffProjectTimeline()">Close</button>
+      </div>
+    </div>
+  `;
+  backdrop.addEventListener('click', (event) => {
+    if (event.target === backdrop) closeStaffProjectTimeline();
+  });
+  document.body.appendChild(backdrop);
+  return backdrop;
+}
+
+function openStaffProjectTimeline(projectId) {
+  const project = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
+    .find(row => Number(row.id || 0) === Number(projectId || 0));
+  if (!project) {
+    showToast('Project timeline not found.', 'error');
+    return;
+  }
+  const backdrop = ensureStaffProjectTimelineModal();
+  const record = document.getElementById('staff-project-timeline-record');
+  const steps = document.getElementById('staff-project-timeline-steps');
+  const note = document.getElementById('staff-project-timeline-note');
+  const docNo = project.draft_docno || project.project_docno || '-';
+  const statusMeta = getProjectRequestStatusMeta(project);
+
+  if (record) {
+    record.innerHTML = `
+      <strong>${escHtml(project.project_name || 'Untitled Project')}</strong>
+      <span>${escHtml(docNo)} &bull; ${escHtml(getProjectCompanyName(project) || '-')}</span>
+      ${renderProjectStaffOwnershipBadge(project)}
+    `;
+  }
+  if (steps) {
+    steps.innerHTML = getStaffProjectTimelineSteps(project).map((step) => `
+      <div class="staff-project-timeline-step" data-state="${escHtml(step.state)}">
+        <span class="staff-project-timeline-dot" aria-hidden="true"></span>
+        <div>
+          <strong>${escHtml(step.label)}</strong>
+          <p>${escHtml(step.meta)}</p>
+        </div>
+      </div>
+    `).join('');
+  }
+  if (note) {
+    const adminNote = String(project.approval_comment || project.status_reason || '').trim();
+    note.innerHTML = `
+      <span class="status-pill ${statusMeta.className}">${escHtml(statusMeta.label)}</span>
+      <p>${escHtml(adminNote || (statusMeta.status === 'submitted' ? 'Waiting for admin approval.' : 'No admin note yet.'))}</p>
+    `;
+  }
+  backdrop.classList.add('open');
+}
+
+function closeStaffProjectTimeline() {
+  document.getElementById('staff-project-timeline-backdrop')?.classList.remove('open');
 }
 
 function renderProjectWorkspace() {
@@ -2179,6 +2374,8 @@ function renderProjectWorkspace() {
   altContent.classList.remove('is-hidden');
   if (activeTab === 'ongoing') {
     altContent.innerHTML = renderProjectWorkspaceOngoing();
+  } else if (activeTab === 'needs-revision') {
+    altContent.innerHTML = renderProjectWorkspaceRequests('needs-revision');
   } else if (activeTab === 'requests') {
     altContent.innerHTML = renderProjectWorkspaceRequests();
   } else if (activeTab === 'transactions') {
@@ -2206,7 +2403,7 @@ function switchProjectWorkspaceTab(tab) {
 
 function handleProjectWorkspaceSummaryClick(index) {
   if (isStaffUser()) {
-    switchProjectWorkspaceTab(index === 0 ? 'requests' : 'projects');
+    switchProjectWorkspaceTab(index === 0 ? 'requests' : (index === 1 ? 'needs-revision' : 'projects'));
     return;
   }
   const tabMap = {
@@ -4646,8 +4843,18 @@ async function fetchJsonOrEmpty(url) {
   }
 }
 
+function projectIsApprovalOnlyStatus(status) {
+  return ['draft', 'submitted', 'pending', 'for_approval', 'for approval', 'needs_revision', 'rejected']
+    .includes(String(status || '').trim().toLowerCase());
+}
+
+function projectIsWaitingForApproval(status) {
+  return ['submitted', 'pending', 'for_approval', 'for approval']
+    .includes(String(status || '').trim().toLowerCase());
+}
+
 function projectHiddenFromAdmin(project) {
-  return isAdminUser() && ['draft', 'needs_revision'].includes(String(project?.status || '').trim().toLowerCase());
+  return isAdminUser() && projectIsApprovalOnlyStatus(project?.status);
 }
 
 function isProjectDraft(project) {
@@ -4659,16 +4866,16 @@ function isProjectNeedsRevision(project) {
 }
 
 function isProjectSubmitted(project) {
-  return String(project?.status || '').trim().toLowerCase() === 'submitted';
+  return projectIsWaitingForApproval(project?.status);
 }
 
 function isProjectPendingApproval(project) {
-  return isProjectDraft(project) || isProjectNeedsRevision(project) || isProjectSubmitted(project);
+  return projectIsApprovalOnlyStatus(project?.status);
 }
 
 function getComputedProjectPriority(project) {
   const status = String(project?.status || '').trim().toLowerCase();
-  if (status === 'draft' || status === 'needs_revision' || status === 'submitted' || status === 'completed' || status === 'cancelled' || project?.actual_end_date) return 'low';
+  if (projectIsApprovalOnlyStatus(status) || status === 'completed' || status === 'cancelled' || project?.actual_end_date) return 'low';
 
   const end = toDateOnly(project?.planned_end_date || project?.end_date);
   if (!end) return 'medium';
@@ -6108,7 +6315,7 @@ async function saveProject(submitAction = 'draft') {
     const savedStatus = String(data?.status || '').toLowerCase();
     const draftSaved = savedStatus === 'draft';
     const submittedForApproval = savedStatus === 'submitted' || data?.requiresApproval;
-    const staffDestination = ['draft', 'needs_revision', 'submitted', 'rejected'].includes(savedStatus)
+    const staffDestination = projectIsApprovalOnlyStatus(savedStatus)
       ? 'Staff Requests'
       : 'Staff Project Records';
     showToast(
@@ -8230,9 +8437,7 @@ async function updateStats() {
   const visibleProjects = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
     .filter(project => Number(project.is_archived || 0) === 0)
     .filter(project => businessEntityMatches(project))
-    .filter(project => String(project.status || '').trim().toLowerCase() !== 'draft')
-    .filter(project => String(project.status || '').trim().toLowerCase() !== 'needs_revision')
-    .filter(project => String(project.status || '').trim().toLowerCase() !== 'submitted')
+    .filter(project => !projectIsApprovalOnlyStatus(project.status))
     .filter(project => companyMatchesDashboardFilter(getProjectCompanyName(project)));
   const totalProjectsCount = visibleProjects.filter(project => String(project.status || '').toLowerCase() !== 'cancelled').length;
   const ongoingProjectsCount = visibleProjects.filter(project => {
@@ -8242,7 +8447,7 @@ async function updateStats() {
   }).length;
   const overdueProjectsCount = visibleProjects.filter(project => {
     const status = String(project.status || '').toLowerCase();
-    if (status === 'completed' || status === 'cancelled' || status === 'draft' || status === 'needs_revision' || status === 'submitted') return false;
+    if (status === 'completed' || status === 'cancelled' || projectIsApprovalOnlyStatus(status)) return false;
     return getProjectPhase(project) === 'ended';
   }).length;
 
@@ -9640,6 +9845,7 @@ function syncSuperAdminRoleOption() {
 
 function canCurrentUserManageUser(user = {}) {
   if (isSuperAdminUser()) return true;
+  if (Number(user?.id || 0) === Number(currentUser?.id || 0)) return true;
   return !isPrivilegedRoleValue(user?.role);
 }
 

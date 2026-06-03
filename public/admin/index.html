@@ -7,9 +7,9 @@
   <meta http-equiv="Expires" content="0">
   <title>KVSK CCTV &amp; IT Solutions - Admin Panel</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<script src="/assets/js/auth-guard.js?v=20260601h"></script>
+<script src="/assets/js/auth-guard.js?v=20260602archive"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Orbitron:wght@500;700;800&amp;family=Playfair+Display:wght@600;700&amp;family=IBM+Plex+Mono:wght@300;400;500&amp;display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260531a">
+  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260603a">
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a">
   <link rel="stylesheet" href="/admin/css/admin.css?v=20260601a">
   <link rel="stylesheet" href="/admin/css/roles/role-admin.css?v=20260531b">
@@ -305,9 +305,8 @@
 
     <section class="approval-center is-hidden" id="approval-center" aria-label="Approval Center">
       <div class="approval-center-head">
-        <div>
-          <div class="approval-center-kicker">Approval Center</div>
-          <h2>Pending Decisions</h2>
+        <div class="approval-center-title-wrap">
+          <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-smart-back="1" data-back-force-fallback="1" data-back-fallback="/admin" onclick="goBackSmart('/admin', true)" aria-label="Go back to Dashboard">Back to Dashboard</button>
         </div>
         <div class="approval-center-actions">
           <button class="btn btn-cancel btn-sm" type="button" onclick="renderApprovalCenter(true)">Refresh</button>
@@ -908,9 +907,9 @@
       <div class="sidebar-group-items">
         <a href="/user-management" class="sidebar-link is-subitem" id="menu-users">User Management</a>
         <a href="/admin?panel=approval-center" class="sidebar-link is-subitem" id="menu-approval-center" data-admin-only="1">Approval Center</a>
-        <a href="/business-entities" class="sidebar-link is-subitem" id="menu-business-entities">Business Entities</a>
+        <a href="/business-entities" class="sidebar-link is-subitem" id="menu-business-entities" data-requires-role="super_admin">Business Entities</a>
         <a href="/admin?panel=archive-center" class="sidebar-link is-subitem" id="menu-archive-center">Archive Center</a>
-        <a href="/admin?view=logs" class="sidebar-link is-subitem" id="menu-logs">System Logs</a>
+        <a href="/admin?view=logs" class="sidebar-link is-subitem" id="menu-logs" data-requires-role="super_admin">System Logs</a>
       </div>
     </div>
   </nav>
@@ -1742,15 +1741,15 @@
 
 <!-- Scripts -->
 <script src="/admin/js/navigation/role-navigation-renderer.js?v=20260531b"></script>
-<script src="/admin/js/navigation/role-admin.js?v=20260531a"></script>
-<script src="/admin/js/navigation/role-super-admin.js?v=20260531a"></script>
+<script src="/admin/js/navigation/role-admin.js?v=20260602archive"></script>
+<script src="/admin/js/navigation/role-super-admin.js?v=20260602archive"></script>
 <script src="/admin/js/dashboard-cards/role-dashboard-cards.js?v=20260531k"></script>
 <script src="/admin/js/dashboard-cards/role-dashboard-admin.js?v=20260531a"></script>
 <script src="/admin/js/dashboard-cards/role-dashboard-super-admin.js?v=20260531a"></script>
 <script src="/admin/js/roles/role-flow.js?v=20260531c"></script>
 <script src="/admin/js/modules/notifications.module.js?v=20260531a"></script>
-<script src="/admin/js/admin.js?v=20260602projectfields"></script>
-<script src="/admin/js/modules/approval-center.module.js?v=20260601a"></script>
+<script src="/admin/js/admin.js?v=20260602projectflow"></script>
+<script src="/admin/js/modules/approval-center.module.js?v=20260603a"></script>
 
 
 
