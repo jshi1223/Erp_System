@@ -61,6 +61,15 @@
     return Array.isArray(data) ? data : [];
   }
 
+  function getStaffUserId() {
+    try {
+      const cached = JSON.parse(localStorage.getItem('kinaadman_currentUserBadge') || '{}');
+      return Number(cached && cached.id ? cached.id : 0) || 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
   function formatBadgeCount(count) {
     const value = Number(count || 0);
     return value > 99 ? '99+' : String(Math.max(0, value));
@@ -224,6 +233,25 @@
     } catch (_) {
       setStaffCardBadge('stat-card-company-registry', 0);
       setStaffSidebarBadge('menu-master-data-requests', 0);
+    }
+
+    try {
+      const staffId = getStaffUserId();
+      const salesRecords = await fetchStaffJson('/api/sales-management/records?type=sales-request');
+      const ownedSales = salesRecords.filter(row => !staffId || Number(row.created_by || 0) === Number(staffId));
+      const salesRequests = ownedSales.filter(row => staffStatusIn(row.status, requestStatuses));
+      const salesActions = salesRequests.filter(row => staffStatusIn(row.status, actionStatuses));
+      const title = buildStaffBadgeTitle('sales inquiry request', salesRequests.length, salesActions.length);
+      setStaffCardBadge('stat-card-sales-management', salesRequests.length, title, salesActions.length ? 'attention' : 'waiting');
+      setStaffSidebarBadge('menu-sales-management', salesRequests.length, title, salesActions.length ? 'attention' : 'waiting');
+      addStaffWatchedItems(watchedItems, ownedSales, {
+        type: 'Sales Inquiry',
+        url: '/sales-management?tab=requests',
+        title: row => row.document_no || row.title || row.company_name
+      });
+    } catch (_) {
+      setStaffCardBadge('stat-card-sales-management', 0);
+      setStaffSidebarBadge('menu-sales-management', 0);
     }
 
     try {

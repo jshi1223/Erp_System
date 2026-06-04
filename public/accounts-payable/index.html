@@ -1,18 +1,21 @@
-<!-- accounts-payable.html - Accounts Payable Module for ERP -->
+﻿<!-- accounts-payable.html - Accounts Payable Module for ERP -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KVSK CCTV & IT Solution - Accounts Payable</title>
-  <script src="/assets/js/auth-guard.js?v=20260602archive"></script>
+  <script src="/assets/js/auth-guard.js?v=20260604hidereq"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260531a" />
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a" />
   <link rel="stylesheet" href="/accounts-payable/accounts-payable.css?v=20260601a" />
   <link rel="stylesheet" href="/accounts-payable/ap-purchasing.css?v=20260602staffbadges" />
 
-  
+  <style>
+    /* Procurement "Requests" tab is staff-only; admin/super-admin approve staff PRs in the Approval Center. */
+    body.is-admin-role .module-tab[data-proc-tab="requests"] { display: none !important; }
+  </style>
 </head>
 <body class="erp-clean-page accounts-payable-page">
 <script>
@@ -110,7 +113,7 @@
           </div>
           <div class="notifications-panel-actions">
             <button class="notifications-mark" type="button" onclick="markNotificationsAsRead(); loadNotifications();">Mark as read</button>
-            <button class="notifications-close" type="button">�</button>
+            <button class="notifications-close" type="button">ï¿½</button>
           </div>
         </div>
         <div class="notifications-list" id="notifications-list">
@@ -1610,11 +1613,12 @@
   </div>
 </div>
 
-  <script src="/assets/js/erp-core.js?v=20260602archive"></script>
-  <script src="/accounts-payable/ap-purchasing.js?v=20260602staffbadges"></script>
-  <script src="/accounts-payable/accounts-payable.js?v=20260601d"></script>
+  <script src="/assets/js/erp-core.js?v=20260604ui"></script>
+  <script src="/accounts-payable/ap-purchasing.js?v=20260604norfq"></script>
+  <script src="/accounts-payable/accounts-payable.js?v=20260604tabfix2"></script>
 </body>
 </html>
+
 
 
 

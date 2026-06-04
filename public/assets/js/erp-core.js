@@ -6082,6 +6082,115 @@ function closePdfViewer() {
   if (frame) frame.src = '';
 }
 
+function relativeDate(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (isNaN(date.getTime())) return null;
+  const now = Date.now();
+  const diffMs = now - date.getTime();
+  const future = diffMs < 0;
+  const abs = Math.abs(diffMs);
+  const secs = Math.floor(abs / 1000);
+  const mins = Math.floor(secs / 60);
+  const hours = Math.floor(mins / 60);
+  const days = Math.floor(hours / 24);
+  const weeks = Math.floor(days / 7);
+  const months = Math.floor(days / 30);
+  const suffix = future ? 'from now' : 'ago';
+  if (secs < 60)    return future ? 'in a moment' : 'just now';
+  if (mins < 60)    return `${mins}m ${suffix}`;
+  if (hours < 24)   return `${hours}h ${suffix}`;
+  if (days === 1)   return future ? 'tomorrow' : 'yesterday';
+  if (days < 7)     return `${days} days ${suffix}`;
+  if (weeks < 5)    return `${weeks}w ${suffix}`;
+  if (months < 12)  return `${months}mo ${suffix}`;
+  return `${Math.floor(days / 365)}y ${suffix}`;
+}
+
+function relativeDateHtml(value, { alwaysShow = false } = {}) {
+  const rel = relativeDate(value);
+  if (!rel) return '';
+  const today = new Date(); today.setHours(0,0,0,0);
+  const date = new Date(value); date.setHours(0,0,0,0);
+  const daysFromNow = Math.round((date - today) / 86400000);
+  const overdue = daysFromNow < 0;
+  const soon = !overdue && daysFromNow <= 3;
+  const cls = overdue ? 'is-overdue' : (soon ? 'is-soon' : '');
+  if (!cls && !alwaysShow) return '';
+  return `<span class="date-relative${cls ? ' ' + cls : ''}">${escHtml(overdue ? rel + ' overdue' : rel)}</span>`;
+}
+
+window.relativeDate = relativeDate;
+window.relativeDateHtml = relativeDateHtml;
+
+function showConfirm(message, { title = 'Are you sure?', confirmLabel = 'Confirm', cancelLabel = 'Cancel', type = 'default' } = {}) {
+  return new Promise((resolve) => {
+    let backdrop = document.getElementById('erp-confirm-backdrop');
+    if (!backdrop) {
+      backdrop = document.createElement('div');
+      backdrop.id = 'erp-confirm-backdrop';
+      backdrop.setAttribute('role', 'alertdialog');
+      backdrop.setAttribute('aria-modal', 'true');
+      backdrop.innerHTML = `
+        <div class="erp-confirm-modal">
+          <div class="erp-confirm-icon" id="erp-confirm-icon"></div>
+          <div class="erp-confirm-title" id="erp-confirm-title"></div>
+          <div class="erp-confirm-body" id="erp-confirm-body"></div>
+          <div class="erp-confirm-actions">
+            <button class="btn btn-cancel btn-sm" id="erp-confirm-cancel" type="button"></button>
+            <button class="btn btn-sm" id="erp-confirm-ok" type="button"></button>
+          </div>
+        </div>`;
+      document.body.appendChild(backdrop);
+    }
+
+    const ICONS = { danger: '&#x26A0;', warning: '&#x26A0;', info: '&#x2139;', default: '&#x3F;' };
+    const titleEl  = document.getElementById('erp-confirm-title');
+    const bodyEl   = document.getElementById('erp-confirm-body');
+    const cancelBtn = document.getElementById('erp-confirm-cancel');
+    const okBtn    = document.getElementById('erp-confirm-ok');
+    const iconEl   = document.getElementById('erp-confirm-icon');
+
+    if (iconEl)   { iconEl.className = `erp-confirm-icon erp-confirm-icon-${type}`; iconEl.innerHTML = ICONS[type] || ICONS.default; }
+    if (titleEl)  titleEl.textContent = title;
+    if (bodyEl)   bodyEl.textContent = message;
+    if (cancelBtn) cancelBtn.textContent = cancelLabel;
+    if (okBtn) {
+      okBtn.textContent = confirmLabel;
+      okBtn.className = `btn btn-sm ${type === 'danger' ? 'btn-danger' : 'btn-save'}`;
+    }
+
+    function close() {
+      backdrop.classList.remove('open');
+      backdrop.hidden = true;
+      document.body.style.overflow = '';
+      backdrop.removeEventListener('click', onBackdrop);
+      cancelBtn?.removeEventListener('click', onCancel);
+      okBtn?.removeEventListener('click', onOk);
+      document.removeEventListener('keydown', onKey);
+    }
+
+    function onBackdrop(e) { if (e.target === backdrop) { resolve(false); close(); } }
+    function onCancel() { resolve(false); close(); }
+    function onOk()     { resolve(true);  close(); }
+    function onKey(e) {
+      if (e.key === 'Escape') { resolve(false); close(); }
+      if (e.key === 'Enter')  { resolve(true);  close(); }
+    }
+
+    backdrop.addEventListener('click', onBackdrop);
+    cancelBtn?.addEventListener('click', onCancel);
+    okBtn?.addEventListener('click', onOk);
+    document.addEventListener('keydown', onKey);
+
+    backdrop.hidden = false;
+    backdrop.classList.add('open');
+    document.body.style.overflow = 'hidden';
+    okBtn?.focus();
+  });
+}
+window.showConfirm = showConfirm;
+
 function showToast(msg, type = 'success') {
   let t = document.getElementById('toast');
   if (!t) {

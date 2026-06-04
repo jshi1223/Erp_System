@@ -10,11 +10,14 @@ let projectsDb = [];
 let inventoryRequestsDb = [];
 let editingInventoryRequestId = null;
 let editingInventoryRequestType = '';
+let editingProductId = null;
+let editingWarehouseId = null;
 let inventoryConfirmResolver = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('movement-date').value = new Date().toISOString().slice(0, 10);
   setupInventoryModalCloseHandlers();
+  applyInventoryAdminColumns();
   switchInventoryTab(getInitialInventoryTab(), { syncUrl: false });
   await loadBusinessEntities();
   await loadInventory();
@@ -138,7 +141,16 @@ function renderSummary(summary) {
   if (movementsMetric) movementsMetric.textContent = Number(movementsDb.length || 0).toLocaleString('en-PH');
 }
 
+function applyInventoryAdminColumns() {
+  const showAdminCols = !isInventoryStaffRole();
+  document.querySelectorAll('[data-inventory-admin-col]').forEach(node => {
+    node.hidden = !showAdminCols;
+  });
+}
+
 function renderInventory() {
+  applyInventoryAdminColumns();
+  const isAdmin = !isInventoryStaffRole();
   const q = String(document.getElementById('inventory-search')?.value || '').trim().toLowerCase();
   const stockBody = document.getElementById('stock-tbody');
   const rows = stockDb.filter(row => {
@@ -161,6 +173,7 @@ function renderInventory() {
 
   const productsBody = document.getElementById('products-tbody');
   if (productsBody) {
+    const productCols = isAdmin ? 9 : 8;
     productsBody.innerHTML = productsDb.length ? productsDb.map(row => `
       <tr>
         <td>${escHtml(row.sku || '-')}</td>
@@ -171,20 +184,29 @@ function renderInventory() {
         <td class="text-right">${Number(row.selling_price || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</td>
         <td class="text-right">${Number(row.reorder_level || 0).toLocaleString('en-PH')}</td>
         <td class="text-right">${Number(row.quantity_on_hand || 0).toLocaleString('en-PH')}</td>
+        ${isAdmin ? `<td class="text-right inventory-row-actions">
+          <button class="btn btn-edit btn-sm" type="button" onclick="editProduct(${Number(row.id)})">Edit</button>
+          <button class="btn btn-cancel btn-sm" type="button" onclick="archiveProduct(${Number(row.id)})">Archive</button>
+        </td>` : ''}
       </tr>
-    `).join('') : '<tr><td colspan="8">No products yet.</td></tr>';
+    `).join('') : `<tr><td colspan="${productCols}">No products yet.</td></tr>`;
   }
 
   const warehousesBody = document.getElementById('warehouses-tbody');
   if (warehousesBody) {
+    const warehouseCols = isAdmin ? 5 : 4;
     warehousesBody.innerHTML = warehousesDb.length ? warehousesDb.map(row => `
       <tr>
         <td>${escHtml(row.warehouse_code || '-')}</td>
         <td>${escHtml(row.warehouse_name || '-')}</td>
         <td>${escHtml(row.location || '-')}</td>
         <td>${Number(row.is_active ?? 1) ? 'Active' : 'Inactive'}</td>
+        ${isAdmin ? `<td class="text-right inventory-row-actions">
+          <button class="btn btn-edit btn-sm" type="button" onclick="editWarehouse(${Number(row.id)})">Edit</button>
+          <button class="btn btn-cancel btn-sm" type="button" onclick="archiveWarehouse(${Number(row.id)})">Archive</button>
+        </td>` : ''}
       </tr>
-    `).join('') : '<tr><td colspan="4">No warehouses yet.</td></tr>';
+    `).join('') : `<tr><td colspan="${warehouseCols}">No warehouses yet.</td></tr>`;
   }
 
   const movementBody = document.getElementById('movement-tbody');
@@ -257,6 +279,8 @@ function setStatus(message = '') {
 function openInventoryModal(type) {
   editingInventoryRequestId = null;
   editingInventoryRequestType = '';
+  editingProductId = null;
+  editingWarehouseId = null;
   setStatus('');
   document.getElementById('inventory-modal').classList.add('open');
   document.getElementById('inventory-modal').setAttribute('aria-hidden', 'false');
@@ -317,9 +341,85 @@ function openInventoryRequestDraft(requestId) {
   }
 }
 
+function editProduct(id) {
+  if (isInventoryStaffRole()) return;
+  const row = productsDb.find(item => Number(item.id) === Number(id));
+  if (!row) {
+    setStatus('Product not found.');
+    return;
+  }
+  openInventoryModal('product');
+  editingProductId = Number(row.id);
+  document.getElementById('inventory-modal-title').textContent = 'Edit Product';
+  document.getElementById('product-sku').value = row.sku || '';
+  document.getElementById('product-name').value = row.product_name || '';
+  document.getElementById('product-category').value = row.category || '';
+  document.getElementById('product-unit').value = row.unit || 'pcs';
+  document.getElementById('product-cost').value = row.unit_cost ?? '';
+  document.getElementById('product-selling-price').value = row.selling_price ?? '';
+  document.getElementById('product-reorder').value = row.reorder_level ?? '';
+  const saveBtn = document.querySelector('#product-form .btn-save');
+  if (saveBtn) saveBtn.textContent = 'Update Product';
+}
+
+function editWarehouse(id) {
+  if (isInventoryStaffRole()) return;
+  const row = warehousesDb.find(item => Number(item.id) === Number(id));
+  if (!row) {
+    setStatus('Warehouse not found.');
+    return;
+  }
+  openInventoryModal('warehouse');
+  editingWarehouseId = Number(row.id);
+  document.getElementById('inventory-modal-title').textContent = 'Edit Warehouse';
+  document.getElementById('warehouse-code').value = row.warehouse_code || '';
+  document.getElementById('warehouse-name').value = row.warehouse_name || '';
+  document.getElementById('warehouse-location').value = row.location || '';
+  const saveBtn = document.querySelector('#warehouse-form .btn-save');
+  if (saveBtn) saveBtn.textContent = 'Update Warehouse';
+}
+
+async function archiveProduct(id) {
+  if (isInventoryStaffRole()) return;
+  const row = productsDb.find(item => Number(item.id) === Number(id));
+  const confirmed = await openInventoryConfirmDialog({
+    title: 'Archive Product?',
+    message: `Archive "${row?.product_name || 'this product'}"? It will be hidden from active inventory lists.`,
+    noText: 'Cancel',
+    yesText: 'Archive'
+  });
+  if (!confirmed) return;
+  try {
+    await fetchJson(`/api/inventory/products/${Number(id)}/archive`, { method: 'POST' });
+    await loadInventory();
+  } catch (err) {
+    setStatus(err.message || 'Unable to archive product.');
+  }
+}
+
+async function archiveWarehouse(id) {
+  if (isInventoryStaffRole()) return;
+  const row = warehousesDb.find(item => Number(item.id) === Number(id));
+  const confirmed = await openInventoryConfirmDialog({
+    title: 'Archive Warehouse?',
+    message: `Archive "${row?.warehouse_name || 'this warehouse'}"? It will be hidden from active inventory lists.`,
+    noText: 'Cancel',
+    yesText: 'Archive'
+  });
+  if (!confirmed) return;
+  try {
+    await fetchJson(`/api/inventory/warehouses/${Number(id)}/archive`, { method: 'POST' });
+    await loadInventory();
+  } catch (err) {
+    setStatus(err.message || 'Unable to archive warehouse.');
+  }
+}
+
 function closeInventoryModal() {
   editingInventoryRequestId = null;
   editingInventoryRequestType = '';
+  editingProductId = null;
+  editingWarehouseId = null;
   document.getElementById('inventory-modal').classList.remove('open');
   document.getElementById('inventory-modal').setAttribute('aria-hidden', 'true');
 }
@@ -405,6 +505,11 @@ async function saveProduct(event) {
   try {
     if (isInventoryStaffRole()) {
       await saveInventoryRequest('product', payload);
+    } else if (editingProductId) {
+      await fetchJson(`/api/inventory/products/${Number(editingProductId)}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      });
     } else {
       await fetchJson('/api/inventory/products', {
         method: 'POST',
@@ -437,6 +542,11 @@ async function saveWarehouse(event) {
   try {
     if (isInventoryStaffRole()) {
       await saveInventoryRequest('warehouse', payload);
+    } else if (editingWarehouseId) {
+      await fetchJson(`/api/inventory/warehouses/${Number(editingWarehouseId)}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      });
     } else {
       await fetchJson('/api/inventory/warehouses', {
         method: 'POST',

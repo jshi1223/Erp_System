@@ -388,13 +388,15 @@ async function loadVendorNumberPreview() {
   return String(input.value || '').trim();
 }
 
-async function loadProcurementNumberPreview(inputId, endpoint, responseKey) {
+async function loadProcurementNumberPreview(inputId, endpoint, responseKey, businessEntityIdOverride) {
   const input = $(inputId);
   if (!input) return '';
   input.value = '';
   try {
     const params = new URLSearchParams();
-    const businessEntityId = (typeof getCurrentBusinessEntityId === 'function' ? getCurrentBusinessEntityId() : '') || getDefaultProcurementBusinessEntityId() || '';
+    const businessEntityId = String(businessEntityIdOverride || '').trim()
+      || (typeof getCurrentBusinessEntityId === 'function' ? getCurrentBusinessEntityId() : '')
+      || getDefaultProcurementBusinessEntityId() || '';
     if (businessEntityId) params.set('business_entity_id', businessEntityId);
     const query = params.toString();
     const data = await apiFetch(`${endpoint}${query ? `?${query}` : ''}`, { cache: 'no-store' });
@@ -408,7 +410,18 @@ async function loadProcurementNumberPreview(inputId, endpoint, responseKey) {
 }
 
 function loadRequisitionNumberPreview() {
-  return loadProcurementNumberPreview('pr-number', '/api/procurement/requisitions/next-number', 'pr_number');
+  // The operating company is a filter, not a default: the PR number comes from the selected
+  // project's operating company (e.g. KITSI). With no project chosen there is no company context,
+  // so leave the preview blank instead of falling back to the workspace/default entity.
+  const projectId = currentRequisitionProjectId || Number($('pr-project')?.value || 0) || 0;
+  const project = getProcurementProjectById(projectId);
+  const projectEntityId = Number(project?.business_entity_id || 0) || 0;
+  const input = $('pr-number');
+  if (!projectEntityId) {
+    if (input) input.value = '';
+    return Promise.resolve('');
+  }
+  return loadProcurementNumberPreview('pr-number', '/api/procurement/requisitions/next-number', 'pr_number', projectEntityId);
 }
 
 function loadPurchaseOrderNumberPreview() {
@@ -592,7 +605,7 @@ function focusFirstInvalidRequisitionLineItem() {
   const rows = Array.from(getRequisitionLineItemsContainer()?.querySelectorAll('[data-pr-line-item]') || []);
   const firstIncomplete = rows.find((row) => {
     return Boolean(
-      !String(row.querySelector('.pr-line-item-name')?.value || '').trim() ||
+      !Number(row.querySelector('.pr-line-product')?.value || 0) ||
       Number(row.querySelector('.pr-line-qty')?.value || 0) <= 0
     );
   }) || rows[0] || null;
@@ -600,7 +613,7 @@ function focusFirstInvalidRequisitionLineItem() {
     return focusProcurementElement(document.querySelector('#pr-modal-backdrop .po-line-add-row .btn-add'));
   }
   return focusProcurementElement(
-    firstIncomplete.querySelector('.pr-line-item-name') ||
+    firstIncomplete.querySelector('.pr-line-product') ||
     firstIncomplete.querySelector('.pr-line-qty') ||
     firstIncomplete
   );
@@ -2032,6 +2045,9 @@ function syncRequisitionProjectContext(projectId = currentRequisitionProjectId) 
       companySearch.disabled = true;
     }
   }
+
+  // Refresh the PR number preview so it reflects the selected project's operating company.
+  loadRequisitionNumberPreview();
 }
 
 function renderPurchaseOrderProjectOptions(selectedValue = currentPurchaseOrderProjectId) {
@@ -2249,57 +2265,39 @@ function formatRequisitionLineAmount(value) {
 function renderRequisitionLineItemRow(item = {}, index = 0) {
   const productId = Number(item.product_id || item.productId || 0) || 0;
   const product = getPurchaseOrderProductById(productId);
-  const category = String(item.category || item.item_category || product?.category || '').trim();
-  const warehouseId = Number(item.warehouse_id || item.warehouseId || 0) || 0;
-  const itemName = String(item.item_name || item.name || '').trim();
-  const description = String(item.description || item.item_description || '').trim();
   const quantity = Number(item.quantity || item.qty || 1) > 0 ? Number(item.quantity || item.qty || 1) : 1;
   const unit = String(item.unit || product?.unit || '').trim();
   const unitPrice = Number(item.estimated_unit_price ?? item.unit_price ?? item.price ?? product?.unit_cost ?? 0) || 0;
-  const lineTotal = quantity * unitPrice;
+  const lineTotal = productId ? quantity * unitPrice : 0;
+  const hasProduct = Boolean(productId);
+  const dis = hasProduct ? '' : ' disabled';
 
   return `
     <div class="po-line-item" data-pr-line-item data-line-index="${index}">
-      <div class="po-line-meta-grid pr-line-inventory-grid">
-        <div class="field">
-          <label>Category</label>
-          <select class="pr-line-category" onchange="syncRequisitionCategorySelection(this)">
-            ${renderRequisitionCategoryOptions(category)}
-          </select>
-        </div>
-        <div class="field">
-          <label>Inventory Product</label>
-          <select class="pr-line-product" onchange="syncRequisitionProductSelection(this)">
-            ${renderRequisitionProductOptions(productId, category)}
-          </select>
-        </div>
-        <div class="field">
-          <label>Warehouse</label>
-          <select class="pr-line-warehouse" onchange="syncRequisitionLineItem(this)">
-            ${renderRequisitionWarehouseOptions(warehouseId)}
-          </select>
-        </div>
-      </div>
       <div class="field full">
-        <label>Item ${index + 1} Name <span class="req-star">*</span></label>
-        <input type="text" class="pr-line-item-name" placeholder="CCTV cameras" value="${escHtml(itemName)}" required aria-required="true" oninput="syncRequisitionLineItem(this)" />
-      </div>
-      <div class="field full">
-        <label>Item ${index + 1} Description</label>
-        <textarea class="pr-line-description" placeholder="Short description..." oninput="syncRequisitionLineItem(this)">${escHtml(description)}</textarea>
+        <label>Item ${index + 1}</label>
+        <select class="pr-line-product" onchange="syncRequisitionProductSelection(this)">
+          ${renderRequisitionProductOptions(productId)}
+        </select>
       </div>
       <div class="po-line-meta-grid">
         <div class="field">
           <label>Qty <span class="req-star">*</span></label>
-          <input type="number" class="pr-line-qty" min="1" step="1" value="${escHtml(quantity)}" required aria-required="true" oninput="syncRequisitionLineItem(this)" />
+          <input type="number" class="pr-line-qty" min="1" step="1"
+                 value="${hasProduct ? escHtml(quantity) : ''}"
+                 placeholder="1" oninput="syncRequisitionLineItem(this)"${dis} />
         </div>
         <div class="field">
-          <label>Unit <span class="req-star">*</span></label>
-          <input type="text" class="pr-line-unit" placeholder="pcs" value="${escHtml(unit)}" required aria-required="true" oninput="syncRequisitionLineItem(this)" />
+          <label>Unit</label>
+          <input type="text" class="pr-line-unit" placeholder="pcs"
+                 value="${escHtml(unit)}" oninput="syncRequisitionLineItem(this)"${dis} />
         </div>
         <div class="field">
-          <label>Est. Unit Price <span class="req-star">*</span></label>
-          <input type="number" class="pr-line-unit-price" min="0" step="0.01" value="${unitPrice ? escHtml(unitPrice.toFixed(2)) : ''}" required aria-required="true" oninput="syncRequisitionLineItem(this)" />
+          <label>Est. Unit Price</label>
+          <input type="number" class="pr-line-unit-price" min="0" step="0.01"
+                 placeholder="0.00"
+                 value="${hasProduct && unitPrice ? escHtml(unitPrice.toFixed(2)) : ''}"
+                 oninput="syncRequisitionLineItem(this)"${dis} />
         </div>
         <div class="field">
           <label>Line Total</label>
@@ -2381,34 +2379,38 @@ function syncRequisitionCategorySelection(source) {
 function syncRequisitionProductSelection(source) {
   const row = source?.closest('[data-pr-line-item]');
   if (!row) return;
-  const product = getPurchaseOrderProductById(source.value);
+
+  const productId = Number(source?.value || 0);
+  const product = getPurchaseOrderProductById(productId);
+  const qtyInput       = row.querySelector('.pr-line-qty');
+  const unitInput      = row.querySelector('.pr-line-unit');
+  const unitPriceInput = row.querySelector('.pr-line-unit-price');
+  const totalNode      = row.querySelector('.po-line-total');
+
   if (!product) {
-    syncRequisitionLineItem(source);
+    // No product — clear and disable
+    if (qtyInput)       { qtyInput.value = '';       qtyInput.disabled = true; }
+    if (unitInput)      { unitInput.value = '';      unitInput.disabled = true; }
+    if (unitPriceInput) { unitPriceInput.value = ''; unitPriceInput.disabled = true; }
+    if (totalNode)      totalNode.textContent = formatRequisitionLineAmount(0);
+    recalculateRequisitionLineTotals();
     return;
   }
 
-  const categorySelect = row.querySelector('.pr-line-category');
-  const productCategory = String(product.category || '').trim();
-  if (categorySelect && productCategory) {
-    if (![...categorySelect.options].some((option) => option.value === productCategory)) {
-      categorySelect.insertAdjacentHTML('beforeend', `<option value="${escHtml(productCategory)}">${escHtml(productCategory)}</option>`);
-    }
-    categorySelect.value = productCategory;
+  // Product selected — always overwrite, enable
+  if (qtyInput) {
+    if (!Number(qtyInput.value || 0)) qtyInput.value = '1';
+    qtyInput.disabled = false;
   }
-
-  const nameInput = row.querySelector('.pr-line-item-name');
-  const unitInput = row.querySelector('.pr-line-unit');
-  const unitPriceInput = row.querySelector('.pr-line-unit-price');
-  const productName = String(product.product_name || product.name || '').trim();
-  const productUnit = String(product.unit || '').trim();
-  const unitCost = Number(product.unit_cost || product.cost || 0) || 0;
-
-  if (nameInput) nameInput.value = productName || nameInput.value;
-  if (unitInput && productUnit) unitInput.value = productUnit;
-  if (unitPriceInput && unitCost > 0 && !Number(unitPriceInput.value || 0)) {
-    unitPriceInput.value = unitCost.toFixed(2);
+  if (unitInput) {
+    unitInput.value = product.unit || '';
+    unitInput.disabled = false;
   }
-
+  if (unitPriceInput) {
+    const unitCost = Number(product.unit_cost || product.cost || 0) || 0;
+    unitPriceInput.value = unitCost > 0 ? unitCost.toFixed(2) : '';
+    unitPriceInput.disabled = false;
+  }
   syncRequisitionLineItem(source);
 }
 
@@ -2448,27 +2450,19 @@ function collectRequisitionLineItems() {
 
   rows.forEach((row, index) => {
     const productId = Number(row.querySelector('.pr-line-product')?.value || 0) || 0;
-    const category = String(row.querySelector('.pr-line-category')?.value || '').trim();
-    const warehouseId = Number(row.querySelector('.pr-line-warehouse')?.value || 0) || 0;
-    const itemName = String(row.querySelector('.pr-line-item-name')?.value || '').trim();
-    const description = String(row.querySelector('.pr-line-description')?.value || '').trim();
+    const product = getPurchaseOrderProductById(productId);
+    const itemName = product?.product_name || '';
     const quantity = Number(row.querySelector('.pr-line-qty')?.value || 0);
     const unit = String(row.querySelector('.pr-line-unit')?.value || '').trim();
     const unitPrice = Number(row.querySelector('.pr-line-unit-price')?.value || 0);
-    const hasAnyValue = productId || category || warehouseId || itemName || description || quantity > 0 || unit || unitPrice > 0;
-    if (!hasAnyValue) return;
-
-    if (!itemName || quantity <= 0) {
+    if (!productId) return;
+    if (quantity <= 0) {
       incompleteRows.push(index + 1);
       return;
     }
-
     items.push({
-      product_id: productId || null,
-      category,
-      warehouse_id: warehouseId || null,
+      product_id: productId,
       item_name: itemName,
-      description,
       quantity,
       unit,
       estimated_unit_price: unitPrice
@@ -2603,32 +2597,35 @@ function renderPurchaseOrderPaymentTermsPreview() {
 }
 
 function renderPurchaseOrderLineItemRow(item = {}, index = 0) {
-  const description = String(item.description || item.item_description || item.item_name || '').trim();
   const productId = Number(item.product_id || item.productId || 0) || 0;
+  const product = getPurchaseOrderProductById(productId);
   const quantity = Number(item.quantity || item.qty || 1) > 0 ? Number(item.quantity || item.qty || 1) : 1;
-  const unitPrice = Number(item.unit_price || item.price || 0) || 0;
-  const lineTotal = quantity * unitPrice;
+  const unitPrice = Number(item.unit_price || item.price || product?.unit_cost || 0) || 0;
+  const lineTotal = productId ? quantity * unitPrice : 0;
+  const hasProduct = Boolean(productId);
+  const dis = hasProduct ? '' : ' disabled';
 
   return `
     <div class="po-line-item" data-po-line-item data-line-index="${index}">
       <div class="field full">
-        <label>Line ${index + 1} Inventory Product</label>
+        <label>Line ${index + 1}</label>
         <select class="po-line-product" onchange="syncPurchaseOrderProductSelection(this)">
           ${renderPurchaseOrderProductOptions(productId)}
         </select>
       </div>
-      <div class="field full">
-        <label>Line ${index + 1} Description</label>
-        <input type="text" class="po-line-description" placeholder="Enter description" value="${escHtml(description)}" oninput="syncPurchaseOrderLineItem(this)" />
-      </div>
       <div class="po-line-meta-grid">
         <div class="field">
           <label>Qty</label>
-          <input type="number" class="po-line-qty" min="1" step="1" value="${escHtml(quantity)}" oninput="syncPurchaseOrderLineItem(this)" />
+          <input type="number" class="po-line-qty" min="1" step="1"
+                 value="${hasProduct ? escHtml(quantity) : ''}"
+                 placeholder="1" oninput="syncPurchaseOrderLineItem(this)"${dis} />
         </div>
         <div class="field">
           <label>Unit Price</label>
-          <input type="number" class="po-line-unit-price" min="0" step="0.01" value="${unitPrice ? escHtml(unitPrice.toFixed(2)) : ''}" oninput="syncPurchaseOrderLineItem(this)" />
+          <input type="number" class="po-line-unit-price" min="0" step="0.01"
+                 placeholder="0.00"
+                 value="${hasProduct && unitPrice ? escHtml(unitPrice.toFixed(2)) : ''}"
+                 oninput="syncPurchaseOrderLineItem(this)"${dis} />
         </div>
         <div class="field">
           <label>Line Total</label>
@@ -2744,19 +2741,30 @@ function syncPurchaseOrderProductSelection(source) {
   const row = source?.closest('[data-po-line-item]');
   if (!row) return;
   setPurchaseOrderLineItemMessage(row, '');
-  const product = getPurchaseOrderProductById(source.value);
-  if (!product) return;
+  if (purchaseOrderLineItemsLocked) return;
 
-  const descriptionInput = row.querySelector('.po-line-description');
+  const productId = Number(source?.value || 0);
+  const product = getPurchaseOrderProductById(productId);
+  const qtyInput       = row.querySelector('.po-line-qty');
   const unitPriceInput = row.querySelector('.po-line-unit-price');
-  const description = String(product.product_name || product.name || '').trim();
-  const unitCost = Number(product.unit_cost || product.cost || 0) || 0;
+  const totalNode      = row.querySelector('.po-line-total');
 
-  if (!purchaseOrderLineItemsLocked && descriptionInput && !String(descriptionInput.value || '').trim()) {
-    descriptionInput.value = description;
+  if (!product) {
+    if (qtyInput)       { qtyInput.value = '';       qtyInput.disabled = true; }
+    if (unitPriceInput) { unitPriceInput.value = ''; unitPriceInput.disabled = true; }
+    if (totalNode)      totalNode.textContent = formatPurchaseOrderLineAmount(0);
+    recalculatePurchaseOrderLineTotals();
+    return;
   }
-  if (!purchaseOrderLineItemsLocked && unitPriceInput && !Number(unitPriceInput.value || 0) && unitCost > 0) {
-    unitPriceInput.value = unitCost.toFixed(2);
+
+  if (qtyInput) {
+    if (!Number(qtyInput.value || 0)) qtyInput.value = '1';
+    qtyInput.disabled = false;
+  }
+  if (unitPriceInput) {
+    const unitCost = Number(product.unit_cost || product.cost || 0) || 0;
+    unitPriceInput.value = unitCost > 0 ? unitCost.toFixed(2) : '';
+    unitPriceInput.disabled = false;
   }
   syncPurchaseOrderLineItem(source);
 }
@@ -3153,21 +3161,8 @@ function renderRfqWorkspace() {
     const existingPurchaseOrder = getPurchaseOrderForRequisition(requisition.id);
     const quotes = procurementState.quotations.filter((quote) => Number(quote.requisition_id || 0) === Number(requisition.id || 0));
     if (!quotes.length) {
-      rows.push({
-        type: 'pending',
-        requisition,
-        existingPurchaseOrder,
-        pr_number: requisition.pr_number,
-        project_docno: requisition.project_docno,
-        project_name: requisition.project_name,
-        company_name: requisition.company_name,
-        company_no: requisition.company_no,
-        vendor_name: '',
-        rfq_number: `RFQ-${requisition.pr_number || requisition.id}`,
-        issue_date: requisition.request_date,
-        due_date: requisition.needed_by,
-        status: 'open'
-      });
+      // Do not surface an approved requisition in the RFQ tab until an actual RFQ is created.
+      // Creating the first RFQ is done from the Purchase Requisitions tab ("Create RFQ").
       return;
     }
 
@@ -3234,12 +3229,9 @@ function renderRfqWorkspace() {
     const selectedQuoteForPr = getSelectedQuotationForRequisition(requisitionId);
     const hasAwardedRfq = Boolean(selectedQuoteForPr);
     const existingPurchaseOrder = row.existingPurchaseOrder || getPurchaseOrderForRequisition(requisitionId);
+    // Once an RFQ is approved (awarded) or a PO exists for the PR, hide the Add/Create RFQ button entirely.
     const addLinkedRfqButton = isAdmin && !existingPurchaseOrder && !hasAwardedRfq && requisitionId && (row.type === 'pending' || row.isFirstQuoteForPr)
       ? `<button class="btn btn-add btn-sm" type="button" onclick="createRfqFromRequisition(${requisitionId})">${row.type === 'pending' ? 'Create RFQ' : 'Add RFQ'}</button>`
-      : isAdmin && hasAwardedRfq && (row.type === 'pending' || row.isFirstQuoteForPr)
-        ? '<button class="btn btn-add btn-sm" type="button" disabled title="Approved RFQ already exists for this PR">Add RFQ</button>'
-      : isAdmin && existingPurchaseOrder && row.isFirstQuoteForPr
-        ? '<button class="btn btn-add btn-sm" type="button" disabled title="PO already exists for this PR">Add RFQ</button>'
       : '';
     const editButton = quote && !rejected
       ? `<button class="btn btn-edit btn-sm" type="button" onclick="openQuotationModal(${Number(quote.id)})">Edit</button>`

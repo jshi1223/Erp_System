@@ -249,9 +249,6 @@ function setupArModuleSidebarTabLinks() {
 
 function syncStaffSalesStaticSidebar() {
   if (AR_MODULE_MODE !== 'sales' || !isCurrentStaffRole()) return;
-  document.querySelectorAll('.sidebar-link[href="/sales-management?tab=customer-balances"]').forEach((link) => {
-    link.remove();
-  });
 }
 
 function applyArModuleModeChrome() {
@@ -285,9 +282,9 @@ function applyArModuleModeChrome() {
       documents: 'Service Documents'
     },
     sales: {
-      invoices: 'Sales Invoices',
-      collections: 'Collections',
-      'customer-balances': 'Customer Balances'
+      invoices: 'Sales Inquiry',
+      collections: 'Quotation',
+      'customer-balances': 'SO'
     },
     finance: {
       invoices: 'AR Invoices',
@@ -1955,6 +1952,7 @@ function renderReceivables() {
       row.payment_terms,
       row.project_docno,
       row.service_order_no,
+      row.sales_document_no,
       row.transaction_id
     ].join(' ').toLowerCase().includes(q);
     return matchesSearch;
@@ -1970,23 +1968,38 @@ function renderReceivables() {
     const paid = Number(row.paid_amount || 0);
     const balance = Math.max(0, total - paid);
     const uiStatus = getReceivableUiStatus(row);
+    const status = String(row.status || '').toLowerCase();
+    let rowClass = '';
+    if (status === 'overdue') rowClass = 'row-overdue';
+    else if (balance > 0 && row.due_date) {
+      const today = new Date(); today.setHours(0,0,0,0);
+      const due = new Date(row.due_date); due.setHours(0,0,0,0);
+      if (due < today && !['paid','cancelled','archived'].includes(status)) rowClass = 'row-overdue';
+      else if (Math.round((due - today) / 86400000) <= 3 && !['paid','cancelled'].includes(status)) rowClass = 'row-at-risk';
+    }
+    if (['paid'].includes(status)) rowClass = 'row-completed';
+    const dueDateHtml = row.due_date
+      ? `${escHtml(row.due_date)}${typeof relativeDateHtml === 'function' ? relativeDateHtml(row.due_date) : ''}`
+      : '-';
     const sourceTransaction = Number(row.transaction_id || 0) ? transactionsDb.find(tx => Number(tx.id) === Number(row.transaction_id)) : null;
-    const sourceLabelBase = sourceTransaction
-      ? `${sourceTransaction.docno || 'TXN'} - ${sourceTransaction.company_name || sourceTransaction.client || 'Unknown'}`
-      : (Number(row.transaction_id || 0) ? `TX #${row.transaction_id}` : 'Manual');
+    const sourceLabelBase = row.sales_document_no
+      ? `${row.sales_document_no} (Delivery Receipt)`
+      : (sourceTransaction
+        ? `${sourceTransaction.docno || 'TXN'} - ${sourceTransaction.company_name || sourceTransaction.client || 'Unknown'}`
+        : (Number(row.transaction_id || 0) ? `TX #${row.transaction_id}` : 'Manual'));
     const serviceOrderLabel = String(row.service_order_no || '').trim();
     const sourceLabel = serviceOrderLabel
       ? `${sourceLabelBase} • ${serviceOrderLabel}`
       : sourceLabelBase;
     const isArchived = Number(row.archived || 0) === 1;
     return `
-      <tr>
+      <tr${rowClass ? ` class="${rowClass}"` : ''}>
         <td>${highlightText(row.invoice_number, q)}</td>
         <td>${highlightText(row.customer_name, q)}</td>
         <td>${highlightText(sourceLabel, q)}${renderArchivedProjectBadge(row)}</td>
         <td>${escHtml(row.invoice_date || '')}</td>
         <td>${highlightText(row.payment_terms || '-', q)}</td>
-        <td>${escHtml(row.due_date || '-')}</td>
+        <td>${dueDateHtml}</td>
         <td>${formatMoney(total)}</td>
         <td>${formatMoney(paid)}</td>
         <td>${formatMoney(balance)}</td>

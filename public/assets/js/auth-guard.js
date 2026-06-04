@@ -334,9 +334,11 @@
     ]);
 
     var salesHtml = buildGroup('sales-management', 'Sales Management', [
-      buildLink('/sales-management', 'Sales Invoices', 'menu-sales-management'),
-      buildLink('/sales-management?tab=collections', 'Collections'),
-      buildLink('/sales-management?tab=customer-balances', 'Customer Balances')
+      buildLink('/sales-management?tab=sales-request', 'Sales Inquiry', 'menu-sales-management'),
+      buildLink('/sales-management?tab=sales-quotation', 'Quotation'),
+      buildLink('/sales-management?tab=sales-order', 'SO'),
+      buildLink('/sales-management?tab=proposal-request', 'Projects'),
+      buildLink('/sales-management?tab=project-delivery', 'Delivery Receipt')
     ]);
 
     var serviceHtml = buildGroup('service-operations', 'Service Operations', [
@@ -1038,8 +1040,8 @@
             key: 'sales-management',
             label: 'Sales Management',
             items: [
-              { href: '/sales-management', label: 'Sales Invoices', id: 'menu-sales-management' },
-              { href: '/sales-management?tab=collections', label: 'Collections' }
+              { href: '/sales-management?tab=sales-request', label: 'Sales Inquiry', id: 'menu-sales-management', aliases: ['/sales-management'] },
+              { href: '/sales-management?tab=requests', label: 'Requests' }
             ]
           },
           {
@@ -1094,9 +1096,11 @@
             key: 'sales-management',
             label: 'Sales Management',
             items: [
-              { href: '/sales-management', label: 'Sales Invoices', id: 'menu-sales-management', aliases: ['/accounts-receivable', '/accounts-receivable?tab=invoices', '/accounts-receivable?tab=overview', '/accounts-receivable?tab=receivables'] },
-              { href: '/sales-management?tab=collections', label: 'Collections', aliases: ['/accounts-receivable?tab=payments'] },
-              { href: '/sales-management?tab=customer-balances', label: 'Customer Balances', aliases: ['/accounts-receivable?tab=customer-balances'] }
+              { href: '/sales-management?tab=sales-request', label: 'Sales Inquiry', id: 'menu-sales-management', aliases: ['/sales-management'] },
+              { href: '/sales-management?tab=sales-quotation', label: 'Quotation' },
+              { href: '/sales-management?tab=sales-order', label: 'SO' },
+              { href: '/sales-management?tab=proposal-request', label: 'Projects' },
+              { href: '/sales-management?tab=project-delivery', label: 'Delivery Receipt' }
             ]
           },
           {
@@ -1113,7 +1117,6 @@
             label: 'Procurement',
             items: [
               { href: '/procurement?tab=requisitions', label: 'Purchase Requisitions', aliases: ['/procurement', '/accounts-payable?tab=requisitions'] },
-              { href: '/procurement?tab=requests', label: 'Requests' },
               { href: '/procurement?tab=rfq', label: 'RFQ' },
               { href: '/procurement?tab=quotations', label: 'Quotations & Evaluation', aliases: ['/procurement?tab=bid-evaluation', '/accounts-payable?tab=quotations', '/accounts-payable?tab=bid-evaluation'] },
               { href: '/procurement?tab=purchase-orders', label: 'Purchase Orders', aliases: ['/accounts-payable?tab=purchase-orders'] },
@@ -1350,7 +1353,6 @@
       '/accounts-payable?tab=disbursements',
       '/accounts-receivable?tab=customer-balances',
       '/accounts-receivable?tab=ar-aging',
-      '/sales-management?tab=customer-balances',
       '/service-operations?tab=documents',
       '/procurement?tab=rfq',
       '/procurement?tab=quotations',
@@ -1405,7 +1407,11 @@
       '/master-data?tab=vendors',
       '/master-data?tab=requests',
       '/sales-management',
-      '/sales-management?tab=collections',
+      '/sales-management?tab=sales-request',
+      '/sales-management?tab=proposal-request',
+      '/sales-management?tab=sales-quotation',
+      '/sales-management?tab=sales-order',
+      '/sales-management?tab=project-delivery',
       '/service-operations',
       '/procurement?tab=requests',
       '/procurement?tab=requisitions',

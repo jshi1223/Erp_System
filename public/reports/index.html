@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -47,7 +47,7 @@
           </div>
           <div class="notifications-panel-actions">
             <button class="notifications-mark" type="button" onclick="markNotificationsAsRead(); loadNotifications();">Mark as read</button>
-            <button class="notifications-close" type="button">×</button>
+            <button class="notifications-close" type="button">Ã—</button>
           </div>
         </div>
         <div class="notifications-list" id="notifications-list">
@@ -263,14 +263,14 @@
         <div class="header-sub">Operations Control Panel</div>
       </div>
     </div>
-    <button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()" aria-label="Close menu">×</button>
+    <button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()" aria-label="Close menu">Ã—</button>
   </div>
   <nav class="sidebar-nav">
     <a href="/admin?view=dashboard" class="sidebar-link">Dashboard</a>
     <div class="sidebar-group" data-sidebar-group="projects">
       <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
         <span>Projects</span>
-        <span class="sidebar-group-caret">▾</span>
+        <span class="sidebar-group-caret">â–¾</span>
       </button>
       <div class="sidebar-group-items">
         <a href="/admin?panel=project-records" class="sidebar-link is-subitem">Project Records</a>
@@ -279,7 +279,7 @@
     <div class="sidebar-group" data-sidebar-group="master-data">
       <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
         <span>Master Data</span>
-        <span class="sidebar-group-caret">â–¾</span>
+        <span class="sidebar-group-caret">Ã¢â€“Â¾</span>
       </button>
       <div class="sidebar-group-items">
         <a href="/master-data?tab=companies" class="sidebar-link is-subitem">Company Registry</a>
@@ -289,7 +289,7 @@
     <div class="sidebar-group" data-sidebar-group="accounts-payable">
       <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
         <span>AP</span>
-        <span class="sidebar-group-caret">▾</span>
+        <span class="sidebar-group-caret">â–¾</span>
       </button>
       <div class="sidebar-group-items">
         <a href="/accounts-payable?tab=requisitions" class="sidebar-link is-subitem">Purchase Requisitions</a>
@@ -302,7 +302,7 @@
     <div class="sidebar-group" data-sidebar-group="accounts-receivable">
       <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
         <span>AR</span>
-        <span class="sidebar-group-caret">▾</span>
+        <span class="sidebar-group-caret">â–¾</span>
       </button>
       <div class="sidebar-group-items">
         <a href="/service-operations" class="sidebar-link is-subitem">Service Orders</a>
@@ -314,7 +314,7 @@
     <div class="sidebar-group" data-sidebar-group="admin" data-sidebar-default-collapsed="1">
       <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
         <span>Admin</span>
-        <span class="sidebar-group-caret">▾</span>
+        <span class="sidebar-group-caret">â–¾</span>
       </button>
       <div class="sidebar-group-items">
         <a href="/user-management" class="sidebar-link is-subitem" id="menu-users" style="display:none">User Management</a>
@@ -326,10 +326,11 @@
 </div>
 
 <!-- Scripts -->
-<script src="/assets/js/erp-core.js?v=20260602archive"></script>
+<script src="/assets/js/erp-core.js?v=20260604ui"></script>
 <script src="/reports/reports.js?v=20260521p"></script>
 </body>
 </html>
+
 
 
 

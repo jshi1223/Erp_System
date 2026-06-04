@@ -1,0 +1,422 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KVSK CCTV & IT Solution - Sales Management</title>
+  <script src="/assets/js/auth-guard.js?v=20260604staff1"></script>
+  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260531a">
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a">
+  <link rel="stylesheet" href="/sales-management/sales-management.css?v=20260604p">
+</head>
+<body class="erp-clean-page sales-management-page">
+<script>
+  (function () {
+    try {
+      var badge = JSON.parse(localStorage.getItem('kinaadman_currentUserBadge') || '{}');
+      var role = String(badge && badge.role ? badge.role : '').trim().toLowerCase();
+      if (role === 'staff') {
+        document.body.dataset.accessRole = 'staff';
+        document.body.dataset.initialSalesTab = 'sales-request';
+        // Hide admin-only tabs immediately — no flash before JS loads
+        document.body.dataset.salesStaffView = '1';
+      } else {
+        document.body.dataset.initialSalesTab = 'sales-request';
+      }
+    } catch (_) {}
+  })();
+</script>
+<style>
+  /* Hide admin tabs immediately for staff — overridden by JS after load */
+  body[data-sales-staff-view="1"] [data-sales-admin-tab] {
+    display: none !important;
+  }
+  /* Staff-only links (e.g. sidebar Requests) hidden for admin */
+  body:not([data-sales-staff-view="1"]) [data-sales-staff-only] {
+    display: none !important;
+  }
+  /* Hide summary cards not relevant for staff */
+  body[data-sales-staff-view="1"] .sales-summary-card:not(#summary-card-requests) {
+    display: none !important;
+  }
+</style>
+  <header>
+    <div class="header-left">
+      <button class="btn-icon sidebar-toggle-btn" type="button" onclick="toggleSidebar()" title="Menu" aria-label="Open menu">
+        <svg class="sidebar-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 7h16M4 12h16M4 17h16"></path>
+        </svg>
+      </button>
+      <button class="brand-link" type="button" onclick="window.location.href='/admin'" aria-label="Go to admin dashboard">
+        <div class="brand-lockup">
+          <img class="brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo">
+          <div class="brand-copy">
+            <div class="header-logo">KVSK CCTV & IT Solution</div>
+            <div class="header-sub">Sales Management</div>
+          </div>
+        </div>
+      </button>
+    </div>
+    <div class="header-right">
+      <span class="workspace-badge" id="current-workspace-badge">All Companies</span>
+      <span class="admin-badge">Sales Management Module</span>
+      <button class="btn btn-cancel btn-sm" type="button" onclick="window.location.href='/admin'">Back to Admin</button>
+      <button class="btn btn-logout btn-sm" type="button" onclick="doLogout()">Logout</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="page-hero">
+      <div class="page-hero-copy" style="max-width:none;">
+        <div class="page-title">Sales Management</div>
+        <div class="page-sub">Manage sales inquiries, quotations, SO, projects, and delivery receipts in one workspace.</div>
+      </div>
+    </section>
+
+    <div class="module-page-toolbar">
+      <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-back-fallback="/admin?view=dashboard" onclick="window.location.href='/admin?view=dashboard'">Back to Dashboard</button>
+      <div class="module-page-toolbar-actions" id="module-toolbar-actions"></div>
+    </div>
+
+    <section class="module-summary-grid sales-summary-grid" aria-live="polite">
+      <div class="module-summary-card sales-summary-card">
+        <span class="module-summary-label">Sales Inquiry</span>
+        <div class="module-summary-value" id="summary-sales-request">0</div>
+      </div>
+      <div class="module-summary-card sales-summary-card">
+        <span class="module-summary-label">Quotation</span>
+        <div class="module-summary-value" id="summary-sales-quotation">0</div>
+      </div>
+      <div class="module-summary-card sales-summary-card">
+        <span class="module-summary-label">SO</span>
+        <div class="module-summary-value" id="summary-sales-order">0</div>
+      </div>
+      <div class="module-summary-card sales-summary-card">
+        <span class="module-summary-label">Projects</span>
+        <div class="module-summary-value" id="summary-proposal-request">0</div>
+      </div>
+      <div class="module-summary-card sales-summary-card">
+        <span class="module-summary-label">Delivery Receipt</span>
+        <div class="module-summary-value" id="summary-project-delivery">0</div>
+      </div>
+      <div class="module-summary-card sales-summary-card" id="summary-card-requests" data-sales-staff-only>
+        <span class="module-summary-label">Pending Requests</span>
+        <div class="module-summary-value" id="summary-requests">0</div>
+      </div>
+    </section>
+
+    <nav class="module-tabs sales-tabs" aria-label="Sales workflow tabs">
+      <button class="module-tab ap-workspace-tab active" type="button" data-sales-tab="sales-request">Sales Inquiry</button>
+      <button class="module-tab ap-workspace-tab" type="button" data-sales-tab="sales-quotation" data-sales-admin-tab>Quotation</button>
+      <button class="module-tab ap-workspace-tab" type="button" data-sales-tab="sales-order" data-sales-admin-tab>SO</button>
+      <button class="module-tab ap-workspace-tab" type="button" data-sales-tab="proposal-request" data-sales-admin-tab>Projects</button>
+      <button class="module-tab ap-workspace-tab" type="button" data-sales-tab="project-delivery" data-sales-admin-tab>Delivery Receipt</button>
+      <button class="module-tab ap-workspace-tab" type="button" data-sales-tab="requests" data-sales-staff-only>Requests</button>
+    </nav>
+
+    <section class="content-section ap-workspace-section active sales-panel">
+      <div class="module-panel-head">
+        <div>
+          <div class="section-title" id="active-tab-title">Sales Inquiry</div>
+        </div>
+      </div>
+
+      <div class="table-wrap sales-table-wrap">
+        <table class="registry-table">
+          <thead>
+            <tr>
+              <th>Document No.</th>
+              <th>Customer</th>
+              <th>Project</th>
+              <th>Title</th>
+              <th>Source</th>
+              <th>Date</th>
+              <th>Target</th>
+              <th class="text-right">Amount</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="sales-records-body">
+            <tr class="empty-row"><td colspan="10">Loading sales records...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-brand">
+        <img class="sidebar-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo">
+        <div>
+          <div class="header-logo" style="font-size: 1rem;">KVSK CCTV</div>
+          <div class="header-sub">Operations Control Panel</div>
+        </div>
+      </div>
+      <button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()" aria-label="Close menu">X</button>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="/admin?view=dashboard" class="sidebar-link">Dashboard</a>
+
+      <div class="sidebar-group" data-sidebar-group="projects">
+        <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+          <span>Projects</span>
+          <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
+        </button>
+        <div class="sidebar-group-items">
+          <a href="/admin?panel=project-records" class="sidebar-link is-subitem">Project Records</a>
+        </div>
+      </div>
+
+      <div class="sidebar-group" data-sidebar-group="sales-management">
+        <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+          <span>Sales Management</span>
+          <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
+        </button>
+        <div class="sidebar-group-items">
+          <a href="/sales-management?tab=sales-request" class="sidebar-link is-subitem" id="menu-sales-management">Sales Inquiry</a>
+          <a href="/sales-management?tab=requests" class="sidebar-link is-subitem" data-sales-staff-only>Requests</a>
+          <a href="/sales-management?tab=sales-quotation" class="sidebar-link is-subitem" data-sales-admin-tab>Quotation</a>
+          <a href="/sales-management?tab=sales-order" class="sidebar-link is-subitem" data-sales-admin-tab>SO</a>
+          <a href="/sales-management?tab=proposal-request" class="sidebar-link is-subitem" data-sales-admin-tab>Projects</a>
+          <a href="/sales-management?tab=project-delivery" class="sidebar-link is-subitem" data-sales-admin-tab>Delivery Receipt</a>
+        </div>
+      </div>
+
+      <div class="sidebar-group" data-sidebar-group="procurement">
+        <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+          <span>Procurement Management</span>
+          <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
+        </button>
+        <div class="sidebar-group-items">
+          <a href="/procurement?tab=requisitions" class="sidebar-link is-subitem">Purchase Requisitions</a>
+          <a href="/procurement?tab=rfq" class="sidebar-link is-subitem">RFQ</a>
+          <a href="/procurement?tab=quotations" class="sidebar-link is-subitem">Quotations &amp; Evaluation</a>
+          <a href="/procurement?tab=purchase-orders" class="sidebar-link is-subitem">Purchase Orders</a>
+          <a href="/procurement?tab=goods-receipts" class="sidebar-link is-subitem">Goods Receipts</a>
+        </div>
+      </div>
+
+      <div class="sidebar-group" data-sidebar-group="service-operations">
+        <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+          <span>Service Operations</span>
+          <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
+        </button>
+        <div class="sidebar-group-items">
+          <a href="/service-operations" class="sidebar-link is-subitem">Service Orders</a>
+          <a href="/service-operations?tab=documents" class="sidebar-link is-subitem">Service Documents</a>
+        </div>
+      </div>
+
+      <div class="sidebar-group" data-sidebar-group="finance">
+        <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+          <span>Financial Management</span>
+          <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
+        </button>
+        <div class="sidebar-group-items">
+          <a href="/accounts-payable?tab=bills" class="sidebar-link is-subitem">AP Bills</a>
+          <a href="/accounts-payable?tab=payments" class="sidebar-link is-subitem">AP Payments</a>
+          <a href="/accounts-receivable?tab=invoices" class="sidebar-link is-subitem">AR Invoices</a>
+          <a href="/accounts-receivable?tab=collections" class="sidebar-link is-subitem">AR Collections</a>
+        </div>
+      </div>
+
+      <div class="sidebar-group" data-sidebar-group="admin" data-sidebar-default-collapsed="1">
+        <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+          <span>Admin</span>
+          <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
+        </button>
+        <div class="sidebar-group-items">
+          <a href="/user-management" class="sidebar-link is-subitem">User Management</a>
+          <a href="/business-entities" class="sidebar-link is-subitem">Business Entities</a>
+          <a href="/admin?view=logs" class="sidebar-link is-subitem">System Logs</a>
+        </div>
+      </div>
+
+      <div class="sidebar-group" data-sidebar-group="archived" data-sidebar-default-collapsed="1">
+        <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
+          <span>Archived</span>
+          <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
+        </button>
+        <div class="sidebar-group-items">
+          <a href="/admin?panel=archive-center" class="sidebar-link">Archive Center</a>
+        </div>
+      </div>
+    </nav>
+  </div>
+
+  <div class="modal-backdrop" id="sales-modal-backdrop" hidden aria-hidden="true">
+    <div class="modal modal-project" style="max-width: 760px;">
+      <button class="modal-close" type="button" id="sales-modal-close" aria-label="Close">&#x2715;</button>
+
+      <div class="user-modal-brand">
+        <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+        <div>
+          <div class="user-modal-kicker">Sales Management</div>
+          <div class="modal-title" id="sales-modal-title" style="margin-bottom:0;">New Sales Inquiry</div>
+        </div>
+      </div>
+
+      <input type="hidden" id="sales-record-id">
+      <input type="hidden" id="sales-record-type">
+
+      <div class="section-divider" id="sales-details-section-title">Sales Inquiry Details</div>
+      <div class="modal-inline-message is-hidden" id="sales-modal-status-message" aria-live="polite"></div>
+
+      <div class="modal-grid-compact">
+
+        <!-- Doc No. (like PR No.) -->
+        <div class="field">
+          <label id="sales-doc-no-label">Inquiry No.</label>
+          <input id="sales-doc-display" type="text" placeholder="Auto-generated" readonly
+                 style="background:var(--surface2);cursor:default;color:var(--muted);" />
+        </div>
+
+        <!-- Status (hidden for staff, shown for admin) -->
+        <div class="field" data-sales-field="status">
+          <label>Status</label>
+          <select id="sales-status">
+            <option value="draft">Draft</option>
+            <option value="submitted">Submitted</option>
+            <option value="in_review">In Review</option>
+            <option value="sent">Sent</option>
+            <option value="approved">Approved</option>
+            <option value="won">Won</option>
+            <option value="delivered">Delivered</option>
+            <option value="completed">Completed</option>
+            <option value="rejected">Rejected</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+
+        <!-- Source record (Quotation / SO / Projects / Delivery stages) -->
+        <div class="field full" id="sales-source-field" data-sales-field="source">
+          <label><span id="sales-source-label">Source Record</span> <span class="req-star">*</span></label>
+          <select id="sales-source-record-id"></select>
+          <div class="proc-help">Choose the approved source document from the previous stage.</div>
+          <div class="modal-inline-message is-hidden" data-sales-field-message="source" aria-live="polite"></div>
+        </div>
+
+        <!-- Project (full width, same as PR) -->
+        <div class="field full" data-sales-field="project">
+          <label>Project <span class="req-star project-required">*</span></label>
+          <select id="sales-project-id" onchange="syncSalesProjectContext()"></select>
+          <div class="proc-help">A sales inquiry must be tied to a project for traceability. Company syncs automatically.</div>
+          <div class="modal-inline-message is-hidden" data-sales-field-message="project" aria-live="polite"></div>
+        </div>
+
+        <!-- Company (full width, same as PR) -->
+        <div class="field full" data-sales-field="company">
+          <label>Customer / Company <span class="req-star">*</span></label>
+          <select id="sales-company-id"></select>
+          <div class="proc-help">Select a project first — company is filled automatically from the linked project.</div>
+          <div class="modal-inline-message is-hidden" data-sales-field-message="company" aria-live="polite"></div>
+        </div>
+
+        <!-- Issue Date (= Request Date in PR) -->
+        <div class="field" data-sales-field="requested-date">
+          <label>Issue Date <span class="req-star sales-request-required">*</span></label>
+          <input id="sales-requested-date" type="date" />
+          <div class="modal-inline-message is-hidden" data-sales-field-message="requested-date" aria-live="polite"></div>
+        </div>
+
+        <!-- Contact Person (= Requested By in PR) -->
+        <div class="field" data-sales-field="contact">
+          <label id="sales-contact-label">Contact Person</label>
+          <input id="sales-contact-person" type="text" maxlength="255" placeholder="Juan Dela Cruz" />
+        </div>
+
+        <!-- Needed By (= Needed By in PR) -->
+        <div class="field" data-sales-field="target-date">
+          <label id="sales-target-date-label">Needed By</label>
+          <input id="sales-target-date" type="date" />
+        </div>
+
+        <!-- Title (Quotation / SO / Projects stages) -->
+        <div class="field full" data-sales-field="title">
+          <label>Subject / Title <span class="req-star">*</span></label>
+          <input id="sales-title" type="text" maxlength="255" />
+          <div class="modal-inline-message is-hidden" data-sales-field-message="title" aria-live="polite"></div>
+        </div>
+
+        <!-- Amount + Payment Terms (Quotation / SO stages) -->
+        <div class="field" data-sales-field="amount">
+          <label>Estimated / Final Amount</label>
+          <input id="sales-amount" type="number" min="0" step="0.01" />
+        </div>
+        <div class="field" data-sales-field="payment-terms">
+          <label>Payment Terms</label>
+          <input id="sales-payment-terms" type="text" maxlength="100" />
+        </div>
+
+        <!-- Inventory section (Delivery Receipt stage) -->
+        <div class="field full" data-sales-field="inventory-note">
+          <div class="sales-inventory-note">Inventory is deducted only when a Delivery Receipt is saved as Delivered or Completed.</div>
+        </div>
+        <div class="field" data-sales-field="product">
+          <label>Inventory Product <span class="req-star delivery-required">*</span></label>
+          <select id="sales-product-id"></select>
+        </div>
+        <div class="field" data-sales-field="warehouse">
+          <label>Source Warehouse <span class="req-star delivery-required">*</span></label>
+          <select id="sales-warehouse-id"></select>
+        </div>
+        <div class="field" data-sales-field="quantity">
+          <label>Quantity <span class="req-star delivery-required">*</span></label>
+          <input id="sales-quantity" type="number" min="0" step="0.01" />
+        </div>
+        <div class="field" data-sales-field="unit-price">
+          <label>Unit Price</label>
+          <input id="sales-unit-price" type="number" min="0" step="0.01" />
+        </div>
+
+        <!-- Requested Items (same as PR — full width, inside grid) -->
+        <div class="field full po-lines-field" data-sales-field="line-items">
+          <div class="po-line-toolbar">
+            <div>
+              <label>Requested Items <span class="req-star">*</span></label>
+              <div class="po-line-helper">Add item name, quantity, unit, and estimated unit price for each requested item.</div>
+            </div>
+          </div>
+          <div class="po-line-items" id="sales-line-items"></div>
+          <div class="po-line-add-row">
+            <button class="btn btn-add btn-sm" type="button" onclick="addSalesLineItem()">Add Item</button>
+          </div>
+          <div class="po-line-footer">
+            <div>
+              <div class="po-line-footer-label">Estimated Total</div>
+              <div class="po-line-footer-note">Auto-calculated from all requested items.</div>
+            </div>
+            <div class="po-line-footer-total" id="sales-total-display">PHP 0.00</div>
+          </div>
+          <div class="modal-inline-message is-hidden" data-sales-field-message="line-items" aria-live="polite"></div>
+        </div>
+
+        <!-- Description (other stages) -->
+        <div class="field full" data-sales-field="description">
+          <label id="sales-description-label">Details / Scope</label>
+          <textarea id="sales-description" style="height:60px" placeholder="Scope, inclusions, remarks..."></textarea>
+        </div>
+
+        <!-- Notes (same as PR — full width) -->
+        <div class="field full" data-sales-field="notes">
+          <label>Notes</label>
+          <textarea id="sales-notes" style="height:60px" placeholder="Internal notes..."></textarea>
+        </div>
+
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-cancel btn-sm" type="button" id="sales-cancel-btn">Cancel</button>
+        <button class="btn btn-save btn-sm" type="button" id="sales-save-btn" onclick="saveSalesRecord()">Save Record</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/assets/js/erp-core.js?v=20260604ui"></script>
+  <script src="/sales-management/sales-management.js?v=20260604p"></script>
+</body>
+</html>
+

@@ -28,9 +28,11 @@
       key: 'sales-management',
       label: 'Sales Management',
       items: [
-        { label: 'Sales Invoices', href: '/sales-management', id: 'menu-sales-management' },
-        { label: 'Collections', href: '/sales-management?tab=collections' },
-        { label: 'Customer Balances', href: '/sales-management?tab=customer-balances' }
+        { label: 'Sales Request', href: '/sales-management?tab=sales-request', id: 'menu-sales-management' },
+        { label: 'Proposal Request', href: '/sales-management?tab=proposal-request' },
+        { label: 'Sales Quotation', href: '/sales-management?tab=sales-quotation' },
+        { label: 'Sales Order', href: '/sales-management?tab=sales-order' },
+        { label: 'Project Delivery', href: '/sales-management?tab=project-delivery' }
       ]
     },
     {

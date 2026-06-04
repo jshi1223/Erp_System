@@ -1,7 +1,7 @@
 /* Shared UI compatibility layer for existing ERP pages.
    Keep role/module behavior and new feature styling in their own files.
 */
-@import url("/assets/css/admin-style.css?v=20260603a");
+@import url("/assets/css/admin-style.css?v=20260604dash");
 @import url("/assets/css/erp-clean.css?v=20260521s");
 
 :root {

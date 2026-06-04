@@ -9,7 +9,7 @@
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <script src="/assets/js/auth-guard.js?v=20260602archive"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Orbitron:wght@500;700;800&amp;family=Playfair+Display:wght@600;700&amp;family=IBM+Plex+Mono:wght@300;400;500&amp;display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260603a">
+  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260604dash">
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a">
   <link rel="stylesheet" href="/admin/css/admin.css?v=20260601a">
   <link rel="stylesheet" href="/admin/css/roles/role-admin.css?v=20260531b">
@@ -194,22 +194,7 @@
         </div>
         <div class="stat-label">Sales Management</div>
         <div class="stat-val gold" id="stat-sales">0</div>
-        <div class="stat-mini" id="stat-sales-mini">All Companies &bull; 0 invoices &bull; PHP 0.00 open</div>
-      </div>
-
-      <!-- Service Operations -->
-      <div class="stat-card stat-card-company stat-card-link" id="stat-card-service-operations" onclick="navigateDashboardCard('/service-operations')">
-        <div class="stat-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24">
-            <path d="M6.5 4.5h11A1.5 1.5 0 0 1 19 6v12a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 18V6a1.5 1.5 0 0 1 1.5-1.5z"></path>
-            <path d="M8 8.5h8"></path>
-            <path d="M8 12h5"></path>
-            <path d="m9 16 1.4 1.4L15.5 12"></path>
-          </svg>
-        </div>
-        <div class="stat-label">Service Operations</div>
-        <div class="stat-val" id="stat-service-operations">0</div>
-        <div class="stat-mini" id="stat-service-operations-mini">All Companies &bull; 0 active service orders</div>
+        <div class="stat-mini" id="stat-sales-mini">All Companies &bull; 0 requests &bull; 0 quotations</div>
       </div>
 
       <!-- Procurement -->
@@ -301,6 +286,42 @@
         <div class="stat-val gold" id="stat-reports">PHP 0.00</div>
         <div class="stat-mini" id="stat-reports-mini">All Companies &bull; PHP 0.00 AR &bull; PHP 0.00 AP</div>
       </div>
+    </div>
+
+    <!-- Alerts Strip — populated by renderDashboardAlerts() -->
+    <div class="dashboard-alerts-strip" id="dashboard-alerts-strip" hidden aria-live="polite"></div>
+
+    <!-- Quick Actions -->
+    <div class="dashboard-quick-actions" id="dashboard-quick-actions">
+      <span class="dqa-label">Quick Actions</span>
+      <button class="dqa-btn" type="button" onclick="openProjectModal()">
+        <svg viewBox="0 0 24 24"><path d="M4 7.5A1.5 1.5 0 0 1 5.5 6h4.2l1.8 2H18.5A1.5 1.5 0 0 1 20 9.5v7A1.5 1.5 0 0 1 18.5 18h-13A1.5 1.5 0 0 1 4 16.5v-9z"/><path d="M10 12h4M12 10v4"/></svg>
+        Add Project
+      </button>
+      <button class="dqa-btn" type="button" onclick="window.location.href='/procurement?tab=requisitions&action=pr'">
+        <svg viewBox="0 0 24 24"><path d="M5 5.5h14v5H5z"/><path d="M7 10.5v8h10v-8"/><path d="M10 14.5h4M12 13v3"/></svg>
+        Add PR
+      </button>
+      <button class="dqa-btn" type="button" onclick="window.location.href='/sales-management?tab=sales-request'">
+        <svg viewBox="0 0 24 24"><path d="M5.5 19.5V5A1.5 1.5 0 0 1 7 3.5h8l3.5 3.5v12.5"/><path d="M15 3.5V7h3.5"/><path d="M8.5 11h7"/><path d="M8.5 14h3"/></svg>
+        Add SI
+      </button>
+      <button class="dqa-btn" type="button" onclick="navigateDashboardCard('/accounts-receivable?tab=invoices')">
+        <svg viewBox="0 0 24 24"><path d="M7 4.5h7l4 4V19.5H7A1.5 1.5 0 0 1 5.5 18V6A1.5 1.5 0 0 1 7 4.5z"/><path d="M10 10h4M12 9v2"/><path d="M9 13.5h6"/></svg>
+        Add Invoice
+      </button>
+      <button class="dqa-btn" type="button" onclick="navigateDashboardCard('/accounts-payable?tab=bills')">
+        <svg viewBox="0 0 24 24"><path d="M6.5 4.5h11A1.5 1.5 0 0 1 19 6v12a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 18V6a1.5 1.5 0 0 1 1.5-1.5z"/><path d="M8 9h8"/><path d="M8 13h4"/></svg>
+        Add Bill
+      </button>
+      <button class="dqa-btn" type="button" onclick="openApprovalCenterFromDashboard()">
+        <svg viewBox="0 0 24 24"><path d="M6.5 4.5h11A1.5 1.5 0 0 1 19 6v12a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 18V6A1.5 1.5 0 0 1 6.5 4.5z"/><path d="m8.5 12.5 2.5 2.5 4.5-5"/></svg>
+        Approvals
+      </button>
+      <button class="dqa-btn" type="button" onclick="navigateDashboardCard('/inventory?tab=products')">
+        <svg viewBox="0 0 24 24"><path d="M4.5 7.5 12 3.8l7.5 3.7-7.5 3.7-7.5-3.7z"/><path d="M4.5 7.5v8.8L12 20l7.5-3.7V7.5"/><path d="M12 11.2V20"/></svg>
+        Inventory
+      </button>
     </div>
 
     <section class="approval-center is-hidden" id="approval-center" aria-label="Approval Center">
@@ -835,21 +856,11 @@
         <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/sales-management" class="sidebar-link is-subitem" id="menu-sales-management">Sales Invoices</a>
-        <a href="/sales-management?tab=collections" class="sidebar-link is-subitem">Collections</a>
-        <a href="/sales-management?tab=customer-balances" class="sidebar-link is-subitem">Customer Balances</a>
-      </div>
-    </div>
-
-    <div class="sidebar-group" data-sidebar-group="service-operations">
-      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
-        <span>Service Operations</span>
-        <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
-      </button>
-      <div class="sidebar-group-items">
-        <a href="/service-operations" class="sidebar-link is-subitem" id="menu-service-operations">Service Orders</a>
-        <a href="/service-operations?tab=documents" class="sidebar-link is-subitem">Service Documents</a>
-        <a href="/admin?panel=project-records&tab=transactions" class="sidebar-link is-subitem">Project Transactions</a>
+        <a href="/sales-management?tab=sales-request" class="sidebar-link is-subitem" id="menu-sales-management">Sales Request</a>
+        <a href="/sales-management?tab=proposal-request" class="sidebar-link is-subitem">Proposal Request</a>
+        <a href="/sales-management?tab=sales-quotation" class="sidebar-link is-subitem">Sales Quotation</a>
+        <a href="/sales-management?tab=sales-order" class="sidebar-link is-subitem">Sales Order</a>
+        <a href="/sales-management?tab=project-delivery" class="sidebar-link is-subitem">Project Delivery</a>
       </div>
     </div>
 
@@ -1748,7 +1759,7 @@
 <script src="/admin/js/dashboard-cards/role-dashboard-super-admin.js?v=20260531a"></script>
 <script src="/admin/js/roles/role-flow.js?v=20260531c"></script>
 <script src="/admin/js/modules/notifications.module.js?v=20260531a"></script>
-<script src="/admin/js/admin.js?v=20260602projectflow"></script>
+<script src="/admin/js/admin.js?v=20260604entityfilter"></script>
 <script src="/admin/js/modules/approval-center.module.js?v=20260603a"></script>
 
 

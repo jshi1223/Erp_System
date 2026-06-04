@@ -1695,7 +1695,7 @@ function renderProjectMasterTable() {
               : ''}
             ${isPendingApproval
               ? `<span class="status-pill status-${isSubmitted ? 'submitted' : 'draft'}" title="${isSubmitted ? 'Waiting for admin approval' : 'Draft project, submit when ready'}">${isSubmitted ? 'For Approval' : 'Draft'}</span>`
-              : `<button class="btn btn-sm btn-add" type="button" onclick="openProjectRequisition(${Number(project.id)})">Add PR</button>`}
+              : `<button class="btn btn-sm btn-add" type="button" onclick="openProjectRequisition(${Number(project.id)})">Add PR</button><button class="btn btn-sm btn-add" type="button" onclick="openProjectSalesInquiry(${Number(project.id)})">Add SI</button>`}
             <button class="btn btn-sm btn-pdf" type="button" onclick="openProjectPdfViewer(${Number(project.id)})">View PDF</button>
             ${isAdminUser()
               ? (isArchived
@@ -1793,7 +1793,7 @@ function renderProjectRecordsTable() {
               : ''}
             ${isPendingApproval
               ? `<span class="status-pill status-${isSubmitted ? 'submitted' : 'draft'}" title="${isSubmitted ? 'Waiting for admin approval' : 'Draft project, submit when ready'}">${isSubmitted ? 'For Approval' : 'Draft'}</span>`
-              : `<button class="btn btn-sm btn-add" type="button" onclick="openProjectRequisition(${Number(project.id)})">Add PR</button>`}
+              : `<button class="btn btn-sm btn-add" type="button" onclick="openProjectRequisition(${Number(project.id)})">Add PR</button><button class="btn btn-sm btn-add" type="button" onclick="openProjectSalesInquiry(${Number(project.id)})">Add SI</button>`}
             ${isAdminUser()
               ? (isArchived
                 ? `<button class="btn btn-sm btn-restore" type="button" onclick="toggleProjectArchive(${Number(project.id)}, false)" title="Restore Project">Restore</button>`
@@ -4282,15 +4282,13 @@ function getDefaultBusinessEntityId() {
 function getCurrentBusinessEntityId() {
   const rows = Array.isArray(businessEntitiesDb) ? businessEntitiesDb : [];
   const stored = String(currentBusinessEntityContextId || localStorage.getItem(BUSINESS_ENTITY_CONTEXT_KEY) || '').trim();
-  if (!rows.length) return stored;
-  if (stored && rows.some(row => String(row.id || '') === stored)) {
+  if (stored && stored !== 'all' && rows.some(row => String(row.id || '') === stored)) {
     currentBusinessEntityContextId = stored;
     return stored;
   }
-  const fallback = getDefaultBusinessEntityId();
-  currentBusinessEntityContextId = fallback;
-  if (fallback) localStorage.setItem(BUSINESS_ENTITY_CONTEXT_KEY, fallback);
-  return fallback;
+  // 'all' filter (or unset): new records default to the default operating company.
+  // Do NOT persist this over the stored 'all' selection so the filter stays on "All Companies".
+  return getDefaultBusinessEntityId();
 }
 
 function findBusinessEntityById(id) {
@@ -4323,16 +4321,26 @@ function getWorkspaceBusinessEntities(rows = businessEntitiesDb) {
   return filtered.length ? filtered : source;
 }
 
-function renderBusinessEntityProfilePanel(current = getCurrentBusinessEntityId()) {
+function renderBusinessEntityProfilePanel(current = getBusinessEntityFilterId()) {
   const panel = document.getElementById('business-profile-panel');
   if (!panel) return;
   const rows = getWorkspaceBusinessEntities();
-  panel.innerHTML = rows.length
-    ? rows.map((row) => {
-        const id = String(row.id || '');
-        const isActive = id === String(current || '');
-        const profile = getBusinessEntityBrandProfile(row);
-        return `
+  const filter = String(current || 'all');
+  const allActive = filter === 'all';
+  const allCard = `
+    <button class="business-profile-card${allActive ? ' is-active' : ''}" type="button" onclick="setBusinessEntityContext('all')">
+      <span class="business-profile-logo-wrap"><img src="/assets/img/kvsk-logo-switch.png" alt="All companies" /></span>
+      <span class="business-profile-copy">
+        <span class="business-profile-name">All Companies</span>
+        <span class="business-profile-meta">Records from every operating company</span>
+      </span>
+    </button>
+  `;
+  const companyCards = rows.map((row) => {
+    const id = String(row.id || '');
+    const isActive = id === filter;
+    const profile = getBusinessEntityBrandProfile(row);
+    return `
           <button class="business-profile-card${isActive ? ' is-active' : ''}" type="button" onclick="setBusinessEntityContext('${escHtml(id)}')">
             <span class="business-profile-logo-wrap"><img src="${escHtml(profile.logo)}" alt="${escHtml(profile.alt)}" /></span>
             <span class="business-profile-copy">
@@ -4343,17 +4351,25 @@ function renderBusinessEntityProfilePanel(current = getCurrentBusinessEntityId()
             </span>
           </button>
         `;
-      }).join('')
-    : '<div class="business-profile-empty">Business profiles unavailable</div>';
+  }).join('');
+  panel.innerHTML = allCard + companyCards;
 }
 
-function renderCurrentWorkspaceBadge(row = findBusinessEntityById(getCurrentBusinessEntityId())) {
-  void row;
+function renderCurrentWorkspaceBadge() {
   const badge = document.getElementById('current-workspace-badge');
   if (!badge) return;
-  badge.textContent = 'All Companies';
-  badge.title = 'Showing records from all business entities';
-  badge.setAttribute('aria-label', 'Showing all business entities');
+  const filter = getBusinessEntityFilterId();
+  if (filter === 'all') {
+    badge.textContent = 'All Companies';
+    badge.title = 'Showing records from all operating companies';
+    badge.setAttribute('aria-label', 'Showing all operating companies');
+    return;
+  }
+  const entity = findBusinessEntityById(filter);
+  const label = entity?.company_name || businessEntityShortLabel(entity || {}) || 'Company';
+  badge.textContent = label;
+  badge.title = `Showing records for ${label}`;
+  badge.setAttribute('aria-label', `Showing records for ${label}`);
 }
 
 function syncModalBusinessContext(row = findBusinessEntityById(getCurrentBusinessEntityId())) {
@@ -4377,9 +4393,21 @@ function syncModalBusinessContext(row = findBusinessEntityById(getCurrentBusines
   });
 }
 
+function getBusinessEntityFilterId() {
+  const stored = String(currentBusinessEntityContextId || localStorage.getItem(BUSINESS_ENTITY_CONTEXT_KEY) || '').trim();
+  if (stored === 'all') return 'all';
+  const rows = Array.isArray(businessEntitiesDb) ? businessEntitiesDb : [];
+  if (stored && rows.some(row => String(row.id || '') === stored)) return stored;
+  return 'all';
+}
+
 function businessEntityMatches(row) {
-  void row;
-  return true;
+  const filter = getBusinessEntityFilterId();
+  if (!filter || filter === 'all') return true;
+  const rowEntity = String(row?.business_entity_id || '').trim();
+  // Records without an operating company (legacy data) stay visible in every view.
+  if (!rowEntity) return true;
+  return rowEntity === filter;
 }
 
 function getBusinessEntityBrandProfile(row) {
@@ -4508,21 +4536,22 @@ function applyBusinessEntityBrand(row) {
 function renderBusinessEntitySwitcher() {
   const host = document.getElementById('business-entity-switcher');
   const rows = getWorkspaceBusinessEntities();
-  const current = getCurrentBusinessEntityId();
+  const filter = getBusinessEntityFilterId();
   if (host) {
-    host.innerHTML = rows.map(row => {
+    const allBtn = `<button class="business-entity-switch${filter === 'all' ? ' is-active' : ''}" type="button" data-business-entity-id="all" aria-pressed="${filter === 'all' ? 'true' : 'false'}" onclick="setBusinessEntityContext('all')">All</button>`;
+    host.innerHTML = allBtn + rows.map(row => {
       const id = String(row.id || '');
       const label = businessEntityShortLabel(row);
-      return `<button class="business-entity-switch${id === current ? ' is-active' : ''}" type="button" data-business-entity-id="${escHtml(id)}" aria-pressed="${id === current ? 'true' : 'false'}" onclick="setBusinessEntityContext('${escHtml(id)}')">${escHtml(label)}</button>`;
+      return `<button class="business-entity-switch${id === filter ? ' is-active' : ''}" type="button" data-business-entity-id="${escHtml(id)}" aria-pressed="${id === filter ? 'true' : 'false'}" onclick="setBusinessEntityContext('${escHtml(id)}')">${escHtml(label)}</button>`;
     }).join('');
   }
-  const activeEntity = findBusinessEntityById(current);
+  const activeEntity = filter === 'all' ? null : findBusinessEntityById(filter);
   applyBusinessEntityBrand(activeEntity);
-  renderBusinessEntityProfilePanel(current);
-  renderCurrentWorkspaceBadge(activeEntity);
+  renderBusinessEntityProfilePanel(filter);
+  renderCurrentWorkspaceBadge();
   syncModalBusinessContext(activeEntity);
   document.querySelectorAll('header .brand-copy .header-logo').forEach((node) => {
-    node.textContent = activeEntity?.company_name || 'Kinaadman ERP';
+    node.textContent = activeEntity?.company_name || (filter === 'all' ? 'All Companies' : 'Kinaadman ERP');
   });
   if (document.documentElement?.dataset) {
     document.documentElement.dataset.businessEntityBrandTextReady = '1';
@@ -8517,16 +8546,30 @@ async function updateStats() {
       const paidAmount = getTransactionPaidAmountValue(r);
       return sum + Math.max(0, amount - paidAmount);
     }, 0);
-    const salesTotal = invoiceRows.reduce((sum, row) => sum + (parseFloat(row.amount) || 0), 0);
     dashboardReceivableBalance = totalReceivable;
 
     if (statAr) statAr.textContent = 'PHP ' + totalReceivable.toLocaleString('en-PH', { minimumFractionDigits: 2 });
     if (statArMini) {
       statArMini.textContent = `${getCurrentDashboardCompanyLabel()} • ${invoiceRows.length} invoice${invoiceRows.length === 1 ? '' : 's'}`;
     }
-    if (statSales) statSales.textContent = String(invoiceRows.length);
-    if (statSalesMini) {
-      statSalesMini.textContent = `${getCurrentDashboardCompanyLabel()} • ${formatPhpCurrency(salesTotal)} sales • ${formatPhpCurrency(totalReceivable)} open`;
+    try {
+      const salesRes = await fetch('/api/sales-management/records', { cache: 'no-store' });
+      const salesRecords = salesRes.ok ? await salesRes.json().catch(() => []) : [];
+      const salesRows = Array.isArray(salesRecords) ? salesRecords : [];
+      const requestCount = salesRows.filter(row => String(row.record_type || '') === 'sales-request').length;
+      const proposalCount = salesRows.filter(row => String(row.record_type || '') === 'proposal-request').length;
+      const quotationCount = salesRows.filter(row => String(row.record_type || '') === 'sales-quotation').length;
+      const orderCount = salesRows.filter(row => String(row.record_type || '') === 'sales-order').length;
+      const deliveryCount = salesRows.filter(row => String(row.record_type || '') === 'project-delivery').length;
+      if (statSales) statSales.textContent = String(orderCount + deliveryCount);
+      if (statSalesMini) {
+        statSalesMini.textContent = `${getCurrentDashboardCompanyLabel()} • ${requestCount} requests • ${proposalCount} proposals • ${quotationCount} quotations`;
+      }
+    } catch (_) {
+      if (statSales) statSales.textContent = '0';
+      if (statSalesMini) {
+        statSalesMini.textContent = `${getCurrentDashboardCompanyLabel()} • 0 requests • 0 quotations`;
+      }
     }
 
     const serviceRows = (Array.isArray(serviceOrdersDb) ? serviceOrdersDb : [])
@@ -8555,7 +8598,7 @@ async function updateStats() {
     if (statAr) statAr.textContent = 'PHP 0.00';
     if (statArMini) statArMini.textContent = `${getCurrentDashboardCompanyLabel()} • 0 invoices`;
     if (statSales) statSales.textContent = '0';
-    if (statSalesMini) statSalesMini.textContent = `${getCurrentDashboardCompanyLabel()} • 0 invoices • PHP 0.00 open`;
+    if (statSalesMini) statSalesMini.textContent = `${getCurrentDashboardCompanyLabel()} • 0 requests • 0 quotations`;
     if (statServiceOperations) statServiceOperations.textContent = '0';
     if (statServiceOperationsMini) statServiceOperationsMini.textContent = `${getCurrentDashboardCompanyLabel()} • 0 active service orders`;
     dashboardReceivableBalance = 0;
@@ -8601,6 +8644,10 @@ async function updateStats() {
 
   try {
     const inventoryParams = new URLSearchParams();
+    const inventoryFilter = getBusinessEntityFilterId();
+    if (inventoryFilter && inventoryFilter !== 'all') {
+      inventoryParams.set('business_entity_id', inventoryFilter);
+    }
     const inventoryRes = await fetch(`/api/inventory/summary?${inventoryParams.toString()}`);
     const inventory = await inventoryRes.json().catch(() => ({}));
     if (statsSeq !== dashboardStatsSeq) return;
@@ -8656,6 +8703,51 @@ async function updateStats() {
   window.KinaadmanDashboardCards?.render(currentUser?.role);
   syncDashboardRoleLabels(currentUser?.role || getCachedAccessRole());
   await loadNotifications();
+  renderDashboardAlerts();
+}
+
+function renderDashboardAlerts() {
+  const strip = document.getElementById('dashboard-alerts-strip');
+  if (!strip) return;
+
+  const alerts = [];
+
+  const pendingApprovals = Number(document.getElementById('stat-approvals')?.textContent?.replace(/[^0-9]/g, '') || 0);
+  if (pendingApprovals > 0) {
+    alerts.push({ label: `${pendingApprovals} pending approval${pendingApprovals !== 1 ? 's' : ''}`, type: 'danger', icon: '<path d="m8.5 12.5 2.5 2.5 4.5-5"/><path d="M6.5 4.5h11A1.5 1.5 0 0 1 19 6v12a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 18V6A1.5 1.5 0 0 1 6.5 4.5z"/>', onclick: 'openApprovalCenterFromDashboard()' });
+  }
+
+  const projectsMini = document.getElementById('stat-projects-mini')?.textContent || '';
+  const overdueMatch = projectsMini.match(/(\d+)\s+overdue/i);
+  if (overdueMatch && Number(overdueMatch[1]) > 0) {
+    const n = Number(overdueMatch[1]);
+    alerts.push({ label: `${n} overdue project${n !== 1 ? 's' : ''}`, type: 'danger', icon: '<path d="M4 7.5A1.5 1.5 0 0 1 5.5 6h4.2l1.8 2H18.5A1.5 1.5 0 0 1 20 9.5v7A1.5 1.5 0 0 1 18.5 18h-13A1.5 1.5 0 0 1 4 16.5v-9z"/><path d="M12 10v3l1.5 1.5"/>', onclick: 'openProjectsFromDashboard()' });
+  }
+
+  const inventoryMini = document.getElementById('stat-inventory-mini')?.textContent || '';
+  const lowStockMatch = inventoryMini.match(/(\d+)\s+low\s+stock/i);
+  if (lowStockMatch && Number(lowStockMatch[1]) > 0) {
+    const n = Number(lowStockMatch[1]);
+    alerts.push({ label: `${n} low stock item${n !== 1 ? 's' : ''}`, type: 'warning', icon: '<path d="M4.5 7.5 12 3.8l7.5 3.7-7.5 3.7-7.5-3.7z"/><path d="M4.5 7.5v8.8L12 20l7.5-3.7V7.5"/><path d="M12 11.2V20"/>', onclick: "navigateDashboardCard('/inventory?tab=products')" });
+  }
+
+  const salesMini = document.getElementById('stat-sales-mini')?.textContent || '';
+  const requestsMatch = salesMini.match(/(\d+)\s+request/i);
+  if (requestsMatch && Number(requestsMatch[1]) > 0) {
+    const n = Number(requestsMatch[1]);
+    alerts.push({ label: `${n} sales request${n !== 1 ? 's' : ''} pending`, type: 'info', icon: '<path d="M5.5 19.5V5A1.5 1.5 0 0 1 7 3.5h8l3.5 3.5v12.5"/><path d="M8.5 11h7"/>', onclick: "navigateDashboardCard('/sales-management?tab=requests')" });
+  }
+
+  if (!alerts.length) {
+    strip.innerHTML = '<span class="dashboard-alerts-label">Status</span><span class="alert-chip alert-chip-ok"><svg viewBox="0 0 24 24"><path d="m5 12 5 5 9-9"/></svg>All clear</span>';
+    strip.hidden = false;
+    return;
+  }
+
+  const icon = (paths) => `<svg viewBox="0 0 24 24">${paths}</svg>`;
+  strip.innerHTML = '<span class="dashboard-alerts-label">Needs Attention</span>' +
+    alerts.map((a) => `<button class="alert-chip alert-chip-${a.type}" type="button" onclick="${a.onclick}">${icon(a.icon)} ${a.label}</button>`).join('');
+  strip.hidden = false;
 }
 
 function setSaveButtonState(isBusy) {
@@ -9494,6 +9586,21 @@ function openProjectRequisition(projectId) {
   });
   if (companyId) params.set('company_id', String(companyId));
   window.location.href = `/procurement?${params.toString()}`;
+}
+
+function openProjectSalesInquiry(projectId) {
+  const selectedId = Number(projectId || 0) || 0;
+  if (!selectedId) return;
+  const project = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
+    .find((entry) => Number(entry.id || 0) === selectedId) || null;
+  const companyId = Number(project?.company_id || project?.registry_company_id || 0) || 0;
+  const params = new URLSearchParams({
+    tab: 'sales-request',
+    project_id: String(selectedId),
+    new: '1'
+  });
+  if (companyId) params.set('company_id', String(companyId));
+  window.location.href = `/sales-management?${params.toString()}`;
 }
 
 function openProjectTransaction(projectId) {

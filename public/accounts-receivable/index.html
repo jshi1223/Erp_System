@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -79,7 +79,7 @@
           </div>
           <div class="notifications-panel-actions">
             <button class="notifications-mark" type="button" onclick="markNotificationsAsRead(); loadNotifications();">Mark as read</button>
-            <button class="notifications-close" type="button">�</button>
+            <button class="notifications-close" type="button">ï¿½</button>
           </div>
         </div>
         <div class="notifications-list" id="notifications-list">
@@ -542,9 +542,11 @@
         <span class="sidebar-group-caret">?</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/sales-management" class="sidebar-link is-subitem" id="menu-sales-management">Sales Invoices</a>
-        <a href="/sales-management?tab=collections" class="sidebar-link is-subitem">Collections</a>
-        <a href="/sales-management?tab=customer-balances" class="sidebar-link is-subitem">Customer Balances</a>
+        <a href="/sales-management?tab=sales-request" class="sidebar-link is-subitem" id="menu-sales-management">Sales Inquiry</a>
+        <a href="/sales-management?tab=sales-quotation" class="sidebar-link is-subitem">Quotation</a>
+        <a href="/sales-management?tab=sales-order" class="sidebar-link is-subitem">SO</a>
+        <a href="/sales-management?tab=proposal-request" class="sidebar-link is-subitem">Projects</a>
+        <a href="/sales-management?tab=project-delivery" class="sidebar-link is-subitem">Delivery Receipt</a>
       </div>
     </div>
 
@@ -885,10 +887,11 @@
 
 <div id="toast"></div>
 
-<script src="/assets/js/erp-core.js?v=20260602archive"></script>
-<script src="/accounts-receivable/accounts-receivable.js?v=20260601a"></script>
+<script src="/assets/js/erp-core.js?v=20260604ui"></script>
+<script src="/accounts-receivable/accounts-receivable.js?v=20260604f"></script>
 </body>
 </html>
+
 
 
 

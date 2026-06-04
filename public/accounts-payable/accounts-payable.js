@@ -771,6 +771,8 @@ function switchTab(tab, btn, options = {}) {
   if (tabButton) tabButton.classList.add('active');
   document.getElementById(nextTab).classList.add('active');
   activeApTab = nextTab;
+  // Section/summary visibility is driven by body[data-initial-tab] in CSS (with !important).
+  document.body.dataset.initialTab = nextTab;
   renderApToolbarControls(nextTab);
   syncApSummaryCards(nextTab);
   if (nextTab === 'vendor-balances') renderVendorBalances();
@@ -840,9 +842,9 @@ function switchApWorkspaceTab(tab, btn, options = {}) {
       captureApToolbarState(activeApTab);
     }
     activeApTab = nextTab;
-    if (isMasterDataWorkspacePage()) {
-      document.body.dataset.initialTab = nextTab;
-    }
+    // Section/summary visibility is driven by body[data-initial-tab] in CSS (with !important),
+    // so this must follow the active tab on every workspace (procurement + master-data), not just master-data.
+    document.body.dataset.initialTab = nextTab;
     syncApSummaryCards(nextTab);
     if (persistState) {
       saveApUiState();

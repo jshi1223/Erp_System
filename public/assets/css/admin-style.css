@@ -1227,6 +1227,211 @@ main {
   margin-top: 4px;
 }
 
+/* ─── Dashboard Quick Actions ───────────────────────────────── */
+.dashboard-quick-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.dqa-label {
+  font-size: 0.64rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+.dqa-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+  white-space: nowrap;
+}
+
+.dqa-btn:hover {
+  background: rgba(107, 19, 32, 0.06);
+  border-color: var(--primary, #6b1320);
+  color: var(--primary, #6b1320);
+}
+
+.dqa-btn svg {
+  width: 13px;
+  height: 13px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
+}
+
+/* ─── Dashboard Alerts Strip ─────────────────────────────────── */
+.dashboard-alerts-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.dashboard-alerts-label {
+  font-size: 0.64rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-right: 2px;
+}
+
+.alert-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: opacity 0.14s;
+  white-space: nowrap;
+}
+
+.alert-chip:hover { opacity: 0.78; }
+
+.alert-chip svg {
+  width: 11px;
+  height: 11px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  flex-shrink: 0;
+}
+
+.alert-chip-danger {
+  background: rgba(185, 28, 28, 0.08);
+  color: #b91c1c;
+  border-color: rgba(185, 28, 28, 0.18);
+}
+
+.alert-chip-warning {
+  background: rgba(180, 83, 9, 0.08);
+  color: #b45309;
+  border-color: rgba(180, 83, 9, 0.18);
+}
+
+.alert-chip-info {
+  background: rgba(29, 78, 216, 0.07);
+  color: #1d4ed8;
+  border-color: rgba(29, 78, 216, 0.14);
+}
+
+.alert-chip-ok {
+  background: rgba(21, 128, 61, 0.08);
+  color: #15803d;
+  border-color: rgba(21, 128, 61, 0.16);
+}
+
+/* ─── Styled Confirm Dialog ──────────────────────────────────── */
+#erp-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.52);
+  backdrop-filter: blur(4px);
+  padding: 16px;
+}
+
+#erp-confirm-backdrop.open { display: flex; }
+
+.erp-confirm-modal {
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
+  padding: 28px 24px 22px;
+  width: min(400px, calc(100vw - 32px));
+  text-align: center;
+  animation: erpModalLift 180ms ease both;
+}
+
+.erp-confirm-icon {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  margin: 0 auto 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+}
+
+.erp-confirm-icon-danger  { background: rgba(185, 28, 28, 0.1);  color: #b91c1c; }
+.erp-confirm-icon-warning { background: rgba(180, 83,  9, 0.1);  color: #b45309; }
+.erp-confirm-icon-info    { background: rgba(29,  78,216, 0.08); color: #1d4ed8; }
+.erp-confirm-icon-default { background: rgba(107, 19, 32, 0.08); color: var(--primary, #6b1320); }
+
+.erp-confirm-title {
+  font-size: 1rem;
+  font-weight: 900;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.erp-confirm-body {
+  font-size: 0.84rem;
+  color: var(--muted, #888);
+  line-height: 1.65;
+  margin-bottom: 22px;
+  white-space: pre-line;
+}
+
+.erp-confirm-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* ─── Relative date sub-label ────────────────────────────────── */
+.date-relative {
+  display: block;
+  font-size: 0.68rem;
+  color: var(--muted, #888);
+  font-weight: 500;
+  margin-top: 2px;
+}
+
+.date-relative.is-overdue { color: #b91c1c; font-weight: 700; }
+.date-relative.is-soon    { color: #b45309; font-weight: 700; }
+
+@media (max-width: 600px) {
+  .dashboard-quick-actions { gap: 6px; padding: 8px 10px; }
+  .dqa-btn { font-size: 0.72rem; padding: 5px 10px; }
+}
+
 /* Stats */
 .stats {
   display: grid;
@@ -1440,10 +1645,42 @@ thead th {
   border-bottom: 2px solid var(--border);
   background: var(--surface2);
   white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
-tbody tr:hover {
+tbody tr:hover td {
   background: #f7f4ec;
+}
+
+/* ─── Row status coloring ──────────────────────────────────── */
+tbody tr.row-overdue td {
+  background: rgba(185, 28, 28, 0.04);
+}
+tbody tr.row-overdue:hover td {
+  background: rgba(185, 28, 28, 0.09);
+}
+tbody tr.row-at-risk td {
+  background: rgba(180, 83, 9, 0.04);
+}
+tbody tr.row-at-risk:hover td {
+  background: rgba(180, 83, 9, 0.09);
+}
+tbody tr.row-completed td,
+tbody tr.row-won td {
+  background: rgba(21, 128, 61, 0.03);
+}
+tbody tr.row-completed:hover td,
+tbody tr.row-won:hover td {
+  background: rgba(21, 128, 61, 0.07);
+}
+tbody tr.row-cancelled td,
+tbody tr.row-rejected td {
+  opacity: 0.62;
+}
+tbody tr.row-draft td {
+  background: rgba(0, 0, 0, 0.015);
 }
 
 tbody td {

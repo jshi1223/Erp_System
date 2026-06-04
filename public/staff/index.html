@@ -7,9 +7,9 @@
   <meta http-equiv="Expires" content="0">
   <title>KVSK CCTV &amp; IT Solutions - Staff Dashboard</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<script src="/assets/js/auth-guard.js?v=20260602archive"></script>
+<script src="/assets/js/auth-guard.js?v=20260604staff1"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Orbitron:wght@500;700;800&amp;family=Playfair+Display:wght@600;700&amp;family=IBM+Plex+Mono:wght@300;400;500&amp;display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260603a">
+  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260604dash">
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a">
   <link rel="stylesheet" href="/staff/css/staff-base.css?v=20260602projectflow">
   <link rel="stylesheet" href="/staff/css/staff.css?v=20260601c">
@@ -178,7 +178,7 @@
         </div>
         <div class="stat-label">Master Data</div>
         <div class="stat-val" id="stat-company-registry">0</div>
-        <div class="stat-mini" id="stat-company-registry-mini">All Companies &bull; 0 active records</div>
+        <div class="stat-mini" id="stat-company-registry-mini">Request companies &amp; vendors</div>
       </div>
 
       <!-- Projects -->
@@ -192,7 +192,7 @@
         </div>
         <div class="stat-label">Approved Projects</div>
         <div class="stat-val" id="stat-projects">0</div>
-        <div class="stat-mini" id="stat-projects-mini">All Companies &bull; 0 ongoing &bull; 0 overdue</div>
+        <div class="stat-mini" id="stat-projects-mini">Request &amp; track your projects</div>
       </div>
 
 
@@ -209,22 +209,7 @@
         </div>
         <div class="stat-label">Sales Management</div>
         <div class="stat-val" id="stat-sales">0</div>
-        <div class="stat-mini" id="stat-sales-mini">All Companies &bull; 0 sales invoices</div>
-      </div>
-
-      <!-- Service Operations -->
-      <div class="stat-card stat-card-company stat-card-link" id="stat-card-service-operations" onclick="navigateDashboardCard('/service-operations')">
-        <div class="stat-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24">
-            <path d="M6.5 4.5h11A1.5 1.5 0 0 1 19 6v12a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 18V6a1.5 1.5 0 0 1 1.5-1.5z"></path>
-            <path d="M8 8.5h8"></path>
-            <path d="M8 12h5"></path>
-            <path d="m9 16 1.4 1.4L15.5 12"></path>
-          </svg>
-        </div>
-        <div class="stat-label">Service Operations</div>
-        <div class="stat-val" id="stat-service-operations">0</div>
-        <div class="stat-mini" id="stat-service-operations-mini">All Companies &bull; 0 active service orders</div>
+        <div class="stat-mini" id="stat-sales-mini">Submit &amp; track sales inquiries</div>
       </div>
 
       <!-- Procurement -->
@@ -240,7 +225,7 @@
         </div>
         <div class="stat-label">Procurement</div>
         <div class="stat-val gold" id="stat-procurement">0</div>
-        <div class="stat-mini" id="stat-procurement-mini">All Companies &bull; 0 approved PR &bull; 0 approved PO</div>
+        <div class="stat-mini" id="stat-procurement-mini">Submit &amp; track purchase requisitions</div>
       </div>
 
 
@@ -256,11 +241,27 @@
         </div>
         <div class="stat-label">Inventory</div>
         <div class="stat-val" id="stat-inventory">0</div>
-        <div class="stat-mini" id="stat-inventory-mini">All Companies &bull; 0 warehouses &bull; 0 low stock</div>
+        <div class="stat-mini" id="stat-inventory-mini">Request products &amp; track stock</div>
       </div>
 
     </div>
 
+    <!-- Quick Actions for Staff -->
+    <div class="dashboard-quick-actions" id="dashboard-quick-actions">
+      <span class="dqa-label">Quick Actions</span>
+      <button class="dqa-btn" type="button" onclick="openProjectModal()">
+        <svg viewBox="0 0 24 24"><path d="M4 7.5A1.5 1.5 0 0 1 5.5 6h4.2l1.8 2H18.5A1.5 1.5 0 0 1 20 9.5v7A1.5 1.5 0 0 1 18.5 18h-13A1.5 1.5 0 0 1 4 16.5v-9z"/><path d="M10 12h4M12 10v4"/></svg>
+        Request Project
+      </button>
+      <button class="dqa-btn" type="button" onclick="window.location.href='/procurement?tab=requests'">
+        <svg viewBox="0 0 24 24"><path d="M5 5.5h14v5H5z"/><path d="M7 10.5v8h10v-8"/><path d="M10 14.5h4M12 13v3"/></svg>
+        Request PR
+      </button>
+      <button class="dqa-btn" type="button" onclick="window.location.href='/sales-management'">
+        <svg viewBox="0 0 24 24"><path d="M5.5 19.5V5A1.5 1.5 0 0 1 7 3.5h8l3.5 3.5v12.5"/><path d="M15 3.5V7h3.5"/><path d="M8.5 11h7"/></svg>
+        Sales Request
+      </button>
+    </div>
 
     <div class="dashboard-section is-hidden" id="project-records-section">
       <div class="module-page-toolbar">
@@ -546,18 +547,8 @@
         <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/sales-management" class="sidebar-link is-subitem" id="menu-sales-management">Sales Invoices</a>
-        <a href="/sales-management?tab=collections" class="sidebar-link is-subitem">Collections</a>
-      </div>
-    </div>
-
-    <div class="sidebar-group" data-sidebar-group="service-operations">
-      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
-        <span>Service Operations</span>
-        <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
-      </button>
-      <div class="sidebar-group-items">
-        <a href="/service-operations" class="sidebar-link is-subitem" id="menu-service-operations">Service Orders</a>
+        <a href="/sales-management?tab=sales-request" class="sidebar-link is-subitem" id="menu-sales-management">Sales Inquiry</a>
+        <a href="/sales-management?tab=requests" class="sidebar-link is-subitem" id="menu-sales-management-requests">Requests</a>
       </div>
     </div>
 
