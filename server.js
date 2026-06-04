@@ -1,4 +1,4 @@
-﻿// server.js - Updated with Session, CRUD, Double Login Fix, and Connection Pool
+﻿﻿// server.js - Updated with Session, CRUD, Double Login Fix, and Connection Pool
 const express = require('express');
 const path    = require('path');
 const { createPostgresAppPool } = require('./lib/db/postgres-app');
@@ -170,7 +170,7 @@ async function sendResendEmail(mailOptions) {
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      from: RESEND_FROM,
+      from: mailOptions?.from || RESEND_FROM,
       to: recipients,
       subject: mailOptions?.subject || 'ERP Notification',
       html: mailOptions?.html || String(mailOptions?.text || ''),
@@ -4699,20 +4699,18 @@ async function generateNextEntityDocumentNo({
            AND ${columnName} LIKE ?`,
         resolvedEntityId ? [resolvedEntityId, `${codePrefix}-%`] : [`${codePrefix}-%`]
       );
-  const maxNo = Number(existingRows?.[0]?.max_no || 0) || 0;
-  let initialValue = maxNo + 1;
+  const initialValue = Number(existingRows?.[0]?.max_no || 0) + 1;
 
   try {
-    const rows = await queryDbAsync(
+    await queryDbAsync(
       dbClient,
       `INSERT INTO document_sequences (sequence_key, period_key, last_value)
        VALUES (?, ?, ?)
        ON CONFLICT (sequence_key, period_key)
-       DO UPDATE SET last_value = GREATEST(document_sequences.last_value, ?) + 1
+       DO UPDATE SET last_value = EXCLUDED.last_value
        RETURNING last_value`,
-      [sequenceKey, period, initialValue, maxNo]
+      [sequenceKey, period, initialValue]
     );
-    initialValue = Number(rows?.[0]?.last_value || initialValue) || initialValue;
   } catch (err) {
     if (!isPostgresUndefinedTable(err)) throw err;
   }
@@ -4789,18 +4787,7 @@ async function peekNextEntityDocumentNo({
            AND ${columnName} LIKE ?`,
         resolvedEntityId ? [resolvedEntityId, `${codePrefix}-%`] : [`${codePrefix}-%`]
       );
-  let seqLast = 0;
-  try {
-    const seqRows = await queryDbAsync(
-      dbClient,
-      'SELECT COALESCE(last_value, 0) AS last_value FROM document_sequences WHERE sequence_key = ? AND period_key = ? LIMIT 1',
-      [sequenceKey, period]
-    );
-    seqLast = Number(seqRows?.[0]?.last_value || 0) || 0;
-  } catch (err) {
-    if (!isPostgresUndefinedTable(err)) throw err;
-  }
-  const nextNum = Math.max(Number(existingRows?.[0]?.max_no || 0) || 0, seqLast) + 1;
+  const nextNum = Number(existingRows?.[0]?.max_no || 0) + 1;
   return `${codePrefix}-${String(nextNum).padStart(pad, '0')}`;
 }
 
@@ -10037,11 +10024,7 @@ app.get('/api/service-orders/next-number', protectAdmin, async (req, res) => {
 app.get('/api/procurement/requisitions/next-number', protectAdmin, async (req, res) => {
   try {
     const businessEntityId = await resolveBusinessEntityId(req.query.business_entity_id);
-    // Staff requisitions stay drafts until approved (draft number); admin requisitions are
-    // auto-approved on create, so preview the official PR number directly.
-    const isStaff = isStaffRole(getAuthenticatedUser(req)?.role);
-    const peek = isStaff ? peekNextDraftEntityDocumentNo : peekNextEntityDocumentNo;
-    const pr_number = await peek({
+    const pr_number = await peekNextDraftEntityDocumentNo({
       businessEntityId,
       documentType: 'purchase-requisition',
       prefix: 'PR',
@@ -13323,12 +13306,9 @@ app.get('/api/inventory/summary', protectAdmin, async (req, res) => {
     const businessEntityId = normalizeBusinessEntityId(req.query.business_entity_id) || await getDefaultBusinessEntityId();
     const params = businessEntityId ? [businessEntityId] : [];
     const entityWhere = businessEntityId ? 'WHERE business_entity_id = ?' : '';
-    const activeWhere = businessEntityId
-      ? 'WHERE business_entity_id = ? AND COALESCE(is_active, TRUE) = TRUE'
-      : 'WHERE COALESCE(is_active, TRUE) = TRUE';
     const [productRows, warehouseRows, stockRows, lowStockRows] = await Promise.all([
-      queryAsync(`SELECT COUNT(*) AS total FROM products ${activeWhere}`, params),
-      queryAsync(`SELECT COUNT(*) AS total FROM warehouses ${activeWhere}`, params),
+      queryAsync(`SELECT COUNT(*) AS total FROM products ${entityWhere}`, params),
+      queryAsync(`SELECT COUNT(*) AS total FROM warehouses ${entityWhere}`, params),
       queryAsync(`
         SELECT COALESCE(SUM(quantity_on_hand), 0) AS total
         FROM stock
@@ -13361,7 +13341,7 @@ app.get('/api/inventory/products', protectAdmin, async (req, res) => {
               COALESCE(SUM(s.quantity_on_hand), 0) AS quantity_on_hand
        FROM products p
        LEFT JOIN stock s ON s.product_id = p.id
-       WHERE p.business_entity_id = ? AND COALESCE(p.is_active, TRUE) = TRUE
+       WHERE p.business_entity_id = ?
        GROUP BY p.id
        ORDER BY p.product_name ASC`,
       [businessEntityId]
@@ -13407,69 +13387,13 @@ app.post('/api/inventory/products', protectAdmin, async (req, res) => {
   }
 });
 
-app.put('/api/inventory/products/:id', protectAdmin, async (req, res) => {
-  try {
-    if (isStaffRole(getAuthenticatedUser(req)?.role)) {
-      return res.status(403).json({ error: 'Staff cannot edit inventory products directly.' });
-    }
-    const id = Number(req.params.id) || 0;
-    if (!id) return res.status(400).json({ error: 'Invalid product id.' });
-    const sku = String(req.body.sku || '').trim();
-    const productName = String(req.body.product_name || '').trim();
-    if (!sku) return res.status(400).json({ error: 'SKU is required.' });
-    if (!productName) return res.status(400).json({ error: 'Product name is required.' });
-
-    const rows = await queryAsync(
-      `UPDATE products
-       SET sku = ?, product_name = ?, category = ?, unit = ?, reorder_level = ?, unit_cost = ?, selling_price = ?
-       WHERE id = ? AND COALESCE(is_active, TRUE) = TRUE
-       RETURNING *`,
-      [
-        sku,
-        productName,
-        String(req.body.category || '').trim() || null,
-        String(req.body.unit || 'pcs').trim() || 'pcs',
-        Number(req.body.reorder_level || 0) || 0,
-        Number(req.body.unit_cost || 0) || 0,
-        Number(req.body.selling_price || req.body.unit_price || 0) || 0,
-        id
-      ]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Product not found.' });
-    res.json(rows[0]);
-  } catch (err) {
-    console.error('Inventory product update error:', err);
-    const isDuplicate = String(err.message || '').toLowerCase().includes('duplicate') || String(err.code || '') === '23505';
-    res.status(isDuplicate ? 409 : 500).json({ error: isDuplicate ? 'SKU already exists for this operating company.' : (err.message || 'Unable to update product.') });
-  }
-});
-
-app.post('/api/inventory/products/:id/archive', protectAdmin, async (req, res) => {
-  try {
-    if (isStaffRole(getAuthenticatedUser(req)?.role)) {
-      return res.status(403).json({ error: 'Staff cannot archive inventory products.' });
-    }
-    const id = Number(req.params.id) || 0;
-    if (!id) return res.status(400).json({ error: 'Invalid product id.' });
-    const rows = await queryAsync(
-      `UPDATE products SET is_active = FALSE WHERE id = ? AND COALESCE(is_active, TRUE) = TRUE RETURNING id`,
-      [id]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Product not found.' });
-    res.json({ id, archived: true });
-  } catch (err) {
-    console.error('Inventory product archive error:', err);
-    res.status(500).json({ error: err.message || 'Unable to archive product.' });
-  }
-});
-
 app.get('/api/inventory/warehouses', protectAdmin, async (req, res) => {
   try {
     const businessEntityId = normalizeBusinessEntityId(req.query.business_entity_id) || await getDefaultBusinessEntityId();
     const rows = await queryAsync(
       `SELECT *
        FROM warehouses
-       WHERE business_entity_id = ? AND COALESCE(is_active, TRUE) = TRUE
+       WHERE business_entity_id = ?
        ORDER BY warehouse_name ASC`,
       [businessEntityId]
     );
@@ -13502,53 +13426,6 @@ app.post('/api/inventory/warehouses', protectAdmin, async (req, res) => {
     console.error('Inventory warehouse save error:', err);
     const isDuplicate = String(err.message || '').toLowerCase().includes('duplicate') || String(err.code || '') === '23505';
     res.status(isDuplicate ? 409 : 500).json({ error: isDuplicate ? 'Warehouse code already exists for this operating company.' : (err.message || 'Unable to save warehouse.') });
-  }
-});
-
-app.put('/api/inventory/warehouses/:id', protectAdmin, async (req, res) => {
-  try {
-    if (isStaffRole(getAuthenticatedUser(req)?.role)) {
-      return res.status(403).json({ error: 'Staff cannot edit warehouses directly.' });
-    }
-    const id = Number(req.params.id) || 0;
-    if (!id) return res.status(400).json({ error: 'Invalid warehouse id.' });
-    const warehouseCode = String(req.body.warehouse_code || '').trim();
-    const warehouseName = String(req.body.warehouse_name || '').trim();
-    if (!warehouseCode) return res.status(400).json({ error: 'Warehouse code is required.' });
-    if (!warehouseName) return res.status(400).json({ error: 'Warehouse name is required.' });
-
-    const rows = await queryAsync(
-      `UPDATE warehouses
-       SET warehouse_code = ?, warehouse_name = ?, location = ?
-       WHERE id = ? AND COALESCE(is_active, TRUE) = TRUE
-       RETURNING *`,
-      [warehouseCode, warehouseName, String(req.body.location || '').trim() || null, id]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Warehouse not found.' });
-    res.json(rows[0]);
-  } catch (err) {
-    console.error('Inventory warehouse update error:', err);
-    const isDuplicate = String(err.message || '').toLowerCase().includes('duplicate') || String(err.code || '') === '23505';
-    res.status(isDuplicate ? 409 : 500).json({ error: isDuplicate ? 'Warehouse code already exists for this operating company.' : (err.message || 'Unable to update warehouse.') });
-  }
-});
-
-app.post('/api/inventory/warehouses/:id/archive', protectAdmin, async (req, res) => {
-  try {
-    if (isStaffRole(getAuthenticatedUser(req)?.role)) {
-      return res.status(403).json({ error: 'Staff cannot archive warehouses.' });
-    }
-    const id = Number(req.params.id) || 0;
-    if (!id) return res.status(400).json({ error: 'Invalid warehouse id.' });
-    const rows = await queryAsync(
-      `UPDATE warehouses SET is_active = FALSE WHERE id = ? AND COALESCE(is_active, TRUE) = TRUE RETURNING id`,
-      [id]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Warehouse not found.' });
-    res.json({ id, archived: true });
-  } catch (err) {
-    console.error('Inventory warehouse archive error:', err);
-    res.status(500).json({ error: err.message || 'Unable to archive warehouse.' });
   }
 });
 
@@ -14083,7 +13960,6 @@ app.get('/api/procurement/requisitions', protectAdmin, async (req, res) => {
     const actor = getAuthenticatedUser(req) || {};
     const conditions = [];
     const params = [];
-    if (isAdminRole(actor.role)) conditions.push("LOWER(COALESCE(r.status, 'draft')) <> 'draft'");
     if (isStaffRole(actor.role)) {
       const staffTerms = [actor.fullname, actor.username, actor.email]
         .map(value => String(value || '').trim().toLowerCase())
@@ -14297,25 +14173,6 @@ app.post('/api/procurement/requisitions', protectAdmin, async (req, res) => {
     }
 
     logAction(req, 'CREATE_PURCHASE_REQUISITION', `Created requisition ${prNumber}`);
-
-    // Admin/super-admin created requisitions skip the draft/submit flow and are auto-approved.
-    const actor = getAuthenticatedUser(req) || {};
-    if (!isStaffRole(actor.role)) {
-      const officialPrNumber = await generateNextEntityDocumentNo({
-        businessEntityId,
-        documentType: 'purchase-requisition',
-        prefix: 'PR',
-        tableName: 'purchase_requisitions',
-        columnName: 'pr_number'
-      });
-      await queryAsync(
-        "UPDATE purchase_requisitions SET pr_number = ?, draft_pr_number = COALESCE(draft_pr_number, ?), status = 'approved', approved_by = COALESCE(approved_by, ?), approved_at = COALESCE(approved_at, NOW()) WHERE id = ?",
-        [officialPrNumber, prNumber, getApprovalActorName(req), reqResult.insertId]
-      );
-      logAction(req, 'APPROVE_PURCHASE_REQUISITION', `Auto-approved requisition ${officialPrNumber} (created by ${getApprovalActorName(req)})`);
-      return res.json({ id: reqResult.insertId, pr_number: officialPrNumber, status: 'approved' });
-    }
-
     res.json({ id: reqResult.insertId, pr_number: prNumber });
   } catch (err) {
     if (isPostgresUniqueViolation(err)) {
@@ -14706,9 +14563,7 @@ async function resolvePurchaseOrderProjectContext(projectId = 0, companyId = 0) 
 
 app.get('/api/procurement/purchase-orders', protectAdmin, async (req, res) => {
   try {
-    const actor = getAuthenticatedUser(req) || {};
     const conditions = [];
-    if (isAdminRole(actor.role)) conditions.push("LOWER(COALESCE(po.status, 'draft')) <> 'draft'");
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const [purchaseOrders, lineItems, bills] = await Promise.all([
       queryAsync(`
@@ -14847,7 +14702,6 @@ app.post('/api/procurement/purchase-orders', protectAdmin, async (req, res) => {
   const preparedBy = String(req.body.prepared_by || '').trim() || null;
   const approvedBy = String(req.body.approved_by || '').trim() || null;
   const notes = String(req.body.notes || '').trim() || null;
-  const status = 'draft';
   const lineItems = normalizePurchaseOrderLineItems(req.body);
 
   if (!vendorId || !lineItems.length) {
@@ -14863,6 +14717,12 @@ app.post('/api/procurement/purchase-orders', protectAdmin, async (req, res) => {
   const totalAmount = lineItems.reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.unit_price || 0)), 0);
 
   try {
+    const actor = getAuthenticatedUser(req) || {};
+    const adminCreatesApprovedPo = isAdminRole(actor.role);
+    const status = adminCreatesApprovedPo ? 'approved' : 'draft';
+    const approvedByName = adminCreatesApprovedPo ? getApprovalActorName(req) : approvedBy;
+    let draftPoNumber = null;
+
     const vendorRows = await queryAsync(
       'SELECT id, vendor_no, vendor_name, business_entity_id, COALESCE(is_active, TRUE) AS is_active FROM vendors WHERE id = ? LIMIT 1',
       [vendorId]
@@ -14892,7 +14752,18 @@ app.post('/api/procurement/purchase-orders', protectAdmin, async (req, res) => {
     if (Number(vendorRows[0].business_entity_id || 0) && Number(vendorRows[0].business_entity_id || 0) === Number(businessEntityId || 0)) {
       return res.status(400).json({ error: 'Select another vendor. The issuing company cannot be its own supplier on this PO.' });
     }
-    if (!poNumber || !isDraftDocumentNo(poNumber)) {
+    if (adminCreatesApprovedPo) {
+      if (!poNumber || isDraftDocumentNo(poNumber)) {
+        draftPoNumber = poNumber || null;
+        poNumber = await generateNextEntityDocumentNo({
+          businessEntityId,
+          documentType: 'purchase-order',
+          prefix: 'PO',
+          tableName: 'purchase_orders',
+          columnName: 'po_number'
+        });
+      }
+    } else if (!poNumber || !isDraftDocumentNo(poNumber)) {
       poNumber = await generateNextDraftEntityDocumentNo({
         businessEntityId,
         documentType: 'purchase-order',
@@ -14906,8 +14777,8 @@ app.post('/api/procurement/purchase-orders', protectAdmin, async (req, res) => {
     const resolvedCompanyId = Number(companyRecord?.id || projectRecord?.company_id || 0) || null;
     await validatePurchaseOrderLineProducts(lineItems, businessEntityId);
     const poResult = await queryAsync(
-      'INSERT INTO purchase_orders (po_number, requisition_id, quotation_id, business_entity_id, vendor_id, company_id, project_id, po_date, delivery_date, payment_terms, prepared_by, approved_by, total_amount, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [poNumber, requisitionRow?.id || null, quotationRow?.id || null, businessEntityId, vendorId, resolvedCompanyId, projectRecord?.id || null, poDate, deliveryDate, paymentTerms, preparedBy, approvedBy, totalAmount, status, notes]
+      'INSERT INTO purchase_orders (po_number, requisition_id, quotation_id, business_entity_id, vendor_id, company_id, project_id, po_date, delivery_date, payment_terms, prepared_by, approved_by, total_amount, status, notes, draft_po_number, approved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? THEN NOW() ELSE NULL END)',
+      [poNumber, requisitionRow?.id || null, quotationRow?.id || null, businessEntityId, vendorId, resolvedCompanyId, projectRecord?.id || null, poDate, deliveryDate, paymentTerms, preparedBy, approvedByName || null, totalAmount, status, notes, draftPoNumber, adminCreatesApprovedPo]
     );
     await claimEntityDocumentNo({
       businessEntityId,
@@ -14928,7 +14799,13 @@ app.post('/api/procurement/purchase-orders', protectAdmin, async (req, res) => {
     }
 
     logAction(req, 'CREATE_PURCHASE_ORDER', `Created purchase order ${poNumber}`);
-    res.json({ id: poResult.insertId, po_number: poNumber });
+
+    if (adminCreatesApprovedPo) {
+      logAction(req, 'APPROVE_PURCHASE_ORDER', `Auto-approved purchase order ${poNumber}${draftPoNumber ? ` (Draft ${draftPoNumber})` : ''}`);
+      return res.json({ id: poResult.insertId, po_number: poNumber, status, approved_by: approvedByName });
+    }
+
+    res.json({ id: poResult.insertId, po_number: poNumber, status });
   } catch (err) {
     if (isPostgresUniqueViolation(err)) {
       return res.status(409).json({ error: 'PO number already exists.' });
@@ -15258,10 +15135,7 @@ function normalizeQuotationStatus(status) {
 
 app.get('/api/procurement/quotations', protectAdmin, async (req, res) => {
   try {
-    const actor = getAuthenticatedUser(req) || {};
     const conditions = [];
-    // Note: do NOT hide draft quotations from admins. RFQs are created as drafts and the RFQ
-    // workspace is where admins review/approve them, so drafts must be returned.
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const rows = await queryAsync(`
       SELECT q.*,

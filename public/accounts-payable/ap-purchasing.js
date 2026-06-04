@@ -2599,33 +2599,39 @@ function renderPurchaseOrderPaymentTermsPreview() {
 function renderPurchaseOrderLineItemRow(item = {}, index = 0) {
   const productId = Number(item.product_id || item.productId || 0) || 0;
   const product = getPurchaseOrderProductById(productId);
+  const description = String(item.description || '').trim();
   const quantity = Number(item.quantity || item.qty || 1) > 0 ? Number(item.quantity || item.qty || 1) : 1;
   const unitPrice = Number(item.unit_price || item.price || product?.unit_cost || 0) || 0;
-  const lineTotal = productId ? quantity * unitPrice : 0;
-  const hasProduct = Boolean(productId);
-  const dis = hasProduct ? '' : ' disabled';
+  const lineTotal = quantity * unitPrice;
 
   return `
     <div class="po-line-item" data-po-line-item data-line-index="${index}">
-      <div class="field full">
-        <label>Line ${index + 1}</label>
-        <select class="po-line-product" onchange="syncPurchaseOrderProductSelection(this)">
-          ${renderPurchaseOrderProductOptions(productId)}
-        </select>
+      <div class="po-line-header-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div class="field">
+          <label>Line ${index + 1} Inventory Product</label>
+          <select class="po-line-product" onchange="syncPurchaseOrderProductSelection(this)">
+            ${renderPurchaseOrderProductOptions(productId)}
+          </select>
+        </div>
+        <div class="field">
+          <label>Line ${index + 1} Description <span class="req-star">*</span></label>
+          <input type="text" class="po-line-description" placeholder="Item name or description" 
+                 value="${escHtml(description)}" oninput="syncPurchaseOrderLineItem(this)" />
+        </div>
       </div>
       <div class="po-line-meta-grid">
         <div class="field">
-          <label>Qty</label>
+          <label>Qty <span class="req-star">*</span></label>
           <input type="number" class="po-line-qty" min="1" step="1"
-                 value="${hasProduct ? escHtml(quantity) : ''}"
-                 placeholder="1" oninput="syncPurchaseOrderLineItem(this)"${dis} />
+                 value="${escHtml(quantity)}"
+                 placeholder="1" oninput="syncPurchaseOrderLineItem(this)" />
         </div>
         <div class="field">
-          <label>Unit Price</label>
+          <label>Unit Price <span class="req-star">*</span></label>
           <input type="number" class="po-line-unit-price" min="0" step="0.01"
                  placeholder="0.00"
-                 value="${hasProduct && unitPrice ? escHtml(unitPrice.toFixed(2)) : ''}"
-                 oninput="syncPurchaseOrderLineItem(this)"${dis} />
+                 value="${unitPrice ? escHtml(unitPrice.toFixed(2)) : ''}"
+                 oninput="syncPurchaseOrderLineItem(this)" />
         </div>
         <div class="field">
           <label>Line Total</label>
@@ -2745,16 +2751,17 @@ function syncPurchaseOrderProductSelection(source) {
 
   const productId = Number(source?.value || 0);
   const product = getPurchaseOrderProductById(productId);
+  const descInput      = row.querySelector('.po-line-description');
   const qtyInput       = row.querySelector('.po-line-qty');
   const unitPriceInput = row.querySelector('.po-line-unit-price');
   const totalNode      = row.querySelector('.po-line-total');
 
   if (!product) {
-    if (qtyInput)       { qtyInput.value = '';       qtyInput.disabled = true; }
-    if (unitPriceInput) { unitPriceInput.value = ''; unitPriceInput.disabled = true; }
-    if (totalNode)      totalNode.textContent = formatPurchaseOrderLineAmount(0);
-    recalculatePurchaseOrderLineTotals();
     return;
+  }
+
+  if (descInput) {
+    descInput.value = product.product_name || product.name || '';
   }
 
   if (qtyInput) {
@@ -2896,7 +2903,7 @@ function collectPurchaseOrderLineItems() {
     const hasAnyValue = productId || description || quantity > 0 || unitPrice > 0;
     if (!hasAnyValue) return;
 
-    if (!productId || !description || quantity <= 0 || unitPrice <= 0) {
+    if (!description || quantity <= 0 || unitPrice <= 0) {
       incompleteRows.push(index + 1);
       return;
     }
@@ -3142,6 +3149,7 @@ function buildPurchaseOrderItemsFromQuotation(quote) {
       ? (estimatedTotal > 0 ? quotedTotal * (estimatedLineTotal / estimatedTotal) : evenUnitTotal)
       : estimatedLineTotal;
     return {
+      product_id: Number(item.product_id || 0) || null,
       description: [item.item_name, item.description].filter(Boolean).join(' - ') || `Approved RFQ ${quote.quote_number || quote.id}`,
       quantity,
       unit_price: quantity > 0 ? targetLineTotal / quantity : targetLineTotal
@@ -3660,7 +3668,7 @@ function renderPurchaseOrders() {
   if (!tbody) return;
 
   const entityFilter = typeof businessEntityMatches === 'function' ? businessEntityMatches : procurementBusinessEntityMatches;
-  const rows = filteredRows(procurementState.purchaseOrders.filter(entityFilter).filter(procurementRecordVisibleForCurrentUser), $('procurement-search-input')?.value, [
+  const rows = filteredRows(procurementState.purchaseOrders.filter(entityFilter), $('procurement-search-input')?.value, [
     'po_number',
     'requisition_number',
     'vendor_name',
@@ -4399,7 +4407,7 @@ async function savePurchaseOrder() {
     collected.incompleteRows.forEach((lineNo) => {
       const row = lineRows[lineNo - 1];
       if (row) {
-        setPurchaseOrderLineItemMessage(row, 'Inventory Product, Description, Qty, and Unit Price are required for this line item.');
+        setPurchaseOrderLineItemMessage(row, 'Description, Qty, and Unit Price are required for this line item.');
       }
     });
     markError('line_items', 'Complete the highlighted line item(s).');
