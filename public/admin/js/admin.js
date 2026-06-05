@@ -2456,7 +2456,9 @@ async function fetchProjectLedgerData() {
   ]);
 
   const responses = [transactionsRes, receivablesRes, billsRes, requisitionsRes, quotationsRes, purchaseOrdersRes, goodsReceiptsRes, apPaymentsRes, arPaymentsRes, serviceOrdersRes, inventoryMovementsRes, salesRecordsRes];
-  const failed = responses.find((response) => !response.ok);
+  // Service Operations was removed, so /api/service-orders may 404 — treat it as
+  // optional so one missing data source never breaks the whole Project Overview.
+  const failed = responses.find((response) => !response.ok && response !== serviceOrdersRes);
   if (failed) throw new Error(`Unable to load project ledger data (${failed.status}).`);
 
   const [transactions, receivables, bills, requisitions, quotations, purchaseOrders, goodsReceipts, apPayments, arPayments, serviceOrders, inventoryMovements, salesRecords] = await Promise.all(
@@ -4758,6 +4760,38 @@ function renderAssignedStaffOptions(selectedId = null) {
     : 'Assigned staff sees this project in Project Records and Requests.';
 }
 
+// Populate the 3 Project Member dropdowns from the staff list (max 3 members).
+function renderProjectMemberOptions(selectedNames = []) {
+  const staffUsers = getAssignableStaffUsers();
+  const names = (Array.isArray(selectedNames) ? selectedNames : []).map(n => String(n || '').trim());
+  ['p-project-members', 'p-project-members-2', 'p-project-members-3'].forEach((selectId, idx) => {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    const current = names[idx] || '';
+    const options = staffUsers.map(user => {
+      const label = getUserDisplayName(user);
+      return `<option value="${escAttr(label)}">${escHtml(label)}</option>`;
+    });
+    // Keep a legacy free-text member that is not in the staff list selectable.
+    if (current && !staffUsers.some(u => getUserDisplayName(u) === current)) {
+      options.unshift(`<option value="${escAttr(current)}">${escHtml(current)}</option>`);
+    }
+    select.innerHTML = '<option value="">Select staff</option>' + options.join('');
+    select.value = current;
+  });
+}
+
+// Estimated Profit = Contract Amount - (Material + Labor + Other). Read-only display.
+function recomputeEstimatedProfit() {
+  const num = (id) => Number(document.getElementById(id)?.value || 0) || 0;
+  const profit = num('p-budget') - (num('p-est-material') + num('p-est-labor') + num('p-est-other'));
+  const display = document.getElementById('p-est-profit-display');
+  if (display) {
+    display.textContent = (typeof formatPhpCurrency === 'function') ? formatPhpCurrency(profit) : `PHP ${profit.toFixed(2)}`;
+    display.style.color = profit < 0 ? '#b42318' : 'var(--accent)';
+  }
+}
+
 function applyPermissionMatrix() {
   const role = normalizeAccessRole(currentUser?.role);
   const canCreateDrafts = role === 'staff' || role === 'admin' || role === 'super_admin';
@@ -5841,17 +5875,13 @@ async function openProjectModal(projectId = null) {
     }
     setProjectModalValue('p-description', projectData.description || '');
     setProjectModalValue('p-budget', Number(projectData.budget || 0) > 0 ? Number(projectData.budget || 0).toFixed(2) : '');
-    setProjectModalValue('p-downpayment', Number(projectData.downpayment || 0) > 0 ? Number(projectData.downpayment || 0).toFixed(2) : '');
-    setProjectModalValue('p-project-members', projectData.project_members || '');
-    setProjectRoleValue('p-member-role', projectData.member_role || '');
-    setProjectModalValue('p-member-phone', projectData.member_phone || '');
-    setProjectModalValue('p-project-members-2', projectData.project_members_2 || '');
-    setProjectRoleValue('p-member-role-2', projectData.member_role_2 || '');
-    setProjectModalValue('p-member-phone-2', projectData.member_phone_2 || '');
-    setProjectModalValue('p-project-members-3', projectData.project_members_3 || '');
-    setProjectRoleValue('p-member-role-3', projectData.member_role_3 || '');
-    setProjectModalValue('p-member-phone-3', projectData.member_phone_3 || '');
-    syncProjectTeamRowsFromValues();
+    setProjectModalValue('p-service-type', String(projectData.service_type || 'installation').toLowerCase());
+    setProjectModalValue('p-project-location', projectData.project_location || '');
+    setProjectModalValue('p-est-material', Number(projectData.estimated_material_cost || 0) > 0 ? Number(projectData.estimated_material_cost || 0).toFixed(2) : '');
+    setProjectModalValue('p-est-labor', Number(projectData.estimated_labor_cost || 0) > 0 ? Number(projectData.estimated_labor_cost || 0).toFixed(2) : '');
+    setProjectModalValue('p-est-other', Number(projectData.estimated_other_cost || 0) > 0 ? Number(projectData.estimated_other_cost || 0).toFixed(2) : '');
+    renderProjectMemberOptions([projectData.project_members, projectData.project_members_2, projectData.project_members_3]);
+    recomputeEstimatedProfit();
     currentProjectStartDate = formatDateInputValue(projectData.planned_start_date || projectData.start_date || '');
     currentProjectEndDate = formatDateInputValue(projectData.planned_end_date || projectData.end_date || '');
     populateProjectCompanySelect(projectData.company_id || projectData.registry_company_id || projectData.company_no || projectData.company_name || projectData.client_name || '');
@@ -10520,7 +10550,13 @@ async function loadServiceOrdersData(force = false) {
   serviceOrdersLoadPromise = (async () => {
     const res = await fetch('/api/service-orders?include_archived=1', { cache: 'no-store' });
     const data = await res.json().catch(() => []);
+    // Service Operations module was removed; a 404 here just means "no service
+    // orders" rather than an error. Only surface genuine server failures.
     if (!res.ok) {
+      if (res.status === 404) {
+        serviceOrdersDb = [];
+        return serviceOrdersDb;
+      }
       throw new Error((data && data.error) || `HTTP ${res.status}`);
     }
 

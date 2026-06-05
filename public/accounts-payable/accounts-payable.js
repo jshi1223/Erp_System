@@ -248,12 +248,9 @@ function bindMasterDataTabLinks() {
 }
 
 async function doLogout() {
-  const confirmed = await openConfirmDialog({
-    title: 'Logout?',
-    message: 'Maglo-logout ka na. Gusto mo bang ituloy?',
-    noText: 'No',
-    yesText: 'Yes'
-  });
+  const confirmed = (typeof showConfirm === 'function')
+    ? await showConfirm('Maglo-logout ka na. Gusto mo bang ituloy?', { title: 'Logout?', confirmLabel: 'Yes, log out', cancelLabel: 'Cancel', type: 'danger' })
+    : window.confirm('Maglo-logout ka na. Gusto mo bang ituloy?');
   if (!confirmed) return;
   fetch('/logout', { method: 'POST' }).then(() => { window.location.href = '/'; });
 }

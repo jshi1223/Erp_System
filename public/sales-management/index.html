@@ -7,7 +7,7 @@
   <script src="/assets/js/auth-guard.js?v=20260604staff1"></script>
   <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260531a">
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a">
-  <link rel="stylesheet" href="/sales-management/sales-management.css?v=20260604p">
+  <link rel="stylesheet" href="/sales-management/sales-management.css?v=20260605cards">
   <link rel="stylesheet" href="/assets/css/warm-minimal.css?v=20260605wm2">
 </head>
 <body class="erp-clean-page sales-management-page">
@@ -34,10 +34,6 @@
   }
   /* Staff-only links (e.g. sidebar Requests) hidden for admin */
   body:not([data-sales-staff-view="1"]) [data-sales-staff-only] {
-    display: none !important;
-  }
-  /* Hide summary cards not relevant for staff */
-  body[data-sales-staff-view="1"] .sales-summary-card:not(#summary-card-requests) {
     display: none !important;
   }
 </style>
@@ -79,28 +75,8 @@
       <div class="module-page-toolbar-actions" id="module-toolbar-actions"></div>
     </div>
 
-    <section class="module-summary-grid sales-summary-grid" aria-live="polite">
-      <div class="module-summary-card sales-summary-card">
-        <span class="module-summary-label">Sales Inquiry</span>
-        <div class="module-summary-value" id="summary-sales-request">0</div>
-      </div>
-      <div class="module-summary-card sales-summary-card">
-        <span class="module-summary-label">Quotation</span>
-        <div class="module-summary-value" id="summary-sales-quotation">0</div>
-      </div>
-      <div class="module-summary-card sales-summary-card">
-        <span class="module-summary-label">SO</span>
-        <div class="module-summary-value" id="summary-sales-order">0</div>
-      </div>
-      <div class="module-summary-card sales-summary-card">
-        <span class="module-summary-label">Delivery Receipt</span>
-        <div class="module-summary-value" id="summary-project-delivery">0</div>
-      </div>
-      <div class="module-summary-card sales-summary-card" id="summary-card-requests" data-sales-staff-only>
-        <span class="module-summary-label">Pending Requests</span>
-        <div class="module-summary-value" id="summary-requests">0</div>
-      </div>
-    </section>
+    <!-- Per-tab summary cards (rendered by renderSalesSummaryForTab in sales-management.js) -->
+    <section class="module-summary-grid sales-summary-grid" id="sales-summary-grid" aria-live="polite"></section>
 
     <nav class="module-tabs sales-tabs" aria-label="Sales workflow tabs">
       <button class="module-tab ap-workspace-tab active" type="button" data-sales-tab="sales-request">Sales Inquiry</button>
@@ -405,8 +381,8 @@
     </div>
   </div>
 
-  <script src="/assets/js/erp-core.js?v=20260604ui"></script>
-  <script src="/sales-management/sales-management.js?v=20260605pf">
+  <script src="/assets/js/erp-core.js?v=20260605logout"></script>
+  <script src="/sales-management/sales-management.js?v=20260605cards"></script>
 </body>
 </html>
 

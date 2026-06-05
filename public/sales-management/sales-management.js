@@ -141,10 +141,7 @@ function applySalesTabVisibility() {
     if (isStaff) btn.hidden = !staffAllowedTabs.has(tab);
     else btn.hidden = false;
   });
-  const requestsCard = document.getElementById('summary-card-requests');
-  const workflowCards = document.querySelectorAll('.sales-summary-card:not(#summary-card-requests)');
-  if (requestsCard) requestsCard.hidden = false;
-  workflowCards.forEach((card) => { card.hidden = isStaff; });
+  // Summary cards are now rendered per active tab by renderSalesSummaryForTab().
 }
 
 async function loadSalesRecords() {
@@ -201,6 +198,7 @@ function switchSalesTab(tab, options = {}) {
   }
   renderSalesToolbarControls(activeSalesTab);
   syncSalesSidebarActiveLink();
+  renderSalesSummaryForTab(activeSalesTab);
   renderSalesRecords();
 }
 
@@ -306,6 +304,16 @@ function syncSalesSidebarActiveLink() {
   });
 }
 
+// A project can only be linked once it is a real (approved) project — not while
+// it is still a draft/submitted/needs-revision/rejected approval item. Mirrors
+// Procurement's getVisibleProcurementProjects() so both modules behave the same.
+function salesProjectIsSelectable(row = {}) {
+  const status = String(row.status || '').trim().toLowerCase();
+  if (['draft', 'submitted', 'needs_revision', 'rejected', 'cancelled'].includes(status)) return false;
+  if (row.is_archived === true || Number(row.is_archived || 0) === 1) return false;
+  return true;
+}
+
 function populateReferenceSelects() {
   const companySelect = document.getElementById('sales-company-id');
   if (companySelect) {
@@ -317,9 +325,10 @@ function populateReferenceSelects() {
   const projectSelect = document.getElementById('sales-project-id');
   if (projectSelect) {
     projectSelect.innerHTML = '<option value="">Select linked project</option>' + projectRecords
+      .filter(salesProjectIsSelectable)
       .map((row) => {
         const company = row.company_name || row.client_name || '';
-        const label = `${row.project_docno || row.draft_docno || `Project #${row.id}`} - ${row.project_name || 'Untitled Project'}${company ? ` (${company})` : ''}`;
+        const label = `${row.project_docno || `Project #${row.id}`} - ${row.project_name || 'Untitled Project'}${company ? ` (${company})` : ''}`;
         return `<option value="${escAttr(row.id)}">${escHtml(label)}</option>`;
       })
       .join('');
@@ -369,17 +378,50 @@ function populateSourceSelect(currentId = null, recordType = (activeSalesTab ===
 }
 
 function updateSalesSummary() {
-  Object.keys(SALES_TYPES).filter((t) => !SALES_TYPES[t].isVirtual).forEach((type) => {
-    const node = document.getElementById(`summary-${type}`);
-    if (node) node.textContent = String(salesRecords.filter((row) => row.record_type === type).length);
-  });
-  const requestsNode = document.getElementById('summary-requests');
-  if (requestsNode) {
-    const count = salesRecords.filter((row) =>
-      row.record_type === 'sales-request' && ['draft', 'submitted'].includes(String(row.status || ''))
-    ).length;
-    requestsNode.textContent = String(count);
-  }
+  renderSalesSummaryForTab(activeSalesTab || getInitialSalesTab());
+}
+
+// Build the summary cards for the active stage tab (Total / Pending / Approved /
+// Total Value), mirroring the per-tab metric cards used in Procurement.
+function renderSalesSummaryForTab(tab) {
+  const grid = document.getElementById('sales-summary-grid');
+  if (!grid) return;
+  const norm = (s) => String(s || '').trim().toLowerCase();
+  const pendingStatuses = ['draft', 'submitted', 'in_review'];
+  const doneStatuses = ['approved', 'won', 'sent', 'delivered', 'completed'];
+  const isRequests = tab === 'requests';
+  const stageType = isRequests ? 'sales-request' : (SALES_TYPES[tab] ? tab : 'sales-request');
+
+  let rows = salesRecords.filter((row) => row.record_type === stageType);
+  if (isRequests) rows = rows.filter((row) => pendingStatuses.includes(norm(row.status)));
+
+  const total = rows.length;
+  const pending = rows.filter((row) => pendingStatuses.includes(norm(row.status))).length;
+  const approved = rows.filter((row) => doneStatuses.includes(norm(row.status))).length;
+  const value = rows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const label = (SALES_TYPES[stageType] && SALES_TYPES[stageType].label) || 'Records';
+
+  const cards = isRequests
+    ? [
+        { label: 'Pending Requests', value: total, hint: 'Awaiting action', tone: 'pending' },
+        { label: 'Drafts', value: rows.filter((row) => norm(row.status) === 'draft').length, hint: 'Not yet submitted', tone: '' },
+        { label: 'Submitted', value: rows.filter((row) => norm(row.status) === 'submitted').length, hint: 'For admin approval', tone: 'pending' },
+        { label: 'Total Value', value: formatCurrency(value), hint: 'Across pending requests', tone: 'value' }
+      ]
+    : [
+        { label: `Total ${label}`, value: total, hint: `All ${label} records`, tone: '' },
+        { label: 'Pending', value: pending, hint: 'Draft / submitted', tone: 'pending' },
+        { label: 'Approved', value: approved, hint: 'Approved / advanced', tone: 'approved' },
+        { label: 'Total Value', value: formatCurrency(value), hint: `Sum of ${label} amounts`, tone: 'value' }
+      ];
+
+  grid.innerHTML = cards.map((card) => `
+    <div class="module-summary-card sales-summary-card"${card.tone ? ` data-tone="${escAttr(card.tone)}"` : ''}>
+      <span class="module-summary-label">${escHtml(card.label)}</span>
+      <div class="module-summary-value">${escHtml(String(card.value))}</div>
+      <span class="module-summary-hint">${escHtml(card.hint)}</span>
+    </div>
+  `).join('');
 }
 
 function renderSalesRecords() {

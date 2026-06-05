@@ -2027,12 +2027,18 @@ function findProjectForRecord(record) {
 }
 
 async function doLogout() {
-  const confirmed = await openConfirmDialog({
-    title: 'Logout?',
-    message: 'Maglo-logout ka na. Gusto mo bang ituloy?',
-    noText: 'No',
-    yesText: 'Yes'
-  });
+  // Use showConfirm (builds its own styled dialog) instead of openConfirmDialog,
+  // which needs a static #confirm-modal-backdrop that some pages (e.g. Sales
+  // Management) do not include — there it fell back to the native browser
+  // "<host> says" confirm. showConfirm is consistent on every page.
+  const confirmed = (typeof showConfirm === 'function')
+    ? await showConfirm('Maglo-logout ka na. Gusto mo bang ituloy?', {
+        title: 'Logout?',
+        confirmLabel: 'Yes, log out',
+        cancelLabel: 'Cancel',
+        type: 'danger'
+      })
+    : await openConfirmDialog({ title: 'Logout?', message: 'Maglo-logout ka na. Gusto mo bang ituloy?', noText: 'No', yesText: 'Yes' });
   if (!confirmed) return;
   localStorage.removeItem('kinaadman_activeTab');
   localStorage.removeItem('kinaadman_dashboardPanel');

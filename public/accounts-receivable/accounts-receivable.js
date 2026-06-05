@@ -529,10 +529,12 @@ function goBackToDashboard() {
   window.location.href = '/admin?view=dashboard';
 }
 
-function doLogout() {
-  fetch('/logout', { method: 'POST' }).finally(() => {
-    window.location.href = '/';
-  });
+async function doLogout() {
+  const confirmed = (typeof showConfirm === 'function')
+    ? await showConfirm('Maglo-logout ka na. Gusto mo bang ituloy?', { title: 'Logout?', confirmLabel: 'Yes, log out', cancelLabel: 'Cancel', type: 'danger' })
+    : window.confirm('Maglo-logout ka na. Gusto mo bang ituloy?');
+  if (!confirmed) return;
+  fetch('/logout', { method: 'POST' }).finally(() => { window.location.href = '/'; });
 }
 
 function captureArToolbarState(tab) {
@@ -2365,7 +2367,10 @@ async function saveReceivable() {
 
   payload.customer_name = String(selectedTransaction.company_name || selectedTransaction.client || '').trim();
   payload.invoice_number = String(selectedTransaction.docno || '').trim();
-  payload.invoice_date = String(selectedTransaction.date || '').trim();
+  // Use the invoice date the user picked in the calendar; only fall back to the
+  // linked transaction's date when the field was left blank (so a transaction
+  // without a date no longer blocks saving the receivable).
+  payload.invoice_date = String(payload.invoice_date || selectedTransaction.date || '').trim();
   payload.total_amount = Number(selectedTransaction.amount || 0);
 
   if (!payload.customer_name || !payload.invoice_number || !payload.invoice_date || payload.total_amount <= 0) {

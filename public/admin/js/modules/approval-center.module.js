@@ -76,6 +76,8 @@
     return {
       all: source.length,
       projects: source.filter(item => item.category === 'projects').length,
+      sales: source.filter(item => item.category === 'sales').length,
+      masterData: source.filter(item => item.category === 'master-data').length,
       procurement: source.filter(item => item.category === 'procurement').length,
       inventory: source.filter(item => item.category === 'inventory').length,
       finance: source.filter(item => item.category === 'finance').length,
@@ -87,6 +89,8 @@
     const counts = getApprovalCounts(items);
     setApprovalMetric('approval-count-all', counts.all);
     setApprovalMetric('approval-count-projects', counts.projects);
+    setApprovalMetric('approval-count-sales', counts.sales);
+    setApprovalMetric('approval-count-master-data', counts.masterData);
     setApprovalMetric('approval-count-procurement', counts.procurement);
     setApprovalMetric('approval-count-inventory', counts.inventory);
     setApprovalMetric('approval-count-finance', counts.finance);
@@ -96,7 +100,7 @@
     const miniNode = document.getElementById('stat-approvals-mini');
     if (valueNode) valueNode.textContent = String(counts.all);
     if (miniNode) {
-      miniNode.textContent = `${counts.projects} projects | ${counts.procurement} procurement | ${counts.inventory} inventory | ${counts.finance} finance | ${counts.users} users`;
+      miniNode.textContent = `${counts.projects} projects | ${counts.sales} sales | ${counts.masterData} master data | ${counts.procurement} procurement | ${counts.inventory} inventory | ${counts.finance} finance | ${counts.users} users`;
     }
     return counts;
   }
@@ -149,7 +153,8 @@
       users,
       companyRequests,
       vendorRequests,
-      inventoryRequests
+      inventoryRequests,
+      salesRecords
     ] = await Promise.all([
       fetchJsonOrEmpty('/api/projects?include_archived=1'),
       fetchJsonOrEmpty('/api/procurement/requisitions'),
@@ -159,8 +164,16 @@
       fetchJsonOrEmpty('/api/admin/users'),
       fetchJsonOrEmpty('/api/company-registry-requests'),
       fetchJsonOrEmpty('/api/vendor-registry-requests'),
-      fetchJsonOrEmpty('/api/inventory/requests')
+      fetchJsonOrEmpty('/api/inventory/requests'),
+      fetchJsonOrEmpty('/api/sales-management/records')
     ]);
+
+    const SALES_STAGE_LABELS = {
+      'sales-request': 'Sales Inquiry',
+      'sales-quotation': 'Quotation',
+      'sales-order': 'Sales Order',
+      'project-delivery': 'Delivery Receipt'
+    };
 
     const items = [];
 
@@ -169,7 +182,7 @@
       .forEach(row => {
         const payload = row.payload || {};
         items.push(makeApprovalItem({
-          category: 'procurement',
+          category: 'master-data',
           type: 'Company Registry Request',
           title: payload.company_name || row.request_no || 'Company Registry',
           requestedBy: row.requested_by || row.requested_by_email || '-',
@@ -193,7 +206,7 @@
       .forEach(row => {
         const payload = row.payload || {};
         items.push(makeApprovalItem({
-          category: 'procurement',
+          category: 'master-data',
           type: 'Vendor Registry Request',
           title: payload.vendor_name || row.request_no || 'Vendor Registry',
           requestedBy: row.requested_by || row.requested_by_email || '-',
@@ -241,6 +254,30 @@
             type === 'movement' && payload.quantity ? 'Quantity provided' : '',
             type === 'product' && payload.product_name ? 'Product name provided' : '',
             type === 'warehouse' && payload.warehouse_name ? 'Warehouse name provided' : ''
+          ])
+        }));
+      });
+
+    (Array.isArray(salesRecords) ? salesRecords : [])
+      .filter(row => SALES_STAGE_LABELS[row.record_type] && approvalStatusPending(row.status))
+      .forEach(row => {
+        const stageLabel = SALES_STAGE_LABELS[row.record_type] || 'Sales Record';
+        items.push(makeApprovalItem({
+          category: 'sales',
+          type: stageLabel,
+          title: row.document_no || row.title || stageLabel,
+          requestedBy: row.company_name || row.project_name || row.contact_person || '-',
+          date: getApprovalDate(row, ['requested_date', 'created_at', 'target_date']),
+          status: row.status || 'submitted',
+          url: `/sales-management?tab=${row.record_type}`,
+          approveUrl: `/api/sales-management/records/${Number(row.id || 0)}/approve`,
+          rejectUrl: `/api/sales-management/records/${Number(row.id || 0)}/reject`,
+          timeline: buildApprovalTimeline(row, { created: 'Requested' }),
+          checklist: buildApprovalChecklist([
+            row.project_id ? 'Project linked' : 'Project missing',
+            row.company_id ? 'Customer selected' : 'Customer missing',
+            row.title ? 'Subject ready' : 'Subject missing',
+            Number(row.amount || 0) > 0 ? 'Amount set' : 'Amount not set'
           ])
         }));
       });
@@ -428,7 +465,7 @@
   }
 
   function filterApprovalCenter(filter = 'all') {
-    currentApprovalFilter = ['all', 'projects', 'procurement', 'inventory', 'finance', 'users'].includes(String(filter)) ? String(filter) : 'all';
+    currentApprovalFilter = ['all', 'projects', 'sales', 'master-data', 'procurement', 'inventory', 'finance', 'users'].includes(String(filter)) ? String(filter) : 'all';
     renderApprovalCenter(false, true);
   }
 
@@ -767,6 +804,8 @@
     const subtitleMap = {
       all: 'Showing all pending approvals',
       projects: 'Showing submitted project drafts',
+      sales: 'Showing submitted sales requests',
+      'master-data': 'Showing company and vendor registry requests',
       procurement: 'Showing purchase requests and orders',
       inventory: 'Showing inventory requests',
       finance: 'Showing bills and payments',

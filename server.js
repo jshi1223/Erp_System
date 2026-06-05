@@ -3522,6 +3522,22 @@ function initApp() {
   db.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS members VARCHAR(255)`, (err) => {
     if (err) console.error('Projects members migration error:', err);
   });
+  // Project modal revamp fields (service type, estimated costs, location).
+  db.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS service_type VARCHAR(100) DEFAULT 'installation'`, (err) => {
+    if (err) console.error('Projects service_type migration error:', err);
+  });
+  db.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS estimated_material_cost NUMERIC DEFAULT 0`, (err) => {
+    if (err) console.error('Projects estimated_material_cost migration error:', err);
+  });
+  db.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS estimated_labor_cost NUMERIC DEFAULT 0`, (err) => {
+    if (err) console.error('Projects estimated_labor_cost migration error:', err);
+  });
+  db.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS estimated_other_cost NUMERIC DEFAULT 0`, (err) => {
+    if (err) console.error('Projects estimated_other_cost migration error:', err);
+  });
+  db.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS project_location VARCHAR(255)`, (err) => {
+    if (err) console.error('Projects project_location migration error:', err);
+  });
   db.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS project_docno VARCHAR(20)`, (err) => {
     if (err) console.error('Projects project_docno migration error:', err);
   });
@@ -4433,15 +4449,17 @@ function generateCode(prefix) {
 function generateDraftRequestNo(prefix) {
   return new Promise((resolve, reject) => {
     const prefixUpper = String(prefix || 'REQ').toUpperCase();
+    // Count BOTH draft (DRAFT-CMP-NNN) and already-official (CMP-NNN) numbers so a
+    // staff draft and an admin-created official never collide on the same sequence.
     db.query(
-      `SELECT COALESCE(MAX(CAST(regexp_replace(request_no, '^DRAFT-[A-Z]+-', '') AS integer)), 0) AS max_seq
+      `SELECT COALESCE(MAX(CAST(regexp_replace(request_no, '^(DRAFT-)?[A-Z]+-', '') AS integer)), 0) AS max_seq
        FROM company_registry_requests
        WHERE request_no ~ ?
        UNION ALL
-       SELECT COALESCE(MAX(CAST(regexp_replace(request_no, '^DRAFT-[A-Z]+-', '') AS integer)), 0) AS max_seq
+       SELECT COALESCE(MAX(CAST(regexp_replace(request_no, '^(DRAFT-)?[A-Z]+-', '') AS integer)), 0) AS max_seq
        FROM vendor_registry_requests
        WHERE request_no ~ ?`,
-      [`^DRAFT-${prefixUpper}-[0-9]+$`, `^DRAFT-${prefixUpper}-[0-9]+$`],
+      [`^(DRAFT-)?${prefixUpper}-[0-9]+$`, `^(DRAFT-)?${prefixUpper}-[0-9]+$`],
       (err, rows) => {
         if (err) return reject(err);
         const maxSeq = Math.max(...(rows || []).map(r => Number(r?.max_seq || 0)));
@@ -4452,13 +4470,22 @@ function generateDraftRequestNo(prefix) {
   });
 }
 
+// On approval a staff DRAFT-<PREFIX>-NNN request number becomes its official
+// form by dropping the DRAFT- prefix (e.g. DRAFT-CMP-002 -> CMP-002).
+function stripDraftRequestNoPrefix(requestNo) {
+  const value = String(requestNo || '').trim();
+  return /^DRAFT-/i.test(value) ? value.replace(/^DRAFT-/i, '') : value;
+}
+
 function generateInventoryDraftRequestNo() {
   return new Promise((resolve, reject) => {
+    // Count both DRAFT-INV-NNN and official INV-NNN so drafts and admin-created
+    // official requests never collide on the same sequence number.
     db.query(
-      `SELECT COALESCE(MAX(CAST(regexp_replace(request_no, '^DRAFT-INV-', '') AS integer)), 0) AS max_seq
+      `SELECT COALESCE(MAX(CAST(regexp_replace(request_no, '^(DRAFT-)?INV-', '') AS integer)), 0) AS max_seq
        FROM inventory_requests
        WHERE request_no ~ ?`,
-      ['^DRAFT-INV-[0-9]+$'],
+      ['^(DRAFT-)?INV-[0-9]+$'],
       (err, rows) => {
         if (err) return reject(err);
         const nextNum = (Number(rows?.[0]?.max_seq || 0) || 0) + 1;
@@ -4820,7 +4847,8 @@ async function generateNextDraftEntityDocumentNo({
     'purchase_orders',
     'procurement_quotations',
     'accounts_payable',
-    'accounts_receivable'
+    'accounts_receivable',
+    'sales_management_records'
   ]);
   const safeColumns = new Set([
     'so_number',
@@ -4828,7 +4856,8 @@ async function generateNextDraftEntityDocumentNo({
     'po_number',
     'quote_number',
     'bill_number',
-    'invoice_number'
+    'invoice_number',
+    'document_no'
   ]);
   if (!safeTables.has(tableName) || !safeColumns.has(columnName)) {
     throw new Error('Invalid draft document sequence target.');
@@ -5017,18 +5046,24 @@ async function syncDocumentSequencesToExistingRecords() {
 
 async function getProjectDocnoSequenceState(businessEntityId = null, dbClient = null) {
   const resolvedBusinessEntityId = normalizeBusinessEntityId(businessEntityId) || await getDefaultBusinessEntityId();
-  const period = getProjectMonthKey(new Date());
-  const prefix = `PRJ-${period}`;
+  const entity = await getBusinessEntitySequenceCode(resolvedBusinessEntityId, dbClient);
+  const year = getManilaYmd().slice(0, 4);
+  const period = year;
+  // Project ID format: PRJ_<entityCode>-<year><5-digit seq>, e.g. PRJ_KVSK-202600001
+  const prefix = `PRJ_${entity.code}-${year}`;
   const sequenceKey = `project-docno:${resolvedBusinessEntityId || 'default'}`;
+  // Sequence = digits after the PRJ_<code>-<year> head; ~ regex so the literal
+  // underscore is matched exactly (LIKE would treat _ as a wildcard).
+  const docnoPattern = `^PRJ_${entity.code}-${year}[0-9]+$`;
   const params = resolvedBusinessEntityId
-    ? [resolvedBusinessEntityId, `${prefix}-%`]
-    : [`${prefix}-%`];
+    ? [resolvedBusinessEntityId, docnoPattern]
+    : [docnoPattern];
   const projectRows = await queryDbAsync(
     dbClient,
-    `SELECT COALESCE(MAX(CAST(split_part(project_docno, '-', array_length(string_to_array(project_docno, '-'), 1)) AS integer)), 0) AS max_no
+    `SELECT COALESCE(MAX(CAST(regexp_replace(project_docno, '^PRJ_[A-Za-z0-9]+-[0-9]{4}', '') AS integer)), 0) AS max_no
      FROM projects
      WHERE business_entity_id ${resolvedBusinessEntityId ? '= ?' : 'IS NULL'}
-       AND project_docno LIKE ?`,
+       AND project_docno ~ ?`,
     params
   );
   let sequenceMax = 0;
@@ -5092,7 +5127,8 @@ async function getDraftProjectDocnoSequenceState(businessEntityId = null, dbClie
 async function peekNextProjectDocnoAsync(businessEntityId = null, dbClient = null) {
   const state = await getProjectDocnoSequenceState(businessEntityId, dbClient);
   const nextNo = Math.max(state.tableMax, state.sequenceMax) + 1;
-  return `${state.prefix}-${String(nextNo).padStart(2, '0')}`;
+  // prefix already ends with the year; the 5-digit seq is appended with no separator.
+  return `${state.prefix}${String(nextNo).padStart(5, '0')}`;
 }
 
 async function peekNextDraftProjectDocnoAsync(businessEntityId = null, dbClient = null) {
@@ -5120,7 +5156,7 @@ async function generateNextProjectDocnoAsync(businessEntityId = null, dbClient =
     if (!isPostgresUndefinedTable(err)) throw err;
   }
 
-  return `${state.prefix}-${String(nextNo).padStart(2, '0')}`;
+  return `${state.prefix}${String(nextNo).padStart(5, '0')}`;
 }
 
 async function generateNextDraftProjectDocnoAsync(businessEntityId = null, dbClient = null) {
@@ -9614,14 +9650,20 @@ async function migrateExistingProjectDocnos({ attempt = 0 } = {}) {
       usedByMonth.set(monthKey, monthSet);
 
       let finalDocno = currentDocno;
-      const keepCurrent = /^PRJ-\d{4}-\d{2}-\d{2}$/.test(currentDocno) && currentDocno.startsWith(`PRJ-${monthKey}-`);
+      // New canonical format PRJ_<code>-<year><5-digit seq> (e.g. PRJ_KVSK-202600001)
+      // is kept verbatim — this legacy dated-format migration must never reformat it.
+      const isNewProjectDocnoFormat = /^PRJ_[A-Za-z0-9]+-\d{9}$/.test(currentDocno);
+      const keepCurrent = isNewProjectDocnoFormat
+        || (/^PRJ-\d{4}-\d{2}-\d{2}$/.test(currentDocno) && currentDocno.startsWith(`PRJ-${monthKey}-`));
 
       if (keepCurrent) {
-        const suffix = Number(currentDocno.slice(-2));
-        if (Number.isInteger(suffix) && suffix > 0) {
-          monthSet.add(suffix);
-        } else {
-          finalDocno = '';
+        if (!isNewProjectDocnoFormat) {
+          const suffix = Number(currentDocno.slice(-2));
+          if (Number.isInteger(suffix) && suffix > 0) {
+            monthSet.add(suffix);
+          } else {
+            finalDocno = '';
+          }
         }
       } else {
         finalDocno = '';
@@ -9725,13 +9767,24 @@ app.get('/api/projects/next-docno', protectAdmin, (req, res) => {
 app.get('/api/procurement/requisitions/next-number', protectAdmin, async (req, res) => {
   try {
     const businessEntityId = await resolveBusinessEntityId(req.query.business_entity_id);
-    const pr_number = await peekNextDraftEntityDocumentNo({
-      businessEntityId,
-      documentType: 'purchase-requisition',
-      prefix: 'PR',
-      tableName: 'purchase_requisitions',
-      columnName: 'pr_number'
-    });
+    // Admins create official PRs directly, so preview the official number; staff
+    // file draft requests, so preview the DFT- draft number.
+    const actor = getAuthenticatedUser(req) || {};
+    const pr_number = isStaffRole(actor.role)
+      ? await peekNextDraftEntityDocumentNo({
+          businessEntityId,
+          documentType: 'purchase-requisition',
+          prefix: 'PR',
+          tableName: 'purchase_requisitions',
+          columnName: 'pr_number'
+        })
+      : await peekNextEntityDocumentNo({
+          businessEntityId,
+          documentType: 'purchase-requisition',
+          prefix: 'PR',
+          tableName: 'purchase_requisitions',
+          columnName: 'pr_number'
+        });
     res.json({ pr_number });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Unable to generate PR number.' });
@@ -9741,13 +9794,23 @@ app.get('/api/procurement/requisitions/next-number', protectAdmin, async (req, r
 app.get('/api/procurement/purchase-orders/next-number', protectAdmin, async (req, res) => {
   try {
     const businessEntityId = await resolveBusinessEntityId(req.query.business_entity_id);
-    const po_number = await peekNextDraftEntityDocumentNo({
-      businessEntityId,
-      documentType: 'purchase-order',
-      prefix: 'PO',
-      tableName: 'purchase_orders',
-      columnName: 'po_number'
-    });
+    // Admins create approved POs with an official number; staff see the DFT- draft.
+    const actor = getAuthenticatedUser(req) || {};
+    const po_number = isStaffRole(actor.role)
+      ? await peekNextDraftEntityDocumentNo({
+          businessEntityId,
+          documentType: 'purchase-order',
+          prefix: 'PO',
+          tableName: 'purchase_orders',
+          columnName: 'po_number'
+        })
+      : await peekNextEntityDocumentNo({
+          businessEntityId,
+          documentType: 'purchase-order',
+          prefix: 'PO',
+          tableName: 'purchase_orders',
+          columnName: 'po_number'
+        });
     res.json({ po_number });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Unable to generate PO number.' });
@@ -9789,13 +9852,23 @@ app.get('/api/procurement/quotations/next-number', protectAdmin, async (req, res
 app.get('/api/bills/next-number', protectAdmin, async (req, res) => {
   try {
     const businessEntityId = await resolveBusinessEntityId(req.query.business_entity_id);
-    const bill_number = await peekNextDraftEntityDocumentNo({
-      businessEntityId,
-      documentType: 'ap-bill',
-      prefix: 'BILL',
-      tableName: 'accounts_payable',
-      columnName: 'bill_number'
-    });
+    // Admin bills get an official BILL- number; staff drafts preview the DFT- number.
+    const actor = getAuthenticatedUser(req) || {};
+    const bill_number = isStaffRole(actor.role)
+      ? await peekNextDraftEntityDocumentNo({
+          businessEntityId,
+          documentType: 'ap-bill',
+          prefix: 'BILL',
+          tableName: 'accounts_payable',
+          columnName: 'bill_number'
+        })
+      : await peekNextEntityDocumentNo({
+          businessEntityId,
+          documentType: 'ap-bill',
+          prefix: 'BILL',
+          tableName: 'accounts_payable',
+          columnName: 'bill_number'
+        });
     res.json({ bill_number });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Unable to generate bill number.' });
@@ -10469,20 +10542,28 @@ app.post('/api/company-registry-requests', protectAdmin, async (req, res) => {
     const isStaff = isStaffRole(actor?.role || '');
     const payload = sanitizeCompanyRegistryPayload(req.body || {});
     validateCompanyRegistryPayload(payload);
-    const requestNo = isStaff ? await generateDraftRequestNo('CMP') : generateCode('CRR');
+    if (isStaff) {
+      const requestNo = await generateDraftRequestNo('CMP');
+      await queryAsync(`
+        INSERT INTO company_registry_requests
+          (request_no, payload, status, requested_by, requested_by_email, submitted_at)
+        VALUES (?, ?, 'draft', ?, ?, NULL)
+      `, [requestNo, JSON.stringify(payload), actor?.fullname || actor?.username || null, actor?.email || null]);
+      logAction(req, 'CREATE_COMPANY_REGISTRY_DRAFT', `Draft: ${requestNo} | Company Name: ${payload.company_name}`);
+      return res.status(201).json({ success: true, request_no: requestNo, status: 'draft' });
+    }
+    // Admin creates the company directly (official number, approved, no queue).
+    await assertCompanyRegistryPayloadUnique(payload);
+    const companyNo = await insertApprovedCompanyRegistryFromRequest(payload);
+    const requestNo = stripDraftRequestNoPrefix(await generateDraftRequestNo('CMP'));
+    const approvedBy = getApprovalActorName(req);
     await queryAsync(`
       INSERT INTO company_registry_requests
-        (request_no, payload, status, requested_by, requested_by_email, submitted_at)
-      VALUES (?, ?, ?, ?, ?, ${isStaff ? 'NULL' : 'NOW()'})
-    `, [
-      requestNo,
-      JSON.stringify(payload),
-      isStaff ? 'draft' : 'submitted',
-      actor?.fullname || actor?.username || null,
-      actor?.email || null
-    ]);
-    logAction(req, isStaff ? 'CREATE_COMPANY_REGISTRY_DRAFT' : 'REQUEST_COMPANY_REGISTRY', `${isStaff ? 'Draft' : 'Request'}: ${requestNo} | Company Name: ${payload.company_name}`);
-    res.status(201).json({ success: true, request_no: requestNo, status: isStaff ? 'draft' : 'submitted' });
+        (request_no, payload, status, requested_by, requested_by_email, submitted_at, approved_by, approved_at)
+      VALUES (?, ?, 'approved', ?, ?, NOW(), ?, NOW())
+    `, [requestNo, JSON.stringify(payload), actor?.fullname || actor?.username || null, actor?.email || null, approvedBy]);
+    logAction(req, 'CREATE_COMPANY_REGISTRY_OFFICIAL', `Official: ${requestNo} | Company No: ${companyNo} | Company Name: ${payload.company_name}`);
+    res.status(201).json({ success: true, request_no: requestNo, status: 'approved', company_no: companyNo });
   } catch (err) {
     res.status(400).json({ error: err.message || 'Unable to create company registry request.', field: err.field || null });
   }
@@ -10553,12 +10634,14 @@ app.post('/api/company-registry-requests/:id/approve', protectAdminOnly, async (
     const companyNo = await insertApprovedCompanyRegistryFromRequest(payload);
     const approvedBy = getApprovalActorName(req);
     const comment = getApprovalComment(req);
+    // On approval the draft request number becomes official (strip the DRAFT- prefix).
+    const officialRequestNo = stripDraftRequestNoPrefix(requestRow.request_no);
     await queryAsync(
-      "UPDATE company_registry_requests SET status = 'approved', approved_by = ?, approved_at = NOW(), reject_reason = NULL, approval_comment = ? WHERE id = ?",
-      [approvedBy, comment || null, requestId]
+      "UPDATE company_registry_requests SET request_no = ?, status = 'approved', approved_by = ?, approved_at = NOW(), reject_reason = NULL, approval_comment = ? WHERE id = ?",
+      [officialRequestNo, approvedBy, comment || null, requestId]
     );
-    logAction(req, 'APPROVE_COMPANY_REGISTRY_REQUEST', appendApprovalComment(`Draft No: ${requestRow.request_no || requestId} | Company No: ${companyNo} | Company Name: ${payload.company_name}`, comment));
-    res.json({ success: true, status: 'approved', company_no: companyNo, request_no: requestRow.request_no, approved_by: approvedBy, approval_comment: comment });
+    logAction(req, 'APPROVE_COMPANY_REGISTRY_REQUEST', appendApprovalComment(`Draft No: ${requestRow.request_no || requestId} | Request No: ${officialRequestNo} | Company No: ${companyNo} | Company Name: ${payload.company_name}`, comment));
+    res.json({ success: true, status: 'approved', company_no: companyNo, request_no: officialRequestNo, approved_by: approvedBy, approval_comment: comment });
   } catch (err) {
     res.status(400).json({ error: err.message || 'Unable to approve company registry request.', field: err.field || null });
   }
@@ -10732,20 +10815,27 @@ app.post('/api/vendor-registry-requests', protectAdmin, async (req, res) => {
     const payload = sanitizeVendorRegistryPayload(req.body || {});
     validateVendorRegistryPayload(payload);
     await assertVendorRegistryPayloadUnique(payload);
-    const requestNo = isStaff ? await generateDraftRequestNo('VND') : generateCode('VRR');
+    if (isStaff) {
+      const requestNo = await generateDraftRequestNo('VND');
+      await queryAsync(`
+        INSERT INTO vendor_registry_requests
+          (request_no, payload, status, requested_by, requested_by_email, submitted_at)
+        VALUES (?, ?, 'draft', ?, ?, NULL)
+      `, [requestNo, JSON.stringify(payload), actor?.fullname || actor?.username || null, actor?.email || null]);
+      logAction(req, 'CREATE_VENDOR_REGISTRY_DRAFT', `Draft: ${requestNo} | Vendor Name: ${payload.vendor_name}`);
+      return res.status(201).json({ success: true, request_no: requestNo, status: 'draft' });
+    }
+    // Admin creates the vendor directly (official number, approved, no queue).
+    const vendorNo = await insertApprovedVendorRegistryFromRequest(payload);
+    const requestNo = stripDraftRequestNoPrefix(await generateDraftRequestNo('VND'));
+    const approvedBy = getApprovalActorName(req);
     await queryAsync(`
       INSERT INTO vendor_registry_requests
-        (request_no, payload, status, requested_by, requested_by_email, submitted_at)
-      VALUES (?, ?, ?, ?, ?, ${isStaff ? 'NULL' : 'NOW()'})
-    `, [
-      requestNo,
-      JSON.stringify(payload),
-      isStaff ? 'draft' : 'submitted',
-      actor?.fullname || actor?.username || null,
-      actor?.email || null
-    ]);
-    logAction(req, isStaff ? 'CREATE_VENDOR_REGISTRY_DRAFT' : 'REQUEST_VENDOR_REGISTRY', `${isStaff ? 'Draft' : 'Request'}: ${requestNo} | Vendor Name: ${payload.vendor_name}`);
-    res.status(201).json({ success: true, request_no: requestNo, status: isStaff ? 'draft' : 'submitted' });
+        (request_no, payload, status, requested_by, requested_by_email, submitted_at, approved_by, approved_at)
+      VALUES (?, ?, 'approved', ?, ?, NOW(), ?, NOW())
+    `, [requestNo, JSON.stringify(payload), actor?.fullname || actor?.username || null, actor?.email || null, approvedBy]);
+    logAction(req, 'CREATE_VENDOR_REGISTRY_OFFICIAL', `Official: ${requestNo} | Vendor No: ${vendorNo} | Vendor Name: ${payload.vendor_name}`);
+    res.status(201).json({ success: true, request_no: requestNo, status: 'approved', vendor_no: vendorNo });
   } catch (err) {
     res.status(400).json({ error: err.message || 'Unable to create vendor request.', field: err.field || null });
   }
@@ -10816,12 +10906,14 @@ app.post('/api/vendor-registry-requests/:id/approve', protectAdminOnly, async (r
     const vendorNo = await insertApprovedVendorRegistryFromRequest(payload);
     const approvedBy = getApprovalActorName(req);
     const comment = getApprovalComment(req);
+    // On approval the draft request number becomes official (strip the DRAFT- prefix).
+    const officialRequestNo = stripDraftRequestNoPrefix(requestRow.request_no);
     await queryAsync(
-      "UPDATE vendor_registry_requests SET status = 'approved', approved_by = ?, approved_at = NOW(), reject_reason = NULL, approval_comment = ? WHERE id = ?",
-      [approvedBy, comment || null, requestId]
+      "UPDATE vendor_registry_requests SET request_no = ?, status = 'approved', approved_by = ?, approved_at = NOW(), reject_reason = NULL, approval_comment = ? WHERE id = ?",
+      [officialRequestNo, approvedBy, comment || null, requestId]
     );
-    logAction(req, 'APPROVE_VENDOR_REGISTRY_REQUEST', appendApprovalComment(`Draft No: ${requestRow.request_no || requestId} | Vendor No: ${vendorNo} | Vendor Name: ${payload.vendor_name}`, comment));
-    res.json({ success: true, status: 'approved', vendor_no: vendorNo, request_no: requestRow.request_no, approved_by: approvedBy, approval_comment: comment });
+    logAction(req, 'APPROVE_VENDOR_REGISTRY_REQUEST', appendApprovalComment(`Draft No: ${requestRow.request_no || requestId} | Request No: ${officialRequestNo} | Vendor No: ${vendorNo} | Vendor Name: ${payload.vendor_name}`, comment));
+    res.json({ success: true, status: 'approved', vendor_no: vendorNo, request_no: officialRequestNo, approved_by: approvedBy, approval_comment: comment });
   } catch (err) {
     res.status(400).json({ error: err.message || 'Unable to approve vendor request.', field: err.field || null });
   }
@@ -12133,7 +12225,9 @@ async function advanceSalesRecordFlow(connection, recordId, req) {
 
   const businessEntityId = await resolveSalesRecordBusinessEntityId(record, connection);
   const seqMeta = getSalesDocumentSequenceMeta(nextType);
-  const documentNo = await peekNextEntityDocumentNo({
+  // The next stage is created as a DRAFT awaiting its own (manual) approval, so it
+  // gets a DFT- draft number; approving it later converts that to an official one.
+  const documentNo = await generateNextDraftEntityDocumentNo({
     businessEntityId,
     documentType: seqMeta.documentType,
     prefix: seqMeta.prefix,
@@ -12170,13 +12264,6 @@ async function advanceSalesRecordFlow(connection, recordId, req) {
     `Auto-created from ${SALES_RECORD_TYPES[type].label} ${record.document_no || ''}`.trim(),
     getAuthenticatedUser(req)?.id || null
   ]);
-  await claimEntityDocumentNo({
-    businessEntityId,
-    documentType: seqMeta.documentType,
-    prefix: seqMeta.prefix,
-    documentNo,
-    dbClient: connection
-  });
 }
 
 function validateSalesRecordStageRequirements(payload = {}) {
@@ -12382,13 +12469,24 @@ app.get('/api/sales-management/records/next-number', protectAdmin, async (req, r
     const recordType = normalizeSalesRecordType(req.query.record_type) || 'sales-request';
     const seqMeta = getSalesDocumentSequenceMeta(recordType);
     const businessEntityId = await resolveBusinessEntityId(req.query.business_entity_id);
-    const document_no = await peekNextEntityDocumentNo({
-      businessEntityId,
-      documentType: seqMeta.documentType,
-      prefix: seqMeta.prefix,
-      tableName: 'sales_management_records',
-      columnName: 'document_no'
-    });
+    // Staff see a DFT- draft preview (their record is created as a draft awaiting
+    // approval); admins see the official next number they will claim on save.
+    const actor = getAuthenticatedUser(req) || {};
+    const document_no = isStaffRole(actor.role)
+      ? await peekNextDraftEntityDocumentNo({
+          businessEntityId,
+          documentType: seqMeta.documentType,
+          prefix: seqMeta.prefix,
+          tableName: 'sales_management_records',
+          columnName: 'document_no'
+        })
+      : await peekNextEntityDocumentNo({
+          businessEntityId,
+          documentType: seqMeta.documentType,
+          prefix: seqMeta.prefix,
+          tableName: 'sales_management_records',
+          columnName: 'document_no'
+        });
     res.json({ document_no, record_type: recordType });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Unable to generate sales document number.' });
@@ -12400,17 +12498,33 @@ app.post('/api/sales-management/records', protectAdmin, async (req, res) => {
     const payload = normalizeSalesRecordPayload(req.body);
     validateSalesRecordStageRequirements(payload);
     validateSalesDeliveryReceiptInventory(payload);
+    // Staff create "requests" awaiting approval: they get a DFT- draft number and
+    // are limited to draft/submitted. Admins create official, ready records directly.
+    const actor = getAuthenticatedUser(req) || {};
+    const actorIsStaff = isStaffRole(actor.role);
+    if (actorIsStaff && !['draft', 'submitted'].includes(payload.status)) {
+      payload.status = 'draft';
+    }
     const created = await withDbTransaction(async (connection) => {
       const seqMeta = getSalesDocumentSequenceMeta(payload.recordType);
       const businessEntityId = await resolveBusinessEntityId(payload.businessEntityId);
-      const documentNo = await peekNextEntityDocumentNo({
-        businessEntityId,
-        documentType: seqMeta.documentType,
-        prefix: seqMeta.prefix,
-        tableName: 'sales_management_records',
-        columnName: 'document_no',
-        dbClient: connection
-      });
+      const documentNo = actorIsStaff
+        ? await generateNextDraftEntityDocumentNo({
+            businessEntityId,
+            documentType: seqMeta.documentType,
+            prefix: seqMeta.prefix,
+            tableName: 'sales_management_records',
+            columnName: 'document_no',
+            dbClient: connection
+          })
+        : await peekNextEntityDocumentNo({
+            businessEntityId,
+            documentType: seqMeta.documentType,
+            prefix: seqMeta.prefix,
+            tableName: 'sales_management_records',
+            columnName: 'document_no',
+            dbClient: connection
+          });
       const insertResult = await queryDbAsync(connection, `
         INSERT INTO sales_management_records (
           record_type, document_no, business_entity_id, company_id, project_id, source_record_id,
@@ -12441,13 +12555,17 @@ app.post('/api/sales-management/records', protectAdmin, async (req, res) => {
         payload.notes,
         getAuthenticatedUser(req)?.id || null
       ]);
-      await claimEntityDocumentNo({
-        businessEntityId,
-        documentType: seqMeta.documentType,
-        prefix: seqMeta.prefix,
-        documentNo,
-        dbClient: connection
-      });
+      // Only official (admin) numbers consume the official sequence; staff DFT-
+      // drafts reserved their own draft sequence in generateNextDraftEntityDocumentNo.
+      if (!actorIsStaff) {
+        await claimEntityDocumentNo({
+          businessEntityId,
+          documentType: seqMeta.documentType,
+          prefix: seqMeta.prefix,
+          documentNo,
+          dbClient: connection
+        });
+      }
       await syncSalesRecordInventory(insertResult.insertId, req, connection);
       // Auto-advance the project-centric sales flow (SI -> SQ -> SO -> DR -> AR).
       await advanceSalesRecordFlow(connection, Number(insertResult?.insertId || 0) || 0, req);
@@ -12475,6 +12593,11 @@ app.put('/api/sales-management/records/:id', protectAdmin, async (req, res) => {
     const payload = normalizeSalesRecordPayload(req.body, existing[0].record_type);
     validateSalesRecordStageRequirements(payload);
     validateSalesDeliveryReceiptInventory(payload);
+    // Staff may only keep a record as draft or submit it for approval — never self-approve.
+    const actor = getAuthenticatedUser(req) || {};
+    if (isStaffRole(actor.role) && !['draft', 'submitted'].includes(payload.status)) {
+      payload.status = 'draft';
+    }
     const updated = await withDbTransaction(async (connection) => {
       const rows = await queryDbAsync(connection, `
         UPDATE sales_management_records
@@ -12589,6 +12712,87 @@ app.post('/api/sales-management/records/:id/generate-invoice', protectAdmin, asy
     }
     console.error('Generate invoice from delivery error:', err);
     res.status(500).json({ error: err.message || 'Unable to generate invoice.' });
+  }
+});
+
+// Approve a staff-submitted sales request: convert its DFT- draft number into the
+// official sequence number, mark it approved, then advance the SI->SQ->SO->DR->AR flow.
+app.post('/api/sales-management/records/:id/approve', protectAdminOnly, async (req, res) => {
+  const recordId = Number(req.params.id || 0);
+  if (!recordId) return res.status(400).json({ error: 'Invalid sales record ID.' });
+
+  try {
+    const rows = await queryAsync('SELECT id, record_type, document_no, business_entity_id, status FROM sales_management_records WHERE id = ? LIMIT 1', [recordId]);
+    if (!rows.length) return res.status(404).json({ error: 'Sales record not found.' });
+    const record = rows[0];
+    const currentStatus = normalizeSalesRecordStatus(record.status);
+    if (currentStatus === 'approved') {
+      return res.json({ success: true, status: 'approved', document_no: record.document_no, alreadyApproved: true });
+    }
+    if (!['draft', 'submitted', 'in_review'].includes(currentStatus)) {
+      return res.status(400).json({ error: 'Only submitted sales requests can be approved.' });
+    }
+
+    const comment = getApprovalComment(req);
+    const approvedBy = getApprovalActorName(req);
+    const updated = await withDbTransaction(async (connection) => {
+      const seqMeta = getSalesDocumentSequenceMeta(record.record_type);
+      const businessEntityId = await resolveBusinessEntityId(record.business_entity_id);
+      let officialNo = record.document_no;
+      if (isDraftDocumentNo(record.document_no)) {
+        officialNo = await generateNextEntityDocumentNo({
+          businessEntityId,
+          documentType: seqMeta.documentType,
+          prefix: seqMeta.prefix,
+          tableName: 'sales_management_records',
+          columnName: 'document_no',
+          dbClient: connection
+        });
+        await claimEntityDocumentNo({
+          businessEntityId,
+          documentType: seqMeta.documentType,
+          prefix: seqMeta.prefix,
+          documentNo: officialNo,
+          dbClient: connection
+        });
+      }
+      await queryDbAsync(connection,
+        "UPDATE sales_management_records SET document_no = ?, status = 'approved', updated_at = NOW() WHERE id = ?",
+        [officialNo, recordId]);
+      // Now that it is approved, advance the project-centric flow (auto-creates the next-stage draft).
+      await advanceSalesRecordFlow(connection, recordId, req);
+      const result = await queryDbAsync(connection, 'SELECT * FROM sales_management_records WHERE id = ? LIMIT 1', [recordId]);
+      return result[0] || { success: true, status: 'approved', document_no: officialNo };
+    });
+    logAction(req, 'APPROVE_SALES_RECORD', appendApprovalComment(`Approved ${SALES_RECORD_TYPES[record.record_type]?.label || 'sales record'} ${updated.document_no || recordId} (Draft ${record.document_no || '-'}) | Approved by ${approvedBy}`, comment), 'sales');
+    res.json({ success: true, status: 'approved', document_no: updated.document_no, approved_by: approvedBy });
+  } catch (err) {
+    console.error('Approve sales record error:', err);
+    res.status(500).json({ error: err.message || 'Unable to approve sales record.' });
+  }
+});
+
+// Reject a sales request back to an editable draft so staff can revise & resubmit.
+app.post('/api/sales-management/records/:id/reject', protectAdminOnly, async (req, res) => {
+  const recordId = Number(req.params.id || 0);
+  const reason = String(req.body?.reason || req.body?.comment || '').trim();
+  if (!recordId) return res.status(400).json({ error: 'Invalid sales record ID.' });
+  if (!reason) return res.status(400).json({ error: 'Rejection reason is required.' });
+
+  try {
+    const rows = await queryAsync('SELECT id, document_no, status, notes FROM sales_management_records WHERE id = ? LIMIT 1', [recordId]);
+    if (!rows.length) return res.status(404).json({ error: 'Sales record not found.' });
+    const currentStatus = normalizeSalesRecordStatus(rows[0].status);
+    if (!['draft', 'submitted', 'in_review'].includes(currentStatus)) {
+      return res.status(400).json({ error: 'Only submitted sales requests can be rejected.' });
+    }
+    const revisedNotes = [`Rejected: ${reason}`, String(rows[0].notes || '').trim()].filter(Boolean).join('\n');
+    await queryAsync("UPDATE sales_management_records SET status = 'draft', notes = ?, updated_at = NOW() WHERE id = ?", [revisedNotes, recordId]);
+    logAction(req, 'REJECT_SALES_RECORD', `Rejected sales record ${rows[0].document_no} | Reason: ${reason}`, 'sales');
+    res.json({ success: true, status: 'draft', reason });
+  } catch (err) {
+    console.error('Reject sales record error:', err);
+    res.status(500).json({ error: err.message || 'Unable to reject sales record.' });
   }
 });
 
@@ -12913,7 +13117,20 @@ app.post('/api/bills', protectAdmin, upload.single('pdf_file'), async (req, res)
       return res.status(400).json({ error: 'Missing required fields' });
     }
     businessEntityId = await resolveBusinessEntityId(businessEntityId);
-    if (!billNumber) {
+    // Admins create bills with an official BILL- number directly; staff file a
+    // DFT- draft that becomes official when approved (see /bills/:id/approve).
+    const billActor = getAuthenticatedUser(req) || {};
+    if (isStaffRole(billActor.role)) {
+      if (!billNumber || !isDraftDocumentNo(billNumber)) {
+        billNumber = await generateNextDraftEntityDocumentNo({
+          businessEntityId,
+          documentType: 'ap-bill',
+          prefix: 'BILL',
+          tableName: 'accounts_payable',
+          columnName: 'bill_number'
+        });
+      }
+    } else {
       billNumber = await generateNextEntityDocumentNo({
         businessEntityId,
         documentType: 'ap-bill',
@@ -13045,7 +13262,7 @@ app.post('/api/bills/:id/approve', protectAdminOnly, async (req, res) => {
 
   try {
     const rows = await queryAsync(
-      'SELECT id, bill_number, approval_status FROM accounts_payable WHERE id = ? LIMIT 1',
+      'SELECT id, bill_number, business_entity_id, approval_status FROM accounts_payable WHERE id = ? LIMIT 1',
       [billId]
     );
     if (!rows.length) {
@@ -13054,17 +13271,35 @@ app.post('/api/bills/:id/approve', protectAdminOnly, async (req, res) => {
 
     const approvedBy = getApprovalActorName(req);
     const comment = getApprovalComment(req);
+    // Convert the DFT- draft bill number into the official BILL- number on approval.
+    const officialBillNo = isDraftDocumentNo(rows[0].bill_number)
+      ? await generateNextEntityDocumentNo({
+          businessEntityId: rows[0].business_entity_id,
+          documentType: 'ap-bill',
+          prefix: 'BILL',
+          tableName: 'accounts_payable',
+          columnName: 'bill_number'
+        })
+      : rows[0].bill_number;
+    if (officialBillNo !== rows[0].bill_number) {
+      await claimEntityDocumentNo({
+        businessEntityId: rows[0].business_entity_id,
+        documentType: 'ap-bill',
+        prefix: 'BILL',
+        documentNo: officialBillNo
+      });
+    }
     await queryAsync(
-      "UPDATE accounts_payable SET approval_status = 'approved', approved_by = ?, approved_at = COALESCE(approved_at, NOW()), approval_comment = ? WHERE id = ?",
-      [approvedBy, comment || null, billId]
+      "UPDATE accounts_payable SET bill_number = ?, approval_status = 'approved', approved_by = ?, approved_at = COALESCE(approved_at, NOW()), approval_comment = ? WHERE id = ?",
+      [officialBillNo, approvedBy, comment || null, billId]
     );
     await syncPayableBalance(billId);
     await postApprovedBillJournal(billId);
-    logAction(req, 'APPROVE_AP_BILL', appendApprovalComment(`Approved AP bill ${rows[0].bill_number || billId}`, comment));
+    logAction(req, 'APPROVE_AP_BILL', appendApprovalComment(`Approved AP bill ${officialBillNo || billId} (Draft ${rows[0].bill_number || '-'})`, comment));
     sendBackgroundNotification(() => notifyFinanceApproval(req, 'bill', billId, {
       approvedBy: getApprovalActorLabel(req)
     }), 'ap bill approved email');
-    res.json({ success: true, approval_status: 'approved', approved_by: approvedBy, approval_comment: comment });
+    res.json({ success: true, approval_status: 'approved', bill_number: officialBillNo, approved_by: approvedBy, approval_comment: comment });
   } catch (err) {
     console.error('Approve AP bill error:', err);
     res.status(500).json({ error: err.message || 'Unable to approve AP bill.' });
@@ -13483,22 +13718,29 @@ app.post('/api/inventory/requests', protectAdmin, async (req, res) => {
     const requestType = normalizeInventoryRequestType(req.body?.request_type);
     if (!requestType) return res.status(400).json({ error: 'Invalid inventory request type.' });
     const payload = { ...(req.body?.payload || {}) };
-    const requestNo = isStaff ? await generateInventoryDraftRequestNo() : generateCode('INVREQ');
+    if (isStaff) {
+      const requestNo = await generateInventoryDraftRequestNo();
+      await queryAsync(
+        `INSERT INTO inventory_requests
+          (request_no, request_type, payload, status, requested_by, requested_by_email, submitted_at)
+         VALUES (?, ?, ?, 'draft', ?, ?, NULL)`,
+        [requestNo, requestType, JSON.stringify(payload), actor?.fullname || actor?.username || null, actor?.email || null]
+      );
+      logAction(req, 'CREATE_INVENTORY_DRAFT', `Draft: ${requestNo} | Type: ${requestType}`);
+      return res.status(201).json({ success: true, request_no: requestNo, status: 'draft' });
+    }
+    // Admin applies the inventory change directly (creates the product/warehouse/movement).
+    const applied = await applyInventoryRequestPayload(requestType, payload, req);
+    const requestNo = stripDraftRequestNoPrefix(await generateInventoryDraftRequestNo());
+    const approvedBy = getApprovalActorName(req);
     await queryAsync(
       `INSERT INTO inventory_requests
-        (request_no, request_type, payload, status, requested_by, requested_by_email, submitted_at)
-       VALUES (?, ?, ?, ?, ?, ?, ${isStaff ? 'NULL' : 'NOW()'})`,
-      [
-        requestNo,
-        requestType,
-        JSON.stringify(payload),
-        isStaff ? 'draft' : 'submitted',
-        actor?.fullname || actor?.username || null,
-        actor?.email || null
-      ]
+        (request_no, request_type, payload, status, requested_by, requested_by_email, submitted_at, approved_by, approved_at)
+       VALUES (?, ?, ?, 'approved', ?, ?, NOW(), ?, NOW())`,
+      [requestNo, requestType, JSON.stringify(payload), actor?.fullname || actor?.username || null, actor?.email || null, approvedBy]
     );
-    logAction(req, isStaff ? 'CREATE_INVENTORY_DRAFT' : 'REQUEST_INVENTORY', `${isStaff ? 'Draft' : 'Request'}: ${requestNo} | Type: ${requestType}`);
-    res.status(201).json({ success: true, request_no: requestNo, status: isStaff ? 'draft' : 'submitted' });
+    logAction(req, 'CREATE_INVENTORY_OFFICIAL', `Official: ${requestNo} | Type: ${requestType}`);
+    res.status(201).json({ success: true, request_no: requestNo, status: 'approved', applied });
   } catch (err) {
     res.status(400).json({ error: err.message || 'Unable to create inventory request.' });
   }
@@ -13565,12 +13807,14 @@ app.post('/api/inventory/requests/:id/approve', protectAdminOnly, async (req, re
     const applied = await applyInventoryRequestPayload(requestRow.request_type, payload, req);
     const approvedBy = getApprovalActorName(req);
     const comment = getApprovalComment(req);
+    // On approval the draft request number becomes official (strip the DRAFT- prefix).
+    const officialRequestNo = stripDraftRequestNoPrefix(requestRow.request_no);
     await queryAsync(
-      "UPDATE inventory_requests SET status = 'approved', approved_by = ?, approved_at = NOW(), reject_reason = NULL, approval_comment = ? WHERE id = ?",
-      [approvedBy, comment || null, requestId]
+      "UPDATE inventory_requests SET request_no = ?, status = 'approved', approved_by = ?, approved_at = NOW(), reject_reason = NULL, approval_comment = ? WHERE id = ?",
+      [officialRequestNo, approvedBy, comment || null, requestId]
     );
-    logAction(req, 'APPROVE_INVENTORY_REQUEST', appendApprovalComment(`Draft No: ${requestRow.request_no || requestId} | Type: ${requestRow.request_type}`, comment));
-    res.json({ success: true, status: 'approved', request_no: requestRow.request_no, approved_by: approvedBy, approval_comment: comment, applied });
+    logAction(req, 'APPROVE_INVENTORY_REQUEST', appendApprovalComment(`Draft No: ${requestRow.request_no || requestId} | Request No: ${officialRequestNo} | Type: ${requestRow.request_type}`, comment));
+    res.json({ success: true, status: 'approved', request_no: officialRequestNo, approved_by: approvedBy, approval_comment: comment, applied });
   } catch (err) {
     const isDuplicate = String(err.message || '').toLowerCase().includes('duplicate') || String(err.code || '') === '23505';
     res.status(isDuplicate ? 409 : 400).json({ error: isDuplicate ? 'Inventory record already exists.' : (err.message || 'Unable to approve inventory request.') });
@@ -13976,7 +14220,11 @@ app.post('/api/procurement/requisitions', protectAdmin, async (req, res) => {
   const department = String(req.body.department || '').trim() || null;
   const requestedBy = String(req.body.requested_by || '').trim() || null;
   const neededBy = req.body.needed_by || null;
-  const status = 'draft';
+  // Staff file PR "requests" (draft + DFT- number) that need approval; admins
+  // create an official, approved PR that lands directly in the requisitions table.
+  const actor = getAuthenticatedUser(req) || {};
+  const actorIsStaff = isStaffRole(actor.role);
+  const status = actorIsStaff ? 'draft' : 'approved';
   const notes = String(req.body.notes || '').trim() || null;
   const lineItems = normalizePurchaseRequisitionLineItems(req.body);
 
@@ -14000,8 +14248,18 @@ app.post('/api/procurement/requisitions', protectAdmin, async (req, res) => {
     const projectRecord = await resolvePurchaseOrderProjectContext(projectId, companyId);
     companyId = Number(projectRecord?.company_id || 0) || 0;
     const businessEntityId = await resolveBusinessEntityId(projectRecord?.business_entity_id || req.body.business_entity_id);
-    if (!prNumber || !isDraftDocumentNo(prNumber)) {
-      prNumber = await generateNextDraftEntityDocumentNo({
+    if (actorIsStaff) {
+      if (!prNumber || !isDraftDocumentNo(prNumber)) {
+        prNumber = await generateNextDraftEntityDocumentNo({
+          businessEntityId,
+          documentType: 'purchase-requisition',
+          prefix: 'PR',
+          tableName: 'purchase_requisitions',
+          columnName: 'pr_number'
+        });
+      }
+    } else {
+      prNumber = await generateNextEntityDocumentNo({
         businessEntityId,
         documentType: 'purchase-requisition',
         prefix: 'PR',
@@ -14013,7 +14271,7 @@ app.post('/api/procurement/requisitions', protectAdmin, async (req, res) => {
     await resolvePurchaseOrderProjectContext(projectRecord.id, companyRecord.id);
     const requestedByEmail = await getAuthenticatedUserEmail(req);
     const reqResult = await queryAsync(
-      'INSERT INTO purchase_requisitions (pr_number, business_entity_id, company_id, project_id, request_date, department, requested_by, requested_by_email, needed_by, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO purchase_requisitions (pr_number, business_entity_id, company_id, project_id, request_date, department, requested_by, requested_by_email, needed_by, status, notes, approved_by, approved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         prNumber,
         businessEntityId,
@@ -14025,7 +14283,9 @@ app.post('/api/procurement/requisitions', protectAdmin, async (req, res) => {
         requestedByEmail || null,
         neededBy,
         status,
-        notes
+        notes,
+        actorIsStaff ? null : getApprovalActorName(req),
+        actorIsStaff ? null : new Date()
       ]
     );
     await claimEntityDocumentNo({
@@ -15772,11 +16032,18 @@ app.get('/api/projects', protectAdmin, (req, res) => {
         creator.email AS created_by_email,
         assignee.fullname AS assigned_to_name,
         assignee.username AS assigned_to_username,
-        assignee.email AS assigned_to_email
+        assignee.email AS assigned_to_email,
+        creg.company_name AS registry_company_name,
+        creg.company_no AS registry_company_no,
+        creg.contact_person AS registry_contact_person,
+        creg.email AS registry_email,
+        creg.phone AS registry_phone,
+        creg.address AS registry_address
       FROM projects p
       LEFT JOIN business_entities be ON be.id = p.business_entity_id
       LEFT JOIN users creator ON creator.id = p.created_by
       LEFT JOIN users assignee ON assignee.id = p.assigned_to
+      LEFT JOIN company_registry creg ON creg.id = p.company_id
       ${where}
       ORDER BY COALESCE(p.start_date, p.planned_start_date, p.created_at) DESC, p.id DESC
     `, params, (err, rows) => {
@@ -17001,13 +17268,10 @@ app.get('/api/projects/stats', protectAdmin, (req, res) => {
 
 function getMissingProjectRequiredFields(input = {}) {
   const requiredFields = [
-    ['project_name', 'Project title'],
+    ['project_name', 'Project name'],
     ['company_id', 'Company'],
-    ['description', 'Scope / Description'],
-    ['project_manager', 'Project manager'],
-    ['project_members', 'Member 1'],
-    ['member_role', 'Role 1'],
-    ['member_phone', 'Phone 1'],
+    ['description', 'Description'],
+    ['service_type', 'Service type'],
     ['start_date', 'Planned start date'],
     ['end_date', 'Planned end date'],
     ['budget', 'Contract amount']
@@ -17066,10 +17330,20 @@ app.post('/api/projects', protectAdmin, upload.single('pdf_file'), async (req, r
     status,
     priority,
     assigned_to,
+    service_type,
+    estimated_material_cost,
+    estimated_labor_cost,
+    estimated_other_cost,
+    project_location,
     createDefaultTask
   } = req.body;
   const pdfFilename = req.file ? req.file.filename : String(req.body.pdfFilename || '').trim() || null;
   const resolvedBudget = toNumber(budget, 0);
+  const resolvedServiceType = String(service_type || 'installation').trim() || 'installation';
+  const resolvedEstMaterial = toNumber(estimated_material_cost, 0);
+  const resolvedEstLabor = toNumber(estimated_labor_cost, 0);
+  const resolvedEstOther = toNumber(estimated_other_cost, 0);
+  const resolvedProjectLocation = String(project_location || '').trim() || null;
   const resolvedDownpayment = toNumber(downpayment, 0);
   const resolvedQty = toNumber(qty, 0);
   const resolvedUnitCost = toNumber(unit_cost, 0);
@@ -17160,8 +17434,9 @@ app.post('/api/projects', protectAdmin, upload.single('pdf_file'), async (req, r
            project_members_3, member_role_3, member_phone_3,
            start_date, end_date, planned_start_date, planned_end_date,
            actual_start_date, actual_end_date, status_reason, paused_at, cancelled_at,
-           project_manager, pdfFilename, budget, unit_cost, members, status, priority, created_by, assigned_to, approved_by, approved_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+           project_manager, pdfFilename, budget, unit_cost, members, status, priority, created_by, assigned_to, approved_by, approved_at,
+           service_type, estimated_material_cost, estimated_labor_cost, estimated_other_cost, project_location)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
         [
           finalProjectDocno || null,
           finalDraftDocno || null,
@@ -17208,7 +17483,12 @@ app.post('/api/projects', protectAdmin, upload.single('pdf_file'), async (req, r
           actor.id || null,
           resolvedAssignedTo,
           approvedBy,
-          approvedBy ? new Date() : null
+          approvedBy ? new Date() : null,
+          resolvedServiceType,
+          resolvedEstMaterial,
+          resolvedEstLabor,
+          resolvedEstOther,
+          resolvedProjectLocation
         ],
         (err, result) => {
           if (err) {
@@ -17340,6 +17620,11 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
     priority,
     remove_pdf,
     assigned_to,
+    service_type,
+    estimated_material_cost,
+    estimated_labor_cost,
+    estimated_other_cost,
+    project_location,
     createDefaultTask
   } = req.body;
   const incomingPdfFilename = req.file ? req.file.filename : String(req.body.pdfFilename || '').trim() || null;
@@ -17413,6 +17698,11 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
     const resolvedDownpayment = toNumber(downpayment, rows[0].downpayment || 0);
     const resolvedQty = toNumber(qty, rows[0].qty || 0);
     const resolvedUnitCost = toNumber(unit_cost, rows[0].unit_cost || 0);
+    const resolvedServiceType = String(service_type || 'installation').trim() || 'installation';
+    const resolvedEstMaterial = toNumber(estimated_material_cost, 0);
+    const resolvedEstLabor = toNumber(estimated_labor_cost, 0);
+    const resolvedEstOther = toNumber(estimated_other_cost, 0);
+    const resolvedProjectLocation = String(project_location || '').trim() || null;
     const currentProjectStatus = String(rows[0].status || 'planning').trim().toLowerCase() || 'planning';
     const projectSubmitAction = String(req.body.project_submit_action || '').trim().toLowerCase();
     let resolvedProjectStatus = isStaffRole(actorRole)
@@ -17477,6 +17767,7 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
                assigned_to = ?,
                status = COALESCE(?, status), priority = COALESCE(?, priority),
                approved_by = COALESCE(?, approved_by), approved_at = COALESCE(?, approved_at),
+               service_type = ?, estimated_material_cost = ?, estimated_labor_cost = ?, estimated_other_cost = ?, project_location = ?,
                is_archived = FALSE, archived_at = NULL, archived_auto = FALSE
            WHERE id = ?`,
           [
@@ -17524,6 +17815,11 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
             resolvedProjectPriority,
             newlyApprovedBy,
             newlyApprovedBy ? new Date() : null,
+            resolvedServiceType,
+            resolvedEstMaterial,
+            resolvedEstLabor,
+            resolvedEstOther,
+            resolvedProjectLocation,
             req.params.id
           ],
           (err, result) => {

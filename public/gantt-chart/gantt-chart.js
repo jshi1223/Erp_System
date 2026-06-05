@@ -21,7 +21,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('f-cost-date').valueAsDate = new Date();
 });
 
-function doLogout() {
+async function doLogout() {
+  const confirmed = (typeof showConfirm === 'function')
+    ? await showConfirm('Maglo-logout ka na. Gusto mo bang ituloy?', { title: 'Logout?', confirmLabel: 'Yes, log out', cancelLabel: 'Cancel', type: 'danger' })
+    : window.confirm('Maglo-logout ka na. Gusto mo bang ituloy?');
+  if (!confirmed) return;
   fetch('/logout', { method: 'POST' }).then(() => { window.location.href = '/'; });
 }
 
