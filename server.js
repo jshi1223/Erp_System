@@ -2307,10 +2307,6 @@ app.get(['/sales-management', '/sales-management/'], protectAdmin, (req, res) =>
   noCache(res);
   res.sendFile(path.join(__dirname, 'public', 'sales-management', 'index.html'));
 });
-app.get(['/service-operations', '/service-operations/'], protectAdmin, (req, res) => {
-  noCache(res);
-  res.sendFile(path.join(__dirname, 'public', 'accounts-receivable', 'index.html'));
-});
 app.get(['/notifications', '/notifications/'], protectAdmin, (req, res) => {
   noCache(res);
   res.sendFile(path.join(__dirname, 'public', 'notifications', 'index.html'));
@@ -3230,6 +3226,19 @@ function initApp() {
       });
       db.query(`ALTER TABLE sales_management_records ADD COLUMN IF NOT EXISTS inventory_posted_at TIMESTAMP NULL`, (alterErr) => {
         if (alterErr) console.error('Sales records inventory_posted_at migration error:', alterErr);
+      });
+      // Project-centric flow migration: the legacy 'proposal-request' (Projects)
+      // and 'service-order' sales record types were removed. Soft-archive any
+      // existing rows (status -> cancelled) so they drop out of the active
+      // pipeline while staying viewable for history. Idempotent.
+      db.query(`
+        UPDATE sales_management_records
+        SET status = 'cancelled', updated_at = NOW()
+        WHERE record_type IN ('proposal-request', 'service-order')
+          AND status <> 'cancelled'
+      `, (alterErr, result) => {
+        if (alterErr) console.error('Sales records legacy-type soft-archive migration error:', alterErr);
+        else if (result && result.affectedRows) console.log(`✅ Soft-archived ${result.affectedRows} legacy Projects/Service-Order sales records`);
       });
     }
   });
@@ -4648,7 +4657,8 @@ async function generateNextEntityDocumentNo({
     'purchase_orders',
     'procurement_quotations',
     'goods_receipts',
-    'accounts_payable'
+    'accounts_payable',
+    'sales_management_records'
   ]);
   const safeColumns = new Set([
     'project_docno',
@@ -4658,7 +4668,8 @@ async function generateNextEntityDocumentNo({
     'po_number',
     'quote_number',
     'grn_number',
-    'bill_number'
+    'bill_number',
+    'document_no'
   ]);
   if (!safeTables.has(tableName) || !safeColumns.has(columnName)) {
     throw new Error('Invalid document sequence target.');
@@ -4736,7 +4747,8 @@ async function peekNextEntityDocumentNo({
     'purchase_orders',
     'procurement_quotations',
     'goods_receipts',
-    'accounts_payable'
+    'accounts_payable',
+    'sales_management_records'
   ]);
   const safeColumns = new Set([
     'project_docno',
@@ -4746,7 +4758,8 @@ async function peekNextEntityDocumentNo({
     'po_number',
     'quote_number',
     'grn_number',
-    'bill_number'
+    'bill_number',
+    'document_no'
   ]);
   if (!safeTables.has(tableName) || !safeColumns.has(columnName)) {
     throw new Error('Invalid document sequence target.');
@@ -7644,302 +7657,6 @@ async function setServiceOrderArchiveState(serviceOrderId, archived, dbClient = 
   };
 }
 
-app.post('/api/service-orders', protectAdmin, async (req, res) => {
-  let soNumber = String(req.body.so_number || req.body.doc_no || '').trim();
-  const projectId = Number(req.body.project_id || 0) || null;
-  const serviceType = String(req.body.service_type || req.body.serviceType || '').trim().toLowerCase().replace(/[\s-]+/g, '_') || 'installation';
-  const serviceDate = String(req.body.service_date || req.body.so_date || '').trim() || new Date().toISOString().slice(0, 10);
-  const serviceTitle = String(req.body.service_title || req.body.title || '').trim();
-  const description = String(req.body.description || '').trim() || null;
-  const notes = String(req.body.notes || '').trim() || null;
-  const totalAmount = toNumber(req.body.total_amount ?? req.body.amount, 0);
-  const normalizedStatus = normalizeServiceOrderStatusValue(req.body.status || 'issued');
-  const status = normalizedStatus === 'draft' ? 'issued' : normalizedStatus;
-
-  if (!serviceTitle) {
-    return res.status(400).json({ error: 'Service title is required.' });
-  }
-
-  let connection = null;
-  try {
-    connection = await getConnectionAsync();
-    await beginTransactionAsync(connection);
-
-    let projectRow = null;
-    if (projectId) {
-      const projectRows = await connectionQueryAsync(
-        connection,
-        'SELECT id, business_entity_id, project_name, company_id, company_no, company_name, client_name, status, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ? LIMIT 1',
-        [projectId]
-      );
-      if (!projectRows.length) {
-        throw Object.assign(new Error('Selected project was not found.'), { statusCode: 400 });
-      }
-      projectRow = projectRows[0];
-      if (projectRow.is_archived === true || Number(projectRow.is_archived || 0) === 1) {
-        throw Object.assign(new Error('Selected project is archived. Restore the project before creating new activity.'), { statusCode: 400 });
-      }
-      if (isProjectAwaitingApprovalStatus(projectRow.status)) {
-        throw Object.assign(new Error(getProjectAwaitingApprovalMessage('creating new activity')), { statusCode: 400 });
-      }
-    }
-
-    const companyRecord = await resolveServiceOrderCompanyRecord(req.body, projectRow, connection);
-    const vendorRecord = await resolveServiceOrderVendorRecord(req.body, companyRecord.id, connection);
-    const businessEntityId = await resolveBusinessEntityId(req.body.business_entity_id || projectRow?.business_entity_id || null);
-    if (!soNumber) {
-      soNumber = await generateNextEntityDocumentNo({
-        businessEntityId,
-        documentType: 'service-order',
-        prefix: 'SO',
-        tableName: 'service_orders',
-        columnName: 'so_number',
-        dbClient: connection
-      });
-    }
-
-    const insertResult = await connectionQueryAsync(
-      connection,
-      `INSERT INTO service_orders
-        (so_number, business_entity_id, vendor_id, company_id, project_id, service_type, service_date, service_title, description, total_amount, status, notes, pdfFilename, is_archived, archived_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, FALSE, NULL)`,
-      [
-        soNumber,
-        businessEntityId,
-        vendorRecord?.id || null,
-        companyRecord.id,
-        projectId,
-        serviceType,
-        serviceDate,
-        serviceTitle,
-        description,
-        totalAmount,
-        status,
-        notes
-      ]
-    );
-    await claimEntityDocumentNo({
-      businessEntityId,
-      documentType: 'service-order',
-      prefix: 'SO',
-      documentNo: soNumber,
-      dbClient: connection
-    });
-
-    const linkedTransaction = await syncLinkedTransactionForServiceOrder({
-      serviceOrderId: insertResult.insertId,
-      soNumber,
-      projectId,
-      projectRow,
-      companyRecord,
-      businessEntityId,
-      serviceType,
-      serviceDate,
-      serviceTitle,
-      description,
-      totalAmount,
-      dbClient: connection
-    });
-
-    await commitTransactionAsync(connection);
-
-    logAction(
-      req,
-      'CREATE_SERVICE_ORDER',
-      `Created service order ${soNumber} and linked transaction ${linkedTransaction.docno}`
-    );
-
-    res.json({
-      success: true,
-      id: insertResult.insertId,
-      so_number: soNumber,
-      posted_transaction: true,
-      linked_transaction_id: linkedTransaction.id || null,
-      linked_transaction_docno: linkedTransaction.docno || null
-    });
-  } catch (err) {
-    if (connection) {
-      try {
-        await rollbackTransactionAsync(connection);
-      } catch (rollbackErr) {
-        console.error('Service order create rollback error:', rollbackErr);
-      }
-    }
-
-    if (isPostgresUniqueViolation(err)) {
-      const sqlMessage = String(err.sqlMessage || err.message || '').toLowerCase();
-      if (sqlMessage.includes('so_number')) {
-        return res.status(409).json({ error: 'Service order number already exists.' });
-      }
-      return res.status(409).json({ error: 'Duplicate service order record.' });
-    }
-
-    const validationMessage = String(err?.message || '').toLowerCase();
-    if (validationMessage.includes('required') || validationMessage.includes('must match') || validationMessage.includes('not found') || validationMessage.includes('archived')) {
-      return res.status(400).json({ error: err.message || 'Unable to create service order.' });
-    }
-
-    console.error('Create service order error:', err);
-    res.status(500).json({ error: err.message || 'Unable to create service order.' });
-  } finally {
-    if (connection) {
-      connection.release();
-    }
-  }
-});
-
-app.put('/api/service-orders/:id', protectAdmin, async (req, res) => {
-  const serviceOrderId = Number(req.params.id || 0) || 0;
-  if (!serviceOrderId) {
-    return res.status(400).json({ error: 'Invalid service order id.' });
-  }
-
-  const incomingSoNumber = String(req.body.so_number || req.body.doc_no || '').trim();
-  const projectId = Number(req.body.project_id || 0) || null;
-  const serviceType = String(req.body.service_type || req.body.serviceType || '').trim().toLowerCase().replace(/[\s-]+/g, '_') || 'installation';
-  const serviceDate = String(req.body.service_date || req.body.so_date || '').trim() || new Date().toISOString().slice(0, 10);
-  const serviceTitle = String(req.body.service_title || req.body.title || '').trim();
-  const description = String(req.body.description || '').trim() || null;
-  const notes = String(req.body.notes || '').trim() || null;
-  const totalAmount = toNumber(req.body.total_amount ?? req.body.amount, 0);
-  const normalizedStatus = normalizeServiceOrderStatusValue(req.body.status || 'issued');
-  const status = normalizedStatus === 'draft' ? 'issued' : normalizedStatus;
-
-  if (!serviceTitle) {
-    return res.status(400).json({ error: 'Service title is required.' });
-  }
-
-  let connection = null;
-  try {
-    connection = await getConnectionAsync();
-    await beginTransactionAsync(connection);
-
-    const currentRows = await connectionQueryAsync(
-      connection,
-      'SELECT id, so_number, business_entity_id, project_id, company_id, vendor_id, service_type, service_date, service_title, description, total_amount, status, notes, is_archived FROM service_orders WHERE id = ? LIMIT 1 FOR UPDATE',
-      [serviceOrderId]
-    );
-    if (!currentRows.length) {
-      throw Object.assign(new Error('Service order not found.'), { statusCode: 404 });
-    }
-
-    const currentRow = currentRows[0];
-    const finalSoNumber = incomingSoNumber || String(currentRow.so_number || '').trim() || generateCode('SO');
-
-    let projectRow = null;
-    if (projectId) {
-      const projectRows = await connectionQueryAsync(
-        connection,
-        'SELECT id, business_entity_id, project_name, company_id, company_no, company_name, client_name, status, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ? LIMIT 1',
-        [projectId]
-      );
-      if (!projectRows.length) {
-        throw Object.assign(new Error('Selected project was not found.'), { statusCode: 400 });
-      }
-      projectRow = projectRows[0];
-      if (projectRow.is_archived === true || Number(projectRow.is_archived || 0) === 1) {
-        throw Object.assign(new Error('Selected project is archived. Restore the project before creating new activity.'), { statusCode: 400 });
-      }
-      if (isProjectAwaitingApprovalStatus(projectRow.status)) {
-        throw Object.assign(new Error(getProjectAwaitingApprovalMessage('creating new activity')), { statusCode: 400 });
-      }
-    }
-
-    const companyRecord = await resolveServiceOrderCompanyRecord(req.body, projectRow, connection);
-    const vendorRecord = await resolveServiceOrderVendorRecord(req.body, companyRecord.id, connection);
-    const businessEntityId = await resolveBusinessEntityId(req.body.business_entity_id || projectRow?.business_entity_id || currentRow.business_entity_id || null);
-
-    await connectionQueryAsync(
-      connection,
-      `UPDATE service_orders
-       SET so_number = ?, business_entity_id = ?, vendor_id = ?, company_id = ?, project_id = ?, service_type = ?, service_date = ?, service_title = ?, description = ?, total_amount = ?, status = ?, notes = ?
-       WHERE id = ?`,
-      [
-        finalSoNumber,
-        businessEntityId,
-        vendorRecord?.id || null,
-        companyRecord.id,
-        projectId,
-        serviceType,
-        serviceDate,
-        serviceTitle,
-        description,
-        totalAmount,
-        status,
-        notes,
-        serviceOrderId
-      ]
-    );
-
-    const linkedTransaction = await syncLinkedTransactionForServiceOrder({
-      serviceOrderId,
-      soNumber: finalSoNumber,
-      projectId,
-      projectRow,
-      companyRecord,
-      businessEntityId,
-      serviceType,
-      serviceDate,
-      serviceTitle,
-      description,
-      totalAmount,
-      dbClient: connection
-    });
-
-    await commitTransactionAsync(connection);
-
-    logAction(
-      req,
-      'UPDATE_SERVICE_ORDER',
-      `Updated service order ${finalSoNumber} and synced linked transaction ${linkedTransaction.docno}`
-    );
-
-    res.json({
-      success: true,
-      id: serviceOrderId,
-      so_number: finalSoNumber,
-      posted_transaction: true,
-      linked_transaction_id: linkedTransaction.id || null,
-      linked_transaction_docno: linkedTransaction.docno || null
-    });
-  } catch (err) {
-    if (connection) {
-      try {
-        await rollbackTransactionAsync(connection);
-      } catch (rollbackErr) {
-        console.error('Service order update rollback error:', rollbackErr);
-      }
-    }
-
-    if (err.statusCode === 404) {
-      return res.status(404).json({ error: err.message || 'Service order not found.' });
-    }
-    if (err.statusCode === 400) {
-      return res.status(400).json({ error: err.message || 'Unable to update service order.' });
-    }
-
-    if (isPostgresUniqueViolation(err)) {
-      const sqlMessage = String(err.sqlMessage || err.message || '').toLowerCase();
-      if (sqlMessage.includes('so_number')) {
-        return res.status(409).json({ error: 'Service order number already exists.' });
-      }
-      return res.status(409).json({ error: 'Duplicate service order record.' });
-    }
-
-    const validationMessage = String(err?.message || '').toLowerCase();
-    if (validationMessage.includes('required') || validationMessage.includes('must match') || validationMessage.includes('not found') || validationMessage.includes('archived')) {
-      return res.status(400).json({ error: err.message || 'Unable to update service order.' });
-    }
-
-    console.error('Update service order error:', err);
-    res.status(500).json({ error: err.message || 'Unable to update service order.' });
-  } finally {
-    if (connection) {
-      connection.release();
-    }
-  }
-});
-
 function getManilaYmd(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Manila',
@@ -10003,22 +9720,6 @@ app.get('/api/projects/next-docno', protectAdmin, (req, res) => {
         : { project_docno: projectDocno, number_type: 'official' });
     })
     .catch((err) => res.status(500).json({ error: err.message }));
-});
-
-app.get('/api/service-orders/next-number', protectAdmin, async (req, res) => {
-  try {
-    const businessEntityId = await resolveBusinessEntityId(req.query.business_entity_id);
-    const so_number = await peekNextEntityDocumentNo({
-      businessEntityId,
-      documentType: 'service-order',
-      prefix: 'SO',
-      tableName: 'service_orders',
-      columnName: 'so_number'
-    });
-    res.json({ so_number });
-  } catch (err) {
-    res.status(500).json({ error: err.message || 'Unable to generate service order number.' });
-  }
 });
 
 app.get('/api/procurement/requisitions/next-number', protectAdmin, async (req, res) => {
@@ -12252,9 +11953,13 @@ async function postApprovedPaymentJournal(paymentId, dbClient = null) {
   });
 }
 
+// Project-centric sales spine: SI -> SQ -> SO -> DR -> AR (SI/SQ optional).
+// The legacy 'proposal-request' (Projects) and 'service-order' types were
+// removed — real projects live in the Projects module and every sales record
+// links to one via project_id. Existing rows of those types are soft-archived
+// by migration (see soft-archive migration below).
 const SALES_RECORD_TYPES = Object.freeze({
   'sales-request': { label: 'Sales Inquiry', prefix: 'SR' },
-  'proposal-request': { label: 'Projects', prefix: 'PROP' },
   'sales-quotation': { label: 'Quotation', prefix: 'SQ' },
   'sales-order': { label: 'SO', prefix: 'SO' },
   'project-delivery': { label: 'Delivery Receipt', prefix: 'DR' }
@@ -12308,12 +12013,175 @@ function normalizeSalesRecordPayload(body = {}, fallbackType = '') {
   };
 }
 
-function buildSalesRecordDocumentNo(recordType) {
+// Sequential per-business-entity numbering for sales records (mirrors procurement,
+// e.g. SR-KVSK-2026-001). Each record type keeps its own sequence via documentType.
+function getSalesDocumentSequenceMeta(recordType) {
   const meta = SALES_RECORD_TYPES[recordType] || SALES_RECORD_TYPES['sales-request'];
-  return generateCode(meta.prefix);
+  return {
+    prefix: meta.prefix,
+    documentType: `sales-${String(meta.prefix || 'SR').toLowerCase()}`
+  };
+}
+
+// ── Project-centric sales auto-sync: SI -> SQ -> SO -> DR -> AR ────────────
+// Forward spine and the status on the current stage that auto-creates the
+// next-stage draft. SI/SQ are optional, so a flow may start at any stage.
+const SALES_FLOW_NEXT = Object.freeze({
+  'sales-request': 'sales-quotation',
+  'sales-quotation': 'sales-order',
+  'sales-order': 'project-delivery'
+});
+const SALES_FLOW_ADVANCE_STATUS = Object.freeze({
+  'sales-request': ['approved', 'won'],
+  'sales-quotation': ['approved', 'won', 'sent'],
+  'sales-order': ['approved', 'won'],
+  'project-delivery': ['delivered', 'completed']
+});
+
+// Loads a sales record joined with its company + project context.
+async function loadSalesRecordWithContext(connection, recordId) {
+  const rows = await queryDbAsync(connection, `
+    SELECT smr.*, c.company_name, p.project_docno
+    FROM sales_management_records smr
+    LEFT JOIN company_registry c ON c.id = smr.company_id
+    LEFT JOIN projects p ON p.id = smr.project_id
+    WHERE smr.id = ? LIMIT 1
+  `, [Number(recordId || 0) || 0]);
+  return rows[0] || null;
+}
+
+// Creates an AR invoice from a delivered/completed Delivery Receipt row.
+// Reused by the manual generate-invoice endpoint AND the auto-sync chain.
+// Idempotent — returns the existing invoice if this DR already has one.
+async function createReceivableFromDeliveryRecord(connection, record, req) {
+  const recordId = Number(record.id || 0) || 0;
+  if (!recordId) return null;
+  const existing = await queryDbAsync(connection,
+    `SELECT id, invoice_number FROM accounts_receivable WHERE sales_record_id = ? AND COALESCE(archived, FALSE) = FALSE LIMIT 1`,
+    [recordId]);
+  if (existing.length) {
+    return { id: existing[0].id, invoice_number: existing[0].invoice_number, existing: true };
+  }
+  const totalAmount = Number(record.amount || 0);
+  const customerName = String(record.company_name || '').trim();
+  if (!(totalAmount > 0) || !customerName) return null;
+
+  const businessEntityId = await resolveBusinessEntityId(record.business_entity_id || null);
+  const invoiceNumber = generateCode('INV');
+  const invoiceDate = String(record.target_date || record.requested_date || '').slice(0, 10) || getManilaYmd();
+  const paymentTerms = String(record.payment_terms || 'Net 30').trim();
+  const result = await queryDbAsync(connection, `
+    INSERT INTO accounts_receivable
+      (customer_name, invoice_number, invoice_date, payment_terms, total_amount, paid_amount,
+       status, business_entity_id, notes, project_id, project_docno,
+       sales_record_id, sales_document_no, archived, archived_at)
+    VALUES (?, ?, ?, ?, ?, 0, 'draft', ?, ?, ?, ?, ?, ?, FALSE, NULL)
+  `, [
+    customerName,
+    invoiceNumber,
+    invoiceDate,
+    paymentTerms,
+    totalAmount,
+    businessEntityId,
+    String(record.notes || '').trim() || `Invoice for ${record.document_no || 'Delivery Receipt'}`,
+    Number(record.project_id || 0) || null,
+    String(record.project_docno || '').trim() || null,
+    recordId,
+    String(record.document_no || '').trim() || null
+  ]);
+  return { id: result.insertId, invoice_number: invoiceNumber, created: true };
+}
+
+// Auto-advances the flow after a record is created/updated:
+//   * keeps a still-draft downstream copy in sync with headline fields;
+//   * when the current stage reaches its advance status, auto-creates the
+//     next-stage draft (idempotent via source_record_id);
+//   * when a Delivery Receipt is delivered/completed, auto-creates the AR invoice.
+// New rows are created as 'draft', so they never re-trigger an advance (no loops).
+async function advanceSalesRecordFlow(connection, recordId, req) {
+  const record = await loadSalesRecordWithContext(connection, recordId);
+  if (!record) return;
+  const type = normalizeSalesRecordType(record.record_type);
+  if (!type) return;
+  const status = normalizeSalesRecordStatus(record.status);
+  const triggers = SALES_FLOW_ADVANCE_STATUS[type] || [];
+
+  // Delivery Receipt delivered/completed -> AR invoice (terminal stage).
+  if (type === 'project-delivery') {
+    if (triggers.includes(status)) await createReceivableFromDeliveryRecord(connection, record, req);
+    return;
+  }
+
+  const nextType = SALES_FLOW_NEXT[type];
+  if (!nextType) return;
+
+  // Already has a downstream record: keep it in sync only while it is still a draft.
+  const downstream = await queryDbAsync(connection,
+    `SELECT id, status FROM sales_management_records WHERE source_record_id = ? AND record_type = ? ORDER BY id ASC LIMIT 1`,
+    [Number(record.id || 0), nextType]);
+  if (downstream.length) {
+    if (normalizeSalesRecordStatus(downstream[0].status) === 'draft') {
+      await queryDbAsync(connection,
+        `UPDATE sales_management_records SET title = ?, amount = ?, updated_at = NOW() WHERE id = ?`,
+        [record.title, Math.max(0, Number(record.amount || 0) || 0), Number(downstream[0].id)]);
+    }
+    return;
+  }
+
+  // Only auto-create the next stage once the current one reaches advance status.
+  if (!triggers.includes(status)) return;
+
+  const businessEntityId = await resolveSalesRecordBusinessEntityId(record, connection);
+  const seqMeta = getSalesDocumentSequenceMeta(nextType);
+  const documentNo = await peekNextEntityDocumentNo({
+    businessEntityId,
+    documentType: seqMeta.documentType,
+    prefix: seqMeta.prefix,
+    tableName: 'sales_management_records',
+    columnName: 'document_no',
+    dbClient: connection
+  });
+  await queryDbAsync(connection, `
+    INSERT INTO sales_management_records (
+      record_type, document_no, business_entity_id, company_id, project_id, source_record_id,
+      product_id, warehouse_id, quantity, unit_price,
+      title, description, requested_date, target_date, amount, status, contact_person,
+      payment_terms, notes, created_by
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)
+  `, [
+    nextType,
+    documentNo,
+    businessEntityId,
+    record.company_id,
+    record.project_id,
+    record.id,
+    null,
+    null,
+    0,
+    0,
+    record.title || SALES_RECORD_TYPES[nextType].label,
+    record.description || null,
+    getManilaYmd(),
+    null,
+    Math.max(0, Number(record.amount || 0) || 0),
+    record.contact_person || null,
+    record.payment_terms || null,
+    `Auto-created from ${SALES_RECORD_TYPES[type].label} ${record.document_no || ''}`.trim(),
+    getAuthenticatedUser(req)?.id || null
+  ]);
+  await claimEntityDocumentNo({
+    businessEntityId,
+    documentType: seqMeta.documentType,
+    prefix: seqMeta.prefix,
+    documentNo,
+    dbClient: connection
+  });
 }
 
 function validateSalesRecordStageRequirements(payload = {}) {
+  // Source link is OPTIONAL at every stage (SI/SQ may be skipped) but a
+  // linked Project is required everywhere so nothing is left untracked.
   const requiredByType = {
     'sales-request': [
       ['companyId', 'Customer / Company is required for Sales Inquiry.'],
@@ -12322,26 +12190,19 @@ function validateSalesRecordStageRequirements(payload = {}) {
       ['requestedDate', 'Inquiry date is required for Sales Inquiry.']
     ],
     'sales-quotation': [
-      ['sourceRecordId', 'Sales Inquiry source is required before creating a Quotation.'],
       ['companyId', 'Customer / Company is required for Quotation.'],
+      ['projectId', 'Linked Project is required for Quotation.'],
       ['title', 'Title is required for Quotation.'],
       ['requestedDate', 'Issue date is required for Quotation.'],
       ['amount', 'Amount is required for Quotation.', 'number']
     ],
     'sales-order': [
-      ['sourceRecordId', 'Quotation source is required before creating an SO.'],
       ['companyId', 'Customer / Company is required for SO.'],
+      ['projectId', 'Linked Project is required for SO.'],
       ['title', 'Title is required for SO.'],
       ['requestedDate', 'SO date is required.']
     ],
-    'proposal-request': [
-      ['sourceRecordId', 'SO source is required before creating a Project sales record.'],
-      ['companyId', 'Customer / Company is required for Projects.'],
-      ['projectId', 'Linked Project is required for Projects.'],
-      ['title', 'Title is required for Projects.']
-    ],
     'project-delivery': [
-      ['sourceRecordId', 'Project source is required before creating a Delivery Receipt.'],
       ['companyId', 'Customer / Company is required for Delivery Receipt.'],
       ['projectId', 'Linked Project is required for Delivery Receipt.'],
       ['title', 'Title is required for Delivery Receipt.'],
@@ -12516,13 +12377,40 @@ app.get('/api/sales-management/records', protectAdmin, async (req, res) => {
   }
 });
 
+app.get('/api/sales-management/records/next-number', protectAdmin, async (req, res) => {
+  try {
+    const recordType = normalizeSalesRecordType(req.query.record_type) || 'sales-request';
+    const seqMeta = getSalesDocumentSequenceMeta(recordType);
+    const businessEntityId = await resolveBusinessEntityId(req.query.business_entity_id);
+    const document_no = await peekNextEntityDocumentNo({
+      businessEntityId,
+      documentType: seqMeta.documentType,
+      prefix: seqMeta.prefix,
+      tableName: 'sales_management_records',
+      columnName: 'document_no'
+    });
+    res.json({ document_no, record_type: recordType });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Unable to generate sales document number.' });
+  }
+});
+
 app.post('/api/sales-management/records', protectAdmin, async (req, res) => {
   try {
     const payload = normalizeSalesRecordPayload(req.body);
     validateSalesRecordStageRequirements(payload);
     validateSalesDeliveryReceiptInventory(payload);
     const created = await withDbTransaction(async (connection) => {
-      const documentNo = buildSalesRecordDocumentNo(payload.recordType);
+      const seqMeta = getSalesDocumentSequenceMeta(payload.recordType);
+      const businessEntityId = await resolveBusinessEntityId(payload.businessEntityId);
+      const documentNo = await peekNextEntityDocumentNo({
+        businessEntityId,
+        documentType: seqMeta.documentType,
+        prefix: seqMeta.prefix,
+        tableName: 'sales_management_records',
+        columnName: 'document_no',
+        dbClient: connection
+      });
       const insertResult = await queryDbAsync(connection, `
         INSERT INTO sales_management_records (
           record_type, document_no, business_entity_id, company_id, project_id, source_record_id,
@@ -12534,7 +12422,7 @@ app.post('/api/sales-management/records', protectAdmin, async (req, res) => {
       `, [
         payload.recordType,
         documentNo,
-        payload.businessEntityId,
+        businessEntityId,
         payload.companyId,
         payload.projectId,
         payload.sourceRecordId,
@@ -12553,7 +12441,16 @@ app.post('/api/sales-management/records', protectAdmin, async (req, res) => {
         payload.notes,
         getAuthenticatedUser(req)?.id || null
       ]);
+      await claimEntityDocumentNo({
+        businessEntityId,
+        documentType: seqMeta.documentType,
+        prefix: seqMeta.prefix,
+        documentNo,
+        dbClient: connection
+      });
       await syncSalesRecordInventory(insertResult.insertId, req, connection);
+      // Auto-advance the project-centric sales flow (SI -> SQ -> SO -> DR -> AR).
+      await advanceSalesRecordFlow(connection, Number(insertResult?.insertId || 0) || 0, req);
       const rows = await queryDbAsync(connection, 'SELECT * FROM sales_management_records WHERE id = ? OR document_no = ? ORDER BY id DESC LIMIT 1', [
         Number(insertResult?.insertId || 0) || 0,
         documentNo
@@ -12624,6 +12521,8 @@ app.put('/api/sales-management/records/:id', protectAdmin, async (req, res) => {
         recordId
       ]);
       await syncSalesRecordInventory(recordId, req, connection);
+      // Auto-advance the project-centric sales flow (SI -> SQ -> SO -> DR -> AR).
+      await advanceSalesRecordFlow(connection, recordId, req);
       return rows[0] || { success: true };
     });
     logAction(req, 'UPDATE_SALES_RECORD', `Updated sales record ${existing[0].document_no}`, 'sales');
@@ -12657,60 +12556,32 @@ app.post('/api/sales-management/records/:id/generate-invoice', protectAdmin, asy
     if (!['delivered', 'completed'].includes(status)) {
       return res.status(400).json({ error: 'Set the Delivery Receipt status to Delivered or Completed first.' });
     }
-
-    const existing = await queryAsync(
-      `SELECT id, invoice_number FROM accounts_receivable WHERE sales_record_id = ? AND COALESCE(archived, FALSE) = FALSE LIMIT 1`,
-      [recordId]
-    );
-    if (existing.length) {
-      return res.status(409).json({
-        error: `Invoice already generated: ${existing[0].invoice_number}`,
-        invoice_id: existing[0].id,
-        invoice_number: existing[0].invoice_number
-      });
-    }
-
-    const totalAmount = Number(record.amount || 0);
-    if (!(totalAmount > 0)) {
+    if (!(Number(record.amount || 0) > 0)) {
       return res.status(400).json({ error: 'Delivery Receipt has no amount. Please set the amount before generating an invoice.' });
     }
-    const customerName = String(record.company_name || '').trim();
-    if (!customerName) {
+    if (!String(record.company_name || '').trim()) {
       return res.status(400).json({ error: 'Delivery Receipt has no linked customer. Please link a company first.' });
     }
 
-    const businessEntityId = await resolveBusinessEntityId(record.business_entity_id || req.body.business_entity_id || null);
-    const invoiceNumber = generateCode('INV');
-    const invoiceDate = String(record.target_date || record.requested_date || '').slice(0, 10) || getManilaYmd();
-    const paymentTerms = String(record.payment_terms || 'Net 30').trim();
+    // Reuse the shared, idempotent AR builder (also used by the auto-sync chain).
+    const result = await withDbTransaction((connection) => createReceivableFromDeliveryRecord(connection, record, req));
+    if (!result) {
+      return res.status(400).json({ error: 'Unable to generate invoice from this Delivery Receipt.' });
+    }
+    if (result.existing) {
+      return res.status(409).json({
+        error: `Invoice already generated: ${result.invoice_number}`,
+        invoice_id: result.id,
+        invoice_number: result.invoice_number
+      });
+    }
 
-    const result = await queryAsync(`
-      INSERT INTO accounts_receivable
-        (customer_name, invoice_number, invoice_date, payment_terms, total_amount, paid_amount,
-         status, business_entity_id, notes, project_id, project_docno,
-         sales_record_id, sales_document_no, archived, archived_at)
-      VALUES (?, ?, ?, ?, ?, 0, 'draft', ?, ?, ?, ?, ?, ?, FALSE, NULL)
-    `, [
-      customerName,
-      invoiceNumber,
-      invoiceDate,
-      paymentTerms,
-      totalAmount,
-      businessEntityId,
-      String(record.notes || '').trim() || `Invoice for ${record.document_no || 'Delivery Receipt'}`,
-      Number(record.project_id || 0) || null,
-      String(record.project_docno || '').trim() || null,
-      recordId,
-      String(record.document_no || '').trim() || null
-    ]);
-
-    logAction(req, 'GENERATE_INVOICE', `Generated invoice ${invoiceNumber} from delivery ${record.document_no}`, 'finance');
+    logAction(req, 'GENERATE_INVOICE', `Generated invoice ${result.invoice_number} from delivery ${record.document_no}`, 'finance');
     res.status(201).json({
-      id: result.insertId,
-      invoice_number: invoiceNumber,
-      invoice_date: invoiceDate,
-      total_amount: totalAmount,
-      customer_name: customerName
+      id: result.id,
+      invoice_number: result.invoice_number,
+      total_amount: Number(record.amount || 0),
+      customer_name: String(record.company_name || '').trim()
     });
   } catch (err) {
     if (isPostgresUniqueViolation(err)) {
@@ -15851,48 +15722,6 @@ app.delete('/api/procurement/purchase-orders/:id', protectAdminOnly, async (req,
   }
 });
 
-app.get('/api/service-orders', protectAdmin, async (req, res) => {
-  try {
-    const includeArchived = String(req.query.include_archived || '').trim() === '1';
-    const archiveWhere = includeArchived ? '' : 'WHERE COALESCE(so.is_archived, FALSE) = FALSE';
-    const rows = await queryAsync(`
-      SELECT
-        so.*,
-        be.company_name AS business_entity_name,
-        be.entity_code AS business_entity_code,
-        v.vendor_name,
-        c.company_no,
-        c.company_name,
-        p.project_name,
-        p.project_docno,
-        COALESCE(p.is_archived, FALSE) AS project_is_archived,
-        tx.transaction_count,
-        tx.transaction_docnos
-      FROM service_orders so
-      LEFT JOIN business_entities be ON be.id = so.business_entity_id
-      LEFT JOIN vendors v ON v.id = so.vendor_id
-      LEFT JOIN company_registry c ON c.id = so.company_id
-      LEFT JOIN projects p ON p.id = so.project_id
-      LEFT JOIN (
-        SELECT
-          service_order_id,
-          COUNT(*) AS transaction_count,
-          string_agg(docno::text, ', ' ORDER BY date DESC, id DESC) AS transaction_docnos
-        FROM transactions
-        WHERE COALESCE(archived, FALSE) = FALSE
-          AND COALESCE(service_order_id, 0) > 0
-        GROUP BY service_order_id
-      ) tx ON tx.service_order_id = so.id
-      ${archiveWhere}
-      ORDER BY so.service_date DESC, so.id DESC
-    `);
-    res.json(rows);
-  } catch (err) {
-    console.error('Service orders error:', err);
-    res.status(500).json({ error: err.message || 'Unable to load service orders.' });
-  }
-});
-
 app.get('/api/projects', protectAdmin, (req, res) => {
   runArchiveMaintenance((maintenanceErr) => {
     if (maintenanceErr) {
@@ -15958,40 +15787,6 @@ app.get('/api/projects', protectAdmin, (req, res) => {
       res.json(Array.isArray(rows) ? rows : []);
     });
   });
-});
-
-app.get('/api/service-orders/:id/pdf', protectAdmin, (req, res) => {
-  sendServiceOrderPdf(req, res, req.params.id);
-});
-
-app.put('/api/service-orders/:id/archive', protectAdminOnly, async (req, res) => {
-  const serviceOrderId = Number(req.params.id || 0);
-  if (!serviceOrderId) return res.status(400).json({ error: 'Invalid service order id' });
-
-  try {
-    const result = await withDbTransaction((connection) => setServiceOrderArchiveState(serviceOrderId, true, connection));
-    logAction(req, 'ARCHIVE_SERVICE_ORDER', `Archived service order ${result.serviceOrder.so_number || serviceOrderId} and ${result.affectedTransactions} linked transaction(s)`);
-    res.json({ success: true, archived_transactions: result.affectedTransactions });
-  } catch (err) {
-    if (err.statusCode === 404) return res.status(404).json({ error: err.message || 'Service order not found' });
-    console.error('Archive service order error:', err);
-    res.status(500).json({ error: err.message || 'Unable to archive service order.' });
-  }
-});
-
-app.put('/api/service-orders/:id/restore', protectAdminOnly, async (req, res) => {
-  const serviceOrderId = Number(req.params.id || 0);
-  if (!serviceOrderId) return res.status(400).json({ error: 'Invalid service order id' });
-
-  try {
-    const result = await withDbTransaction((connection) => setServiceOrderArchiveState(serviceOrderId, false, connection));
-    logAction(req, 'RESTORE_SERVICE_ORDER', `Restored service order ${result.serviceOrder.so_number || serviceOrderId} and ${result.affectedTransactions} linked transaction(s)`);
-    res.json({ success: true, restored_transactions: result.affectedTransactions });
-  } catch (err) {
-    if (err.statusCode === 404) return res.status(404).json({ error: err.message || 'Service order not found' });
-    console.error('Restore service order error:', err);
-    res.status(500).json({ error: err.message || 'Unable to restore service order.' });
-  }
 });
 
 app.put('/api/procurement/goods-receipts/:id', protectAdmin, async (req, res) => {

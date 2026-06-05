@@ -5,7 +5,6 @@
     { group: 'master-data', card: 'stat-card-company-registry' },
     { group: 'projects', card: 'stat-card-projects' },
     { group: 'sales-management', card: 'stat-card-sales-management' },
-    { group: 'service-operations', card: 'stat-card-service-operations' },
     { group: 'procurement', card: 'stat-card-procurement' },
     { group: 'inventory', card: 'stat-card-inventory' }
   ];

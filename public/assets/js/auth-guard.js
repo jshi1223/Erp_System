@@ -120,23 +120,88 @@
       };
     }
 
+    // Styled logout confirmation that works on every page (some pages do not load
+    // erp-core.js, so we cannot rely on its shared confirm dialog). Prefers the
+    // shared showConfirm when available, otherwise builds a lightweight modal.
+    function confirmLogout(message) {
+      if (typeof window.showConfirm === 'function') {
+        try {
+          return Promise.resolve(window.showConfirm(message, {
+            title: 'Logout?',
+            confirmLabel: 'Yes, log out',
+            cancelLabel: 'Cancel',
+            type: 'danger'
+          }));
+        } catch (e) { /* fall through to the built-in modal */ }
+      }
+      return new Promise(function (resolve) {
+        var existing = document.getElementById('auth-guard-logout-confirm');
+        if (existing) existing.remove();
+        var overlay = document.createElement('div');
+        overlay.id = 'auth-guard-logout-confirm';
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-modal', 'true');
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;background:rgba(24,30,21,0.55);backdrop-filter:blur(4px);padding:18px;';
+        var card = document.createElement('div');
+        card.style.cssText = 'width:min(380px,94vw);background:#fff;border:1px solid rgba(72,85,58,0.16);border-radius:18px;box-shadow:0 30px 60px rgba(22,29,18,0.28);padding:24px;font-family:Inter,system-ui,sans-serif;';
+        var title = document.createElement('div');
+        title.textContent = 'Logout?';
+        title.style.cssText = 'font-size:1.15rem;font-weight:800;color:#1f2937;margin-bottom:8px;';
+        var msg = document.createElement('p');
+        msg.textContent = message || 'Are you sure?';
+        msg.style.cssText = 'margin:0 0 20px;color:#4b5563;line-height:1.5;font-size:0.92rem;';
+        var actions = document.createElement('div');
+        actions.style.cssText = 'display:flex;justify-content:flex-end;gap:10px;';
+        var noBtn = document.createElement('button');
+        noBtn.type = 'button';
+        noBtn.textContent = 'Cancel';
+        noBtn.style.cssText = 'padding:9px 16px;border-radius:8px;border:1px solid #d0d7e2;background:#f3f4f6;color:#374151;font-weight:700;cursor:pointer;';
+        var yesBtn = document.createElement('button');
+        yesBtn.type = 'button';
+        yesBtn.textContent = 'Yes, log out';
+        yesBtn.style.cssText = 'padding:9px 16px;border-radius:8px;border:1px solid #b42318;background:#b42318;color:#fff;font-weight:700;cursor:pointer;';
+        function cleanup(result) {
+          document.removeEventListener('keydown', onKey);
+          overlay.remove();
+          resolve(result);
+        }
+        function onKey(e) {
+          if (e.key === 'Escape') cleanup(false);
+          else if (e.key === 'Enter') cleanup(true);
+        }
+        noBtn.addEventListener('click', function () { cleanup(false); });
+        yesBtn.addEventListener('click', function () { cleanup(true); });
+        overlay.addEventListener('click', function (e) { if (e.target === overlay) cleanup(false); });
+        document.addEventListener('keydown', onKey);
+        actions.appendChild(noBtn);
+        actions.appendChild(yesBtn);
+        card.appendChild(title);
+        card.appendChild(msg);
+        card.appendChild(actions);
+        overlay.appendChild(card);
+        document.body.appendChild(overlay);
+        setTimeout(function () { yesBtn.focus(); }, 0);
+      });
+    }
+
     if (typeof window.doLogout !== 'function') {
       window.doLogout = function () {
-        var confirmed = window.confirm('Maglo-logout ka na. Gusto mo bang ituloy?');
-        if (!confirmed) return;
-        localStorage.removeItem('kinaadman_activeTab');
-        localStorage.removeItem('kinaadman_dashboardPanel');
-        localStorage.removeItem('kinaadman_currentUserBadge');
-        var headers = {};
-        var token = String(window.__CSRF_TOKEN__ || '').trim();
-        if (token) headers['X-CSRF-Token'] = token;
-        fetch('/logout', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: headers
-        })
-          .then(function () { window.location.href = '/'; })
-          .catch(function () { window.location.href = '/'; });
+        confirmLogout('Maglo-logout ka na. Gusto mo bang ituloy?').then(function (confirmed) {
+          if (!confirmed) return;
+          localStorage.removeItem('kinaadman_activeTab');
+          localStorage.removeItem('kinaadman_dashboardPanel');
+          localStorage.removeItem('kinaadman_currentUserBadge');
+          var headers = {};
+          var token = String(window.__CSRF_TOKEN__ || '').trim();
+          if (token) headers['X-CSRF-Token'] = token;
+          fetch('/logout', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: headers
+          })
+            .then(function () { window.location.href = '/'; })
+            .catch(function () { window.location.href = '/'; });
+        });
       };
     }
   }
@@ -337,14 +402,7 @@
       buildLink('/sales-management?tab=sales-request', 'Sales Inquiry', 'menu-sales-management'),
       buildLink('/sales-management?tab=sales-quotation', 'Quotation'),
       buildLink('/sales-management?tab=sales-order', 'SO'),
-      buildLink('/sales-management?tab=proposal-request', 'Projects'),
       buildLink('/sales-management?tab=project-delivery', 'Delivery Receipt')
-    ]);
-
-    var serviceHtml = buildGroup('service-operations', 'Service Operations', [
-      buildLink('/service-operations', 'Service Orders', 'menu-service-operations'),
-      buildLink('/service-operations?tab=documents', 'Service Documents'),
-      buildLink('/admin?panel=project-records&tab=transactions', 'Project Transactions')
     ]);
 
     var inventoryHtml = buildGroup('inventory', 'Inventory Management', [
@@ -405,9 +463,9 @@
     }
     var masterAnchor = nav.querySelector('#menu-dashboard') || nav.firstElementChild;
     if (masterAnchor && masterAnchor.insertAdjacentHTML) {
-      masterAnchor.insertAdjacentHTML('afterend', masterDataHtml + salesHtml + serviceHtml);
+      masterAnchor.insertAdjacentHTML('afterend', masterDataHtml + salesHtml);
     } else {
-      nav.insertAdjacentHTML('afterbegin', masterDataHtml + salesHtml + serviceHtml);
+      nav.insertAdjacentHTML('afterbegin', masterDataHtml + salesHtml);
     }
     nav.dataset.financeNormalized = '1';
   }
@@ -927,7 +985,6 @@
           { prefixes: ['/accounts-payable'], roles: ['super_admin', 'admin', 'staff'] },
           { prefixes: ['/accounts-receivable'], roles: ['super_admin', 'admin', 'staff'] },
           { prefixes: ['/sales-management'], roles: ['super_admin', 'admin', 'staff'] },
-          { prefixes: ['/service-operations'], roles: ['super_admin', 'admin', 'staff'] },
           { prefixes: ['/inventory'], roles: ['super_admin', 'admin', 'staff'] },
           { prefixes: ['/reports'], roles: ['super_admin', 'admin'] },
           { prefixes: ['/gantt-chart'], roles: ['super_admin', 'admin'] },
@@ -1045,13 +1102,6 @@
             ]
           },
           {
-            key: 'service-operations',
-            label: 'Service Operations',
-            items: [
-              { href: '/service-operations', label: 'Service Orders', id: 'menu-service-operations' }
-            ]
-          },
-          {
             key: 'procurement',
             label: 'Procurement',
             items: [
@@ -1099,17 +1149,7 @@
               { href: '/sales-management?tab=sales-request', label: 'Sales Inquiry', id: 'menu-sales-management', aliases: ['/sales-management'] },
               { href: '/sales-management?tab=sales-quotation', label: 'Quotation' },
               { href: '/sales-management?tab=sales-order', label: 'SO' },
-              { href: '/sales-management?tab=proposal-request', label: 'Projects' },
               { href: '/sales-management?tab=project-delivery', label: 'Delivery Receipt' }
-            ]
-          },
-          {
-            key: 'service-operations',
-            label: 'Service Operations',
-            items: [
-              { href: '/service-operations', label: 'Service Orders', id: 'menu-service-operations', aliases: ['/accounts-receivable?tab=service-orders', '/accounts-receivable?tab=transactions'] },
-              { href: '/service-operations?tab=documents', label: 'Service Documents' },
-              { href: '/admin?panel=project-records&tab=transactions', label: 'Project Transactions', aliases: ['/admin?view=all'] }
             ]
           },
           {
@@ -1289,9 +1329,9 @@
       ''
     ).trim().toLowerCase();
     var requiredGroupsByRole = {
-      staff: ['projects', 'master-data', 'sales-management', 'service-operations', 'procurement', 'inventory'],
-      admin: ['master-data', 'projects', 'sales-management', 'service-operations', 'procurement', 'inventory', 'finance', 'admin'],
-      super_admin: ['master-data', 'projects', 'sales-management', 'service-operations', 'procurement', 'inventory', 'finance', 'super-admin']
+      staff: ['projects', 'master-data', 'sales-management', 'procurement', 'inventory'],
+      admin: ['master-data', 'projects', 'sales-management', 'procurement', 'inventory', 'finance', 'admin'],
+      super_admin: ['master-data', 'projects', 'sales-management', 'procurement', 'inventory', 'finance', 'super-admin']
     };
     var requiredGroups = requiredGroupsByRole[role] || [];
     var hasGroups = requiredGroups.every(function (key) {
@@ -1353,7 +1393,6 @@
       '/accounts-payable?tab=disbursements',
       '/accounts-receivable?tab=customer-balances',
       '/accounts-receivable?tab=ar-aging',
-      '/service-operations?tab=documents',
       '/procurement?tab=rfq',
       '/procurement?tab=quotations',
       '/procurement?tab=purchase-orders',
@@ -1408,11 +1447,9 @@
       '/master-data?tab=requests',
       '/sales-management',
       '/sales-management?tab=sales-request',
-      '/sales-management?tab=proposal-request',
       '/sales-management?tab=sales-quotation',
       '/sales-management?tab=sales-order',
       '/sales-management?tab=project-delivery',
-      '/service-operations',
       '/procurement?tab=requests',
       '/procurement?tab=requisitions',
       '/inventory',

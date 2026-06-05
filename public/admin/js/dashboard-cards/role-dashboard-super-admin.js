@@ -5,7 +5,6 @@
     'stat-card-company-registry',
     'stat-card-projects',
     'stat-card-sales',
-    'stat-card-service-operations',
     'stat-card-procurement',
     'stat-card-approvals',
     'stat-card-inventory',

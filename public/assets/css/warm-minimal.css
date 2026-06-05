@@ -1,0 +1,123 @@
+/* ============================================================
+   warm-minimal.css
+   App-wide "warm minimal" refinement layer.
+
+   Loaded LAST on every page so it gently refines the design
+   *tokens* and a few base components without rewriting the
+   existing stylesheets. Because most of the work is done through
+   CSS variables, the change cascades across every module with no
+   specificity fights and is trivial to revert (remove the <link>).
+
+   Keeps the maroon brand. Calms the background, softens shadows,
+   warms the neutral greys, relaxes the radii, and turns sharp
+   status chips into true pills.
+   ============================================================ */
+
+:root {
+  /* Calmer warm page wash — one quiet corner glow instead of the
+     busy double-radial + pink gradient. */
+  --theme-page-bg:
+    radial-gradient(1100px 520px at 100% -8%, rgba(180, 35, 24, 0.045), transparent 62%),
+    linear-gradient(180deg, #fdf9f7 0%, #f8f1ed 100%);
+
+  /* Softer, lower two-step shadows (used by stat-card, table-wrap,
+     and anything else that reads var(--shadow)/var(--erp-shadow)). */
+  --shadow: 0 1px 2px rgba(75, 18, 16, 0.04), 0 8px 22px rgba(75, 18, 16, 0.05);
+  --erp-shadow: 0 10px 34px rgba(75, 18, 16, 0.06);
+
+  /* Warm hairline neutrals — replaces the pink/blue-grey lines. */
+  --border: #efe1dc;
+  --erp-line: rgba(75, 18, 16, 0.08);
+  --muted: #837570;
+  --text-muted: #837570;
+
+  /* Gentle, more consistent radii. */
+  --radius: 12px;
+  --erp-radius-md: 16px;
+  --erp-radius-xl: 22px;
+}
+
+/* Keep the kitsi (blue) workspace theme's own wash — just as calm. */
+body[data-business-entity-theme="kitsi"],
+html[data-business-entity-theme="kitsi"] {
+  --theme-page-bg:
+    radial-gradient(1100px 520px at 100% -8%, rgba(8, 152, 199, 0.05), transparent 62%),
+    linear-gradient(180deg, #f7fcff 0%, #eef8ff 100%);
+}
+
+/* Sharp 3px chips → soft, legible pills everywhere. Same specificity
+   as the base rule but loaded later, so radius/padding win while the
+   per-status colours defined elsewhere are left untouched. */
+.type-pill,
+.status-pill {
+  padding: 3px 11px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+/* Smoother focus ring that matches the warm palette, app-wide. */
+body.admin-page :focus-visible,
+body.erp-clean-page :focus-visible {
+  outline: 2px solid transparent;
+  box-shadow: 0 0 0 3px rgba(180, 35, 24, 0.18);
+}
+
+/* ============================================================
+   Shared module surfaces — warm the off-brand tints
+   The shared .module-* classes (used by every module page) ship
+   with olive/green-tinted shadows and a green dashed "empty note".
+   Warm them so the whole app stays in the maroon family.
+   ============================================================ */
+body.admin-page .module-summary-card:hover,
+body.erp-clean-page .module-summary-card:hover,
+body.admin-page .stat-card:hover,
+body.erp-clean-page .stat-card:hover {
+  box-shadow: 0 1px 2px rgba(75, 18, 16, 0.05), 0 16px 34px rgba(75, 18, 16, 0.09);
+}
+
+body.admin-page .module-page-toolbar,
+body.erp-clean-page .module-page-toolbar {
+  box-shadow: 0 1px 2px rgba(75, 18, 16, 0.04), 0 10px 26px rgba(75, 18, 16, 0.05);
+}
+
+body.admin-page .module-panel-note,
+body.erp-clean-page .module-panel-note {
+  border: 1px dashed rgba(180, 35, 24, 0.2);
+  background: #fffdfc;
+}
+
+/* ============================================================
+   Sales / AR / AP — warm minimal surfaces
+   Flatten the gradient + radial-glow page-hero / toolbar / summary
+   cards. The [data-business-entity-theme] selectors are mirrored
+   (with !important) so they beat the per-page themed overrides
+   that ship in accounts-receivable.css / accounts-payable.css.
+   ============================================================ */
+body.sales-management-page .page-hero,
+body.sales-management-page .module-page-toolbar,
+body.sales-management-page .module-summary-card,
+body.accounts-receivable-page .page-hero,
+body.accounts-receivable-page .module-page-toolbar,
+body.accounts-receivable-page .module-summary-card,
+body.accounts-payable-page .page-hero,
+body.accounts-payable-page .module-page-toolbar,
+body.accounts-payable-page .module-summary-card,
+body.accounts-receivable-page[data-business-entity-theme] .page-hero,
+body.accounts-receivable-page[data-business-entity-theme] .module-page-toolbar,
+body.accounts-receivable-page[data-business-entity-theme] .module-summary-card,
+body.erp-clean-page.accounts-payable-page[data-business-entity-theme] .page-hero,
+body.erp-clean-page.accounts-payable-page[data-business-entity-theme] .module-page-toolbar,
+body.erp-clean-page.accounts-payable-page[data-business-entity-theme] .module-summary-card {
+  border: 1px solid var(--border, #efe1dc) !important;
+  background: #ffffff !important;
+  box-shadow: 0 1px 2px rgba(75, 18, 16, 0.04), 0 10px 28px rgba(75, 18, 16, 0.05) !important;
+}
+
+/* Thin maroon left accent on the finance summary cards. */
+body.sales-management-page .module-summary-card,
+body.accounts-receivable-page .module-summary-card,
+body.accounts-receivable-page[data-business-entity-theme] .module-summary-card,
+body.accounts-payable-page .module-summary-card,
+body.erp-clean-page.accounts-payable-page[data-business-entity-theme] .module-summary-card {
+  border-left: 3px solid #b42318 !important;
+}

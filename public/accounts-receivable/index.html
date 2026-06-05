@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260531a" />
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a" />
   <link rel="stylesheet" href="/accounts-receivable/accounts-receivable.css?v=20260601a" />
+  <link rel="stylesheet" href="/assets/css/warm-minimal.css?v=20260605wm2" />
 
   
 </head>
@@ -288,40 +289,11 @@
   </div>
 
   <div class="module-tabs">
-    <div class="module-tab active" data-tab="service-orders" onclick="switchTab('service-orders', this)">Service Orders</div>
-    <div class="module-tab" data-tab="invoices" onclick="switchTab('invoices', this)">Invoices</div>
+    <div class="module-tab active" data-tab="invoices" onclick="switchTab('invoices', this)">Invoices</div>
     <div class="module-tab" data-tab="collections" onclick="switchTab('collections', this)">Collections</div>
     <div class="module-tab" data-tab="customer-balances" onclick="switchTab('customer-balances', this)">Customer Balances</div>
     <div class="module-tab" data-tab="ar-aging" onclick="switchTab('ar-aging', this)">AR Aging</div>
     <div class="module-tab" data-tab="documents" onclick="switchTab('documents', this)">Documents</div>
-  </div>
-
-  <div id="service-orders" class="content-section active">
-    <div class="module-panel-head">
-      <div>
-        <div class="section-title">Service Orders</div>
-      </div>
-    </div>
-
-    <div class="table-wrap" id="service-orders-table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th>SO No.</th>
-            <th>Company</th>
-            <th>Project</th>
-            <th>Service Date</th>
-            <th>Service Type</th>
-            <th>Title</th>
-            <th>Linked Transaction</th>
-            <th class="text-right">Amount</th>
-            <th>Status</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody id="service-orders-tbody"></tbody>
-      </table>
-    </div>
   </div>
 
   <div id="transactions" class="content-section">
@@ -545,7 +517,6 @@
         <a href="/sales-management?tab=sales-request" class="sidebar-link is-subitem" id="menu-sales-management">Sales Inquiry</a>
         <a href="/sales-management?tab=sales-quotation" class="sidebar-link is-subitem">Quotation</a>
         <a href="/sales-management?tab=sales-order" class="sidebar-link is-subitem">SO</a>
-        <a href="/sales-management?tab=proposal-request" class="sidebar-link is-subitem">Projects</a>
         <a href="/sales-management?tab=project-delivery" class="sidebar-link is-subitem">Delivery Receipt</a>
       </div>
     </div>

@@ -404,11 +404,6 @@ function applyInitialAdminView(user) {
     return;
   }
 
-  if (requestedPanel === 'service-orders' || requestedView === 'service-orders') {
-    window.location.replace('/service-operations');
-    return;
-  }
-
   if (requestedView === 'all') {
     currentProjectWorkspaceTab = normalizeProjectWorkspaceTab(requestedTab || rememberedProjectWorkspaceTab || currentProjectWorkspaceTab);
     window.location.replace(normalizeWorkspaceHref(`/admin?panel=project-records&tab=${encodeURIComponent(currentProjectWorkspaceTab)}`));
@@ -2445,7 +2440,7 @@ function setProjectLedgerMetric(id, value) {
 }
 
 async function fetchProjectLedgerData() {
-  const [transactionsRes, receivablesRes, billsRes, requisitionsRes, quotationsRes, purchaseOrdersRes, goodsReceiptsRes, apPaymentsRes, arPaymentsRes, serviceOrdersRes, inventoryMovementsRes] = await Promise.all([
+  const [transactionsRes, receivablesRes, billsRes, requisitionsRes, quotationsRes, purchaseOrdersRes, goodsReceiptsRes, apPaymentsRes, arPaymentsRes, serviceOrdersRes, inventoryMovementsRes, salesRecordsRes] = await Promise.all([
     fetch('/api/transactions', { cache: 'no-store' }),
     fetch('/api/receivables?include_archived=1', { cache: 'no-store' }),
     fetch('/api/bills', { cache: 'no-store' }),
@@ -2456,14 +2451,15 @@ async function fetchProjectLedgerData() {
     fetch('/api/payments?type=ap', { cache: 'no-store' }),
     fetch('/api/payments?type=ar', { cache: 'no-store' }),
     fetch('/api/service-orders?include_archived=1', { cache: 'no-store' }),
-    fetch('/api/inventory/movements?include_all=1', { cache: 'no-store' })
+    fetch('/api/inventory/movements?include_all=1', { cache: 'no-store' }),
+    fetch('/api/sales-management/records', { cache: 'no-store' })
   ]);
 
-  const responses = [transactionsRes, receivablesRes, billsRes, requisitionsRes, quotationsRes, purchaseOrdersRes, goodsReceiptsRes, apPaymentsRes, arPaymentsRes, serviceOrdersRes, inventoryMovementsRes];
+  const responses = [transactionsRes, receivablesRes, billsRes, requisitionsRes, quotationsRes, purchaseOrdersRes, goodsReceiptsRes, apPaymentsRes, arPaymentsRes, serviceOrdersRes, inventoryMovementsRes, salesRecordsRes];
   const failed = responses.find((response) => !response.ok);
   if (failed) throw new Error(`Unable to load project ledger data (${failed.status}).`);
 
-  const [transactions, receivables, bills, requisitions, quotations, purchaseOrders, goodsReceipts, apPayments, arPayments, serviceOrders, inventoryMovements] = await Promise.all(
+  const [transactions, receivables, bills, requisitions, quotations, purchaseOrders, goodsReceipts, apPayments, arPayments, serviceOrders, inventoryMovements, salesRecords] = await Promise.all(
     responses.map((response) => response.json().catch(() => []))
   );
 
@@ -2478,7 +2474,8 @@ async function fetchProjectLedgerData() {
     apPayments: Array.isArray(apPayments) ? apPayments : [],
     arPayments: Array.isArray(arPayments) ? arPayments : [],
     serviceOrders: Array.isArray(serviceOrders) ? serviceOrders : [],
-    inventoryMovements: Array.isArray(inventoryMovements) ? inventoryMovements : []
+    inventoryMovements: Array.isArray(inventoryMovements) ? inventoryMovements : [],
+    salesRecords: Array.isArray(salesRecords) ? salesRecords : []
   };
 }
 
@@ -2500,6 +2497,17 @@ function buildProjectLedgerSnapshot(project, data) {
   const arPayments = data.arPayments.filter((row) => receivableIds.has(Number(row.ar_id || 0)));
   const serviceOrders = data.serviceOrders.filter((row) => Number(row.project_id || 0) === id);
   const inventoryMovements = data.inventoryMovements.filter((row) => Number(row.project_id || 0) === id);
+  // Sales pipeline records (SI -> SQ -> SO -> DR) tied to this project; skip
+  // cancelled rows (incl. soft-archived legacy Projects/Service-Order types).
+  const salesRecords = (data.salesRecords || []).filter((row) =>
+    Number(row.project_id || 0) === id && String(row.status || '').toLowerCase() !== 'cancelled');
+  const salesByType = (t) => salesRecords.filter((row) => String(row.record_type || '') === t);
+  const pipeline = {
+    inquiry: salesByType('sales-request'),
+    quotation: salesByType('sales-quotation'),
+    order: salesByType('sales-order'),
+    delivery: salesByType('project-delivery')
+  };
 
   const arTotal = receivables.reduce((sum, row) => sum + Number(row.total_amount || 0), 0);
   const collectedFromPayments = arPayments.reduce((sum, row) => sum + Number(row.amount || 0), 0);
@@ -2530,6 +2538,8 @@ function buildProjectLedgerSnapshot(project, data) {
     arPayments,
     serviceOrders,
     inventoryMovements,
+    salesRecords,
+    pipeline,
     totals: {
       arTotal,
       collectedTotal,
@@ -2665,6 +2675,17 @@ function renderProjectRelationshipCard(title, subtitle, items = []) {
   `;
 }
 
+function renderProjectPipelineNode(label, count, amountText = '', tone = '', sub = '') {
+  return `
+    <div class="project-pipeline-node${tone ? ` is-${escHtml(tone)}` : ''}">
+      <span class="project-pipeline-node-label">${escHtml(label)}</span>
+      <strong class="project-pipeline-node-count">${escHtml(String(count))}</strong>
+      ${amountText ? `<em class="project-pipeline-node-amount">${escHtml(amountText)}</em>` : ''}
+      ${sub ? `<small class="project-pipeline-node-sub">${escHtml(sub)}</small>` : ''}
+    </div>
+  `;
+}
+
 function renderProjectOverview(snapshot) {
   const project = snapshot?.project || {};
   const totals = snapshot?.totals || {};
@@ -2714,6 +2735,44 @@ function renderProjectOverview(snapshot) {
   const grossProfit = Number(totals.grossProfit || 0);
   const marginPercent = Number(totals.marginPercent || 0);
   const profitTone = grossProfit >= 0 ? 'positive' : 'negative';
+
+  // ── Sales pipeline strip (Project -> SI -> SQ -> SO -> DR -> AR) ──────────
+  const pipeline = snapshot.pipeline || { inquiry: [], quotation: [], order: [], delivery: [] };
+  const sumAmt = (rows) => (rows || []).reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const inquiryCount = (pipeline.inquiry || []).length;
+  const salesQuotationCount = (pipeline.quotation || []).length;
+  const salesOrderCount = (pipeline.order || []).length;
+  const deliveryCount = (pipeline.delivery || []).length;
+  const deliveredCount = (pipeline.delivery || []).filter((row) => ['delivered', 'completed'].includes(String(row.status || '').toLowerCase())).length;
+  const pipelineStrip = [
+    renderProjectPipelineNode('Project', projectDocNo !== '-' ? 1 : 0, '', projectDocNo !== '-' ? 'positive' : 'muted', 'Root'),
+    renderProjectPipelineNode('Sales Inquiry', inquiryCount, '', inquiryCount ? 'positive' : 'muted', 'optional'),
+    renderProjectPipelineNode('Quotation', salesQuotationCount, '', salesQuotationCount ? 'positive' : 'muted', 'optional'),
+    renderProjectPipelineNode('Sales Order', salesOrderCount, salesOrderCount ? formatPhpCurrency(sumAmt(pipeline.order)) : '', salesOrderCount ? 'positive' : 'muted'),
+    renderProjectPipelineNode('Delivery', deliveryCount, deliveryCount ? formatPhpCurrency(sumAmt(pipeline.delivery)) : '', deliveredCount ? 'positive' : (deliveryCount ? 'warning' : 'muted'), deliveredCount ? `${deliveredCount} delivered` : ''),
+    renderProjectPipelineNode('AR / Invoice', receivableCount, receivableCount ? formatPhpCurrency(totals.arTotal || 0) : '', receivableCount ? (arBalance > 0 ? 'warning' : 'positive') : 'muted', arBalance > 0 ? `${formatPhpCurrency(arBalance)} due` : (receivableCount ? 'collected' : ''))
+  ].join('<div class="project-pipeline-arrow" aria-hidden="true">&rarr;</div>');
+
+  // ── PALDO / PALUBOG verdict (from gross profit) ──────────────────────────
+  const verdictPaldo = grossProfit >= 0;
+  const revenueShown = Number(totals.arTotal || 0) || contractAmount || 0;
+  const costShown = Number(totals.apTotal || 0) + Number(totals.inventoryCostTotal || 0);
+  const verdictBanner = `
+    <div class="project-overview-verdict is-${verdictPaldo ? 'paldo' : 'palubog'}">
+      <div class="project-overview-verdict-main">
+        <span class="project-overview-verdict-tag">${verdictPaldo ? 'PALDO' : 'PALUBOG'}</span>
+        <div class="project-overview-verdict-copy">
+          <strong>${escHtml(formatPhpCurrency(grossProfit))}</strong>
+          <em>${verdictPaldo ? 'Kumikita ang project' : 'Lugi ang project'} &middot; ${escHtml(String(marginPercent))}% margin</em>
+        </div>
+      </div>
+      <div class="project-overview-verdict-side">
+        <span>Revenue <strong>${escHtml(formatPhpCurrency(revenueShown))}</strong></span>
+        <span>Cost <strong>${escHtml(formatPhpCurrency(costShown))}</strong></span>
+      </div>
+    </div>
+  `;
+
   const members = getProjectSourceMembers(project);
   const memberHtml = members.length
     ? members.map((member, index) => formatProjectMemberSummary(member, index)).join('')
@@ -2799,6 +2858,18 @@ function renderProjectOverview(snapshot) {
           ${renderProjectOverviewDetail('Project No.', projectDocNo)}
           ${renderProjectOverviewDetail('Customer PO Ref.', customerPoRef)}
         </div>
+      </div>
+
+      ${verdictBanner}
+
+      <div class="project-overview-card project-overview-pipeline-card">
+        <div class="project-overview-section-head">
+          <div>
+            <div class="project-overview-kicker">Sales Flow</div>
+            <h4>Project &rarr; Inquiry &rarr; Quotation &rarr; Sales Order &rarr; Delivery &rarr; Invoice</h4>
+          </div>
+        </div>
+        <div class="project-overview-pipeline">${pipelineStrip}</div>
       </div>
 
       <div class="project-overview-layout">
@@ -5397,10 +5468,6 @@ function openReportsPanel() {
 
 function openProjectsDashboard() {
   navigateDashboardCard('/admin?panel=project-records');
-}
-
-function openServiceOrdersDashboard() {
-  navigateDashboardCard('/service-operations');
 }
 
 function goBackSmart(fallback = getWorkspaceHomePath(), forceFallback = false) {
@@ -8557,13 +8624,12 @@ async function updateStats() {
       const salesRecords = salesRes.ok ? await salesRes.json().catch(() => []) : [];
       const salesRows = Array.isArray(salesRecords) ? salesRecords : [];
       const requestCount = salesRows.filter(row => String(row.record_type || '') === 'sales-request').length;
-      const proposalCount = salesRows.filter(row => String(row.record_type || '') === 'proposal-request').length;
       const quotationCount = salesRows.filter(row => String(row.record_type || '') === 'sales-quotation').length;
       const orderCount = salesRows.filter(row => String(row.record_type || '') === 'sales-order').length;
       const deliveryCount = salesRows.filter(row => String(row.record_type || '') === 'project-delivery').length;
       if (statSales) statSales.textContent = String(orderCount + deliveryCount);
       if (statSalesMini) {
-        statSalesMini.textContent = `${getCurrentDashboardCompanyLabel()} • ${requestCount} requests • ${proposalCount} proposals • ${quotationCount} quotations`;
+        statSalesMini.textContent = `${getCurrentDashboardCompanyLabel()} • ${requestCount} inquiries • ${quotationCount} quotations • ${orderCount} SO`;
       }
     } catch (_) {
       if (statSales) statSales.textContent = '0';
@@ -9448,8 +9514,7 @@ function syncSidebarActiveLinks() {
     '/admin?panel=archive-center': ['/admin?view=archive-center', '/admin?view=archived', '/admin?panel=archived'],
     '/admin?panel=approval-center': ['/admin?view=approvals'],
     '/master-data?tab=vendors': ['/accounts-payable?tab=vendors', '/accounts-payable'],
-    '/sales-management': ['/accounts-receivable', '/accounts-receivable?tab=invoices'],
-    '/service-operations': ['/accounts-receivable?tab=service-orders']
+    '/sales-management': ['/accounts-receivable', '/accounts-receivable?tab=invoices']
   };
 
   function sameRoute(candidateHref) {

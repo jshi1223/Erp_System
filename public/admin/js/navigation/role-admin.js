@@ -28,20 +28,9 @@
       label: 'Sales Management',
       items: [
         { label: 'Sales Request', href: '/sales-management?tab=sales-request', id: 'menu-sales-management' },
-        { label: 'Proposal Request', href: '/sales-management?tab=proposal-request' },
         { label: 'Sales Quotation', href: '/sales-management?tab=sales-quotation' },
         { label: 'Sales Order', href: '/sales-management?tab=sales-order' },
         { label: 'Project Delivery', href: '/sales-management?tab=project-delivery' }
-      ]
-    },
-    {
-      type: 'group',
-      key: 'service-operations',
-      label: 'Service Operations',
-      items: [
-        { label: 'Service Orders', href: '/service-operations', id: 'menu-service-operations' },
-        { label: 'Service Documents', href: '/service-operations?tab=documents' },
-        { label: 'Project Transactions', href: '/admin?panel=project-records&tab=transactions' }
       ]
     },
     {

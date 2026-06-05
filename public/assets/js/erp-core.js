@@ -322,11 +322,6 @@ function applyInitialAdminView(user) {
     return;
   }
 
-  if (requestedPanel === 'service-orders' || requestedView === 'service-orders') {
-    window.location.replace('/service-operations');
-    return;
-  }
-
   if (requestedView === 'all') {
     const menuAll = document.getElementById('menu-all');
     switchTab('all', menuAll);
@@ -2535,10 +2530,6 @@ function openReportsPanel() {
 function openProjectsDashboard() {
   openDashboardPanel('project-records');
   setSidebarOpen(false);
-}
-
-function openServiceOrdersDashboard() {
-  window.location.href = '/service-operations';
 }
 
 function goBackSmart(fallback = '/admin', forceFallback = false) {
@@ -5904,7 +5895,6 @@ function syncSidebarActiveLinks() {
     '/procurement?tab=purchase-orders': ['/accounts-payable?tab=purchase-orders'],
     '/procurement?tab=goods-receipts': ['/accounts-payable?tab=goods-receipts'],
     '/accounts-payable?tab=bills': ['/accounts-payable'],
-    '/service-operations': ['/accounts-receivable?tab=service-orders', '/accounts-receivable?tab=overview', '/accounts-receivable?tab=transactions'],
     '/accounts-receivable?tab=invoices': ['/accounts-receivable?tab=receivables'],
     '/accounts-receivable?tab=collections': ['/accounts-receivable?tab=payments']
   };

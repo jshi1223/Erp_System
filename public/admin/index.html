@@ -11,9 +11,10 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Orbitron:wght@500;700;800&amp;family=Playfair+Display:wght@600;700&amp;family=IBM+Plex+Mono:wght@300;400;500&amp;display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260604dash">
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a">
-  <link rel="stylesheet" href="/admin/css/admin.css?v=20260601a">
+  <link rel="stylesheet" href="/admin/css/admin.css?v=20260605pf">
   <link rel="stylesheet" href="/admin/css/roles/role-admin.css?v=20260531b">
   <link rel="stylesheet" href="/admin/css/roles/role-super-admin.css?v=20260531b">
+  <link rel="stylesheet" href="/assets/css/warm-minimal.css?v=20260605wm2">
 </head>
 <body class="admin-page">
 <script>
@@ -328,6 +329,10 @@
       <div class="approval-center-head">
         <div class="approval-center-title-wrap">
           <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-smart-back="1" data-back-force-fallback="1" data-back-fallback="/admin" onclick="goBackSmart('/admin', true)" aria-label="Go back to Dashboard">Back to Dashboard</button>
+          <div class="approval-center-heading">
+            <span class="approval-center-kicker">Workflow</span>
+            <h2>Approval Center</h2>
+          </div>
         </div>
         <div class="approval-center-actions">
           <button class="btn btn-cancel btn-sm" type="button" onclick="renderApprovalCenter(true)">Refresh</button>
@@ -857,7 +862,6 @@
       </button>
       <div class="sidebar-group-items">
         <a href="/sales-management?tab=sales-request" class="sidebar-link is-subitem" id="menu-sales-management">Sales Request</a>
-        <a href="/sales-management?tab=proposal-request" class="sidebar-link is-subitem">Proposal Request</a>
         <a href="/sales-management?tab=sales-quotation" class="sidebar-link is-subitem">Sales Quotation</a>
         <a href="/sales-management?tab=sales-order" class="sidebar-link is-subitem">Sales Order</a>
         <a href="/sales-management?tab=project-delivery" class="sidebar-link is-subitem">Project Delivery</a>
@@ -1752,14 +1756,14 @@
 
 <!-- Scripts -->
 <script src="/admin/js/navigation/role-navigation-renderer.js?v=20260531b"></script>
-<script src="/admin/js/navigation/role-admin.js?v=20260602archive"></script>
-<script src="/admin/js/navigation/role-super-admin.js?v=20260602archive"></script>
+<script src="/admin/js/navigation/role-admin.js?v=20260605pf"></script>
+<script src="/admin/js/navigation/role-super-admin.js?v=20260605pf"></script>
 <script src="/admin/js/dashboard-cards/role-dashboard-cards.js?v=20260531k"></script>
 <script src="/admin/js/dashboard-cards/role-dashboard-admin.js?v=20260531a"></script>
 <script src="/admin/js/dashboard-cards/role-dashboard-super-admin.js?v=20260531a"></script>
 <script src="/admin/js/roles/role-flow.js?v=20260531c"></script>
 <script src="/admin/js/modules/notifications.module.js?v=20260531a"></script>
-<script src="/admin/js/admin.js?v=20260604entityfilter"></script>
+<script src="/admin/js/admin.js?v=20260605pf">
 <script src="/admin/js/modules/approval-center.module.js?v=20260603a"></script>
 
 

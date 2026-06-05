@@ -1,11 +1,13 @@
 'use strict';
 
+// Project-centric spine: Project -> [SI] -> [SQ] -> SO -> DR -> AR.
+// SI and SQ are OPTIONAL — a project can go straight to SO. The `source`
+// link is therefore optional at every stage (see SALES_STAGE_FIELDS.required).
 const SALES_TYPES = {
   'sales-request': { label: 'Sales Inquiry', next: 'sales-quotation', sourceLabel: '', sourceType: '' },
   'sales-quotation': { label: 'Quotation', next: 'sales-order', sourceLabel: 'Sales Inquiry', sourceType: 'sales-request' },
-  'sales-order': { label: 'SO', next: 'proposal-request', sourceLabel: 'Quotation', sourceType: 'sales-quotation' },
-  'proposal-request': { label: 'Projects', next: 'project-delivery', sourceLabel: 'SO', sourceType: 'sales-order' },
-  'project-delivery': { label: 'Delivery Receipt', next: '', sourceLabel: 'Projects', sourceType: 'proposal-request' },
+  'sales-order': { label: 'SO', next: 'project-delivery', sourceLabel: 'Quotation', sourceType: 'sales-quotation' },
+  'project-delivery': { label: 'Delivery Receipt', next: '', sourceLabel: 'SO', sourceType: 'sales-order' },
   'requests': { label: 'Requests', next: '', sourceLabel: '', sourceType: '', isVirtual: true }
 };
 
@@ -33,26 +35,20 @@ const SALES_STAGE_FIELDS = {
   'sales-quotation': {
     sectionTitle: 'Quotation Details',
     descriptionLabel: 'Quoted Scope / Inclusions',
-    fields: ['source', 'company', 'contact', 'title', 'requested-date', 'target-date', 'amount', 'payment-terms', 'description', 'notes'],
-    required: ['source', 'company', 'title', 'requested-date', 'amount']
+    fields: ['source', 'company', 'project', 'contact', 'title', 'requested-date', 'target-date', 'amount', 'payment-terms', 'description', 'notes'],
+    required: ['company', 'project', 'title', 'requested-date', 'amount']
   },
   'sales-order': {
     sectionTitle: 'Sales Order Details',
     descriptionLabel: 'Confirmed Scope',
     fields: ['source', 'company', 'project', 'contact', 'title', 'requested-date', 'target-date', 'amount', 'payment-terms', 'inventory-note', 'product', 'warehouse', 'quantity', 'unit-price', 'description', 'notes'],
-    required: ['source', 'company', 'title', 'requested-date']
-  },
-  'proposal-request': {
-    sectionTitle: 'Project Details',
-    descriptionLabel: 'Project Scope / Work Details',
-    fields: ['source', 'company', 'project', 'contact', 'title', 'requested-date', 'target-date', 'amount', 'description', 'notes'],
-    required: ['source', 'company', 'project', 'title']
+    required: ['company', 'project', 'title', 'requested-date']
   },
   'project-delivery': {
     sectionTitle: 'Delivery Receipt Details',
     descriptionLabel: 'Delivery Notes / Received Items',
     fields: ['source', 'company', 'project', 'title', 'target-date', 'inventory-note', 'product', 'warehouse', 'quantity', 'unit-price', 'description', 'notes'],
-    required: ['source', 'company', 'project', 'title', 'target-date', 'product', 'warehouse', 'quantity']
+    required: ['company', 'project', 'title', 'target-date', 'product', 'warehouse', 'quantity']
   }
 };
 
@@ -104,6 +100,19 @@ function bindSalesEvents() {
   document.getElementById('sales-cancel-btn')?.addEventListener('click', closeSalesModal);
   document.getElementById('sales-modal-backdrop')?.addEventListener('click', (event) => {
     if (event.target?.id === 'sales-modal-backdrop') closeSalesModal();
+  });
+
+  // Clear a field's inline error as soon as the user edits it.
+  document.getElementById('sales-modal-backdrop')?.addEventListener('input', (event) => {
+    const field = event.target?.closest?.('[data-sales-field]');
+    if (!field || !field.classList.contains('has-error')) return;
+    field.classList.remove('has-error');
+    const key = field.getAttribute('data-sales-field');
+    const msg = document.querySelector(`#sales-modal-backdrop [data-sales-field-message="${key}"]`);
+    if (msg) {
+      msg.textContent = '';
+      msg.classList.add('is-hidden');
+    }
   });
 }
 
@@ -217,7 +226,6 @@ function renderSalesToolbarControls(tab) {
     'sales-request': 'Search customer, project, or item...',
     'sales-quotation': 'Search customer, project, or title...',
     'sales-order': 'Search customer, project, or SO title...',
-    'proposal-request': 'Search customer, project, or title...',
     'project-delivery': 'Search customer, project, or delivery...'
   }[tab] || 'Search...';
 
@@ -533,7 +541,27 @@ function renderPromoteButton(row) {
   return `<button class="btn btn-primary btn-sm" type="button" onclick="promoteSalesRecord(${Number(row.id)})">To ${escHtml(SALES_TYPES[next].label)}</button>`;
 }
 
+let salesNumberPreviewToken = 0;
+// Preview the next sequential document number for a new record (mirrors the
+// Procurement PR No. preview). The reserved number is finalized server-side on save.
+async function loadSalesNumberPreview(recordType) {
+  const input = document.getElementById('sales-doc-display');
+  if (!input) return;
+  const token = ++salesNumberPreviewToken;
+  input.value = '';
+  try {
+    const params = new URLSearchParams({ record_type: String(recordType || '') });
+    const res = await fetch(`/api/sales-management/records/next-number?${params.toString()}`, { cache: 'no-store' });
+    const data = await res.json().catch(() => ({}));
+    if (token !== salesNumberPreviewToken) return;
+    if (res.ok && data && data.document_no) input.value = data.document_no;
+  } catch (_) {
+    if (token === salesNumberPreviewToken) input.value = '';
+  }
+}
+
 function openSalesModal(record = null) {
+  clearSalesFieldErrors();
   const isExistingRecord = Boolean(record && Number(record.id || 0));
   editingSalesRecordId = isExistingRecord ? Number(record.id || 0) : null;
   const recordType = record?.record_type || (activeSalesTab === 'requests' ? 'sales-request' : activeSalesTab);
@@ -546,7 +574,14 @@ function openSalesModal(record = null) {
   setValue('sales-record-id', editingSalesRecordId || '');
   setValue('sales-record-type', recordType);
   const docDisplay = document.getElementById('sales-doc-display');
-  if (docDisplay) docDisplay.value = record?.document_no || '';
+  if (docDisplay) {
+    if (isExistingRecord) {
+      docDisplay.value = record?.document_no || '';
+    } else {
+      docDisplay.value = '';
+      loadSalesNumberPreview(recordType);
+    }
+  }
   const docLabel = document.getElementById('sales-doc-no-label');
   if (docLabel) docLabel.textContent = SALES_TYPES[recordType]?.label ? `${SALES_TYPES[recordType].label} No.` : 'Doc No.';
   setValue('sales-status', record?.status || getDefaultSalesStatus(recordType));
@@ -580,6 +615,7 @@ function openSalesModal(record = null) {
 
 function closeSalesModal() {
   editingSalesRecordId = null;
+  clearSalesFieldErrors();
   document.querySelectorAll('#sales-modal-backdrop input:not([type=hidden]), #sales-modal-backdrop select, #sales-modal-backdrop textarea').forEach((el) => {
     if (el.tagName === 'SELECT') el.selectedIndex = 0;
     else el.value = '';
@@ -634,18 +670,23 @@ async function saveSalesRecord() {
     items: lineItems.items
   };
 
-  const validationMessage = validateSalesModalPayload(payload, lineItems);
-  if (validationMessage) {
-    alert(validationMessage);
-    return;
-  }
+  const errors = collectSalesValidationErrors(payload, lineItems);
 
   if (payload.record_type === 'project-delivery' && ['delivered', 'completed'].includes(payload.status)) {
-    if (!payload.product_id || !payload.warehouse_id || !(Number(payload.quantity || 0) > 0)) {
-      alert('Delivery Receipt needs inventory product, source warehouse, and quantity before posting inventory out.');
-      return;
-    }
+    const deliveryChecks = [
+      { key: 'product', ok: Boolean(payload.product_id) },
+      { key: 'warehouse', ok: Boolean(payload.warehouse_id) },
+      { key: 'quantity', ok: Number(payload.quantity || 0) > 0 }
+    ];
+    deliveryChecks.forEach(({ key, ok }) => {
+      if (!ok && !errors.some((e) => e.key === key)) {
+        const label = { product: 'Inventory Product', warehouse: 'Source Warehouse', quantity: 'Quantity' }[key];
+        errors.push({ key, message: `${label} is required before posting inventory out for a Delivered/Completed Delivery Receipt.` });
+      }
+    });
   }
+
+  if (applySalesValidationErrors(errors)) return;
 
   const id = Number(getValue('sales-record-id') || 0);
   const res = await fetch(id ? `/api/sales-management/records/${id}` : '/api/sales-management/records', {
@@ -655,7 +696,13 @@ async function saveSalesRecord() {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    alert(data.error || 'Unable to save sales record.');
+    const status = document.getElementById('sales-modal-status-message');
+    if (status) {
+      status.textContent = data.error || 'Unable to save sales record.';
+      status.classList.remove('is-hidden');
+    } else {
+      alert(data.error || 'Unable to save sales record.');
+    }
     return;
   }
 
@@ -666,15 +713,18 @@ async function saveSalesRecord() {
   switchSalesTab(nextTab);
 }
 
-function validateSalesModalPayload(payload = {}, lineItems = { items: [], incompleteRows: [] }) {
+// Returns an array of { key, message } for every missing required field, so the
+// modal can show an inline error under each field (instead of a single alert).
+function collectSalesValidationErrors(payload = {}, lineItems = { items: [], incompleteRows: [] }) {
   const required = getSalesStageConfig(payload.record_type).required || [];
   const labels = {
     source: 'Source record',
     company: 'Customer / Company',
     project: 'Linked Project',
+    contact: payload.record_type === 'sales-request' ? 'Requested By' : 'Contact Person',
     title: 'Subject / Title',
     'requested-date': 'Inquiry / Issue Date',
-    'target-date': 'Target / Delivery Date',
+    'target-date': payload.record_type === 'sales-request' ? 'Needed By' : 'Target / Delivery Date',
     amount: 'Amount',
     product: 'Inventory Product',
     warehouse: 'Source Warehouse',
@@ -684,6 +734,7 @@ function validateSalesModalPayload(payload = {}, lineItems = { items: [], incomp
     source: payload.source_record_id,
     company: payload.company_id,
     project: payload.project_id,
+    contact: payload.contact_person,
     title: payload.title,
     'requested-date': payload.requested_date,
     'target-date': payload.target_date,
@@ -692,16 +743,82 @@ function validateSalesModalPayload(payload = {}, lineItems = { items: [], incomp
     warehouse: payload.warehouse_id,
     quantity: payload.quantity
   };
+  const stageLabel = SALES_TYPES[payload.record_type]?.label || 'this stage';
+  const errors = [];
+  const seen = new Set();
+  const pushError = (key, message) => {
+    if (seen.has(key)) return;
+    seen.add(key);
+    errors.push({ key, message });
+  };
+
   if (payload.record_type === 'sales-request') {
-    if (!lineItems.items.length) return 'Select at least one product item for the Sales Inquiry.';
-    if (lineItems.incompleteRows.length) return `Enter quantity for item ${lineItems.incompleteRows[0]}.`;
+    if (!lineItems.items.length) {
+      pushError('line-items', 'Select at least one product item for the Sales Inquiry.');
+    } else if (lineItems.incompleteRows.length) {
+      pushError('line-items', `Enter quantity for item ${lineItems.incompleteRows[0]}.`);
+    }
   }
-  const missing = required.find((key) => {
-    if (key === 'line-items') return !lineItems.items.length;
-    if (key === 'amount' || key === 'quantity') return !(Number(values[key] || 0) > 0);
-    return !String(values[key] || '').trim();
+
+  required.forEach((key) => {
+    let isMissing;
+    if (key === 'line-items') isMissing = !lineItems.items.length;
+    else if (key === 'amount' || key === 'quantity') isMissing = !(Number(values[key] || 0) > 0);
+    else isMissing = !String(values[key] || '').trim();
+    if (isMissing) pushError(key, `${labels[key] || 'Required field'} is required for ${stageLabel}.`);
   });
-  return missing ? `${labels[missing] || 'Required field'} is required for ${SALES_TYPES[payload.record_type]?.label || 'this stage'}.` : '';
+
+  return errors;
+}
+
+// Clear any inline field errors currently shown in the sales modal.
+function clearSalesFieldErrors() {
+  document.querySelectorAll('#sales-modal-backdrop .field.has-error').forEach((field) => field.classList.remove('has-error'));
+  document.querySelectorAll('#sales-modal-backdrop [data-sales-field-message]').forEach((msg) => {
+    msg.textContent = '';
+    msg.classList.add('is-hidden');
+  });
+  const status = document.getElementById('sales-modal-status-message');
+  if (status) {
+    status.textContent = '';
+    status.classList.add('is-hidden');
+  }
+}
+
+// Highlight a field and show its inline message below the input.
+function showSalesFieldError(key, message) {
+  const field = document.querySelector(`#sales-modal-backdrop [data-sales-field="${key}"]`);
+  if (field) field.classList.add('has-error');
+  const msg = document.querySelector(`#sales-modal-backdrop [data-sales-field-message="${key}"]`);
+  if (msg) {
+    msg.textContent = message;
+    msg.classList.remove('is-hidden');
+  }
+}
+
+// Scroll to the first invalid field and focus its control so the user lands there.
+function focusSalesField(key) {
+  const field = document.querySelector(`#sales-modal-backdrop [data-sales-field="${key}"]`);
+  if (!field) return;
+  field.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  const control = field.querySelector('input:not([type=hidden]), select, textarea');
+  if (control) setTimeout(() => { try { control.focus({ preventScroll: true }); } catch (_) { control.focus(); } }, 160);
+}
+
+// Show validation errors inline; returns true when there is at least one error.
+function applySalesValidationErrors(errors = []) {
+  clearSalesFieldErrors();
+  if (!errors.length) return false;
+  errors.forEach((err) => showSalesFieldError(err.key, err.message));
+  const status = document.getElementById('sales-modal-status-message');
+  if (status) {
+    status.textContent = errors.length === 1
+      ? errors[0].message
+      : `${errors.length} fields need to be filled out. Tingnan ang mga naka-highlight sa ibaba.`;
+    status.classList.remove('is-hidden');
+  }
+  focusSalesField(errors[0].key);
+  return true;
 }
 
 function syncSalesProjectContext(options = {}) {

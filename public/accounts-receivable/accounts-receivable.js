@@ -204,8 +204,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     setTodayDefaults();
     loadBusinessEntitiesForAr();
-    loadServiceOrderReferences();
-    loadServiceOrders();
     loadReceivables();
     loadCollections();
     loadTransactions();

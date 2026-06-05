@@ -2058,3 +2058,565 @@ body.admin-page #dashboard .dashboard-stats .stat-card.stat-card-accent::before 
     min-height: 124px !important;
   }
 }
+
+/* ============================================================
+   Approval Center — warm minimal refresh
+   Appended last so it refines the earlier .approval-* rules.
+   Calmer header, quiet filter cards, an airy "list-like" table,
+   and a softer details modal. Keeps the maroon brand.
+   ============================================================ */
+
+/* Header: drop the boxy gradient card — clean row + hairline rule. */
+body.admin-page .approval-center-head {
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  min-height: 0;
+  padding: 4px 2px 16px;
+  margin-bottom: 18px;
+  border-bottom: 1px solid var(--border, #efe1dc);
+  gap: 18px;
+}
+
+body.admin-page .approval-center-title-wrap {
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+body.admin-page .approval-center-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+body.admin-page .approval-center-kicker {
+  color: #a23b32;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+body.admin-page .approval-center-head h2 {
+  margin: 0;
+  color: #2a1816;
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 1.55rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.05;
+}
+
+/* Filter summary cards: flat, hairline, with a clear active accent. */
+body.admin-page .approval-summary-grid {
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: 10px;
+  margin: 0 0 18px;
+}
+
+body.admin-page .approval-summary-card {
+  position: relative;
+  grid-template-rows: auto 1fr auto;
+  gap: 6px;
+  min-height: 92px;
+  padding: 14px 15px;
+  border: 1px solid var(--border, #efe1dc);
+  border-radius: 14px;
+  background: #fffdfc;
+  box-shadow: none;
+  overflow: hidden;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+}
+
+body.admin-page .approval-summary-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: #d8493d;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+body.admin-page .approval-summary-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(180, 35, 24, 0.28);
+  box-shadow: 0 8px 22px rgba(75, 18, 16, 0.06);
+}
+
+body.admin-page .approval-summary-card.is-active {
+  border-color: rgba(180, 35, 24, 0.32);
+  background: linear-gradient(180deg, #fff7f5, #fff);
+}
+
+body.admin-page .approval-summary-card.is-active::before {
+  opacity: 1;
+}
+
+body.admin-page .approval-summary-card span {
+  color: #8a4a43;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+body.admin-page .approval-summary-card strong {
+  align-self: start;
+  color: #7a1d16;
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 1.55rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+body.admin-page .approval-summary-card small {
+  color: #978681;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+
+/* Queue panel: soft card, generous breathing room. */
+body.admin-page .approval-table-card {
+  border: 1px solid var(--border, #efe1dc);
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(75, 18, 16, 0.04), 0 10px 30px rgba(75, 18, 16, 0.05);
+  padding: 6px 8px 8px;
+}
+
+body.admin-page .approval-table-head {
+  align-items: flex-end;
+  margin: 0;
+  padding: 14px 14px 12px;
+}
+
+body.admin-page .approval-table-head strong {
+  color: #2a1816;
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+body.admin-page .approval-table-head span {
+  margin-top: 3px;
+  color: #978681;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+/* Airy, list-like table — natural width, hairline rows, no inner grid. */
+body.admin-page .approval-table-wrap {
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none !important;
+}
+
+body.admin-page .approval-table {
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+body.admin-page .approval-table thead th {
+  position: static;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border, #efe1dc);
+  background: none;
+  color: #a8938d;
+  font-family: "Inter", sans-serif;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+body.admin-page .approval-table tbody td {
+  padding: 15px 14px;
+  border-bottom: 1px solid #f4ebe7;
+  vertical-align: middle;
+  font-size: 0.82rem;
+  color: #3f302c;
+}
+
+body.admin-page .approval-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+body.admin-page .approval-table tbody tr:hover td {
+  background: #fdf6f3;
+}
+
+body.admin-page .approval-table tbody td strong {
+  display: block;
+  color: #271715;
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+body.admin-page .approval-row-note {
+  margin-top: 3px;
+  color: #9a8881;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/* Action cluster: compact, right-aligned, primary action emphasised. */
+body.admin-page .approval-table td.text-center {
+  text-align: right;
+  white-space: nowrap;
+}
+
+body.admin-page .approval-table td .btn.btn-sm {
+  padding: 6px 12px;
+  margin-left: 6px;
+  border-radius: 999px;
+  font-size: 0.66rem;
+}
+
+body.admin-page .approval-table td .btn.btn-add {
+  background: #7a1d16;
+  border-color: #7a1d16;
+  color: #fff;
+}
+
+body.admin-page .approval-table td .btn.btn-add:hover {
+  background: #5f1711;
+  border-color: #5f1711;
+}
+
+/* Empty state. */
+body.admin-page .approval-empty-state {
+  gap: 10px;
+  padding: 44px 16px;
+}
+
+body.admin-page .approval-empty-state strong {
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+body.admin-page .approval-empty-state span {
+  font-size: 0.8rem;
+}
+
+/* Details modal: warm-minimal sections. */
+body.admin-page .approval-timeline-grid section {
+  border: 1px solid var(--border, #efe1dc);
+  border-radius: 14px;
+  background: #fffdfc;
+  padding: 14px;
+}
+
+body.admin-page .approval-timeline-grid h3 {
+  margin: 0 0 10px;
+  color: #a23b32;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+body.admin-page .approval-modal-kicker {
+  color: #a23b32;
+  letter-spacing: 0.14em;
+}
+
+@media (max-width: 720px) {
+  body.admin-page .approval-table td.text-center {
+    text-align: left;
+  }
+
+  body.admin-page .approval-table td .btn.btn-sm {
+    margin: 6px 6px 0 0;
+  }
+}
+
+/* ============================================================
+   Admin Dashboard — warm minimal refresh
+   Calms the hero, role-access panel and the summary stat cards.
+   The stat-card selectors mirror the themed [data-business-entity-theme]
+   variants so the override wins even with a workspace theme applied.
+   ============================================================ */
+
+/* Hero: flat warm header with a single hairline rule. */
+body.admin-page #dashboard .page-hero {
+  padding: 16px 2px 18px;
+  margin-bottom: 20px;
+  border: 0;
+  border-bottom: 1px solid var(--border, #efe1dc);
+  background: none;
+  box-shadow: none;
+}
+
+body.admin-page #dashboard .page-sub {
+  color: #978681;
+}
+
+/* Role access panel: flatten the gradient card. */
+body.admin-page .role-access-panel {
+  border-color: var(--border, #efe1dc);
+  background: #fffdfc;
+  box-shadow: 0 1px 2px rgba(75, 18, 16, 0.04), 0 10px 28px rgba(75, 18, 16, 0.05);
+}
+
+body.admin-page .role-access-copy span {
+  color: #a23b32;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+body.admin-page .role-access-copy p {
+  color: #837570;
+  font-weight: 600;
+}
+
+body.admin-page .role-access-chip {
+  border-color: rgba(180, 35, 24, 0.16);
+  background: rgba(180, 35, 24, 0.05);
+  color: #8a4a43;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+/* Deploy/preflight: swap the cool slate neutrals for warm ones. */
+body.admin-page .deploy-status-card {
+  border-color: var(--border, #efe1dc);
+  background: #fffdfc;
+}
+
+body.admin-page .preflight-item {
+  border-color: rgba(120, 30, 20, 0.12);
+  background: rgba(120, 30, 20, 0.04);
+  color: #837570;
+}
+
+/* Summary stat cards: flatter, quieter, no heavy radial glow. */
+body.admin-page #dashboard .dashboard-stats .stat-card,
+html[data-business-entity-theme] body.admin-page #dashboard .dashboard-stats .stat-card,
+body.admin-page[data-business-entity-theme] #dashboard .dashboard-stats .stat-card {
+  border: 1px solid var(--border, #efe1dc) !important;
+  background: #fffdfc !important;
+  box-shadow: 0 1px 2px rgba(75, 18, 16, 0.04), 0 10px 26px rgba(75, 18, 16, 0.05) !important;
+}
+
+/* Keep the per-card maroon accent, just thinner and flat. */
+body.admin-page #dashboard .dashboard-stats .stat-card::before,
+html[data-business-entity-theme] body.admin-page #dashboard .dashboard-stats .stat-card::before,
+body.admin-page[data-business-entity-theme] #dashboard .dashboard-stats .stat-card::before {
+  width: 3px !important;
+}
+
+/* Drop the decorative radial glow — the main "heavy dashboard" tell. */
+body.admin-page #dashboard .dashboard-stats .stat-card::after,
+html[data-business-entity-theme] body.admin-page #dashboard .dashboard-stats .stat-card::after,
+body.admin-page[data-business-entity-theme] #dashboard .dashboard-stats .stat-card::after {
+  display: none !important;
+}
+
+body.admin-page #dashboard .dashboard-stats .stat-card-link:hover,
+body.admin-page #dashboard .dashboard-stats .stat-card-link:focus-visible {
+  border-color: rgba(180, 35, 24, 0.26) !important;
+  box-shadow: 0 1px 2px rgba(75, 18, 16, 0.05), 0 16px 34px rgba(75, 18, 16, 0.09) !important;
+  transform: translateY(-2px) !important;
+}
+
+/* Quieter icon badge. */
+body.admin-page #dashboard .dashboard-stats .stat-card .stat-icon,
+html[data-business-entity-theme] body.admin-page #dashboard .dashboard-stats .stat-card .stat-icon,
+body.admin-page[data-business-entity-theme] #dashboard .dashboard-stats .stat-card .stat-icon {
+  border-color: rgba(180, 35, 24, 0.14) !important;
+  background: rgba(180, 35, 24, 0.05) !important;
+}
+
+/* ============================================================
+   Project Overview — warm minimal + sales pipeline + verdict
+   ============================================================ */
+
+/* Warm-polish the existing cards (were cool slate / sharp 8px). */
+body.admin-page .project-overview-card {
+  border-color: var(--border, #efe1dc);
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(75, 18, 16, 0.04), 0 10px 26px rgba(75, 18, 16, 0.05);
+}
+
+body.admin-page .project-overview-card h3 {
+  font-family: "Playfair Display", Georgia, serif;
+  font-weight: 700;
+}
+
+body.admin-page .project-overview-tags span,
+body.admin-page .project-overview-health {
+  background: rgba(180, 35, 24, 0.06);
+  border-color: rgba(180, 35, 24, 0.14);
+  color: #7a1d16;
+}
+
+/* ---- PALDO / PALUBOG verdict banner ---- */
+body.admin-page .project-overview-verdict {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 16px 20px;
+  border-radius: 16px;
+  border: 1px solid transparent;
+}
+
+body.admin-page .project-overview-verdict.is-paldo {
+  border-color: rgba(22, 101, 52, 0.26);
+  background: linear-gradient(135deg, rgba(22, 163, 74, 0.10), rgba(22, 163, 74, 0.03));
+}
+
+body.admin-page .project-overview-verdict.is-palubog {
+  border-color: rgba(180, 35, 24, 0.3);
+  background: linear-gradient(135deg, rgba(220, 38, 38, 0.10), rgba(180, 35, 24, 0.03));
+}
+
+body.admin-page .project-overview-verdict-main {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+body.admin-page .project-overview-verdict-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #fff;
+}
+
+body.admin-page .project-overview-verdict.is-paldo .project-overview-verdict-tag {
+  background: #15803d;
+}
+
+body.admin-page .project-overview-verdict.is-palubog .project-overview-verdict-tag {
+  background: #b42318;
+}
+
+body.admin-page .project-overview-verdict-copy strong {
+  display: block;
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 1.5rem;
+  line-height: 1.05;
+  color: #2a1816;
+}
+
+body.admin-page .project-overview-verdict-copy em {
+  font-style: normal;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #6b5d58;
+}
+
+body.admin-page .project-overview-verdict-side {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: right;
+}
+
+body.admin-page .project-overview-verdict-side span {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #8a7a74;
+}
+
+body.admin-page .project-overview-verdict-side strong {
+  color: #2a1816;
+}
+
+/* ---- Sales pipeline strip ---- */
+body.admin-page .project-overview-pipeline {
+  display: flex;
+  align-items: stretch;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+body.admin-page .project-pipeline-node {
+  flex: 1 1 110px;
+  min-width: 110px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 12px 11px;
+  border: 1px solid var(--border, #efe1dc);
+  border-radius: 12px;
+  background: #fffdfc;
+}
+
+body.admin-page .project-pipeline-node.is-positive {
+  border-color: rgba(22, 101, 52, 0.24);
+  background: rgba(22, 163, 74, 0.05);
+}
+
+body.admin-page .project-pipeline-node.is-warning {
+  border-color: rgba(180, 83, 9, 0.26);
+  background: rgba(245, 158, 11, 0.07);
+}
+
+body.admin-page .project-pipeline-node-label {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8a7a74;
+}
+
+body.admin-page .project-pipeline-node-count {
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 1.4rem;
+  line-height: 1;
+  color: #7a1d16;
+}
+
+body.admin-page .project-pipeline-node.is-positive .project-pipeline-node-count {
+  color: #166534;
+}
+
+body.admin-page .project-pipeline-node.is-muted .project-pipeline-node-count {
+  color: #b9a8a2;
+}
+
+body.admin-page .project-pipeline-node-amount {
+  font-style: normal;
+  font-size: 0.74rem;
+  font-weight: 800;
+  color: #3f302c;
+}
+
+body.admin-page .project-pipeline-node-sub {
+  font-size: 0.64rem;
+  font-weight: 700;
+  color: #978681;
+}
+
+body.admin-page .project-pipeline-arrow {
+  display: flex;
+  align-items: center;
+  color: #c9b8b2;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+@media (max-width: 720px) {
+  body.admin-page .project-pipeline-arrow {
+    transform: rotate(90deg);
+    justify-content: center;
+    width: 100%;
+  }
+}

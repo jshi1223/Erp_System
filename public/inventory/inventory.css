@@ -170,10 +170,7 @@ body.inventory-page .module-tab.active {
   font-weight: 800;
 }
 
-.panel-head input,
-.inventory-form input,
-.inventory-form select,
-.inventory-form textarea {
+.panel-head input {
   width: 100%;
   border: 1px solid var(--border, #d0d7e2);
   border-radius: 8px;
@@ -296,17 +293,15 @@ body.inventory-page .module-tab.active {
   display: flex;
 }
 
-.inventory-modal-card {
-  position: relative;
+/* Inventory data-entry modal mirrors the Procurement modal design
+   (brand header + sectioned .field cards) provided by admin-style.css. */
+body.inventory-page .inventory-modal-shell {
   width: min(760px, 96vw);
-  border: 1px solid color-mix(in srgb, var(--primary, #b42318) 18%, transparent);
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
-  padding: 20px;
+  overflow-y: auto;
 }
 
 .inventory-confirm-card {
+  max-width: 420px;
   width: min(420px, 94vw);
 }
 
@@ -316,8 +311,14 @@ body.inventory-page .module-tab.active {
   line-height: 1.5;
 }
 
-body.inventory-page .inventory-modal-card .modal-header-tight {
-  padding-right: 44px;
+.modal-grid-compact {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.modal-grid-compact .field.full {
+  grid-column: 1 / -1;
 }
 
 body.inventory-page .inventory-modal-close {
@@ -351,40 +352,10 @@ body.inventory-page .inventory-modal-close:focus-visible {
 
 .inventory-form {
   display: none;
-  gap: 14px;
-  margin-top: 18px;
 }
 
 .inventory-form.active {
-  display: grid;
-}
-
-.inventory-form label {
-  display: grid;
-  gap: 6px;
-  color: #344054;
-  font-size: 0.78rem;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.inventory-modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 4px;
-  flex-wrap: wrap;
-}
-
-.inventory-modal-actions .btn {
-  min-height: 40px;
-}
-
-.form-row {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  display: block;
 }
 
 .inventory-status {
@@ -412,11 +383,103 @@ body.inventory-page .inventory-modal-close:focus-visible {
   }
 
   .inventory-summary-grid,
-  .form-row {
+  .modal-grid-compact {
     grid-template-columns: 1fr;
   }
 
   .panel-head input {
     max-width: none;
   }
+}
+
+/* ============================================================
+   Inventory — warm minimal refresh (appended last in this file)
+   Flattens the gradient/glow surfaces, warms the cool neutrals,
+   and rounds the radii. Keeps the maroon brand + status semantics.
+   ============================================================ */
+
+/* Calm, flat warm cards instead of gradient + radial glow. */
+body.inventory-page .page-hero,
+body.inventory-page .module-page-toolbar,
+body.inventory-page .module-summary-card,
+body.inventory-page .inventory-panel {
+  border: 1px solid var(--border, #efe1dc);
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(75, 18, 16, 0.04), 0 10px 28px rgba(75, 18, 16, 0.05);
+}
+
+body.inventory-page .page-hero {
+  border-radius: 16px;
+  padding: 22px 24px;
+}
+
+body.inventory-page .module-page-toolbar {
+  border-radius: 14px;
+}
+
+body.inventory-page .inventory-panel {
+  border-radius: 16px;
+}
+
+body.inventory-page .module-summary-card {
+  border-radius: 14px;
+  border-left: 3px solid #b42318;
+}
+
+body.inventory-page .page-sub,
+body.inventory-page .module-summary-label {
+  color: #978681;
+}
+
+body.inventory-page .module-summary-value {
+  color: #7a1d16;
+}
+
+/* Tabs: pill shape, calmer active state (no heavy glow). */
+body.inventory-page .inventory-tab,
+body.inventory-page .module-tab {
+  border-color: var(--border, #efe1dc);
+  border-radius: 999px;
+}
+
+body.inventory-page .inventory-tab.active,
+body.inventory-page .module-tab.active {
+  background: #7a1d16;
+  border-color: #7a1d16;
+  box-shadow: none;
+}
+
+/* Panel head + table: warm hairlines, warm header. */
+body.inventory-page .panel-head {
+  border-bottom-color: var(--border, #efe1dc);
+}
+
+body.inventory-page .panel-head h2 {
+  color: #2a1816;
+}
+
+body.inventory-page .inventory-panel th {
+  background: #faf5f3;
+  border-bottom-color: var(--border, #efe1dc);
+  color: #a8938d;
+}
+
+body.inventory-page .inventory-panel td {
+  border-bottom-color: #f4ebe7;
+}
+
+body.inventory-page .inventory-panel tbody tr:hover {
+  background: #fdf6f3;
+}
+
+/* Default (no-status) pill: warm neutral instead of cool indigo.
+   Kept at base specificity so the semantic status colours still win. */
+.inventory-status-pill {
+  background: rgba(120, 30, 20, 0.07);
+  color: #8a4a43;
+}
+
+/* Modal close button: warm shadow. */
+body.inventory-page .inventory-modal-close {
+  box-shadow: 0 6px 16px rgba(75, 18, 16, 0.12) !important;
 }

@@ -8,7 +8,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260531a">
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a">
-  <link rel="stylesheet" href="/inventory/inventory.css?v=20260602staffbadges">
+  <link rel="stylesheet" href="/inventory/inventory.css?v=20260605wm">
+  <link rel="stylesheet" href="/assets/css/warm-minimal.css?v=20260605wm2">
 </head>
 <body class="erp-clean-page inventory-page">
   <header>
@@ -204,70 +205,123 @@
   </main>
 
   <div class="modal-backdrop" id="inventory-modal" aria-hidden="true">
-    <div class="inventory-modal-card" role="dialog" aria-modal="true" aria-labelledby="inventory-modal-title">
-      <div class="modal-header-tight">
+    <div class="modal modal-project inventory-modal-shell" role="dialog" aria-modal="true" aria-labelledby="inventory-modal-title" style="max-width: 760px;">
+      <button class="modal-close inventory-modal-close" type="button" onclick="closeInventoryModal()" aria-label="Close inventory modal">&times;</button>
+      <div class="user-modal-brand">
+        <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
         <div>
           <div class="user-modal-kicker">Inventory</div>
-          <div class="modal-title" id="inventory-modal-title">Inventory</div>
+          <div class="modal-title" id="inventory-modal-title" style="margin-bottom:0;">Inventory</div>
         </div>
-        <button class="modal-close inventory-modal-close" type="button" onclick="closeInventoryModal()" aria-label="Close inventory modal">&times;</button>
       </div>
 
       <form id="product-form" class="inventory-form" onsubmit="saveProduct(event)">
-        <div class="form-row">
-          <label>SKU<input id="product-sku" required></label>
-          <label>Unit<input id="product-unit" value="pcs" required></label>
+        <div class="section-divider">Product Details</div>
+        <div class="modal-grid-compact">
+          <div class="field">
+            <label>SKU <span class="field-label-status is-required">Required</span></label>
+            <input id="product-sku" required />
+          </div>
+          <div class="field">
+            <label>Unit <span class="field-label-status is-required">Required</span></label>
+            <input id="product-unit" value="pcs" required />
+          </div>
+          <div class="field full">
+            <label>Product Name <span class="field-label-status is-required">Required</span></label>
+            <input id="product-name" required />
+          </div>
+          <div class="field full">
+            <label>Category <span class="field-label-status is-required">Required</span></label>
+            <input id="product-category" required />
+          </div>
+          <div class="field">
+            <label>Unit Cost <span class="field-label-status is-required">Required</span></label>
+            <input id="product-cost" type="number" step="0.01" min="0" required />
+          </div>
+          <div class="field">
+            <label>Selling Price <span class="field-label-status is-required">Required</span></label>
+            <input id="product-selling-price" type="number" step="0.01" min="0" required />
+          </div>
+          <div class="field">
+            <label>Reorder Level <span class="field-label-status is-required">Required</span></label>
+            <input id="product-reorder" type="number" step="0.01" min="0" required />
+          </div>
         </div>
-        <label>Product Name<input id="product-name" required></label>
-        <div class="form-row">
-          <label>Category<input id="product-category" required></label>
-          <label>Unit Cost<input id="product-cost" type="number" step="0.01" min="0" required></label>
-          <label>Selling Price<input id="product-selling-price" type="number" step="0.01" min="0" required></label>
-          <label>Reorder Level<input id="product-reorder" type="number" step="0.01" min="0" required></label>
-        </div>
-        <div class="inventory-modal-actions">
-          <button class="btn btn-cancel" type="button" onclick="closeInventoryModal()">Cancel</button>
-          <button class="btn btn-save" type="submit">Save Product</button>
+        <div class="modal-actions">
+          <button class="btn btn-cancel btn-sm" type="button" onclick="closeInventoryModal()">Cancel</button>
+          <button class="btn btn-save btn-sm" type="submit">Save Product</button>
         </div>
       </form>
 
       <form id="warehouse-form" class="inventory-form" onsubmit="saveWarehouse(event)">
-        <div class="form-row">
-          <label>Code<input id="warehouse-code" required></label>
-          <label>Name<input id="warehouse-name" required></label>
+        <div class="section-divider">Warehouse Details</div>
+        <div class="modal-grid-compact">
+          <div class="field">
+            <label>Code <span class="field-label-status is-required">Required</span></label>
+            <input id="warehouse-code" required />
+          </div>
+          <div class="field">
+            <label>Name <span class="field-label-status is-required">Required</span></label>
+            <input id="warehouse-name" required />
+          </div>
+          <div class="field full">
+            <label>Location <span class="field-label-status is-required">Required</span></label>
+            <textarea id="warehouse-location" rows="3" required></textarea>
+          </div>
         </div>
-        <label>Location<textarea id="warehouse-location" rows="3" required></textarea></label>
-        <div class="inventory-modal-actions">
-          <button class="btn btn-cancel" type="button" onclick="closeInventoryModal()">Cancel</button>
-          <button class="btn btn-save" type="submit">Save Warehouse</button>
+        <div class="modal-actions">
+          <button class="btn btn-cancel btn-sm" type="button" onclick="closeInventoryModal()">Cancel</button>
+          <button class="btn btn-save btn-sm" type="submit">Save Warehouse</button>
         </div>
       </form>
 
       <form id="movement-form" class="inventory-form" onsubmit="saveMovement(event)">
-        <div class="form-row">
-          <label>Product<select id="movement-product" required></select></label>
-          <label>Warehouse<select id="movement-warehouse" required></select></label>
-        </div>
-        <div class="form-row">
-          <label>Type
+        <div class="section-divider">Movement Details</div>
+        <div class="modal-grid-compact">
+          <div class="field">
+            <label>Product <span class="field-label-status is-required">Required</span></label>
+            <select id="movement-product" required></select>
+          </div>
+          <div class="field">
+            <label>Warehouse <span class="field-label-status is-required">Required</span></label>
+            <select id="movement-warehouse" required></select>
+          </div>
+          <div class="field">
+            <label>Type <span class="field-label-status is-required">Required</span></label>
             <select id="movement-type" required>
               <option value="in">Stock In</option>
               <option value="out">Stock Out</option>
               <option value="adjustment">Adjustment</option>
             </select>
-          </label>
-          <label>Quantity<input id="movement-qty" type="number" step="0.01" min="0.01" required></label>
-          <label>Date<input id="movement-date" type="date" required></label>
+          </div>
+          <div class="field">
+            <label>Quantity <span class="field-label-status is-required">Required</span></label>
+            <input id="movement-qty" type="number" step="0.01" min="0.01" required />
+          </div>
+          <div class="field">
+            <label>Date <span class="field-label-status is-required">Required</span></label>
+            <input id="movement-date" type="date" required />
+          </div>
+          <div class="field">
+            <label>Reference Type <span class="field-label-status is-optional">Optional</span></label>
+            <input id="movement-ref-type" placeholder="GRN, Manual, Return" />
+          </div>
+          <div class="field">
+            <label>Reference No. <span class="field-label-status is-optional">Optional</span></label>
+            <input id="movement-ref-no" />
+          </div>
+          <div class="field full">
+            <label>Project <span class="field-label-status is-optional">Optional</span></label>
+            <select id="movement-project"></select>
+          </div>
+          <div class="field full">
+            <label>Notes <span class="field-label-status is-optional">Optional</span></label>
+            <textarea id="movement-notes" rows="3"></textarea>
+          </div>
         </div>
-        <div class="form-row">
-          <label>Reference Type<input id="movement-ref-type" placeholder="GRN, Manual, Return"></label>
-          <label>Reference No.<input id="movement-ref-no"></label>
-        </div>
-        <label>Project<select id="movement-project"></select></label>
-        <label>Notes<textarea id="movement-notes" rows="3"></textarea></label>
-        <div class="inventory-modal-actions">
-          <button class="btn btn-cancel" type="button" onclick="closeInventoryModal()">Cancel</button>
-          <button class="btn btn-save" type="submit">Save Movement</button>
+        <div class="modal-actions">
+          <button class="btn btn-cancel btn-sm" type="button" onclick="closeInventoryModal()">Cancel</button>
+          <button class="btn btn-save btn-sm" type="submit">Save Movement</button>
         </div>
       </form>
 
@@ -276,12 +330,12 @@
   </div>
 
   <div class="modal-backdrop" id="inventory-confirm-modal" aria-hidden="true">
-    <div class="inventory-modal-card inventory-confirm-card" role="dialog" aria-modal="true" aria-labelledby="inventory-confirm-title">
+    <div class="modal inventory-confirm-card" role="dialog" aria-modal="true" aria-labelledby="inventory-confirm-title">
       <div class="modal-title" id="inventory-confirm-title">Confirm Action</div>
       <p class="inventory-confirm-copy" id="inventory-confirm-message">Are you sure?</p>
-      <div class="inventory-modal-actions">
-        <button class="btn btn-cancel" type="button" id="inventory-confirm-no-btn" onclick="closeInventoryConfirmDialog(false)">Cancel</button>
-        <button class="btn btn-save" type="button" id="inventory-confirm-yes-btn" onclick="closeInventoryConfirmDialog(true)">Submit</button>
+      <div class="modal-actions">
+        <button class="btn btn-cancel btn-sm" type="button" id="inventory-confirm-no-btn" onclick="closeInventoryConfirmDialog(false)">Cancel</button>
+        <button class="btn btn-save btn-sm" type="button" id="inventory-confirm-yes-btn" onclick="closeInventoryConfirmDialog(true)">Submit</button>
       </div>
     </div>
   </div>
