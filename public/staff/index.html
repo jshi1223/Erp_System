@@ -633,25 +633,25 @@
         <button class="project-form-tab active" id="project-form-tab-details" type="button" role="tab" aria-selected="true" aria-controls="project-form-panel-details" data-project-form-tab="details" onclick="switchProjectFormTab('details')">Details</button>
         <button class="project-form-tab" id="project-form-tab-dates" type="button" role="tab" aria-selected="false" aria-controls="project-form-panel-dates" data-project-form-tab="dates" onclick="switchProjectFormTab('dates')">Dates</button>
         <button class="project-form-tab" id="project-form-tab-financials" type="button" role="tab" aria-selected="false" aria-controls="project-form-panel-financials" data-project-form-tab="financials" onclick="switchProjectFormTab('financials')">Financials</button>
-        <button class="project-form-tab" id="project-form-tab-team" type="button" role="tab" aria-selected="false" aria-controls="project-form-panel-team" data-project-form-tab="team" onclick="switchProjectFormTab('team')">Team</button>
+        <button class="project-form-tab" id="project-form-tab-members" type="button" role="tab" aria-selected="false" aria-controls="project-form-panel-members" data-project-form-tab="members" onclick="switchProjectFormTab('members')">Members</button>
       </div>
 
       <div class="project-form-panel active" id="project-form-panel-details" role="tabpanel" aria-labelledby="project-form-tab-details" data-project-form-panel="details">
         <div class="section-divider">Project Details</div>
         <div class="form-grid">
           <div class="field full">
-            <label data-label-base="Project Title">Project Title<span class="field-label-status is-required">Required</span></label>
-            <input id="p-project-name" type="text" placeholder="PDZ Proposed 30% Progress Rate" required aria-required="true">
-            <div class="project-field-message is-hidden" data-project-field-message="project_name" aria-live="polite"></div>
-          </div>
-          <div class="field full">
-            <label data-label-base="Project No.">Project No.<span class="field-label-status is-required">Required</span></label>
-            <input id="p-project-docno" type="text" placeholder="Generated automatically" readonly="" required aria-required="true" style="background:var(--surface2);cursor:default;">
+            <label data-label-base="Project ID">Project ID</label>
+            <input id="p-project-docno" type="text" placeholder="Generated automatically" readonly="" style="background:var(--surface2);cursor:default;">
             <div class="project-field-message is-hidden" data-project-field-message="project_docno" aria-live="polite"></div>
           </div>
           <div class="field full">
+            <label data-label-base="Project Name">Project Name<span class="field-label-status is-required">Required</span></label>
+            <input id="p-project-name" type="text" placeholder="Project name" required aria-required="true">
+            <div class="project-field-message is-hidden" data-project-field-message="project_name" aria-live="polite"></div>
+          </div>
+          <div class="field full">
             <label data-label-base="Business Entity">Business Entity<span class="field-label-status is-required">Required</span></label>
-            <select id="p-business-entity-id" required aria-required="true"></select>
+            <select id="p-business-entity-id" required aria-required="true" onchange="refreshProjectDocnoPreview()"></select>
             <div class="project-field-message is-hidden" data-project-field-message="business_entity_id" aria-live="polite"></div>
           </div>
           <div class="field full">
@@ -661,37 +661,30 @@
               <input id="p-company-id" type="hidden">
               <div id="p-company-results" class="search-results-list" role="listbox" aria-label="Company search results" style="display:none;"></div>
             </div>
-            <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">Choose the client/company for this project. The project stays first.</div>
+            <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">Contact person, email, and phone are pulled from this company in the Project Overview.</div>
             <div class="project-field-message is-hidden" data-project-field-message="company" aria-live="polite"></div>
           </div>
           <div class="field">
-            <label data-label-base="Project Manager">Project Manager<span class="field-label-status is-required">Required</span></label>
-            <input id="p-project-manager" type="text" placeholder="Owner or accountable person" required aria-required="true">
-            <div class="project-field-message is-hidden" data-project-field-message="project_manager" aria-live="polite"></div>
+            <label data-label-base="Service Type">Service Type<span class="field-label-status is-required">Required</span></label>
+            <select id="p-service-type" required aria-required="true">
+              <option value="installation">Installation</option>
+              <option value="repair">Repair</option>
+              <option value="maintenance">Maintenance</option>
+              <option value="inspection">Inspection</option>
+              <option value="upgrade">Upgrade</option>
+            </select>
           </div>
           <div class="field">
             <label data-label-base="Assigned Staff">Assigned Staff<span class="field-label-status is-required">Required</span></label>
             <select id="p-assigned-to" required aria-required="true"></select>
             <div class="project-field-message is-hidden" data-project-field-message="assigned_to" aria-live="polite"></div>
           </div>
-          <div class="field">
-            <label data-label-base="Status">Status<span class="field-label-status is-required">Required</span></label>
-            <select id="p-status" required aria-required="true">
-              <option value="draft">Draft</option>
-              <option value="submitted">For Admin Approval</option>
-            </select>
-          </div>
-          <div class="field">
-            <label data-label-base="Priority">Priority<span class="field-label-status is-required">Required</span></label>
-            <select id="p-priority" required aria-required="true">
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-              <option value="urgent">Urgent</option>
-            </select>
+          <div class="field full">
+            <label data-label-base="Project Location">Project Location<span class="field-label-status is-required">Required</span></label>
+            <input id="p-project-location" type="text" placeholder="Site / address" required aria-required="true">
           </div>
           <div class="field full">
-            <label data-label-base="Scope / Description">Scope / Description<span class="field-label-status is-required">Required</span></label>
+            <label data-label-base="Description">Description<span class="field-label-status is-required">Required</span></label>
             <textarea id="p-description" rows="3" placeholder="Project scope, deliverables, or important notes" required aria-required="true"></textarea>
           </div>
         </div>
@@ -731,30 +724,35 @@
         <div class="form-grid">
           <div class="field">
             <label data-label-base="Contract Amount">Contract Amount<span class="field-label-status is-required">Required</span></label>
-            <input id="p-budget" type="number" step="0.01" min="0" placeholder="0.00" required aria-required="true">
+            <input id="p-budget" type="number" step="0.01" min="0" placeholder="0.00" required aria-required="true" oninput="recomputeEstimatedProfit()">
             <div class="project-field-message is-hidden" data-project-field-message="budget" aria-live="polite"></div>
           </div>
           <div class="field">
-            <label data-label-base="Downpayment">Downpayment<span class="field-label-status is-optional">Optional</span></label>
-            <input id="p-downpayment" type="number" step="0.01" min="0" placeholder="0.00" aria-required="false">
+            <label data-label-base="Estimated Material Cost">Estimated Material Cost<span class="field-label-status is-optional">Optional</span></label>
+            <input id="p-est-material" type="number" step="0.01" min="0" placeholder="0.00" oninput="recomputeEstimatedProfit()">
           </div>
           <div class="field">
-            <label data-label-base="Balance">Balance<span class="field-label-status is-optional">Optional</span></label>
-            <div id="p-balance-display" style="padding:10px;background:var(--surface2);border-radius:4px;font-weight:600;color:var(--accent);">PHP 0.00</div>
+            <label data-label-base="Estimated Labor Cost">Estimated Labor Cost<span class="field-label-status is-optional">Optional</span></label>
+            <input id="p-est-labor" type="number" step="0.01" min="0" placeholder="0.00" oninput="recomputeEstimatedProfit()">
           </div>
           <div class="field">
-            <label data-label-base="Payment Status">Payment Status<span class="field-label-status is-optional">Optional</span></label>
-            <span id="p-payment-status-display" class="status-pill status-unpaid">Unpaid</span>
+            <label data-label-base="Estimated Other Cost">Estimated Other Cost<span class="field-label-status is-optional">Optional</span></label>
+            <input id="p-est-other" type="number" step="0.01" min="0" placeholder="0.00" oninput="recomputeEstimatedProfit()">
+          </div>
+          <div class="field">
+            <label data-label-base="Estimated Profit">Estimated Profit<span class="field-label-status is-optional">Auto</span></label>
+            <div id="p-est-profit-display" style="padding:10px;background:var(--surface2);border-radius:4px;font-weight:700;color:var(--accent);">PHP 0.00</div>
           </div>
         </div>
       </div>
 
-      <div class="project-form-panel" id="project-form-panel-team" role="tabpanel" aria-labelledby="project-form-tab-team" data-project-form-panel="team" hidden="">
-        <div class="section-divider">Project Team</div>
+      <div class="project-form-panel" id="project-form-panel-members" role="tabpanel" aria-labelledby="project-form-tab-members" data-project-form-panel="members" hidden="">
+        <div class="section-divider">Project Members</div>
         <div class="form-grid">
           <div class="field" data-project-team-row="1">
             <label data-label-base="Member 1">Member 1<span class="field-label-status is-required">Required</span></label>
             <input id="p-project-members" type="text" placeholder="Full name" required aria-required="true">
+            <div class="project-field-message is-hidden" data-project-field-message="project_members" aria-live="polite"></div>
           </div>
           <div class="field" data-project-team-row="1">
             <label data-label-base="Role 1">Role 1<span class="field-label-status is-required">Required</span></label>
@@ -888,7 +886,7 @@
 <script src="/staff/js/staff-notifications.js?v=20260601b"></script>
 <script src="/staff/js/staff-dashboard-cards.js?v=20260601c"></script>
 <script src="/staff/js/staff-page.js?v=20260603statuspoll"></script>
-<script src="/admin/js/admin.js?v=20260602projectflow"></script>
+<script src="/admin/js/admin.js?v=20260605proj10"></script>
 
 
 

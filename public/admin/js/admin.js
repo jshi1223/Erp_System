@@ -1752,12 +1752,12 @@ function renderProjectRecordsTable() {
     const projectDocNo = String(project.project_docno || project.source_docno || '-').trim() || '-';
     const projectTitle = String(project.project_name || 'Untitled Project').trim() || 'Untitled Project';
     const companyName = String(getProjectCompanyName(project) || '-').trim() || '-';
-    const startDate = formatDateYmd(project.start_date || project.planned_start_date || '') || '-';
-    const endDate = formatDateYmd(project.end_date || project.planned_end_date || '') || '-';
-    const manager = String(project.project_manager || '-').trim() || '-';
+    const plannedStart = formatDateYmd(project.planned_start_date || project.start_date || '') || '-';
+    const plannedEnd = formatDateYmd(project.planned_end_date || project.end_date || '') || '-';
+    const serviceTypeText = String(project.service_type || '').trim() ? String(project.service_type).replace(/^\w/, (c) => c.toUpperCase()) : '-';
+    const assignedStaffText = String(project.assigned_to_name || project.assigned_to_username || project.project_manager || '-').trim() || '-';
     const projectStatusLabel = String(project.status || getProjectLifecycleLabel(project) || 'planning').replace(/_/g, ' ');
     const projectStatusClass = `status-${String(project.status || getProjectLifecycleLabel(project) || 'planning').replace(/_/g, '-')}`;
-    const priorityLabel = getComputedProjectPriority(project).replace(/_/g, ' ');
     const contractAmountText = formatPhpCurrency(project.budget || 0);
     const isArchived = Number(project.is_archived || 0) === 1;
     const isDraft = isProjectDraft(project);
@@ -1769,12 +1769,12 @@ function renderProjectRecordsTable() {
         <td style="padding: 15px 20px; font-size: 0.85rem;">${highlight(projectDocNo, rawQuery)}</td>
         <td style="padding: 15px 20px; font-size: 0.92rem;"><strong>${highlight(projectTitle, rawQuery)}</strong>${renderProjectStaffOwnershipBadge(project)}</td>
         <td style="padding: 15px 20px; font-size: 0.85rem;">${highlight(companyName, rawQuery)}</td>
-        <td style="padding: 15px 20px; font-size: 0.85rem;">${highlight(manager, rawQuery)}</td>
-        <td class="text-center" style="padding: 15px 20px;"><span class="status-pill ${projectStatusClass}">${highlight(projectStatusLabel, rawQuery)}</span></td>
-        <td class="text-center" style="padding: 15px 20px; font-size: 0.85rem;">${highlight(priorityLabel, rawQuery)}</td>
-        <td class="text-center" style="padding: 15px 20px; font-size: 0.85rem;">${highlight(startDate, rawQuery)}</td>
-        <td class="text-center" style="padding: 15px 20px; font-size: 0.85rem;">${highlight(endDate, rawQuery)}</td>
+        <td class="text-center" style="padding: 15px 20px; font-size: 0.85rem;">${highlight(serviceTypeText, rawQuery)}</td>
+        <td style="padding: 15px 20px; font-size: 0.85rem;">${highlight(assignedStaffText, rawQuery)}</td>
+        <td class="text-center" style="padding: 15px 20px; font-size: 0.85rem;">${highlight(plannedStart, rawQuery)}</td>
+        <td class="text-center" style="padding: 15px 20px; font-size: 0.85rem;">${highlight(plannedEnd, rawQuery)}</td>
         <td class="text-right" style="padding: 15px 20px; font-size: 0.85rem;">${highlight(contractAmountText, rawQuery)}</td>
+        <td class="text-center" style="padding: 15px 20px;"><span class="status-pill ${projectStatusClass}">${highlight(projectStatusLabel, rawQuery)}</span></td>
         <td class="text-center" style="padding: 15px 20px;">
           <div class="project-master-actions">
             <button class="btn btn-sm btn-edit" type="button" onclick="openProjectModal(${Number(project.id)})">Edit</button>
@@ -2481,17 +2481,31 @@ async function fetchProjectLedgerData() {
   };
 }
 
+// A ledger row is still a "draft" (and must NOT show in the project overview/ledger)
+// while it carries a DFT-/DRAFT- document number or a draft/needs-revision status.
+// It becomes official only on approval — see [[draft-official-docno-rule]].
+function isDraftLedgerRow(row = {}) {
+  const docNo = String(
+    row.pr_number || row.po_number || row.quote_number || row.grn_number ||
+    row.document_no || row.bill_number || row.invoice_number || ''
+  ).trim();
+  if (/^(DFT|DRAFT)-/i.test(docNo)) return true;
+  const status = String(row.status || '').trim().toLowerCase();
+  return ['draft', 'needs_revision'].includes(status);
+}
+
 function buildProjectLedgerSnapshot(project, data) {
   const id = Number(project?.id || 0);
+  const notDraft = (row) => !isDraftLedgerRow(row);
   const transactions = data.transactions.filter((row) => Number(row.project_id || 0) === id);
   const transactionIds = new Set(transactions.map((row) => Number(row.id || 0)).filter(Boolean));
-  const receivables = data.receivables.filter((row) => Number(row.project_id || 0) === id || transactionIds.has(Number(row.transaction_id || 0)));
+  const receivables = data.receivables.filter((row) => (Number(row.project_id || 0) === id || transactionIds.has(Number(row.transaction_id || 0))) && notDraft(row));
   const receivableIds = new Set(receivables.map((row) => Number(row.id || 0)).filter(Boolean));
-  const bills = data.bills.filter((row) => Number(row.project_id || 0) === id);
-  const requisitions = data.requisitions.filter((row) => Number(row.project_id || 0) === id);
+  const bills = data.bills.filter((row) => Number(row.project_id || 0) === id && notDraft(row));
+  const requisitions = data.requisitions.filter((row) => Number(row.project_id || 0) === id && notDraft(row));
   const requisitionIds = new Set(requisitions.map((row) => Number(row.id || 0)).filter(Boolean));
-  const quotations = data.quotations.filter((row) => Number(row.project_id || 0) === id || requisitionIds.has(Number(row.requisition_id || 0)));
-  const purchaseOrders = data.purchaseOrders.filter((row) => Number(row.project_id || 0) === id);
+  const quotations = data.quotations.filter((row) => (Number(row.project_id || 0) === id || requisitionIds.has(Number(row.requisition_id || 0))) && notDraft(row));
+  const purchaseOrders = data.purchaseOrders.filter((row) => Number(row.project_id || 0) === id && notDraft(row));
   const purchaseOrderIds = new Set(purchaseOrders.map((row) => Number(row.id || 0)).filter(Boolean));
   const goodsReceipts = data.goodsReceipts.filter((row) => purchaseOrderIds.has(Number(row.po_id || 0)));
   const billIds = new Set(bills.map((row) => Number(row.id || 0)).filter(Boolean));
@@ -2499,10 +2513,10 @@ function buildProjectLedgerSnapshot(project, data) {
   const arPayments = data.arPayments.filter((row) => receivableIds.has(Number(row.ar_id || 0)));
   const serviceOrders = data.serviceOrders.filter((row) => Number(row.project_id || 0) === id);
   const inventoryMovements = data.inventoryMovements.filter((row) => Number(row.project_id || 0) === id);
-  // Sales pipeline records (SI -> SQ -> SO -> DR) tied to this project; skip
-  // cancelled rows (incl. soft-archived legacy Projects/Service-Order types).
+  // Sales pipeline records (SI -> SQ -> SO -> DR) tied to this project; skip cancelled
+  // and still-draft rows (only approved/official sales records belong in the ledger).
   const salesRecords = (data.salesRecords || []).filter((row) =>
-    Number(row.project_id || 0) === id && String(row.status || '').toLowerCase() !== 'cancelled');
+    Number(row.project_id || 0) === id && String(row.status || '').toLowerCase() !== 'cancelled' && notDraft(row));
   const salesByType = (t) => salesRecords.filter((row) => String(row.record_type || '') === t);
   const pipeline = {
     inquiry: salesByType('sales-request'),
@@ -2564,7 +2578,7 @@ function projectLedgerMatchesSearch(values, query) {
 
 function normalizeProjectLedgerSubmodule(value) {
   const tab = String(value || '').trim().toLowerCase();
-  return ['overview', 'ar', 'ap', 'inventory', 'payments', 'service-orders', 'documents'].includes(tab) ? tab : 'overview';
+  return ['overview', 'ar', 'ap', 'inventory', 'payments', 'documents'].includes(tab) ? tab : 'overview';
 }
 
 function syncProjectLedgerSubmoduleTabs() {
@@ -2583,32 +2597,60 @@ function switchProjectLedgerSubmodule(tab) {
   renderProjectLedgerPage();
 }
 
-function renderProjectLedgerDocuments(snapshot) {
+// All documents connected to this project — across Procurement, Sales, AP and AR.
+function renderProjectLedgerDocuments(snapshot, query = '') {
   const project = snapshot?.project || {};
-  const docs = [];
+  const pipeline = snapshot?.pipeline || { inquiry: [], quotation: [], order: [], delivery: [] };
+  const projectNo = String(project.project_docno || project.draft_docno || '-').trim() || '-';
+  const rows = [];
+  const addDoc = (docNo, type, date, amount, status, action = '') => {
+    const n = String(docNo || '').trim();
+    if (!n) return;
+    rows.push({ docNo: n, type, date: date || '-', amount: Number(amount || 0), status: status || '-', action });
+  };
+
   if (project.pdfFilename) {
-    docs.push(`
-      <tr>
-        <td>${escHtml(project.project_docno || '-')}</td>
-        <td>Project PDF</td>
-        <td>${escHtml(project.pdfFilename)}</td>
-        <td class="text-center">
-          <button class="btn btn-sm btn-pdf" type="button" onclick="openProjectPdfViewer(${Number(project.id || 0)})">View PDF</button>
-        </td>
-      </tr>
-    `);
+    addDoc(projectNo, 'Project · PDF', formatDateYmd(project.created_at || project.start_date || ''), project.budget,
+      getProjectLifecycleLabel(project).replace(/_/g, ' '),
+      `<button class="btn btn-sm btn-pdf" type="button" onclick="openProjectPdfViewer(${Number(project.id || 0)})">View</button>`);
   }
+  // Procurement
+  (snapshot.requisitions || []).forEach((r) => addDoc(r.pr_number, 'Procurement · PR', formatDateYmd(r.request_date), r.total_amount, getProjectLedgerRowStatus(r)));
+  (snapshot.quotations || []).forEach((r) => addDoc(r.quote_number, 'Procurement · RFQ', formatDateYmd(r.quote_date), r.quoted_total || r.total_amount, getProjectLedgerRowStatus(r)));
+  (snapshot.purchaseOrders || []).forEach((r) => addDoc(r.po_number, 'Procurement · PO', formatDateYmd(r.po_date), r.total_amount, getProjectLedgerRowStatus(r)));
+  (snapshot.goodsReceipts || []).forEach((r) => addDoc(r.grn_number, 'Procurement · GRN', formatDateYmd(r.received_date), 0, getProjectLedgerRowStatus(r)));
+  // Sales Management
+  const salesLabel = { 'sales-request': 'Sales Inquiry', 'sales-quotation': 'Quotation', 'sales-order': 'Sales Order', 'project-delivery': 'Delivery Receipt' };
+  [...(pipeline.inquiry || []), ...(pipeline.quotation || []), ...(pipeline.order || []), ...(pipeline.delivery || [])]
+    .forEach((r) => addDoc(r.document_no, `Sales · ${salesLabel[r.record_type] || 'Document'}`, formatDateYmd(r.requested_date || r.created_at), r.amount, getProjectLedgerRowStatus(r)));
+  // AR / AP
+  (snapshot.receivables || []).forEach((r) => addDoc(r.invoice_number, 'AR · Invoice', formatDateYmd(r.invoice_date || r.due_date), r.total_amount, getProjectLedgerRowStatus(r)));
+  (snapshot.bills || []).forEach((r) => addDoc(r.bill_number, 'AP · Bill', formatDateYmd(r.bill_date || r.due_date), r.total_amount, getProjectLedgerRowStatus(r)));
+
+  const q = String(query || '').trim().toLowerCase();
+  const filtered = q ? rows.filter((d) => [d.docNo, d.type, d.status].join(' ').toLowerCase().includes(q)) : rows;
 
   return renderProjectLedgerTable(
-    'Documents',
+    `All Documents · ${escHtml(projectNo)}`,
     [
-      { label: 'Project No.' },
+      { label: 'Document No.' },
       { label: 'Type' },
-      { label: 'File' },
-      { label: 'Actions', className: 'text-center' }
+      { label: 'Date' },
+      { label: 'Amount', className: 'text-right' },
+      { label: 'Status' },
+      { label: '', className: 'text-center' }
     ],
-    docs,
-    'No project documents attached yet.'
+    filtered.map((d) => `
+      <tr>
+        <td><strong>${escHtml(d.docNo)}</strong></td>
+        <td>${escHtml(d.type)}</td>
+        <td>${escHtml(d.date)}</td>
+        <td class="text-right">${d.amount ? formatPhpCurrency(d.amount) : '-'}</td>
+        <td>${escHtml(d.status)}</td>
+        <td class="text-center">${d.action || ''}</td>
+      </tr>
+    `),
+    'No linked documents yet.'
   );
 }
 
@@ -2802,11 +2844,13 @@ function renderProjectOverview(snapshot) {
     { label: 'AR collected', value: arBalance <= 0 && Number(totals.arTotal || 0) > 0 ? 'Done' : 'Pending', tone: arBalance <= 0 && Number(totals.arTotal || 0) > 0 ? 'positive' : 'muted' },
     { label: 'Project completed', value: isStatus(project.status, 'completed') ? 'Done' : 'Pending', tone: isStatus(project.status, 'completed') ? 'positive' : 'muted' }
   ];
-  const arRelationship = renderProjectRelationshipCard('Project to AR', 'Income and collection trail', [
+  const preSalesCount = inquiryCount + salesQuotationCount;
+  const arRelationship = renderProjectRelationshipCard('Project to AR', 'Project &rarr; Sales Management &rarr; AR collection trail', [
     renderProjectRelationshipItem('Project', projectDocNo, 'Source record', 'positive'),
-    renderProjectRelationshipItem('Service Orders', serviceOrderCount, 'Work order / scope', serviceOrderCount ? 'positive' : 'muted'),
-    renderProjectRelationshipItem('Transactions', transactionCount, 'Customer billing source', transactionCount ? 'positive' : 'muted'),
-    renderProjectRelationshipItem('Receivables', receivableCount, formatPhpCurrency(totals.arTotal || 0), receivableCount ? 'positive' : 'muted'),
+    renderProjectRelationshipItem('Sales Inquiry / Quotation', preSalesCount, 'Pre-sales documents', preSalesCount ? 'positive' : 'muted'),
+    renderProjectRelationshipItem('Sales Order', salesOrderCount, salesOrderCount ? formatPhpCurrency(sumAmt(pipeline.order)) : 'Confirmed scope', salesOrderCount ? 'positive' : 'muted'),
+    renderProjectRelationshipItem('Delivery Receipt', deliveryCount, deliveryCount ? formatPhpCurrency(sumAmt(pipeline.delivery)) : 'Delivered items', deliveryCount ? 'positive' : 'muted'),
+    renderProjectRelationshipItem('Receivables (AR)', receivableCount, formatPhpCurrency(totals.arTotal || 0), receivableCount ? 'positive' : 'muted'),
     renderProjectRelationshipItem('Collections', arPaymentCount, formatPhpCurrency(totals.collectedTotal || 0), arPaymentCount ? 'positive' : 'warning')
   ]);
   const apRelationship = renderProjectRelationshipCard('Project to Procurement/AP', 'Cost and supplier payment trail', [
@@ -2825,16 +2869,16 @@ function renderProjectOverview(snapshot) {
     renderProjectOverviewSignal('Margin', `${marginPercent}%`, formatPhpCurrency(grossProfit), profitTone),
     renderProjectOverviewSignal('Linked Records', linkedRecordCount, 'Across AR, AP, payments, and documents', linkedRecordCount ? 'positive' : 'muted')
   ].join('');
+  // Actual money flow: Sales -> AR (billed/collected) and Procurement -> AP (cost/paid).
   const compactMoneyMetrics = [
     renderProjectOverviewMetric('Contract', formatPhpCurrency(contractAmount), 'Agreed project amount'),
-    renderProjectOverviewMetric('Downpayment', formatPhpCurrency(projectDownpayment), 'Recorded in project'),
-    renderProjectOverviewMetric('Balance', formatPhpCurrency(projectBalance), 'Contract minus downpayment', projectBalance > 0 ? 'warning' : 'positive'),
+    renderProjectOverviewMetric('AR Billed', formatPhpCurrency(totals.arTotal || 0), `${receivableCount} invoice${receivableCount === 1 ? '' : 's'}`, Number(totals.arTotal || 0) ? 'positive' : 'muted'),
     renderProjectOverviewMetric('Collected', formatPhpCurrency(totals.collectedTotal || 0), `${collectionRate}% of AR`, 'positive'),
+    renderProjectOverviewMetric('AP Cost', formatPhpCurrency(totals.apTotal || 0), `${billCount} bill${billCount === 1 ? '' : 's'}`, Number(totals.apTotal || 0) ? 'warning' : 'muted'),
     renderProjectOverviewMetric('Supplier Balance', formatPhpCurrency(apBalance), `${apPaidRate}% paid`, apBalance > 0 ? 'warning' : 'positive'),
     renderProjectOverviewMetric('Net Position', formatPhpCurrency(netTotal), 'AR minus AP', netTone)
   ].join('');
   const recordCountHtml = [
-    renderProjectOverviewDetail('Service Orders', serviceOrderCount),
     renderProjectOverviewDetail('Receivables', receivableCount),
     renderProjectOverviewDetail('Purchase Requests', requisitionCount),
     renderProjectOverviewDetail('Purchase Orders', purchaseOrderCount),
@@ -2843,36 +2887,100 @@ function renderProjectOverview(snapshot) {
     renderProjectOverviewDetail('Documents', documentCount)
   ].join('');
 
+  // ── Procurement flow strip (PR -> RFQ -> PO -> GRN -> AP) ─────────────────
+  const procurementStrip = [
+    renderProjectPipelineNode('PR', requisitionCount, '', requisitionCount ? 'positive' : 'muted', 'Request'),
+    renderProjectPipelineNode('RFQ', quotationCount, '', quotationCount ? 'positive' : 'muted', 'optional'),
+    renderProjectPipelineNode('PO', purchaseOrderCount, purchaseOrderCount ? formatPhpCurrency(totals.apTotal || 0) : '', purchaseOrderCount ? 'positive' : 'muted'),
+    renderProjectPipelineNode('GRN', goodsReceiptCount, '', goodsReceiptCount ? 'positive' : 'muted'),
+    renderProjectPipelineNode('AP / Bill', billCount, billCount ? formatPhpCurrency(totals.apTotal || 0) : '', billCount ? (apBalance > 0 ? 'warning' : 'positive') : 'muted', apBalance > 0 ? `${formatPhpCurrency(apBalance)} due` : (billCount ? 'paid' : ''))
+  ].join('<div class="project-pipeline-arrow" aria-hidden="true">&rarr;</div>');
+
+  // ── Information (project form + company registry contact) ─────────────────
+  const serviceTypeLabel = String(project.service_type || '').trim()
+    ? String(project.service_type).replace(/^\w/, (c) => c.toUpperCase())
+    : '-';
+  const projectLocation = String(project.project_location || '').trim() || '-';
+  const plannedStart = formatDateYmd(project.planned_start_date || '') || '-';
+  const plannedEnd = formatDateYmd(project.planned_end_date || '') || '-';
+  const actualStartInfo = formatDateYmd(project.actual_start_date || '') || 'Not started';
+  const actualEndInfo = formatDateYmd(project.actual_end_date || '') || 'Ongoing';
+  const contactPerson = String(project.registry_contact_person || '').trim() || '-';
+  const contactEmail = String(project.registry_email || '').trim() || '-';
+  const contactPhone = String(project.registry_phone || '').trim() || '-';
+  const estMaterial = Number(project.estimated_material_cost || 0) || 0;
+  const estLabor = Number(project.estimated_labor_cost || 0) || 0;
+  const estOther = Number(project.estimated_other_cost || 0) || 0;
+  const estProfit = contractAmount - (estMaterial + estLabor + estOther);
+  const estMarginPct = contractAmount > 0 ? Math.round((estProfit / contractAmount) * 100) : 0;
+  const assignedStaffName = String(project.assigned_to_name || project.assigned_to_username || '-').trim() || '-';
+
+  const informationCard = `
+    <div class="project-overview-card">
+      <div class="project-overview-section-head">
+        <div>
+          <div class="project-overview-kicker">Information</div>
+          <h4>Project details &amp; contacts</h4>
+        </div>
+      </div>
+      <div class="project-overview-metric-grid">
+        ${renderProjectOverviewDetail('Project ID', projectDocNo)}
+        ${renderProjectOverviewDetail('Service Type', serviceTypeLabel)}
+        ${renderProjectOverviewDetail('Assigned Staff', assignedStaffName)}
+        ${renderProjectOverviewDetail('Location', projectLocation)}
+        ${renderProjectOverviewDetail('Planned', `${plannedStart} → ${plannedEnd}`)}
+        ${renderProjectOverviewDetail('Actual', `${actualStartInfo} → ${actualEndInfo}`)}
+        ${renderProjectOverviewDetail('Company', companyName)}
+        ${renderProjectOverviewDetail('Contact Person', contactPerson)}
+        ${renderProjectOverviewDetail('Email', contactEmail)}
+        ${renderProjectOverviewDetail('Contact No.', contactPhone)}
+      </div>
+      <div class="project-overview-kicker" style="margin-top:14px;">Project Members</div>
+      <div class="project-overview-members">${memberHtml}</div>
+      <p style="margin-top:12px;font-size:0.72rem;color:var(--muted);">${escHtml(description)}</p>
+    </div>
+  `;
+
+  // Estimated (planned) cost breakdown from the project form.
+  const estimateCard = `
+    <div class="project-overview-card">
+      <div class="project-overview-section-head">
+        <div>
+          <div class="project-overview-kicker">Estimate (from form)</div>
+          <h4>Planned cost &amp; profit</h4>
+        </div>
+        <span class="project-overview-health is-${estProfit >= 0 ? 'positive' : 'negative'}">${estProfit >= 0 ? 'Projected gain' : 'Projected loss'}</span>
+      </div>
+      <div class="project-overview-metric-grid">
+        ${renderProjectOverviewMetric('Contract', formatPhpCurrency(contractAmount), 'Agreed amount')}
+        ${renderProjectOverviewMetric('Material', formatPhpCurrency(estMaterial), 'Estimated')}
+        ${renderProjectOverviewMetric('Labor', formatPhpCurrency(estLabor), 'Estimated')}
+        ${renderProjectOverviewMetric('Other', formatPhpCurrency(estOther), 'Estimated')}
+        ${renderProjectOverviewMetric('Est. Profit', formatPhpCurrency(estProfit), `${estMarginPct}% margin`, estProfit >= 0 ? 'positive' : 'negative')}
+      </div>
+    </div>
+  `;
+
   return `
     <section class="project-overview-shell">
       <div class="project-overview-card project-overview-hero">
         <div class="project-overview-hero-copy">
           <div class="project-overview-kicker">Project Overview</div>
           <h3>${escHtml(project.project_name || 'Untitled Project')}</h3>
-          <p>${escHtml(description)}</p>
           <div class="project-overview-tags">
+            <span>${escHtml(projectDocNo)}</span>
             <span>${escHtml(status)}</span>
             <span>${escHtml(companyName)}</span>
             <span>${escHtml(startDate)} to ${escHtml(endDate)}</span>
           </div>
         </div>
         <div class="project-overview-hero-side">
-          ${renderProjectOverviewDetail('Project No.', projectDocNo)}
-          ${renderProjectOverviewDetail('Customer PO Ref.', customerPoRef)}
+          ${renderProjectOverviewDetail('Net Position', formatPhpCurrency(netTotal))}
+          ${renderProjectOverviewDetail('Margin', `${marginPercent}%`)}
         </div>
       </div>
 
       ${verdictBanner}
-
-      <div class="project-overview-card project-overview-pipeline-card">
-        <div class="project-overview-section-head">
-          <div>
-            <div class="project-overview-kicker">Sales Flow</div>
-            <h4>Project &rarr; Inquiry &rarr; Quotation &rarr; Sales Order &rarr; Delivery &rarr; Invoice</h4>
-          </div>
-        </div>
-        <div class="project-overview-pipeline">${pipelineStrip}</div>
-      </div>
 
       <div class="project-overview-layout">
         <div class="project-overview-card">
@@ -2885,45 +2993,47 @@ function renderProjectOverview(snapshot) {
           </div>
           <div class="project-overview-metric-grid">${compactMoneyMetrics}</div>
         </div>
-
         <div class="project-overview-card project-overview-signals-card">
           <div class="project-overview-kicker">Review Signals</div>
           <div class="project-overview-signal-grid">${keySignals}</div>
         </div>
       </div>
 
-      <div class="project-overview-grid">
-        <div class="project-overview-card">
-          <div class="project-overview-kicker">Status Timeline</div>
-          <div class="project-overview-steps">
-            ${timelineRows.map((row, index) => renderProjectOverviewStep(String(index + 1), row.label, row.value, row.tone)).join('')}
+      <div class="project-overview-card project-overview-pipeline-card">
+        <div class="project-overview-section-head">
+          <div>
+            <div class="project-overview-kicker">1. Procurement Flow</div>
+            <h4>PR &rarr; RFQ &rarr; PO &rarr; GRN &rarr; AP / Bill</h4>
           </div>
         </div>
-        <div class="project-overview-card">
-          <div class="project-overview-section-head">
-            <div>
-              <div class="project-overview-kicker">Linked Records</div>
-              <h4>Counts by module</h4>
-            </div>
-          </div>
-          <div class="project-overview-counts">${recordCountHtml}</div>
-        </div>
+        <div class="project-overview-pipeline">${procurementStrip}</div>
       </div>
 
-      <div class="project-overview-grid">
-        <div class="project-overview-card">
-          <div class="project-overview-kicker">Recent Service Orders</div>
-          <div class="project-overview-activity-list">${latestRows}</div>
+      <div class="project-overview-card project-overview-pipeline-card">
+        <div class="project-overview-section-head">
+          <div>
+            <div class="project-overview-kicker">2. Sales Management Flow</div>
+            <h4>Project &rarr; Inquiry &rarr; Quotation &rarr; Sales Order &rarr; Delivery &rarr; Invoice</h4>
+          </div>
         </div>
-        <div class="project-overview-card">
-          <div class="project-overview-kicker">Project Team</div>
-          <div class="project-overview-members">${memberHtml}</div>
-        </div>
+        <div class="project-overview-pipeline">${pipelineStrip}</div>
       </div>
 
       <div class="project-overview-grid project-overview-related-grid">
-        ${arRelationship}
         ${apRelationship}
+        ${arRelationship}
+      </div>
+
+      <div class="project-overview-grid">
+        ${informationCard}
+        ${estimateCard}
+      </div>
+
+      <div class="project-overview-card">
+        <div class="project-overview-kicker">Status Timeline</div>
+        <div class="project-overview-steps">
+          ${timelineRows.map((row, index) => renderProjectOverviewStep(String(index + 1), row.label, row.value, row.tone)).join('')}
+        </div>
       </div>
     </section>
   `;
@@ -2964,6 +3074,31 @@ function renderProjectLedgerPage() {
   }
 
   if (showSection('ar')) {
+    // Project -> Sales Management -> AR: show the sales trail first, then receivables.
+    const salesTypeLabel = { 'sales-request': 'Sales Inquiry', 'sales-quotation': 'Quotation', 'sales-order': 'Sales Order', 'project-delivery': 'Delivery Receipt' };
+    const filteredSales = (snapshot.salesRecords || []).filter((row) => projectLedgerMatchesSearch([row.document_no, salesTypeLabel[row.record_type], row.title, row.requested_date, row.status, row.amount], query));
+    sections.push(renderProjectLedgerTable(
+      'Sales Management',
+      [
+        { label: 'Document No.' },
+        { label: 'Type' },
+        { label: 'Title' },
+        { label: 'Date' },
+        { label: 'Amount', className: 'text-right' },
+        { label: 'Status' }
+      ],
+      filteredSales.map((row) => `
+        <tr>
+          <td><strong>${escHtml(row.document_no || '-')}</strong></td>
+          <td>${escHtml(salesTypeLabel[row.record_type] || '-')}</td>
+          <td>${escHtml(row.title || '-')}</td>
+          <td>${escHtml(formatDateYmd(row.requested_date || row.created_at) || '-')}</td>
+          <td class="text-right">${formatPhpCurrency(row.amount || 0)}</td>
+          <td>${escHtml(getProjectLedgerRowStatus(row))}</td>
+        </tr>
+      `),
+      'No linked sales records yet.'
+    ));
     sections.push(renderProjectLedgerTable(
       'Accounts Receivable',
       [
@@ -3158,31 +3293,8 @@ function renderProjectLedgerPage() {
     ));
   }
 
-  if (showSection('service-orders')) {
-    sections.push(renderProjectLedgerTable(
-      'Service Orders',
-      [
-        { label: 'SO No.' },
-        { label: 'Date' },
-        { label: 'Title' },
-        { label: 'Amount', className: 'text-right' },
-        { label: 'Status' }
-      ],
-      filteredServiceOrders.map((row) => `
-        <tr>
-          <td>${escHtml(row.so_number || '-')}</td>
-          <td>${escHtml(row.service_date || '-')}</td>
-          <td>${escHtml(row.service_title || '-')}</td>
-          <td class="text-right">${formatPhpCurrency(row.total_amount || 0)}</td>
-          <td>${escHtml(getProjectLedgerRowStatus(row))}</td>
-        </tr>
-      `),
-      'No linked service orders yet.'
-    ));
-  }
-
   if (showSection('documents')) {
-    sections.push(renderProjectLedgerDocuments(snapshot));
+    sections.push(renderProjectLedgerDocuments(snapshot, query));
   }
 
   content.innerHTML = sections.join('') || '<div class="empty-row" style="padding:18px;text-align:center;">No overview records found.</div>';
@@ -4792,6 +4904,23 @@ function recomputeEstimatedProfit() {
   }
 }
 
+// Re-fetch the Project No. preview for the selected business entity so the code
+// updates live (PRJ_KVSK / PRJ_KITSI). New projects only — never overwrite an edit.
+function refreshProjectDocnoPreview() {
+  if (editingProjectId) return;
+  const entityId = document.getElementById('p-business-entity-id')?.value
+    || (typeof getDefaultBusinessEntityId === 'function' ? getDefaultBusinessEntityId() : '') || '';
+  fetch(`/api/projects/next-docno?business_entity_id=${encodeURIComponent(entityId)}`)
+    .then(res => res.json().catch(() => ({})).then(data => ({ ok: res.ok, data })))
+    .then(({ ok, data }) => {
+      if (!ok || editingProjectId) return;
+      const nextDocno = String(data?.project_docno || '').trim();
+      const input = document.getElementById('p-project-docno');
+      if (nextDocno && input) input.value = nextDocno;
+    })
+    .catch(() => {});
+}
+
 function applyPermissionMatrix() {
   const role = normalizeAccessRole(currentUser?.role);
   const canCreateDrafts = role === 'staff' || role === 'admin' || role === 'super_admin';
@@ -5693,11 +5822,11 @@ function switchProjectFormTab(tabName = 'details') {
 
 function getProjectFormTabForField(fieldName) {
   const dateFields = ['planned_start_date', 'planned_end_date', 'actual_start_date', 'actual_end_date', 'status_reason'];
-  const financialFields = ['budget', 'downpayment', 'checkno', 'pono'];
-  const teamFields = ['project_members', 'member_role', 'member_phone', 'project_members_2', 'member_role_2', 'member_phone_2', 'project_members_3', 'member_role_3', 'member_phone_3'];
+  const financialFields = ['budget', 'downpayment', 'checkno', 'pono', 'estimated_material_cost', 'estimated_labor_cost', 'estimated_other_cost'];
+  const memberFields = ['project_members', 'member_role', 'member_phone', 'project_members_2', 'member_role_2', 'member_phone_2', 'project_members_3', 'member_role_3', 'member_phone_3'];
   if (dateFields.includes(fieldName)) return 'dates';
   if (financialFields.includes(fieldName)) return 'financials';
-  if (teamFields.includes(fieldName)) return 'team';
+  if (memberFields.includes(fieldName)) return 'members';
   return 'details';
 }
 
@@ -5880,7 +6009,16 @@ async function openProjectModal(projectId = null) {
     setProjectModalValue('p-est-material', Number(projectData.estimated_material_cost || 0) > 0 ? Number(projectData.estimated_material_cost || 0).toFixed(2) : '');
     setProjectModalValue('p-est-labor', Number(projectData.estimated_labor_cost || 0) > 0 ? Number(projectData.estimated_labor_cost || 0).toFixed(2) : '');
     setProjectModalValue('p-est-other', Number(projectData.estimated_other_cost || 0) > 0 ? Number(projectData.estimated_other_cost || 0).toFixed(2) : '');
-    renderProjectMemberOptions([projectData.project_members, projectData.project_members_2, projectData.project_members_3]);
+    setProjectModalValue('p-project-members', projectData.project_members || '');
+    setProjectRoleValue('p-member-role', projectData.member_role || '');
+    setProjectModalValue('p-member-phone', projectData.member_phone || '');
+    setProjectModalValue('p-project-members-2', projectData.project_members_2 || '');
+    setProjectRoleValue('p-member-role-2', projectData.member_role_2 || '');
+    setProjectModalValue('p-member-phone-2', projectData.member_phone_2 || '');
+    setProjectModalValue('p-project-members-3', projectData.project_members_3 || '');
+    setProjectRoleValue('p-member-role-3', projectData.member_role_3 || '');
+    setProjectModalValue('p-member-phone-3', projectData.member_phone_3 || '');
+    syncProjectTeamRowsFromValues();
     recomputeEstimatedProfit();
     currentProjectStartDate = formatDateInputValue(projectData.planned_start_date || projectData.start_date || '');
     currentProjectEndDate = formatDateInputValue(projectData.planned_end_date || projectData.end_date || '');
@@ -6298,7 +6436,11 @@ async function saveProject(submitAction = 'draft') {
   };
 
   const rawBudgetValue = String(document.getElementById('p-budget')?.value || '').trim();
-  const rawDownpaymentValue = String(document.getElementById('p-downpayment')?.value || '').trim();
+  const serviceType = String(document.getElementById('p-service-type')?.value || '').trim();
+  const projectLocation = String(document.getElementById('p-project-location')?.value || '').trim();
+  const rawEstMaterial = String(document.getElementById('p-est-material')?.value || '').trim();
+  const rawEstLabor = String(document.getElementById('p-est-labor')?.value || '').trim();
+  const rawEstOther = String(document.getElementById('p-est-other')?.value || '').trim();
   const missingProjectFields = [];
   const requireProjectField = (fieldName, missing, message, label) => {
     if (!missing) return;
@@ -6306,39 +6448,49 @@ async function saveProject(submitAction = 'draft') {
     markProjectError(fieldName, message);
   };
 
-  requireProjectField('project_docno', !projectDocNoValue, 'Project No. is required.', 'Project No.');
-  requireProjectField('project_name', !projectName, 'Project title is required.', 'Project Title');
+  // Validate in tab order (Details -> Dates -> Financials -> Members) so the first
+  // missing field jumps to the earliest tab and the user fills them in sequence.
+  // Every field is required EXCEPT Actual Start/End dates.
+  // -- Details --
+  requireProjectField('project_name', !projectName, 'Project name is required.', 'Project Name');
+  requireProjectField('business_entity_id', !businessEntityId, 'Business entity is required.', 'Business Entity');
   requireProjectField('company', !companyId, hasCompanyOptions ? 'Type an exact company no/name, or a search with one match.' : 'No companies available yet. Please add a company in Company Registry first.', 'Company');
-  requireProjectField('project_manager', !projectManager, 'Project manager is required.', 'Project Manager');
+  requireProjectField('service_type', !serviceType, 'Service type is required.', 'Service Type');
   requireProjectField('assigned_to', !assignedTo, 'Assigned staff is required.', 'Assigned Staff');
-  requireProjectField('description', !description, 'Scope / Description is required.', 'Scope / Description');
-  requireProjectField('planned_start_date', !plannedStartDate, 'Start date is required.', 'Planned Start Date');
-  requireProjectField('planned_end_date', !plannedEndDate, 'End date is required.', 'Planned End Date');
+  requireProjectField('project_location', !projectLocation, 'Project location is required.', 'Project Location');
+  requireProjectField('description', !description, 'Description is required.', 'Description');
+  // -- Dates --
+  requireProjectField('planned_start_date', !plannedStartDate, 'Planned start date is required.', 'Planned Start Date');
+  requireProjectField('planned_end_date', !plannedEndDate, 'Planned end date is required.', 'Planned End Date');
+  // -- Financials --
   requireProjectField('budget', !rawBudgetValue || budgetValue <= 0, 'Contract amount is required and must be greater than zero.', 'Contract Amount');
-  requireProjectField('downpayment', Boolean(rawDownpaymentValue) && downpaymentValue < 0, 'Downpayment cannot be negative.', 'Downpayment');
-  requireProjectField('project_members', !teamFields.project_members, 'Member 1 is required.', 'Member 1');
-  requireProjectField('member_role', !teamFields.member_role, 'Role 1 is required.', 'Role 1');
-  requireProjectField('member_phone', !teamFields.member_phone, 'Phone 1 is required.', 'Phone 1');
+  requireProjectField('estimated_material_cost', !rawEstMaterial, 'Estimated material cost is required.', 'Estimated Material Cost');
+  requireProjectField('estimated_labor_cost', !rawEstLabor, 'Estimated labor cost is required.', 'Estimated Labor Cost');
+  requireProjectField('estimated_other_cost', !rawEstOther, 'Estimated other cost is required.', 'Estimated Other Cost');
+  // -- Members --
+  requireProjectField('project_members', !teamFields.project_members, 'Member 1 name is required.', 'Member 1 Name');
+  requireProjectField('member_role', !teamFields.member_role, 'Member 1 role is required.', 'Member 1 Role');
+  requireProjectField('member_phone', !teamFields.member_phone, 'Member 1 phone is required.', 'Member 1 Phone');
 
   if (missingProjectFields.length) {
     setProjectModalNotice(`Complete all project information before saving: ${missingProjectFields.join(', ')}.`);
-    if (!projectDocNoValue) markProjectError('project_docno', 'Project No. is required.');
     const projectFieldFocusMap = {
       project_name: ['p-project-name'],
-      project_docno: ['p-project-docno'],
       company: ['p-company-search'],
-      project_manager: ['p-project-manager'],
+      business_entity_id: ['p-business-entity-id'],
+      service_type: ['p-service-type'],
       assigned_to: ['p-assigned-to'],
+      project_members: ['p-project-members'],
+      member_role: ['p-member-role'],
+      member_phone: ['p-member-phone'],
+      project_location: ['p-project-location'],
       description: ['p-description'],
       planned_start_date: ['p-planned-start-date'],
       planned_end_date: ['p-planned-end-date'],
-      actual_start_date: ['p-actual-start-date'],
-      actual_end_date: ['p-actual-end-date'],
       budget: ['p-budget'],
-      downpayment: ['p-downpayment'],
-      project_members: ['p-project-members'],
-      member_role: ['p-member-role'],
-      member_phone: ['p-member-phone']
+      estimated_material_cost: ['p-est-material'],
+      estimated_labor_cost: ['p-est-labor'],
+      estimated_other_cost: ['p-est-other']
     };
     focusProjectFieldOnTab(firstInvalidField, projectFieldFocusMap[firstInvalidField] || []);
     return;
@@ -6415,6 +6567,11 @@ async function saveProject(submitAction = 'draft') {
   formData.append('project_members_3', teamFields.project_members_3);
   formData.append('member_role_3', teamFields.member_role_3);
   formData.append('member_phone_3', teamFields.member_phone_3);
+  formData.append('service_type', serviceType);
+  formData.append('project_location', projectLocation);
+  formData.append('estimated_material_cost', Number(document.getElementById('p-est-material')?.value || 0) || 0);
+  formData.append('estimated_labor_cost', Number(document.getElementById('p-est-labor')?.value || 0) || 0);
+  formData.append('estimated_other_cost', Number(document.getElementById('p-est-other')?.value || 0) || 0);
 
   try {
     const res = await fetch(url, {

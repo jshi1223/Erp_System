@@ -421,14 +421,6 @@
         </div>
       </div>
       <div class="section-divider">Project Operations</div>
-      <div class="project-workspace-tabs" role="tablist" aria-label="Project workspace">
-        <button class="project-workspace-tab active" type="button" data-project-workspace-tab="projects" onclick="switchProjectWorkspaceTab('projects')" aria-selected="true">Projects</button>
-        <button class="project-workspace-tab" type="button" data-project-workspace-tab="ongoing" onclick="switchProjectWorkspaceTab('ongoing')" aria-selected="false">Ongoing</button>
-        <button class="project-workspace-tab" type="button" data-project-workspace-tab="transactions" onclick="switchProjectWorkspaceTab('transactions')" aria-selected="false">Transactions</button>
-        <button class="project-workspace-tab" type="button" data-project-workspace-tab="service-orders" onclick="switchProjectWorkspaceTab('service-orders')" aria-selected="false">Service Orders</button>
-        <button class="project-workspace-tab" type="button" data-project-workspace-tab="ledger" onclick="switchProjectWorkspaceTab('ledger')" aria-selected="false">Overview</button>
-        <button class="project-workspace-tab" type="button" data-project-workspace-tab="documents" onclick="switchProjectWorkspaceTab('documents')" aria-selected="false">Documents</button>
-      </div>
       <div class="stats dashboard-stats dashboard-project-summary project-workspace-summary">
         <button class="stat-card stat-card-primary stat-card-link" id="project-workspace-summary-card-1" type="button" onclick="handleProjectWorkspaceSummaryClick(0)">
           <div class="stat-icon" aria-hidden="true">
@@ -466,19 +458,25 @@
         </button>
       </div>
 
+      <div class="project-workspace-tabs" role="tablist" aria-label="Project workspace">
+        <button class="project-workspace-tab active" type="button" data-project-workspace-tab="projects" onclick="switchProjectWorkspaceTab('projects')" aria-selected="true">Projects</button>
+        <button class="project-workspace-tab" type="button" data-project-workspace-tab="ongoing" onclick="switchProjectWorkspaceTab('ongoing')" aria-selected="false">Ongoing</button>
+        <button class="project-workspace-tab" type="button" data-project-workspace-tab="ledger" onclick="switchProjectWorkspaceTab('ledger')" aria-selected="false">Overview</button>
+      </div>
+
       <div class="table-wrap project-records-wrap" data-slide-ready="1">
         <table class="project-records-table">
           <thead>
             <tr>
-              <th class="table-sort-header" aria-sort="none">Project No.<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
-              <th class="table-sort-header" aria-sort="none">Project Title<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="table-sort-header" aria-sort="none">Project ID<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="table-sort-header" aria-sort="none">Project Name<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
               <th class="table-sort-header" aria-sort="none">Company<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
-              <th class="table-sort-header" aria-sort="none">Manager<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
-              <th class="text-center table-sort-header" aria-sort="none">Status<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
-              <th class="text-center table-sort-header" aria-sort="none">Priority<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
-              <th class="text-center table-sort-header" aria-sort="none">Start Date<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
-              <th class="text-center table-sort-header" aria-sort="none">End Date<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-center table-sort-header" aria-sort="none">Service Type<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="table-sort-header" aria-sort="none">Assigned Staff<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-center table-sort-header" aria-sort="none">Planned Start<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-center table-sort-header" aria-sort="none">Planned End<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
               <th class="text-right table-sort-header" aria-sort="none">Contract Amount<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
+              <th class="text-center table-sort-header" aria-sort="none">Status<button type="button" class="table-sort-trigger" title="Sort ascending" aria-label="Sort ascending">&uarr;</button></th>
               <th class="text-center">Actions</th>
             </tr>
           </thead>
@@ -530,7 +528,6 @@
         <button class="project-submodule-tab" type="button" data-project-ledger-tab="ap" onclick="switchProjectLedgerSubmodule('ap')">Procurement/AP</button>
         <button class="project-submodule-tab" type="button" data-project-ledger-tab="inventory" onclick="switchProjectLedgerSubmodule('inventory')">Inventory</button>
         <button class="project-submodule-tab" type="button" data-project-ledger-tab="payments" onclick="switchProjectLedgerSubmodule('payments')">Payments</button>
-        <button class="project-submodule-tab" type="button" data-project-ledger-tab="service-orders" onclick="switchProjectLedgerSubmodule('service-orders')">Service Orders</button>
         <button class="project-submodule-tab" type="button" data-project-ledger-tab="documents" onclick="switchProjectLedgerSubmodule('documents')">Documents</button>
       </div>
 
@@ -1120,6 +1117,7 @@
         <button class="project-form-tab active" id="project-form-tab-details" type="button" role="tab" aria-selected="true" aria-controls="project-form-panel-details" data-project-form-tab="details" onclick="switchProjectFormTab('details')">Details</button>
         <button class="project-form-tab" id="project-form-tab-dates" type="button" role="tab" aria-selected="false" aria-controls="project-form-panel-dates" data-project-form-tab="dates" onclick="switchProjectFormTab('dates')">Dates</button>
         <button class="project-form-tab" id="project-form-tab-financials" type="button" role="tab" aria-selected="false" aria-controls="project-form-panel-financials" data-project-form-tab="financials" onclick="switchProjectFormTab('financials')">Financials</button>
+        <button class="project-form-tab" id="project-form-tab-members" type="button" role="tab" aria-selected="false" aria-controls="project-form-panel-members" data-project-form-tab="members" onclick="switchProjectFormTab('members')">Members</button>
       </div>
 
       <div class="project-form-panel active" id="project-form-panel-details" role="tabpanel" aria-labelledby="project-form-tab-details" data-project-form-panel="details">
@@ -1137,7 +1135,7 @@
           </div>
           <div class="field full">
             <label data-label-base="Business Entity">Business Entity<span class="field-label-status is-required">Required</span></label>
-            <select id="p-business-entity-id" required aria-required="true"></select>
+            <select id="p-business-entity-id" required aria-required="true" onchange="refreshProjectDocnoPreview()"></select>
             <div class="project-field-message is-hidden" data-project-field-message="business_entity_id" aria-live="polite"></div>
           </div>
           <div class="field full">
@@ -1165,21 +1163,9 @@
             <select id="p-assigned-to" required aria-required="true"></select>
             <div class="project-field-message is-hidden" data-project-field-message="assigned_to" aria-live="polite"></div>
           </div>
-          <div class="field">
-            <label data-label-base="Project Member 1">Project Member 1<span class="field-label-status is-optional">Optional</span></label>
-            <select id="p-project-members" data-project-member-select="1"><option value="">Select staff</option></select>
-          </div>
-          <div class="field">
-            <label data-label-base="Project Member 2">Project Member 2<span class="field-label-status is-optional">Optional</span></label>
-            <select id="p-project-members-2" data-project-member-select="2"><option value="">Select staff</option></select>
-          </div>
-          <div class="field">
-            <label data-label-base="Project Member 3">Project Member 3<span class="field-label-status is-optional">Optional</span></label>
-            <select id="p-project-members-3" data-project-member-select="3"><option value="">Select staff</option></select>
-          </div>
           <div class="field full">
-            <label data-label-base="Project Location">Project Location<span class="field-label-status is-optional">Optional</span></label>
-            <input id="p-project-location" type="text" placeholder="Site / address">
+            <label data-label-base="Project Location">Project Location<span class="field-label-status is-required">Required</span></label>
+            <input id="p-project-location" type="text" placeholder="Site / address" required aria-required="true">
           </div>
           <div class="field full">
             <label data-label-base="Description">Description<span class="field-label-status is-required">Required</span></label>
@@ -1241,6 +1227,98 @@
             <label data-label-base="Estimated Profit">Estimated Profit<span class="field-label-status is-optional">Auto</span></label>
             <div id="p-est-profit-display" style="padding:10px;background:var(--surface2);border-radius:4px;font-weight:700;color:var(--accent);">PHP 0.00</div>
           </div>
+        </div>
+      </div>
+
+      <div class="project-form-panel" id="project-form-panel-members" role="tabpanel" aria-labelledby="project-form-tab-members" data-project-form-panel="members" hidden="">
+        <div class="section-divider">Project Members</div>
+        <div class="form-grid">
+          <div class="field" data-project-team-row="1">
+            <label data-label-base="Member 1">Member 1<span class="field-label-status is-required">Required</span></label>
+            <input id="p-project-members" type="text" placeholder="Full name" required aria-required="true">
+            <div class="project-field-message is-hidden" data-project-field-message="project_members" aria-live="polite"></div>
+          </div>
+          <div class="field" data-project-team-row="1">
+            <label data-label-base="Role 1">Role 1<span class="field-label-status is-required">Required</span></label>
+            <select id="p-member-role" required aria-required="true">
+              <option value="">Select role</option>
+              <option value="Project Manager">Project Manager</option>
+              <option value="Site Supervisor">Site Supervisor</option>
+              <option value="Lead Technician">Lead Technician</option>
+              <option value="Technician">Technician</option>
+              <option value="Installer">Installer</option>
+              <option value="Network Engineer">Network Engineer</option>
+              <option value="CCTV Technician">CCTV Technician</option>
+              <option value="Electrician">Electrician</option>
+              <option value="Procurement">Procurement</option>
+              <option value="Finance">Finance</option>
+              <option value="QA / Inspector">QA / Inspector</option>
+              <option value="Support">Support</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="field" data-project-team-row="1">
+            <label data-label-base="Phone 1">Phone 1<span class="field-label-status is-required">Required</span></label>
+            <input id="p-member-phone" type="text" placeholder="09171234567" inputmode="numeric" required aria-required="true">
+          </div>
+          <div class="field" data-project-team-row="2" hidden="">
+            <label data-label-base="Member 2">Member 2<span class="field-label-status is-optional">Optional</span></label>
+            <input id="p-project-members-2" type="text" placeholder="Full name">
+          </div>
+          <div class="field" data-project-team-row="2" hidden="">
+            <label data-label-base="Role 2">Role 2<span class="field-label-status is-optional">Optional</span></label>
+            <select id="p-member-role-2">
+              <option value="">Select role</option>
+              <option value="Project Manager">Project Manager</option>
+              <option value="Site Supervisor">Site Supervisor</option>
+              <option value="Lead Technician">Lead Technician</option>
+              <option value="Technician">Technician</option>
+              <option value="Installer">Installer</option>
+              <option value="Network Engineer">Network Engineer</option>
+              <option value="CCTV Technician">CCTV Technician</option>
+              <option value="Electrician">Electrician</option>
+              <option value="Procurement">Procurement</option>
+              <option value="Finance">Finance</option>
+              <option value="QA / Inspector">QA / Inspector</option>
+              <option value="Support">Support</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="field" data-project-team-row="2" hidden="">
+            <label data-label-base="Phone 2">Phone 2<span class="field-label-status is-optional">Optional</span></label>
+            <input id="p-member-phone-2" type="text" placeholder="09171234567" inputmode="numeric">
+          </div>
+          <div class="field" data-project-team-row="3" hidden="">
+            <label data-label-base="Member 3">Member 3<span class="field-label-status is-optional">Optional</span></label>
+            <input id="p-project-members-3" type="text" placeholder="Full name">
+          </div>
+          <div class="field" data-project-team-row="3" hidden="">
+            <label data-label-base="Role 3">Role 3<span class="field-label-status is-optional">Optional</span></label>
+            <select id="p-member-role-3">
+              <option value="">Select role</option>
+              <option value="Project Manager">Project Manager</option>
+              <option value="Site Supervisor">Site Supervisor</option>
+              <option value="Lead Technician">Lead Technician</option>
+              <option value="Technician">Technician</option>
+              <option value="Installer">Installer</option>
+              <option value="Network Engineer">Network Engineer</option>
+              <option value="CCTV Technician">CCTV Technician</option>
+              <option value="Electrician">Electrician</option>
+              <option value="Procurement">Procurement</option>
+              <option value="Finance">Finance</option>
+              <option value="QA / Inspector">QA / Inspector</option>
+              <option value="Support">Support</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="field" data-project-team-row="3" hidden="">
+            <label data-label-base="Phone 3">Phone 3<span class="field-label-status is-optional">Optional</span></label>
+            <input id="p-member-phone-3" type="text" placeholder="09171234567" inputmode="numeric">
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap;">
+          <button id="project-add-team-member-btn" class="btn btn-add btn-sm" type="button" onclick="addProjectTeamMember()">Add Member</button>
+          <span style="font-size:0.68rem;color:var(--muted);">Maximum 3 members.</span>
         </div>
       </div>
 
@@ -1685,7 +1763,7 @@
 <script src="/admin/js/dashboard-cards/role-dashboard-super-admin.js?v=20260531a"></script>
 <script src="/admin/js/roles/role-flow.js?v=20260531c"></script>
 <script src="/admin/js/modules/notifications.module.js?v=20260531a"></script>
-<script src="/admin/js/admin.js?v=20260605pf3"></script>
+<script src="/admin/js/admin.js?v=20260605proj10"></script>
 <script src="/admin/js/modules/approval-center.module.js?v=20260605sales"></script>
 
 
