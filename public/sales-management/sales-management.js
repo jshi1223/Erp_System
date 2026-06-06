@@ -35,20 +35,20 @@ const SALES_STAGE_FIELDS = {
   'sales-quotation': {
     sectionTitle: 'Quotation Details',
     descriptionLabel: 'Quoted Scope / Inclusions',
-    fields: ['source', 'company', 'project', 'contact', 'title', 'requested-date', 'target-date', 'amount', 'payment-terms', 'description', 'notes'],
+    fields: ['source', 'company', 'project', 'contact', 'title', 'requested-date', 'target-date', 'amount', 'payment-terms', 'quote-validity', 'description', 'notes'],
     required: ['company', 'project', 'title', 'requested-date', 'amount']
   },
   'sales-order': {
     sectionTitle: 'Sales Order Details',
     descriptionLabel: 'Confirmed Scope',
-    fields: ['source', 'company', 'project', 'contact', 'title', 'requested-date', 'target-date', 'amount', 'payment-terms', 'inventory-note', 'product', 'warehouse', 'quantity', 'unit-price', 'description', 'notes'],
+    fields: ['source', 'company', 'project', 'contact', 'title', 'requested-date', 'target-date', 'amount', 'payment-terms', 'downpayment', 'customer-po-ref', 'inventory-note', 'product', 'warehouse', 'quantity', 'unit-price', 'description', 'notes'],
     required: ['company', 'project', 'title', 'requested-date']
   },
   'project-delivery': {
     sectionTitle: 'Delivery Receipt Details',
     descriptionLabel: 'Delivery Notes / Received Items',
-    fields: ['source', 'company', 'project', 'title', 'target-date', 'inventory-note', 'product', 'warehouse', 'quantity', 'unit-price', 'description', 'notes'],
-    required: ['company', 'project', 'title', 'target-date', 'product', 'warehouse', 'quantity']
+    fields: ['source', 'company', 'project', 'title', 'target-date', 'received-by', 'delivery-address', 'inventory-note', 'product', 'warehouse', 'quantity', 'unit-price', 'description', 'notes'],
+    required: ['company', 'project', 'title', 'target-date', 'received-by', 'product', 'warehouse', 'quantity']
   }
 };
 
@@ -62,7 +62,12 @@ const SALES_FIELD_CONTROLS = {
   amount: 'sales-amount',
   product: 'sales-product-id',
   warehouse: 'sales-warehouse-id',
-  quantity: 'sales-quantity'
+  quantity: 'sales-quantity',
+  'quote-validity': 'sales-quote-validity',
+  downpayment: 'sales-downpayment',
+  'customer-po-ref': 'sales-customer-po-ref',
+  'received-by': 'sales-received-by',
+  'delivery-address': 'sales-delivery-address'
 };
 
 let salesRecords = [];
@@ -642,6 +647,11 @@ function openSalesModal(record = null) {
   setValue('sales-quantity', record?.quantity || '');
   setValue('sales-unit-price', record?.unit_price || '');
   setValue('sales-payment-terms', record?.payment_terms || '');
+  setValue('sales-quote-validity', toDateInputValue(record?.quote_validity) || '');
+  setValue('sales-downpayment', Number(record?.downpayment || 0) > 0 ? Number(record?.downpayment || 0) : '');
+  setValue('sales-customer-po-ref', record?.customer_po_ref || '');
+  setValue('sales-received-by', record?.received_by || '');
+  setValue('sales-delivery-address', record?.delivery_address || '');
   setValue('sales-description', record?.description || '');
   setValue('sales-notes', record?.notes || '');
   setSalesLineItems(record?.line_items || [{}]);
@@ -707,6 +717,11 @@ async function saveSalesRecord() {
     quantity: getValue('sales-quantity'),
     unit_price: getValue('sales-unit-price'),
     payment_terms: getValue('sales-payment-terms'),
+    quote_validity: getValue('sales-quote-validity'),
+    downpayment: getValue('sales-downpayment'),
+    customer_po_ref: getValue('sales-customer-po-ref'),
+    received_by: getValue('sales-received-by'),
+    delivery_address: getValue('sales-delivery-address'),
     description: getValue('sales-description'),
     notes: getValue('sales-notes'),
     items: lineItems.items
@@ -770,7 +785,8 @@ function collectSalesValidationErrors(payload = {}, lineItems = { items: [], inc
     amount: 'Amount',
     product: 'Inventory Product',
     warehouse: 'Source Warehouse',
-    quantity: 'Quantity'
+    quantity: 'Quantity',
+    'received-by': 'Received By'
   };
   const values = {
     source: payload.source_record_id,
@@ -783,7 +799,8 @@ function collectSalesValidationErrors(payload = {}, lineItems = { items: [], inc
     amount: payload.amount,
     product: payload.product_id,
     warehouse: payload.warehouse_id,
-    quantity: payload.quantity
+    quantity: payload.quantity,
+    'received-by': payload.received_by
   };
   const stageLabel = SALES_TYPES[payload.record_type]?.label || 'this stage';
   const errors = [];

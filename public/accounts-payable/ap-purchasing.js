@@ -22,6 +22,7 @@ let editingQuotationId = null;
 let editingVendorId = null;
 let editingVendorRequestId = null;
 let currentRequisitionProjectId = null;
+let currentRequisitionPrType = 'project';
 let viewingProjectLinkedRequisition = false;
 let currentRequisitionReadOnlyReason = '';
 let currentPurchaseOrderProjectId = null;
@@ -2008,6 +2009,32 @@ function renderRequisitionProjectOptions(selectedValue = currentRequisitionProje
   }
 }
 
+// PR type: 'project' (raised from a project, shows Project + Company) vs 'stock'
+// (direct stock replenishment, hides Project + Company). Set by context on open.
+function applyRequisitionPrTypeMode(type) {
+  currentRequisitionPrType = type === 'stock' ? 'stock' : 'project';
+  const isStock = currentRequisitionPrType === 'stock';
+  const projectField = $('pr-project-field');
+  const companyField = $('pr-company-field');
+  const contextField = $('pr-project-context-field');
+  if (projectField) projectField.hidden = isStock;
+  if (companyField) companyField.hidden = isStock;
+  if (isStock && contextField) contextField.hidden = true;
+  const title = $('pr-modal-title');
+  if (title) {
+    const editing = Boolean(editingRequisitionId);
+    title.textContent = isStock
+      ? (editing ? 'Edit Stock Requisition' : 'Add Stock Requisition')
+      : (editing ? 'Edit Requisition' : 'Add Requisition');
+  }
+  if (isStock) {
+    currentRequisitionProjectId = null;
+    if ($('pr-project')) $('pr-project').value = '';
+    if ($('pr-company')) $('pr-company').value = '';
+    if ($('pr-company-search')) $('pr-company-search').value = '';
+  }
+}
+
 function syncRequisitionProjectContext(projectId = currentRequisitionProjectId) {
   currentRequisitionProjectId = Number(projectId || 0) || null;
   const field = $('pr-project-context-field');
@@ -2968,8 +2995,8 @@ function renderProcurementRequests() {
       <tr>
         <td style="font-weight:600;color:var(--primary)">${escHtml(row.pr_number)}</td>
         <td>
-          <div style="font-weight:600;">${escHtml(projectLabel || 'No linked project')}</div>
-          <div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px;">${escHtml(companyLabel)}</div>
+          <div style="font-weight:600;">${String(row.pr_type || '') === 'stock' ? '<span class="status-chip status-pending">Stock PR</span>' : escHtml(projectLabel || 'No linked project')}</div>
+          <div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px;">${String(row.pr_type || '') === 'stock' ? 'Direct stock replenishment' : escHtml(companyLabel)}</div>
           ${renderProcurementArchivedProjectBadge(row)}
         </td>
         <td>${escHtml(dateText(row.request_date))}</td>
@@ -4011,6 +4038,7 @@ function openRequisitionModal(id = null, options = {}) {
     syncProcurementStatusSelect('pr-status', ['draft'], { lockStaff: true });
     setRequisitionLineItems(getRequisitionLineItems(row));
     $('pr-notes').value = row.notes || '';
+    applyRequisitionPrTypeMode((String(row.pr_type || '') === 'stock' || !Number(row.project_id || 0)) ? 'stock' : 'project');
     const readOnly = requisitionIsLockedForEditing(row);
     setRequisitionReadOnlyMode(readOnly, getRequisitionLockedReason(row));
   } else {
@@ -4019,6 +4047,8 @@ function openRequisitionModal(id = null, options = {}) {
     renderRequisitionProjectOptions(projectId || '');
     syncRequisitionProjectContext(projectId || null);
     if (!projectId && companyId && $('pr-company')) $('pr-company').value = String(companyId);
+    // Direct "New PR" (no project context) = Stock PR; from a project = Project PR.
+    applyRequisitionPrTypeMode(projectId ? 'project' : 'stock');
     void loadRequisitionNumberPreview();
     syncProcurementStatusSelect('pr-status', ['draft'], { lockStaff: true });
   }
@@ -4042,12 +4072,14 @@ async function saveRequisition() {
   clearProcurementFieldMessages();
   clearRequisitionLineItemMessages();
   const { items, incompleteRows } = collectRequisitionLineItems();
+  const isStockPr = currentRequisitionPrType === 'stock';
   const companyId = Number($('pr-company').value || 0) || 0;
   const payload = {
     pr_number: $('pr-number').value.trim(),
+    pr_type: currentRequisitionPrType,
     business_entity_id: (typeof getCurrentBusinessEntityId === 'function' ? getCurrentBusinessEntityId() : '') || getDefaultProcurementBusinessEntityId() || '',
-    company_id: companyId,
-    project_id: currentRequisitionProjectId || null,
+    company_id: isStockPr ? null : companyId,
+    project_id: isStockPr ? null : (currentRequisitionProjectId || null),
     request_date: $('pr-request-date').value,
     department: '',
     requested_by: $('pr-requested-by').value.trim(),
@@ -4068,8 +4100,8 @@ async function saveRequisition() {
   if (!payload.items.length) markError('pr_line_items', 'At least one requested item is required.');
   if (!payload.pr_number) markError('pr_number', 'PR No. is required.');
   if (incompleteRows.length) markError('pr_line_items', `Complete item name and qty for line ${incompleteRows[0]}.`);
-  if (!payload.project_id) markError('project_id', 'Project selection is required for traceability.');
-  if (!payload.company_id) markError('company_id', 'Company selection is required.');
+  if (!isStockPr && !payload.project_id) markError('project_id', 'Project selection is required for traceability.');
+  if (!isStockPr && !payload.company_id) markError('company_id', 'Company selection is required.');
   if (!payload.request_date) markError('request_date', 'Request Date is required.');
   if (!payload.requested_by) markError('requested_by', 'Requested By is required.');
   if (!payload.needed_by) markError('needed_by', 'Needed By is required.');

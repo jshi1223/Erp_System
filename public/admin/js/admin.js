@@ -1723,10 +1723,12 @@ function renderProjectRecordsTable() {
         project.project_name || '',
         project.company_name || project.registry_company_name || '',
         project.company_no || project.registry_company_no || '',
+        project.service_type || '',
+        project.assigned_to_name || project.assigned_to_username || '',
         project.project_manager || '',
         project.status || '',
         getProjectStaffOwnershipMeta(project).label,
-        getComputedProjectPriority(project),
+        project.project_location || '',
         project.description || '',
         project.pono || '',
         project.checkno || ''

@@ -3227,6 +3227,23 @@ function initApp() {
       db.query(`ALTER TABLE sales_management_records ADD COLUMN IF NOT EXISTS inventory_posted_at TIMESTAMP NULL`, (alterErr) => {
         if (alterErr) console.error('Sales records inventory_posted_at migration error:', alterErr);
       });
+      // Stage fields that mirror Procurement (SQ validity, SO downpayment/customer PO,
+      // DR received-by/delivery address) so the sales flow matches PR->RFQ->PO->GRN->AP.
+      db.query(`ALTER TABLE sales_management_records ADD COLUMN IF NOT EXISTS quote_validity DATE NULL`, (alterErr) => {
+        if (alterErr) console.error('Sales records quote_validity migration error:', alterErr);
+      });
+      db.query(`ALTER TABLE sales_management_records ADD COLUMN IF NOT EXISTS downpayment DECIMAL(14,2) NOT NULL DEFAULT 0`, (alterErr) => {
+        if (alterErr) console.error('Sales records downpayment migration error:', alterErr);
+      });
+      db.query(`ALTER TABLE sales_management_records ADD COLUMN IF NOT EXISTS customer_po_ref VARCHAR(100) NULL`, (alterErr) => {
+        if (alterErr) console.error('Sales records customer_po_ref migration error:', alterErr);
+      });
+      db.query(`ALTER TABLE sales_management_records ADD COLUMN IF NOT EXISTS received_by VARCHAR(150) NULL`, (alterErr) => {
+        if (alterErr) console.error('Sales records received_by migration error:', alterErr);
+      });
+      db.query(`ALTER TABLE sales_management_records ADD COLUMN IF NOT EXISTS delivery_address VARCHAR(255) NULL`, (alterErr) => {
+        if (alterErr) console.error('Sales records delivery_address migration error:', alterErr);
+      });
       // Project-centric flow migration: the legacy 'proposal-request' (Projects)
       // and 'service-order' sales record types were removed. Soft-archive any
       // existing rows (status -> cancelled) so they drop out of the active
@@ -4005,6 +4022,11 @@ function initApp() {
   });
   db.query(`ALTER TABLE purchase_requisitions ADD COLUMN IF NOT EXISTS project_id integer NULL`, (err) => {
     if (err) console.error('Purchase requisitions project_id migration error:', err);
+  });
+  // PR type: 'project' (raised from a project, project required) vs 'stock'
+  // (direct stock replenishment, no project/company).
+  db.query(`ALTER TABLE purchase_requisitions ADD COLUMN IF NOT EXISTS pr_type VARCHAR(20) NOT NULL DEFAULT 'project'`, (err) => {
+    if (err) console.error('Purchase requisitions pr_type migration error:', err);
   });
   db.query(`ALTER TABLE purchase_requisitions ADD COLUMN IF NOT EXISTS requested_by_email VARCHAR(255) NULL`, (err) => {
     if (err) console.error('Purchase requisitions requested_by_email migration error:', err);
@@ -12101,7 +12123,12 @@ function normalizeSalesRecordPayload(body = {}, fallbackType = '') {
     status: normalizeSalesRecordStatus(body.status),
     contactPerson: String(body.contact_person || '').trim() || null,
     paymentTerms: String(body.payment_terms || '').trim() || null,
-    notes: String(body.notes || '').trim() || null
+    notes: String(body.notes || '').trim() || null,
+    quoteValidity: String(body.quote_validity || '').trim() || null,
+    downpayment: Math.max(0, Number(body.downpayment || 0) || 0),
+    customerPoRef: String(body.customer_po_ref || '').trim() || null,
+    receivedBy: String(body.received_by || '').trim() || null,
+    deliveryAddress: String(body.delivery_address || '').trim() || null
   };
 }
 
@@ -12530,9 +12557,10 @@ app.post('/api/sales-management/records', protectAdmin, async (req, res) => {
           record_type, document_no, business_entity_id, company_id, project_id, source_record_id,
           product_id, warehouse_id, quantity, unit_price,
           title, description, requested_date, target_date, amount, status, contact_person,
-          payment_terms, notes, created_by
+          payment_terms, notes, created_by,
+          quote_validity, downpayment, customer_po_ref, received_by, delivery_address
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         payload.recordType,
         documentNo,
@@ -12553,7 +12581,12 @@ app.post('/api/sales-management/records', protectAdmin, async (req, res) => {
         payload.contactPerson,
         payload.paymentTerms,
         payload.notes,
-        getAuthenticatedUser(req)?.id || null
+        getAuthenticatedUser(req)?.id || null,
+        payload.quoteValidity,
+        payload.downpayment,
+        payload.customerPoRef,
+        payload.receivedBy,
+        payload.deliveryAddress
       ]);
       // Only official (admin) numbers consume the official sequence; staff DFT-
       // drafts reserved their own draft sequence in generateNextDraftEntityDocumentNo.
@@ -12619,6 +12652,11 @@ app.put('/api/sales-management/records/:id', protectAdmin, async (req, res) => {
             contact_person = ?,
             payment_terms = ?,
             notes = ?,
+            quote_validity = ?,
+            downpayment = ?,
+            customer_po_ref = ?,
+            received_by = ?,
+            delivery_address = ?,
             updated_at = NOW()
         WHERE id = ?
         RETURNING *
@@ -12641,6 +12679,11 @@ app.put('/api/sales-management/records/:id', protectAdmin, async (req, res) => {
         payload.contactPerson,
         payload.paymentTerms,
         payload.notes,
+        payload.quoteValidity,
+        payload.downpayment,
+        payload.customerPoRef,
+        payload.receivedBy,
+        payload.deliveryAddress,
         recordId
       ]);
       await syncSalesRecordInventory(recordId, req, connection);
@@ -14216,6 +14259,9 @@ app.post('/api/procurement/requisitions', protectAdmin, async (req, res) => {
   let prNumber = String(req.body.pr_number || '').trim();
   let companyId = Number(req.body.company_id || 0) || 0;
   const projectId = Number(req.body.project_id || 0) || null;
+  // PR type: 'project' (raised from a project) vs 'stock' (direct stock request, no
+  // project/company). Defaults from context: a project id means a project PR.
+  const prType = String(req.body.pr_type || (projectId ? 'project' : 'stock')).trim().toLowerCase() === 'stock' ? 'stock' : 'project';
   const requestDate = req.body.request_date || new Date().toISOString().slice(0, 10);
   const department = String(req.body.department || '').trim() || null;
   const requestedBy = String(req.body.requested_by || '').trim() || null;
@@ -14231,8 +14277,8 @@ app.post('/api/procurement/requisitions', protectAdmin, async (req, res) => {
   if (!lineItems.length) {
     return res.status(400).json({ error: 'At least one item name and quantity are required.' });
   }
-  if (!projectId) {
-    return res.status(400).json({ error: 'Project is required for purchase requisitions.' });
+  if (prType === 'project' && !projectId) {
+    return res.status(400).json({ error: 'Project is required for a project purchase requisition.' });
   }
   if (!requestDate) {
     return res.status(400).json({ error: 'Request date is required.' });
@@ -14245,9 +14291,19 @@ app.post('/api/procurement/requisitions', protectAdmin, async (req, res) => {
   }
 
   try {
-    const projectRecord = await resolvePurchaseOrderProjectContext(projectId, companyId);
-    companyId = Number(projectRecord?.company_id || 0) || 0;
-    const businessEntityId = await resolveBusinessEntityId(projectRecord?.business_entity_id || req.body.business_entity_id);
+    let projectRecord = null;
+    let companyRecord = null;
+    let businessEntityId;
+    if (prType === 'project') {
+      projectRecord = await resolvePurchaseOrderProjectContext(projectId, companyId);
+      companyId = Number(projectRecord?.company_id || 0) || 0;
+      businessEntityId = await resolveBusinessEntityId(projectRecord?.business_entity_id || req.body.business_entity_id);
+      ({ companyRecord } = await resolvePurchaseRequisitionContext(companyId));
+      await resolvePurchaseOrderProjectContext(projectRecord.id, companyRecord.id);
+    } else {
+      // Stock PR: no project, no customer/company — just the operating business entity.
+      businessEntityId = await resolveBusinessEntityId(req.body.business_entity_id);
+    }
     if (actorIsStaff) {
       if (!prNumber || !isDraftDocumentNo(prNumber)) {
         prNumber = await generateNextDraftEntityDocumentNo({
@@ -14267,16 +14323,15 @@ app.post('/api/procurement/requisitions', protectAdmin, async (req, res) => {
         columnName: 'pr_number'
       });
     }
-    const { companyRecord } = await resolvePurchaseRequisitionContext(companyId);
-    await resolvePurchaseOrderProjectContext(projectRecord.id, companyRecord.id);
     const requestedByEmail = await getAuthenticatedUserEmail(req);
     const reqResult = await queryAsync(
-      'INSERT INTO purchase_requisitions (pr_number, business_entity_id, company_id, project_id, request_date, department, requested_by, requested_by_email, needed_by, status, notes, approved_by, approved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO purchase_requisitions (pr_number, business_entity_id, company_id, project_id, pr_type, request_date, department, requested_by, requested_by_email, needed_by, status, notes, approved_by, approved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         prNumber,
         businessEntityId,
-        companyRecord.id,
-        projectRecord.id,
+        companyRecord?.id || null,
+        projectRecord?.id || null,
+        prType,
         requestDate,
         department,
         requestedBy,

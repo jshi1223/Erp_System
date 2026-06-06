@@ -314,6 +314,33 @@
           <input id="sales-payment-terms" type="text" maxlength="100" />
         </div>
 
+        <!-- Quotation: validity (mirrors RFQ) -->
+        <div class="field" data-sales-field="quote-validity">
+          <label>Quote Valid Until</label>
+          <input id="sales-quote-validity" type="date" />
+        </div>
+
+        <!-- Sales Order: downpayment + customer PO ref (mirrors PO) -->
+        <div class="field" data-sales-field="downpayment">
+          <label>Downpayment</label>
+          <input id="sales-downpayment" type="number" min="0" step="0.01" placeholder="0.00" />
+        </div>
+        <div class="field" data-sales-field="customer-po-ref">
+          <label>Customer PO Ref.</label>
+          <input id="sales-customer-po-ref" type="text" maxlength="100" placeholder="Customer's PO number (optional)" />
+        </div>
+
+        <!-- Delivery Receipt: received by + delivery address (mirrors GRN) -->
+        <div class="field" data-sales-field="received-by">
+          <label>Received By</label>
+          <input id="sales-received-by" type="text" maxlength="150" placeholder="Customer representative" />
+          <div class="modal-inline-message is-hidden" data-sales-field-message="received-by" aria-live="polite"></div>
+        </div>
+        <div class="field full" data-sales-field="delivery-address">
+          <label>Delivery Address</label>
+          <input id="sales-delivery-address" type="text" maxlength="255" placeholder="Site / delivery address" />
+        </div>
+
         <!-- Inventory section (Delivery Receipt stage) -->
         <div class="field full" data-sales-field="inventory-note">
           <div class="sales-inventory-note">Inventory is deducted only when a Delivery Receipt is saved as Delivered or Completed.</div>
@@ -382,7 +409,7 @@
   </div>
 
   <script src="/assets/js/erp-core.js?v=20260605logout"></script>
-  <script src="/sales-management/sales-management.js?v=20260605cards"></script>
+  <script src="/sales-management/sales-management.js?v=20260605stage"></script>
 </body>
 </html>
 

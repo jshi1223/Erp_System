@@ -959,13 +959,13 @@
         <input id="pr-number" type="text" placeholder="Auto-generated" readonly required aria-required="true" style="background:var(--surface2);cursor:default;color:var(--muted);" />
         <div class="modal-inline-message is-hidden" data-procurement-field-message="pr_number" aria-live="polite"></div>
       </div>
-      <div class="field full">
+      <div class="field full" id="pr-project-field">
         <label>Project <span class="req-star">*</span></label>
         <select id="pr-project" onchange="syncRequisitionProjectContext(this.value)"></select>
         <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">A requisition must be tied to a project for traceability.</div>
         <div class="modal-inline-message is-hidden" data-procurement-field-message="project_id" aria-live="polite"></div>
       </div>
-      <div class="field full">
+      <div class="field full" id="pr-company-field">
         <label>Company <span class="req-star">*</span></label>
         <input id="pr-company-search" type="text" placeholder="Auto-filled from selected project" autocomplete="off" oninput="renderCompanyOptions('pr-company')" />
         <select id="pr-company" hidden aria-hidden="true"></select>
@@ -1615,7 +1615,7 @@
 </div>
 
   <script src="/assets/js/erp-core.js?v=20260605logout"></script>
-  <script src="/accounts-payable/ap-purchasing.js?v=20260604norfq"></script>
+  <script src="/accounts-payable/ap-purchasing.js?v=20260605prtype"></script>
   <script src="/accounts-payable/accounts-payable.js?v=20260605logout"></script>
 </body>
 </html>
