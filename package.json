@@ -18,14 +18,14 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "bcrypt": "^6.0.0",
-    "body-parser": "^2.2.2",
-    "cors": "^2.8.6",
-    "express": "^5.2.1",
-    "express-session": "^1.19.0",
-    "multer": "^2.1.1",
-    "nodemailer": "^8.0.4",
-    "open": "^11.0.0",
-    "pg": "^8.20.0"
+    "bcrypt": "6.0.0",
+    "body-parser": "2.2.2",
+    "cors": "2.8.6",
+    "express": "5.2.1",
+    "express-session": "1.19.0",
+    "multer": "2.1.1",
+    "nodemailer": "8.0.10",
+    "open": "11.0.0",
+    "pg": "8.20.0"
   }
 }
