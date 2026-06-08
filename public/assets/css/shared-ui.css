@@ -69,25 +69,25 @@ body[data-business-entity-theme="kitsi"].erp-clean-page header {
 .dashboard-filter-bar .search-wrap:focus-within,
 .company-toolbar-actions .search-wrap:focus-within,
 .reports-company-search-shell .search-wrap:focus-within {
-  border-color: rgba(245, 158, 11, 0.42) !important;
+  border-color: rgba(180, 35, 24, 0.42) !important;
   box-shadow:
-    0 0 0 4px rgba(245, 158, 11, 0.12),
-    0 12px 28px rgba(245, 158, 11, 0.08),
+    0 0 0 4px rgba(180, 35, 24, 0.12),
+    0 12px 28px rgba(180, 35, 24, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
 }
 
 body .is-table-search-active {
-  border-color: rgba(245, 158, 11, 0.8) !important;
-  background: linear-gradient(180deg, rgba(255, 251, 213, 0.98), rgba(255, 241, 166, 0.96)) !important;
-  color: #4d3c05 !important;
+  border-color: rgba(180, 35, 24, 0.65) !important;
+  background: linear-gradient(180deg, #fff8f7, #ffe9e6) !important;
+  color: #4b1210 !important;
   box-shadow:
-    0 0 0 4px rgba(245, 158, 11, 0.16),
-    0 10px 24px rgba(245, 158, 11, 0.12),
+    0 0 0 4px rgba(180, 35, 24, 0.14),
+    0 10px 24px rgba(180, 35, 24, 0.10),
     inset 0 1px 0 rgba(255, 255, 255, 0.88) !important;
 }
 
 body .is-table-search-active::placeholder {
-  color: rgba(111, 84, 10, 0.7) !important;
+  color: rgba(75, 18, 16, 0.6) !important;
 }
 
 body .table-sort-trigger,

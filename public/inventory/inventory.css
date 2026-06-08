@@ -13,6 +13,68 @@ body.inventory-page header {
   z-index: 20;
 }
 
+body.inventory-page .inventory-filter-bar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+body.inventory-page .inventory-filter-bar select,
+body.inventory-page .inventory-filter-bar input {
+  height: 38px;
+}
+
+body.inventory-page tr.inventory-group-row td {
+  background: color-mix(in srgb, var(--primary, #b42318) 10%, #fff);
+  color: var(--primary-dark, #7a1812);
+  font-weight: 700;
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-top: 1px solid color-mix(in srgb, var(--primary, #b42318) 22%, transparent);
+}
+
+body.inventory-page .inventory-field-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+body.inventory-page .inventory-link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--primary, #b42318);
+}
+
+body.inventory-page .inventory-link-btn:hover {
+  text-decoration: underline;
+}
+
+body.inventory-page .inventory-field-hint {
+  margin-top: 4px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--primary-dark, #7a1812) 80%, #555);
+}
+
+body.inventory-page .inventory-group-count {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary, #b42318) 18%, #fff);
+  color: var(--primary-dark, #7a1812);
+  font-weight: 700;
+  font-size: 0.72rem;
+}
+
 body.inventory-page main {
   padding: 24px;
   max-width: 1480px;

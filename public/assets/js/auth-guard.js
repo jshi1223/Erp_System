@@ -8,7 +8,7 @@
   'use strict';
 
   var BUSINESS_ENTITY_THEME_KEY = 'kinaadman_businessEntityTheme';
-  var DEFAULT_INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000;
+  var DEFAULT_INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000;
   var MIN_INACTIVITY_TIMEOUT_MS = 60 * 1000;
   var inactivityTimeoutMs = DEFAULT_INACTIVITY_TIMEOUT_MS;
   var inactivityTimer = null;
@@ -400,7 +400,6 @@
 
     var salesHtml = buildGroup('sales-management', 'Sales Management', [
       buildLink('/sales-management?tab=sales-request', 'Sales Inquiry', 'menu-sales-management'),
-      buildLink('/sales-management?tab=sales-quotation', 'Quotation'),
       buildLink('/sales-management?tab=sales-order', 'SO'),
       buildLink('/sales-management?tab=project-delivery', 'Delivery Receipt')
     ]);
@@ -1147,7 +1146,6 @@
             label: 'Sales Management',
             items: [
               { href: '/sales-management?tab=sales-request', label: 'Sales Inquiry', id: 'menu-sales-management', aliases: ['/sales-management'] },
-              { href: '/sales-management?tab=sales-quotation', label: 'Quotation' },
               { href: '/sales-management?tab=sales-order', label: 'SO' },
               { href: '/sales-management?tab=project-delivery', label: 'Delivery Receipt' }
             ]
@@ -1447,7 +1445,6 @@
       '/master-data?tab=requests',
       '/sales-management',
       '/sales-management?tab=sales-request',
-      '/sales-management?tab=sales-quotation',
       '/sales-management?tab=sales-order',
       '/sales-management?tab=project-delivery',
       '/procurement?tab=requests',

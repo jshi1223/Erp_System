@@ -174,7 +174,35 @@ function renderInventory() {
   const productsBody = document.getElementById('products-tbody');
   if (productsBody) {
     const productCols = isAdmin ? 9 : 8;
-    productsBody.innerHTML = productsDb.length ? productsDb.map(row => `
+    populateProductFilter();
+    const categoryFilter = String(document.getElementById('products-category-filter')?.value || '').trim();
+    const productQuery = String(document.getElementById('products-search')?.value || '').trim().toLowerCase();
+    const filteredProducts = productsDb.filter(row => {
+      const cat = String(row.category || '').trim() || 'Uncategorized';
+      if (categoryFilter && cat !== categoryFilter) return false;
+      if (!productQuery) return true;
+      return [row.sku, row.product_name, row.category].join(' ').toLowerCase().includes(productQuery);
+    });
+    if (!productsDb.length) {
+      productsBody.innerHTML = `<tr><td colspan="${productCols}">No products yet.</td></tr>`;
+    } else if (!filteredProducts.length) {
+      productsBody.innerHTML = `<tr><td colspan="${productCols}">No products match your filter.</td></tr>`;
+    } else {
+      const groups = new Map();
+      filteredProducts.forEach(row => {
+        const key = String(row.category || '').trim() || 'Uncategorized';
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(row);
+      });
+      const orderedKeys = [...groups.keys()].sort((a, b) => {
+        if (a === 'Uncategorized') return 1;
+        if (b === 'Uncategorized') return -1;
+        return a.localeCompare(b);
+      });
+      productsBody.innerHTML = orderedKeys.map(key => {
+        const items = groups.get(key);
+        const header = `<tr class="inventory-group-row"><td colspan="${productCols}">${escHtml(key)} <span class="inventory-group-count">${items.length}</span></td></tr>`;
+        const body = items.map(row => `
       <tr>
         <td>${escHtml(row.sku || '-')}</td>
         <td>${escHtml(row.product_name || '-')}</td>
@@ -189,7 +217,10 @@ function renderInventory() {
           <button class="btn btn-cancel btn-sm" type="button" onclick="archiveProduct(${Number(row.id)})">Archive</button>
         </td>` : ''}
       </tr>
-    `).join('') : `<tr><td colspan="${productCols}">No products yet.</td></tr>`;
+    `).join('');
+        return header + body;
+      }).join('');
+    }
   }
 
   const warehousesBody = document.getElementById('warehouses-tbody');
@@ -272,6 +303,132 @@ function populateMovementSelects() {
   }
 }
 
+function getProductCategories() {
+  const set = new Set();
+  productsDb.forEach(row => {
+    const value = String(row.category || '').trim();
+    if (value) set.add(value);
+  });
+  return [...set].sort((a, b) => a.localeCompare(b));
+}
+
+// Builds the category filter dropdown above the products table, keeping the
+// current selection and including an "Uncategorized" bucket when relevant.
+function populateProductFilter() {
+  const select = document.getElementById('products-category-filter');
+  if (!select) return;
+  const current = String(select.value || '').trim();
+  const categories = getProductCategories();
+  const hasUncategorized = productsDb.some(row => !String(row.category || '').trim());
+  const values = categories.concat(hasUncategorized ? ['Uncategorized'] : []);
+  select.innerHTML = ['<option value="">All categories</option>']
+    .concat(values.map(name => `<option value="${escHtml(name)}"${name === current ? ' selected' : ''}>${escHtml(name)}</option>`))
+    .join('');
+  // Restore selection if it still exists; otherwise fall back to "All".
+  if (current && values.includes(current)) select.value = current;
+}
+
+function populateProductCategorySelect(selected = '') {
+  const select = document.getElementById('product-category');
+  if (!select) return;
+  const categories = getProductCategories();
+  const current = String(selected || '').trim();
+  if (current && !categories.includes(current)) categories.unshift(current);
+  const options = [`<option value="" disabled${current ? '' : ' selected'}>Select category</option>`]
+    .concat(categories.map(name => `<option value="${escHtml(name)}"${name === current ? ' selected' : ''}>${escHtml(name)}</option>`))
+    .concat('<option value="__new__">+ New category…</option>');
+  select.innerHTML = options.join('');
+  onProductCategoryChange();
+}
+
+function onProductCategoryChange() {
+  const select = document.getElementById('product-category');
+  const wrap = document.getElementById('product-category-new-wrap');
+  const newInput = document.getElementById('product-category-new');
+  const isNew = !!select && select.value === '__new__';
+  if (wrap) wrap.hidden = !isNew;
+  if (newInput) {
+    newInput.required = isNew;
+    if (!isNew) newInput.value = '';
+    else setTimeout(() => newInput.focus(), 0);
+  }
+  refreshAutoSku();
+  updateCategoryHint();
+}
+
+function onNewCategoryInput() {
+  refreshAutoSku();
+  updateCategoryHint();
+}
+
+// Resets the picker back to the existing-category dropdown.
+function cancelNewCategory() {
+  const select = document.getElementById('product-category');
+  if (select) select.value = '';
+  onProductCategoryChange();
+  setTimeout(() => select?.focus(), 0);
+}
+
+// Live helper under the new-category box: warns about case-insensitive matches,
+// otherwise previews the SKU prefix that will be used.
+function updateCategoryHint() {
+  const hint = document.getElementById('product-category-hint');
+  const select = document.getElementById('product-category');
+  if (!hint) return;
+  const isNew = !!select && select.value === '__new__';
+  const raw = String(document.getElementById('product-category-new')?.value || '').replace(/\s+/g, ' ').trim();
+  if (!isNew || !raw) {
+    hint.hidden = true;
+    hint.textContent = '';
+    return;
+  }
+  const existing = getProductCategories().find(name => name.toLowerCase() === raw.toLowerCase());
+  hint.textContent = existing
+    ? `Existing na ito as "${existing}" — yun ang gagamitin.`
+    : `SKU prefix: ${categorySkuPrefix(raw)}`;
+  hint.hidden = false;
+}
+
+function getSelectedProductCategory() {
+  const select = document.getElementById('product-category');
+  if (!select) return '';
+  if (select.value !== '__new__') return String(select.value || '').trim();
+  const raw = String(document.getElementById('product-category-new')?.value || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return '';
+  // Reuse the existing spelling when it already exists (case-insensitive), so we
+  // don't split "cables" and "Cables" into two groups.
+  const existing = getProductCategories().find(name => name.toLowerCase() === raw.toLowerCase());
+  if (existing) return existing;
+  // Capitalize a fully lowercase entry, but leave acronyms (CCTV, NVR) untouched.
+  return raw === raw.toLowerCase() ? raw.charAt(0).toUpperCase() + raw.slice(1) : raw;
+}
+
+function categorySkuPrefix(category) {
+  const letters = String(category || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return letters.slice(0, 3) || 'GEN';
+}
+
+function nextSkuForCategory(category) {
+  const prefix = categorySkuPrefix(category);
+  const re = new RegExp(`^${prefix}-(\\d+)$`);
+  let max = 0;
+  productsDb.forEach(row => {
+    const match = String(row.sku || '').trim().toUpperCase().match(re);
+    if (match) max = Math.max(max, parseInt(match[1], 10));
+  });
+  return `${prefix}-${String(max + 1).padStart(3, '0')}`;
+}
+
+// Shows a preview SKU for new products. The server is authoritative and assigns
+// the final sequence number on save, so editing/draft flows keep their stored SKU.
+function refreshAutoSku() {
+  if (editingProductId || editingInventoryRequestId) return;
+  const skuInput = document.getElementById('product-sku');
+  if (!skuInput) return;
+  const category = getSelectedProductCategory();
+  skuInput.value = category ? nextSkuForCategory(category) : '';
+}
+
 function setStatus(message = '') {
   document.getElementById('inventory-status').textContent = message;
 }
@@ -296,6 +453,7 @@ function openInventoryModal(type) {
   if (productSave) productSave.textContent = staffRole ? 'Save Product Request' : 'Save Product';
   if (warehouseSave) warehouseSave.textContent = staffRole ? 'Save Warehouse Request' : 'Save Warehouse';
   if (movementSave) movementSave.textContent = staffRole ? 'Save Movement Request' : 'Save Movement';
+  if (type === 'product') populateProductCategorySelect('');
 }
 
 function openInventoryRequestDraft(requestId) {
@@ -313,7 +471,7 @@ function openInventoryRequestDraft(requestId) {
   if (type === 'product') {
     document.getElementById('product-sku').value = payload.sku || '';
     document.getElementById('product-name').value = payload.product_name || '';
-    document.getElementById('product-category').value = payload.category || '';
+    populateProductCategorySelect(payload.category || '');
     document.getElementById('product-unit').value = payload.unit || 'pcs';
     document.getElementById('product-cost').value = payload.unit_cost || '';
     document.getElementById('product-selling-price').value = payload.selling_price || '';
@@ -353,7 +511,7 @@ function editProduct(id) {
   document.getElementById('inventory-modal-title').textContent = 'Edit Product';
   document.getElementById('product-sku').value = row.sku || '';
   document.getElementById('product-name').value = row.product_name || '';
-  document.getElementById('product-category').value = row.category || '';
+  populateProductCategorySelect(row.category || '');
   document.getElementById('product-unit').value = row.unit || 'pcs';
   document.getElementById('product-cost').value = row.unit_cost ?? '';
   document.getElementById('product-selling-price').value = row.selling_price ?? '';
@@ -492,11 +650,18 @@ function setupInventoryModalCloseHandlers() {
 async function saveProduct(event) {
   event.preventDefault();
   setStatus('');
+  const category = getSelectedProductCategory();
+  if (!category) {
+    setStatus('Please choose or add a category.');
+    return;
+  }
   const payload = {
     business_entity_id: getCurrentBusinessEntityId(),
-    sku: document.getElementById('product-sku').value,
+    // Leave SKU blank for new products/requests so the server assigns the next
+    // sequence for the category; keep the existing SKU only when editing.
+    sku: editingProductId ? document.getElementById('product-sku').value : '',
     product_name: document.getElementById('product-name').value,
-    category: document.getElementById('product-category').value,
+    category,
     unit: document.getElementById('product-unit').value,
     unit_cost: document.getElementById('product-cost').value,
     selling_price: document.getElementById('product-selling-price').value,

@@ -6,9 +6,9 @@
   <title>KVSK CCTV & IT Solution - Inventory</title>
   <script src="/assets/js/auth-guard.js?v=20260602archive"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260531a">
+  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260608ui">
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a">
-  <link rel="stylesheet" href="/inventory/inventory.css?v=20260605wm">
+  <link rel="stylesheet" href="/inventory/inventory.css?v=20260608cat3">
   <link rel="stylesheet" href="/assets/css/warm-minimal.css?v=20260605wm2">
 </head>
 <body class="erp-clean-page inventory-page">
@@ -99,6 +99,12 @@
     <section class="content-section inventory-panel inventory-section active" id="inventory-tab-products">
       <div class="panel-head">
         <h2>Products</h2>
+        <div class="inventory-filter-bar">
+          <select id="products-category-filter" onchange="renderInventory()" aria-label="Filter by category">
+            <option value="">All categories</option>
+          </select>
+          <input id="products-search" type="search" placeholder="Search SKU or product..." oninput="renderInventory()">
+        </div>
       </div>
       <div class="table-wrap">
         <table>
@@ -219,8 +225,8 @@
         <div class="section-divider">Product Details</div>
         <div class="modal-grid-compact">
           <div class="field">
-            <label>SKU <span class="field-label-status is-required">Required</span></label>
-            <input id="product-sku" required />
+            <label>SKU <span class="field-label-status is-optional">Auto</span></label>
+            <input id="product-sku" readonly placeholder="Auto-generated per category" />
           </div>
           <div class="field">
             <label>Unit <span class="field-label-status is-required">Required</span></label>
@@ -232,7 +238,15 @@
           </div>
           <div class="field full">
             <label>Category <span class="field-label-status is-required">Required</span></label>
-            <input id="product-category" required />
+            <select id="product-category" required onchange="onProductCategoryChange()"></select>
+          </div>
+          <div class="field full" id="product-category-new-wrap" hidden>
+            <div class="inventory-field-head">
+              <label for="product-category-new">New Category Name <span class="field-label-status is-required">Required</span></label>
+              <button type="button" class="inventory-link-btn" onclick="cancelNewCategory()">&larr; pumili na lang sa existing</button>
+            </div>
+            <input id="product-category-new" placeholder="Type a new category, e.g. CCTV Cameras" oninput="onNewCategoryInput()" />
+            <div class="inventory-field-hint" id="product-category-hint" hidden></div>
           </div>
           <div class="field">
             <label>Unit Cost <span class="field-label-status is-required">Required</span></label>
@@ -340,7 +354,7 @@
     </div>
   </div>
 
-  <script src="/inventory/inventory.js?v=20260604editarchive"></script>
+  <script src="/inventory/inventory.js?v=20260608cat3"></script>
 </body>
 </html>
 

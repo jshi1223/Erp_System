@@ -2292,6 +2292,7 @@ function formatRequisitionLineAmount(value) {
 function renderRequisitionLineItemRow(item = {}, index = 0) {
   const productId = Number(item.product_id || item.productId || 0) || 0;
   const product = getPurchaseOrderProductById(productId);
+  const category = String(item.category || product?.category || '').trim();
   const quantity = Number(item.quantity || item.qty || 1) > 0 ? Number(item.quantity || item.qty || 1) : 1;
   const unit = String(item.unit || product?.unit || '').trim();
   const unitPrice = Number(item.estimated_unit_price ?? item.unit_price ?? item.price ?? product?.unit_cost ?? 0) || 0;
@@ -2302,9 +2303,15 @@ function renderRequisitionLineItemRow(item = {}, index = 0) {
   return `
     <div class="po-line-item" data-pr-line-item data-line-index="${index}">
       <div class="field full">
+        <label>Category</label>
+        <select class="pr-line-category" onchange="syncRequisitionCategorySelection(this)">
+          ${renderRequisitionCategoryOptions(category)}
+        </select>
+      </div>
+      <div class="field full">
         <label>Item ${index + 1}</label>
         <select class="pr-line-product" onchange="syncRequisitionProductSelection(this)">
-          ${renderRequisitionProductOptions(productId)}
+          ${renderRequisitionProductOptions(productId, category)}
         </select>
       </div>
       <div class="po-line-meta-grid">
@@ -2425,6 +2432,14 @@ function syncRequisitionProductSelection(source) {
   }
 
   // Product selected — always overwrite, enable
+  // Keep the category dropdown in sync with the chosen product's category.
+  const categorySelect = row.querySelector('.pr-line-category');
+  if (categorySelect) {
+    const productCategory = String(product.category || '').trim();
+    if (productCategory && [...categorySelect.options].some((option) => option.value === productCategory)) {
+      categorySelect.value = productCategory;
+    }
+  }
   if (qtyInput) {
     if (!Number(qtyInput.value || 0)) qtyInput.value = '1';
     qtyInput.disabled = false;
@@ -2490,6 +2505,7 @@ function collectRequisitionLineItems() {
     items.push({
       product_id: productId,
       item_name: itemName,
+      category: product?.category || null,
       quantity,
       unit,
       estimated_unit_price: unitPrice

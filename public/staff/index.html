@@ -9,7 +9,7 @@
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <script src="/assets/js/auth-guard.js?v=20260604staff1"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Orbitron:wght@500;700;800&amp;family=Playfair+Display:wght@600;700&amp;family=IBM+Plex+Mono:wght@300;400;500&amp;display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260604dash">
+  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260608ui">
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a">
   <link rel="stylesheet" href="/staff/css/staff-base.css?v=20260602projectflow">
   <link rel="stylesheet" href="/staff/css/staff.css?v=20260601c">
@@ -145,14 +145,6 @@
         <div class="page-sub page-subtitle"></div>
       </div>
     </div>
-    <section class="role-access-panel" id="role-access-panel" aria-label="Current role access">
-      <div class="role-access-copy">
-        <span id="role-access-kicker">Current Access</span>
-        <strong id="role-access-title">Checking Access</strong>
-        <p id="role-access-summary">Loading permissions...</p>
-      </div>
-      <div class="role-access-chips" id="role-access-chips" aria-label="Allowed capabilities"></div>
-    </section>
     <script>
       (function () {
         var panel = document.body.dataset.initialDashboardPanel || 'home';
@@ -161,6 +153,23 @@
         if (panel === 'project-records') title.textContent = 'Approved Projects';
       })();
     </script>
+
+    <!-- Quick Actions for Staff -->
+    <div class="dashboard-quick-actions" id="dashboard-quick-actions">
+      <span class="dqa-label">Quick Actions</span>
+      <button class="dqa-btn" type="button" onclick="openProjectModal()">
+        <svg viewBox="0 0 24 24"><path d="M4 7.5A1.5 1.5 0 0 1 5.5 6h4.2l1.8 2H18.5A1.5 1.5 0 0 1 20 9.5v7A1.5 1.5 0 0 1 18.5 18h-13A1.5 1.5 0 0 1 4 16.5v-9z"/><path d="M10 12h4M12 10v4"/></svg>
+        Request Project
+      </button>
+      <button class="dqa-btn" type="button" onclick="window.location.href='/procurement?tab=requests'">
+        <svg viewBox="0 0 24 24"><path d="M5 5.5h14v5H5z"/><path d="M7 10.5v8h10v-8"/><path d="M10 14.5h4M12 13v3"/></svg>
+        Request PR
+      </button>
+      <button class="dqa-btn" type="button" onclick="window.location.href='/sales-management'">
+        <svg viewBox="0 0 24 24"><path d="M5.5 19.5V5A1.5 1.5 0 0 1 7 3.5h8l3.5 3.5v12.5"/><path d="M15 3.5V7h3.5"/><path d="M8.5 11h7"/></svg>
+        Sales Request
+      </button>
+    </div>
 
     <div class="stats dashboard-stats" id="dashboard-summary-cards">
       <!-- Master Data -->
@@ -245,23 +254,6 @@
         <div class="stat-mini" id="stat-inventory-mini">Request products &amp; track stock</div>
       </div>
 
-    </div>
-
-    <!-- Quick Actions for Staff -->
-    <div class="dashboard-quick-actions" id="dashboard-quick-actions">
-      <span class="dqa-label">Quick Actions</span>
-      <button class="dqa-btn" type="button" onclick="openProjectModal()">
-        <svg viewBox="0 0 24 24"><path d="M4 7.5A1.5 1.5 0 0 1 5.5 6h4.2l1.8 2H18.5A1.5 1.5 0 0 1 20 9.5v7A1.5 1.5 0 0 1 18.5 18h-13A1.5 1.5 0 0 1 4 16.5v-9z"/><path d="M10 12h4M12 10v4"/></svg>
-        Request Project
-      </button>
-      <button class="dqa-btn" type="button" onclick="window.location.href='/procurement?tab=requests'">
-        <svg viewBox="0 0 24 24"><path d="M5 5.5h14v5H5z"/><path d="M7 10.5v8h10v-8"/><path d="M10 14.5h4M12 13v3"/></svg>
-        Request PR
-      </button>
-      <button class="dqa-btn" type="button" onclick="window.location.href='/sales-management'">
-        <svg viewBox="0 0 24 24"><path d="M5.5 19.5V5A1.5 1.5 0 0 1 7 3.5h8l3.5 3.5v12.5"/><path d="M15 3.5V7h3.5"/><path d="M8.5 11h7"/></svg>
-        Sales Request
-      </button>
     </div>
 
     <div class="dashboard-section is-hidden" id="project-records-section">

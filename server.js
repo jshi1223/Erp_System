@@ -2120,7 +2120,7 @@ function createSessionStore(cookieMaxAgeMs) {
 
 
 // SESSION SETUP
-const defaultSessionInactivityTimeoutMs = 30 * 60 * 1000;
+const defaultSessionInactivityTimeoutMs = 15 * 60 * 1000;
 const configuredSessionInactivityTimeoutMs = Number(
   process.env.SESSION_INACTIVITY_TIMEOUT_MS ||
   process.env.SESSION_MAX_AGE_MS ||
@@ -12142,12 +12142,12 @@ function getSalesDocumentSequenceMeta(recordType) {
   };
 }
 
-// ── Project-centric sales auto-sync: SI -> SQ -> SO -> DR -> AR ────────────
+// ── Project-centric sales auto-sync: SI -> SO -> DR -> AR ──────────────────
 // Forward spine and the status on the current stage that auto-creates the
-// next-stage draft. SI/SQ are optional, so a flow may start at any stage.
+// next-stage draft. SI is optional, so a flow may start at any stage. The
+// Sales Quotation (SQ) stage was retired, so SI now advances straight to SO.
 const SALES_FLOW_NEXT = Object.freeze({
-  'sales-request': 'sales-quotation',
-  'sales-quotation': 'sales-order',
+  'sales-request': 'sales-order',
   'sales-order': 'project-delivery'
 });
 const SALES_FLOW_ADVANCE_STATUS = Object.freeze({
@@ -13502,36 +13502,91 @@ app.get('/api/inventory/products', protectAdmin, async (req, res) => {
   }
 });
 
+function isDuplicateError(err) {
+  return String(err?.message || '').toLowerCase().includes('duplicate') || String(err?.code || '') === '23505';
+}
+
+// SKU prefix from a category: first 3 alphanumerics, uppercased (e.g. "CCTV Cameras" -> "CCT").
+function categorySkuPrefix(category) {
+  const letters = String(category || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return letters.slice(0, 3) || 'GEN';
+}
+
+// Next running SKU for a category within an operating company, e.g. CCT-001, CCT-002.
+async function generateProductSku(businessEntityId, category) {
+  const prefix = categorySkuPrefix(category);
+  const rows = await queryAsync(
+    `SELECT sku FROM products WHERE business_entity_id = ? AND sku LIKE ?`,
+    [businessEntityId, `${prefix}-%`]
+  );
+  const re = new RegExp(`^${prefix}-(\\d+)$`);
+  let max = 0;
+  rows.forEach((row) => {
+    const match = String(row.sku || '').trim().toUpperCase().match(re);
+    if (match) max = Math.max(max, parseInt(match[1], 10));
+  });
+  return `${prefix}-${String(max + 1).padStart(3, '0')}`;
+}
+
+// Inserts a product, auto-assigning a per-category SKU when none is supplied and
+// retrying on collisions so concurrent creates still get a unique sequence.
+async function insertProductWithSku(businessEntityId, fields) {
+  const providedSku = String(fields.sku || '').trim();
+  let lastErr = null;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const sku = (providedSku && attempt === 0)
+      ? providedSku
+      : await generateProductSku(businessEntityId, fields.category);
+    try {
+      const rows = await queryAsync(
+        `INSERT INTO products (business_entity_id, sku, product_name, category, unit, reorder_level, unit_cost, selling_price)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         RETURNING *`,
+        [
+          businessEntityId,
+          sku,
+          fields.product_name,
+          fields.category || null,
+          fields.unit,
+          fields.reorder_level,
+          fields.unit_cost,
+          fields.selling_price
+        ]
+      );
+      return rows[0];
+    } catch (err) {
+      lastErr = err;
+      // Only retry SKU collisions when we are auto-generating; a user-supplied
+      // duplicate should surface as an error instead of being silently changed.
+      if (isDuplicateError(err) && !(providedSku && attempt === 0)) continue;
+      throw err;
+    }
+  }
+  throw lastErr || new Error('Unable to assign a unique SKU.');
+}
+
 app.post('/api/inventory/products', protectAdmin, async (req, res) => {
   try {
     if (isStaffRole(getAuthenticatedUser(req)?.role)) {
       return res.status(403).json({ error: 'Staff must save product requests as drafts and submit them for approval.' });
     }
     const businessEntityId = await resolveBusinessEntityId(req.body.business_entity_id);
-    const sku = String(req.body.sku || '').trim();
     const productName = String(req.body.product_name || '').trim();
-    if (!sku) return res.status(400).json({ error: 'SKU is required.' });
     if (!productName) return res.status(400).json({ error: 'Product name is required.' });
 
-    const rows = await queryAsync(
-      `INSERT INTO products (business_entity_id, sku, product_name, category, unit, reorder_level, unit_cost, selling_price)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       RETURNING *`,
-      [
-        businessEntityId,
-        sku,
-        productName,
-        String(req.body.category || '').trim() || null,
-        String(req.body.unit || 'pcs').trim() || 'pcs',
-        Number(req.body.reorder_level || 0) || 0,
-        Number(req.body.unit_cost || 0) || 0,
-        Number(req.body.selling_price || req.body.unit_price || 0) || 0
-      ]
-    );
-    res.status(201).json(rows[0]);
+    const product = await insertProductWithSku(businessEntityId, {
+      sku: req.body.sku,
+      product_name: productName,
+      category: String(req.body.category || '').trim() || null,
+      unit: String(req.body.unit || 'pcs').trim() || 'pcs',
+      reorder_level: Number(req.body.reorder_level || 0) || 0,
+      unit_cost: Number(req.body.unit_cost || 0) || 0,
+      selling_price: Number(req.body.selling_price || req.body.unit_price || 0) || 0
+    });
+    res.status(201).json(product);
   } catch (err) {
     console.error('Inventory product save error:', err);
-    const isDuplicate = String(err.message || '').toLowerCase().includes('duplicate') || String(err.code || '') === '23505';
+    const isDuplicate = isDuplicateError(err);
     res.status(isDuplicate ? 409 : 500).json({ error: isDuplicate ? 'SKU already exists for this operating company.' : (err.message || 'Unable to save product.') });
   }
 });
@@ -13632,26 +13687,17 @@ async function applyInventoryRequestPayload(requestType, payload = {}, req = nul
   const businessEntityId = await resolveBusinessEntityId(payload.business_entity_id);
 
   if (type === 'product') {
-    const sku = String(payload.sku || '').trim();
     const productName = String(payload.product_name || '').trim();
-    if (!sku) throw new Error('SKU is required.');
     if (!productName) throw new Error('Product name is required.');
-    const rows = await queryAsync(
-      `INSERT INTO products (business_entity_id, sku, product_name, category, unit, reorder_level, unit_cost, selling_price)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       RETURNING *`,
-      [
-        businessEntityId,
-        sku,
-        productName,
-        String(payload.category || '').trim() || null,
-        String(payload.unit || 'pcs').trim() || 'pcs',
-        Number(payload.reorder_level || 0) || 0,
-        Number(payload.unit_cost || 0) || 0,
-        Number(payload.selling_price || payload.unit_price || 0) || 0
-      ]
-    );
-    return rows[0];
+    return await insertProductWithSku(businessEntityId, {
+      sku: payload.sku,
+      product_name: productName,
+      category: String(payload.category || '').trim() || null,
+      unit: String(payload.unit || 'pcs').trim() || 'pcs',
+      reorder_level: Number(payload.reorder_level || 0) || 0,
+      unit_cost: Number(payload.unit_cost || 0) || 0,
+      selling_price: Number(payload.selling_price || payload.unit_price || 0) || 0
+    });
   }
 
   if (type === 'warehouse') {

@@ -1,12 +1,15 @@
 'use strict';
 
-// Project-centric spine: Project -> [SI] -> [SQ] -> SO -> DR -> AR.
-// SI and SQ are OPTIONAL — a project can go straight to SO. The `source`
-// link is therefore optional at every stage (see SALES_STAGE_FIELDS.required).
+// Project-centric spine: Project -> [SI] -> SO -> DR -> AR.
+// SI is OPTIONAL — a project can go straight to SO. The `source` link is
+// therefore optional at every stage (see SALES_STAGE_FIELDS.required).
+// NOTE: the Sales Quotation (SQ) stage was retired. Its entry is kept as a
+// hidden (isVirtual) label so any legacy SQ records still resolve a name, but
+// it is no longer a creatable/navigable tab and is skipped in the SI -> SO flow.
 const SALES_TYPES = {
-  'sales-request': { label: 'Sales Inquiry', next: 'sales-quotation', sourceLabel: '', sourceType: '' },
-  'sales-quotation': { label: 'Quotation', next: 'sales-order', sourceLabel: 'Sales Inquiry', sourceType: 'sales-request' },
-  'sales-order': { label: 'SO', next: 'project-delivery', sourceLabel: 'Quotation', sourceType: 'sales-quotation' },
+  'sales-request': { label: 'Sales Inquiry', next: 'sales-order', sourceLabel: '', sourceType: '' },
+  'sales-quotation': { label: 'Quotation', next: 'sales-order', sourceLabel: 'Sales Inquiry', sourceType: 'sales-request', isVirtual: true },
+  'sales-order': { label: 'SO', next: 'project-delivery', sourceLabel: 'Sales Inquiry', sourceType: 'sales-request' },
   'project-delivery': { label: 'Delivery Receipt', next: '', sourceLabel: 'SO', sourceType: 'sales-order' },
   'requests': { label: 'Requests', next: '', sourceLabel: '', sourceType: '', isVirtual: true }
 };
@@ -185,7 +188,10 @@ function switchSalesTab(tab, options = {}) {
     const staffAllowed = new Set(['sales-request', 'requests']);
     activeSalesTab = staffAllowed.has(tab) ? tab : 'requests';
   } else {
-    activeSalesTab = SALES_TYPES[tab] ? tab : 'sales-request';
+    // Treat retired/virtual stages (e.g. the removed Sales Quotation) as invalid
+    // tabs so a stale URL or link cannot reopen them; only 'requests' is virtual-but-navigable.
+    const isNavigable = SALES_TYPES[tab] && (!SALES_TYPES[tab].isVirtual || tab === 'requests');
+    activeSalesTab = isNavigable ? tab : 'sales-request';
   }
   document.querySelectorAll('[data-sales-tab]').forEach((button) => {
     const active = button.dataset.salesTab === activeSalesTab;
