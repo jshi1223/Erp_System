@@ -2279,6 +2279,45 @@ function syncGoodsReceiptFromPurchaseOrder() {
   if (po) {
     setProcurementFieldMessage('po_id', '');
   }
+  renderGoodsReceiptSerialInputs(po);
+}
+
+// Renders one serial-capture box per product line on the selected PO. Each box
+// accepts one serial per line (paste from Excel or scan). Hidden when editing an
+// existing receipt, or when the PO has no inventory-mapped products.
+function renderGoodsReceiptSerialInputs(po) {
+  const field = $('grn-serials-field');
+  const container = $('grn-serials');
+  if (!field || !container) return;
+  const items = (!editingGoodsReceiptId && po && Array.isArray(po.line_items))
+    ? po.line_items.filter((it) => Number(it.product_id || 0))
+    : [];
+  if (!items.length) {
+    field.hidden = true;
+    container.innerHTML = '';
+    return;
+  }
+  field.hidden = false;
+  container.innerHTML = items.map((it) => {
+    const pid = Number(it.product_id || 0);
+    const product = getPurchaseOrderProductById(pid);
+    const name = product ? [product.sku, product.product_name].filter(Boolean).join(' - ') : (it.description || `Product #${pid}`);
+    const qty = Number(it.quantity || 0) || 0;
+    return `
+      <div class="grn-serial-group">
+        <div class="grn-serial-head">${escHtml(name)} <span class="grn-serial-qty">qty ${qty}</span></div>
+        <textarea class="grn-serial-input" data-serial-product="${pid}" rows="3" placeholder="Isa per linya, hal.&#10;SN-0001&#10;SN-0002"></textarea>
+      </div>`;
+  }).join('');
+}
+
+function collectGoodsReceiptSerials() {
+  return Array.from(document.querySelectorAll('#grn-serials .grn-serial-input'))
+    .map((ta) => ({
+      product_id: Number(ta.dataset.serialProduct || 0) || 0,
+      serials: String(ta.value || '').split(/[\r\n,]+/).map((s) => s.trim()).filter(Boolean)
+    }))
+    .filter((group) => group.product_id && group.serials.length);
 }
 
 function getRequisitionLineItemsContainer() {
@@ -4670,6 +4709,8 @@ function resetGoodsReceiptForm() {
   });
   if ($('grn-status')) $('grn-status').value = 'received';
   if ($('grn-received-date')) $('grn-received-date').value = new Date().toISOString().slice(0, 10);
+  if ($('grn-serials')) $('grn-serials').innerHTML = '';
+  if ($('grn-serials-field')) $('grn-serials-field').hidden = true;
   clearProcurementFieldMessages();
 }
 
@@ -4726,7 +4767,8 @@ async function saveGoodsReceipt() {
     received_date: $('grn-received-date').value,
     received_by: $('grn-received-by').value.trim(),
     status: $('grn-status')?.value || 'received',
-    notes: $('grn-notes').value.trim()
+    notes: $('grn-notes').value.trim(),
+    serials: editingGoodsReceiptId ? [] : collectGoodsReceiptSerials()
   };
 
   let hasValidationError = false;

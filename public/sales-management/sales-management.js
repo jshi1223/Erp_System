@@ -50,7 +50,7 @@ const SALES_STAGE_FIELDS = {
   'project-delivery': {
     sectionTitle: 'Delivery Receipt Details',
     descriptionLabel: 'Delivery Notes / Received Items',
-    fields: ['source', 'company', 'project', 'title', 'target-date', 'received-by', 'delivery-address', 'inventory-note', 'product', 'warehouse', 'quantity', 'unit-price', 'description', 'notes'],
+    fields: ['source', 'company', 'project', 'title', 'target-date', 'received-by', 'delivery-address', 'source-po', 'inventory-note', 'product', 'warehouse', 'quantity', 'unit-price', 'serials', 'description', 'notes'],
     required: ['company', 'project', 'title', 'target-date', 'received-by', 'product', 'warehouse', 'quantity']
   }
 };
@@ -70,7 +70,8 @@ const SALES_FIELD_CONTROLS = {
   downpayment: 'sales-downpayment',
   'customer-po-ref': 'sales-customer-po-ref',
   'received-by': 'sales-received-by',
-  'delivery-address': 'sales-delivery-address'
+  'delivery-address': 'sales-delivery-address',
+  'source-po': 'sales-source-po-id'
 };
 
 let salesRecords = [];
@@ -78,6 +79,8 @@ let companyRecords = [];
 let projectRecords = [];
 let inventoryProducts = [];
 let inventoryWarehouses = [];
+let purchaseOrders = [];
+let deliverySerialUnits = [];
 let activeSalesTab = getInitialSalesTab();
 let editingSalesRecordId = null;
 
@@ -104,6 +107,7 @@ function bindSalesEvents() {
   });
 
   document.getElementById('sales-project-id')?.addEventListener('change', () => syncSalesProjectContext());
+  document.getElementById('sales-product-id')?.addEventListener('change', () => loadDeliverySerialOptions());
   document.getElementById('sales-modal-close')?.addEventListener('click', closeSalesModal);
   document.getElementById('sales-cancel-btn')?.addEventListener('click', closeSalesModal);
   document.getElementById('sales-modal-backdrop')?.addEventListener('click', (event) => {
@@ -130,7 +134,8 @@ async function loadSalesModule() {
     loadCompanyRecords(),
     loadProjectRecords(),
     loadInventoryProducts(),
-    loadInventoryWarehouses()
+    loadInventoryWarehouses(),
+    loadPurchaseOrders()
   ]);
   populateReferenceSelects();
   applySalesTabVisibility();
@@ -181,6 +186,12 @@ async function loadInventoryWarehouses() {
   const res = await fetch('/api/inventory/warehouses', { cache: 'no-store' });
   inventoryWarehouses = res.ok ? await res.json().catch(() => []) : [];
   if (!Array.isArray(inventoryWarehouses)) inventoryWarehouses = [];
+}
+
+async function loadPurchaseOrders() {
+  const res = await fetch('/api/procurement/purchase-orders', { cache: 'no-store' });
+  purchaseOrders = res.ok ? await res.json().catch(() => []) : [];
+  if (!Array.isArray(purchaseOrders)) purchaseOrders = [];
 }
 
 function switchSalesTab(tab, options = {}) {
@@ -345,12 +356,9 @@ function populateReferenceSelects() {
       .join('');
   }
 
-  const productSelect = document.getElementById('sales-product-id');
-  if (productSelect) {
-    productSelect.innerHTML = '<option value="">No inventory item</option>' + inventoryProducts
-      .map((row) => `<option value="${escAttr(row.id)}">${escHtml(row.sku || '')}${row.sku ? ' - ' : ''}${escHtml(row.product_name || `Product #${row.id}`)} (${Number(row.quantity_on_hand || 0).toLocaleString('en-PH')} on hand)</option>`)
-      .join('');
-  }
+  const productCategorySelect = document.getElementById('sales-product-category');
+  if (productCategorySelect) productCategorySelect.innerHTML = renderSalesCategoryOptions();
+  populateSalesProductSelect();
 
   const warehouseSelect = document.getElementById('sales-warehouse-id');
   if (warehouseSelect) {
@@ -649,6 +657,10 @@ function openSalesModal(record = null) {
   setValue('sales-target-date', toDateInputValue(record?.target_date) || '');
   setValue('sales-amount', record?.amount || '');
   setValue('sales-product-id', record?.product_id || '');
+  // Reflect the saved product's category in the filter dropdown when editing.
+  const editProductCategory = String(getInventoryProductById(record?.product_id)?.category || '').trim();
+  const editCategorySelect = document.getElementById('sales-product-category');
+  if (editCategorySelect) editCategorySelect.value = editProductCategory;
   setValue('sales-warehouse-id', record?.warehouse_id || '');
   setValue('sales-quantity', record?.quantity || '');
   setValue('sales-unit-price', record?.unit_price || '');
@@ -658,6 +670,9 @@ function openSalesModal(record = null) {
   setValue('sales-customer-po-ref', record?.customer_po_ref || '');
   setValue('sales-received-by', record?.received_by || '');
   setValue('sales-delivery-address', record?.delivery_address || '');
+  populateSalesSourcePoSelect(Number(record?.project_id || 0) || 0, Number(record?.source_po_id || 0) || 0);
+  // Load the serial-unit checklist for this DR's product (pre-checks linked units).
+  loadDeliverySerialOptions();
   setValue('sales-description', record?.description || '');
   setValue('sales-notes', record?.notes || '');
   setSalesLineItems(record?.line_items || [{}]);
@@ -728,10 +743,16 @@ async function saveSalesRecord() {
     customer_po_ref: getValue('sales-customer-po-ref'),
     received_by: getValue('sales-received-by'),
     delivery_address: getValue('sales-delivery-address'),
+    source_po_id: getValue('sales-source-po-id'),
     description: getValue('sales-description'),
     notes: getValue('sales-notes'),
     items: lineItems.items
   };
+
+  // Delivery Receipt: which serial units are going out (auto-marked Sold on deliver).
+  if (payload.record_type === 'project-delivery') {
+    payload.serial_unit_ids = collectSelectedSerialIds();
+  }
 
   const errors = collectSalesValidationErrors(payload, lineItems);
 
@@ -888,12 +909,34 @@ function applySalesValidationErrors(errors = []) {
 
 function syncSalesProjectContext(options = {}) {
   const projectId = Number(getValue('sales-project-id') || 0) || 0;
+  // Refresh the Source PO list to only the POs of the chosen project.
+  populateSalesSourcePoSelect(projectId, Number(getValue('sales-source-po-id') || 0) || 0);
   const project = projectRecords.find((row) => Number(row.id || 0) === projectId) || null;
   const companyId = Number(project?.company_id || project?.registry_company_id || 0) || 0;
   const companySelect = document.getElementById('sales-company-id');
   if (!companySelect || !companyId) return;
   if (options.preserveExistingCompany && Number(companySelect.value || 0)) return;
   companySelect.value = String(companyId);
+}
+
+// Source PO dropdown for the Delivery Receipt: lists purchase orders tied to the
+// same project so delivered (esp. non-serialized) items trace back to their PO.
+function populateSalesSourcePoSelect(projectId = 0, selectedId = 0) {
+  const select = document.getElementById('sales-source-po-id');
+  if (!select) return;
+  const pid = Number(projectId || 0) || 0;
+  const current = Number(selectedId || select.value || 0) || 0;
+  const matches = purchaseOrders.filter((po) => {
+    if (Number(po.id || 0) === current) return true; // keep the saved PO visible
+    return pid ? Number(po.project_id || 0) === pid : true;
+  });
+  select.innerHTML = '<option value="">No source PO</option>' + matches
+    .map((po) => {
+      const id = Number(po.id || 0);
+      const label = [po.po_number, po.vendor_name].filter(Boolean).join(' - ') || `PO #${id}`;
+      return `<option value="${escAttr(id)}"${id === current ? ' selected' : ''}>${escHtml(label)}</option>`;
+    })
+    .join('');
 }
 
 function getSalesLineItemsContainer() {
@@ -903,6 +946,78 @@ function getSalesLineItemsContainer() {
 function getInventoryProductById(productId) {
   const id = Number(productId || 0) || 0;
   return inventoryProducts.find((row) => Number(row.id || 0) === id) || null;
+}
+
+// Single-product field (Sales Order / Delivery Receipt) — list inventory items,
+// optionally filtered to one category. Keeps the currently selected item visible.
+function populateSalesProductSelect(category = '') {
+  const productSelect = document.getElementById('sales-product-id');
+  if (!productSelect) return;
+  const current = Number(productSelect.value || 0) || 0;
+  const filter = String(category || '').trim().toLowerCase();
+  productSelect.innerHTML = '<option value="">No inventory item</option>' + inventoryProducts
+    .filter((row) => !filter || String(row.category || '').trim().toLowerCase() === filter || Number(row.id || 0) === current)
+    .map((row) => `<option value="${escAttr(row.id)}"${Number(row.id || 0) === current ? ' selected' : ''}>${escHtml(row.sku || '')}${row.sku ? ' - ' : ''}${escHtml(row.product_name || `Product #${row.id}`)} (${Number(row.quantity_on_hand || 0).toLocaleString('en-PH')} on hand)</option>`)
+    .join('');
+}
+
+function filterSalesProductByCategory() {
+  const category = document.getElementById('sales-product-category')?.value || '';
+  populateSalesProductSelect(category);
+  loadDeliverySerialOptions();
+}
+
+// Loads in-stock serial units for the chosen product (plus any already tied to the
+// DR being edited) and renders them as a checklist. Pre-checks the linked ones.
+async function loadDeliverySerialOptions(preselectIds = null) {
+  const picker = document.getElementById('sales-serial-picker');
+  if (!picker) return;
+  if (getValue('sales-record-type') !== 'project-delivery') {
+    deliverySerialUnits = [];
+    picker.innerHTML = '';
+    return;
+  }
+  const productId = Number(getValue('sales-product-id') || 0) || 0;
+  if (!productId) {
+    deliverySerialUnits = [];
+    picker.innerHTML = '<div class="sales-serial-empty">Pumili muna ng Inventory Product.</div>';
+    return;
+  }
+  picker.innerHTML = '<div class="sales-serial-empty">Loading serial units...</div>';
+  const res = await fetch(`/api/inventory/units?product_id=${encodeURIComponent(productId)}`, { cache: 'no-store' });
+  const all = res.ok ? await res.json().catch(() => []) : [];
+  const editingId = Number(editingSalesRecordId || 0) || 0;
+  // In-stock units, plus any already assigned to THIS delivery (so edits keep them).
+  deliverySerialUnits = (Array.isArray(all) ? all : []).filter((u) =>
+    String(u.status || '') === 'in_stock' || (editingId && Number(u.sales_record_id || 0) === editingId));
+  renderDeliverySerialOptions(preselectIds);
+}
+
+function renderDeliverySerialOptions(preselectIds = null) {
+  const picker = document.getElementById('sales-serial-picker');
+  if (!picker) return;
+  const editingId = Number(editingSalesRecordId || 0) || 0;
+  const preset = Array.isArray(preselectIds) ? new Set(preselectIds.map((v) => Number(v || 0) || 0)) : null;
+  if (!deliverySerialUnits.length) {
+    picker.innerHTML = '<div class="sales-serial-empty">Walang available na serial units para sa product na ito.</div>';
+    return;
+  }
+  picker.innerHTML = deliverySerialUnits.map((u) => {
+    const id = Number(u.id || 0);
+    const checked = preset ? preset.has(id) : (editingId && Number(u.sales_record_id || 0) === editingId);
+    const warranty = String(u.warranty_end || '').slice(0, 10);
+    const meta = [warranty ? `warranty ${warranty}` : '', u.warehouse_code || u.warehouse_name || ''].filter(Boolean).join(' | ');
+    return `<label class="sales-serial-item">
+      <input type="checkbox" class="sales-serial-checkbox" value="${escAttr(id)}"${checked ? ' checked' : ''} />
+      <span>${escHtml(u.serial_number || `Unit #${id}`)}${meta ? ` <span class="sales-serial-meta">(${escHtml(meta)})</span>` : ''}</span>
+    </label>`;
+  }).join('');
+}
+
+function collectSelectedSerialIds() {
+  return Array.from(document.querySelectorAll('#sales-serial-picker .sales-serial-checkbox:checked'))
+    .map((cb) => Number(cb.value || 0) || 0)
+    .filter(Boolean);
 }
 
 function renderSalesCategoryOptions(selected = '') {
@@ -950,6 +1065,7 @@ function renderSalesWarehouseOptions(selectedWarehouseId = 0) {
 function renderSalesLineItemRow(item = {}, index = 0) {
   const productId = Number(item.product_id || item.productId || 0) || 0;
   const product = getInventoryProductById(productId);
+  const category = String(item.category || product?.category || '').trim();
   const quantity = Number(item.quantity || item.qty || 1) > 0 ? Number(item.quantity || item.qty || 1) : 1;
   const unit = String(item.unit || product?.unit || '').trim();
   const unitPrice = Number(item.estimated_unit_price ?? item.unit_price ?? item.price ?? product?.selling_price ?? 0) || 0;
@@ -960,9 +1076,15 @@ function renderSalesLineItemRow(item = {}, index = 0) {
   return `
     <div class="sales-line-item" data-sales-line-item data-line-index="${index}">
       <div class="field">
+        <label>Category</label>
+        <select class="sales-line-category" onchange="syncSalesLineCategory(this)">
+          ${renderSalesCategoryOptions(category)}
+        </select>
+      </div>
+      <div class="field">
         <label>Item ${index + 1}</label>
         <select class="sales-line-product" onchange="syncSalesLineProduct(this)">
-          ${renderSalesProductOptions(productId)}
+          ${renderSalesProductOptions(productId, category)}
         </select>
       </div>
       <div class="sales-line-nums-grid">
@@ -1068,6 +1190,14 @@ function syncSalesLineProduct(source) {
   }
 
   // Product selected — always overwrite with product data, enable fields
+  // Keep the category dropdown in sync with the chosen product's category.
+  const categorySelect = row.querySelector('.sales-line-category');
+  if (categorySelect) {
+    const productCategory = String(product.category || '').trim();
+    if (productCategory && [...categorySelect.options].some((option) => option.value === productCategory)) {
+      categorySelect.value = productCategory;
+    }
+  }
   if (qtyInput) {
     if (!Number(qtyInput.value || 0)) qtyInput.value = '1';
     qtyInput.disabled = false;
@@ -1129,6 +1259,7 @@ function collectSalesLineItems() {
     items.push({
       product_id: productId,
       item_name: itemName,
+      category: product?.category || null,
       quantity,
       unit,
       estimated_unit_price: unitPrice
@@ -1318,3 +1449,4 @@ window.removeSalesLineItem = removeSalesLineItem;
 window.syncSalesLineCategory = syncSalesLineCategory;
 window.syncSalesLineProduct = syncSalesLineProduct;
 window.syncSalesLineItem = syncSalesLineItem;
+window.filterSalesProductByCategory = filterSalesProductByCategory;

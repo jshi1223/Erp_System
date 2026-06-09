@@ -1,3 +1,42 @@
+/* ── Goods Receipt serial capture ──────────────────── */
+#grn-serials {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.grn-serial-group {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #f8fafc;
+}
+
+.grn-serial-head {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #334155;
+}
+
+.grn-serial-qty {
+  font-weight: 400;
+  font-size: 0.78rem;
+  color: #64748b;
+}
+
+.grn-serial-input {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+}
+
+.field-hint {
+  font-weight: 400;
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
 .status-chip {
   display: inline-flex;
   align-items: center;

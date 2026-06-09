@@ -6,12 +6,15 @@ let productsDb = [];
 let warehousesDb = [];
 let stockDb = [];
 let movementsDb = [];
+let unitsDb = [];
+let purchaseOrdersDb = [];
 let projectsDb = [];
 let inventoryRequestsDb = [];
 let editingInventoryRequestId = null;
 let editingInventoryRequestType = '';
 let editingProductId = null;
 let editingWarehouseId = null;
+let editingUnitId = null;
 let inventoryConfirmResolver = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -30,7 +33,7 @@ function getInitialInventoryTab() {
 }
 
 function normalizeInventoryTab(tab) {
-  return ['stock', 'products', 'warehouses', 'movements', 'requests'].includes(String(tab || '').trim().toLowerCase())
+  return ['stock', 'products', 'warehouses', 'movements', 'units', 'requests'].includes(String(tab || '').trim().toLowerCase())
     ? String(tab || '').trim().toLowerCase()
     : 'products';
 }
@@ -127,9 +130,22 @@ async function loadInventory() {
   stockDb = Array.isArray(stock) ? stock : [];
   movementsDb = Array.isArray(movements) ? movements : [];
   projectsDb = (Array.isArray(projects) ? projects : []).filter(row => String(row.business_entity_id || '') === String(getCurrentBusinessEntityId() || ''));
+  // Serial units are an admin-only view; staff never load them.
+  if (!isInventoryStaffRole()) {
+    const [units, purchaseOrders] = await Promise.all([
+      fetchJson(`/api/inventory/units?${query}`).catch(() => []),
+      fetchJson('/api/procurement/purchase-orders').catch(() => [])
+    ]);
+    unitsDb = Array.isArray(units) ? units : [];
+    purchaseOrdersDb = Array.isArray(purchaseOrders) ? purchaseOrders : [];
+  } else {
+    unitsDb = [];
+    purchaseOrdersDb = [];
+  }
   renderSummary(summary || {});
   renderInventory();
   populateMovementSelects();
+  populateUnitSelects();
 }
 
 function renderSummary(summary) {
@@ -139,6 +155,8 @@ function renderSummary(summary) {
   document.getElementById('metric-low-stock').textContent = Number(summary.low_stock || 0);
   const movementsMetric = document.getElementById('metric-movements');
   if (movementsMetric) movementsMetric.textContent = Number(movementsDb.length || 0).toLocaleString('en-PH');
+  const unitsMetric = document.getElementById('metric-units');
+  if (unitsMetric) unitsMetric.textContent = Number(unitsDb.length || 0).toLocaleString('en-PH');
 }
 
 function applyInventoryAdminColumns() {
@@ -160,8 +178,9 @@ function renderInventory() {
   stockBody.innerHTML = rows.length ? rows.map(row => {
     const qty = Number(row.quantity_on_hand || 0);
     const reorder = Number(row.reorder_level || 0);
+    const isLow = reorder > 0 && qty <= reorder;
     return `
-      <tr>
+      <tr class="${isLow ? 'inventory-row-low' : ''}">
         <td>${escHtml(row.sku || '-')}</td>
         <td>${escHtml(row.product_name || '-')}</td>
         <td>${escHtml([row.warehouse_code, row.warehouse_name].filter(Boolean).join(' - ') || '-')}</td>
@@ -202,22 +221,27 @@ function renderInventory() {
       productsBody.innerHTML = orderedKeys.map(key => {
         const items = groups.get(key);
         const header = `<tr class="inventory-group-row"><td colspan="${productCols}">${escHtml(key)} <span class="inventory-group-count">${items.length}</span></td></tr>`;
-        const body = items.map(row => `
-      <tr>
+        const body = items.map(row => {
+          const onHand = Number(row.quantity_on_hand || 0);
+          const reorder = Number(row.reorder_level || 0);
+          const isLow = reorder > 0 && onHand <= reorder;
+          return `
+      <tr class="${isLow ? 'inventory-row-low' : ''}">
         <td>${escHtml(row.sku || '-')}</td>
         <td>${escHtml(row.product_name || '-')}</td>
         <td>${escHtml(row.category || '-')}</td>
         <td>${escHtml(row.unit || 'pcs')}</td>
         <td class="text-right">${Number(row.unit_cost || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</td>
         <td class="text-right">${Number(row.selling_price || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</td>
-        <td class="text-right">${Number(row.reorder_level || 0).toLocaleString('en-PH')}</td>
-        <td class="text-right">${Number(row.quantity_on_hand || 0).toLocaleString('en-PH')}</td>
+        <td class="text-right">${reorder.toLocaleString('en-PH')}</td>
+        <td class="text-right">${onHand.toLocaleString('en-PH')}${isLow ? ' <span class="inventory-low-tag">Low</span>' : ''}</td>
         ${isAdmin ? `<td class="text-right inventory-row-actions">
           <button class="btn btn-edit btn-sm" type="button" onclick="editProduct(${Number(row.id)})">Edit</button>
           <button class="btn btn-cancel btn-sm" type="button" onclick="archiveProduct(${Number(row.id)})">Archive</button>
         </td>` : ''}
       </tr>
-    `).join('');
+    `;
+        }).join('');
         return header + body;
       }).join('');
     }
@@ -251,10 +275,117 @@ function renderInventory() {
       <td>${escHtml([row.reference_type, row.reference_no].filter(Boolean).join(' - ') || '-')}</td>
     </tr>
   `).join('') : '<tr><td colspan="6">No stock movements yet.</td></tr>';
+
+  renderUnits();
+}
+
+const UNIT_STATUS_LABELS = {
+  in_stock: 'In Stock',
+  sold: 'Sold',
+  installed: 'Installed',
+  returned: 'Returned',
+  rma: 'RMA',
+  defective: 'Defective'
+};
+
+function unitStatusLabel(status) {
+  return UNIT_STATUS_LABELS[String(status || '').toLowerCase()] || 'In Stock';
+}
+
+// Renders the admin-only Serial Units table, honoring the status filter and the
+// free-text search box. Flags warranties that are already past their end date.
+function renderUnits() {
+  const body = document.getElementById('units-tbody');
+  if (!body) return;
+  const isAdmin = !isInventoryStaffRole();
+  const cols = isAdmin ? 6 : 5;
+  const statusFilter = String(document.getElementById('units-status-filter')?.value || '').trim().toLowerCase();
+  const q = String(document.getElementById('units-search')?.value || '').trim().toLowerCase();
+  const today = new Date().toISOString().slice(0, 10);
+  const rows = unitsDb.filter(row => {
+    if (statusFilter && String(row.status || '').toLowerCase() !== statusFilter) return false;
+    if (!q) return true;
+    return [row.serial_number, row.sku, row.product_name, row.customer_name, row.project_docno, row.project_name]
+      .join(' ').toLowerCase().includes(q);
+  });
+  if (!unitsDb.length) {
+    body.innerHTML = `<tr><td colspan="${cols}">No serial units yet.</td></tr>`;
+    return;
+  }
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="${cols}">No serial units match your filter.</td></tr>`;
+    return;
+  }
+  body.innerHTML = rows.map(row => {
+    const warrantyEnd = String(row.warranty_end || '').slice(0, 10);
+    const expired = warrantyEnd && warrantyEnd < today;
+    const location = row.customer_name
+      ? escHtml(row.customer_name)
+      : escHtml([row.warehouse_code, row.warehouse_name].filter(Boolean).join(' - ') || '-');
+    const sourcePo = row.source_po_number
+      ? `<div class="unit-source-po">from ${escHtml(row.source_po_number)}</div>`
+      : '';
+    return `
+      <tr>
+        <td>${escHtml(row.serial_number || '-')}</td>
+        <td>${escHtml([row.sku, row.product_name].filter(Boolean).join(' - ') || '-')}${sourcePo}</td>
+        <td><span class="unit-status-tag unit-status-${escHtml(String(row.status || 'in_stock'))}">${escHtml(unitStatusLabel(row.status))}</span></td>
+        <td>${location}</td>
+        <td>${warrantyEnd ? `${escHtml(warrantyEnd)}${expired ? ' <span class="inventory-low-tag">Expired</span>' : ''}` : '-'}</td>
+        ${isAdmin ? `<td class="text-right inventory-row-actions">
+          <button class="btn btn-edit btn-sm" type="button" onclick="editUnit(${Number(row.id)})">Edit</button>
+          <button class="btn btn-cancel btn-sm" type="button" onclick="deleteUnit(${Number(row.id)})">Delete</button>
+        </td>` : ''}
+      </tr>
+    `;
+  }).join('');
+}
+
+// Fills the product/warehouse/project selects inside the serial-unit modal form.
+function populateUnitSelects() {
+  const productSelect = document.getElementById('unit-product');
+  const warehouseSelect = document.getElementById('unit-warehouse');
+  const projectSelect = document.getElementById('unit-project');
+  if (productSelect) {
+    productSelect.innerHTML = '<option value="">Select product</option>' + productsDb.map(row => `<option value="${Number(row.id)}">${escHtml([row.sku, row.product_name].filter(Boolean).join(' - '))}</option>`).join('');
+  }
+  if (warehouseSelect) {
+    warehouseSelect.innerHTML = '<option value="">No warehouse</option>' + warehousesDb.map(row => `<option value="${Number(row.id)}">${escHtml([row.warehouse_code, row.warehouse_name].filter(Boolean).join(' - '))}</option>`).join('');
+  }
+  if (projectSelect) {
+    projectSelect.innerHTML = '<option value="">No project link</option>' + projectsDb.map(row => `<option value="${Number(row.id)}">${escHtml([row.project_docno, row.project_name].filter(Boolean).join(' - '))}</option>`).join('');
+  }
+  populateUnitSourcePoSelect(Number(projectSelect?.value || 0) || 0, Number(document.getElementById('unit-source-po')?.value || 0) || 0);
+}
+
+// Source PO dropdown for a serial unit: lists purchase orders (optionally scoped
+// to the unit's linked project) so each item traces back to where it was bought.
+function populateUnitSourcePoSelect(projectId = 0, selectedId = 0) {
+  const select = document.getElementById('unit-source-po');
+  if (!select) return;
+  const pid = Number(projectId || 0) || 0;
+  const current = Number(selectedId || select.value || 0) || 0;
+  const matches = purchaseOrdersDb.filter(po => {
+    if (Number(po.id || 0) === current) return true; // keep the saved PO visible
+    return pid ? Number(po.project_id || 0) === pid : true;
+  });
+  select.innerHTML = '<option value="">No source PO</option>' + matches.map(po => {
+    const id = Number(po.id || 0);
+    const label = [po.po_number, po.vendor_name].filter(Boolean).join(' - ') || `PO #${id}`;
+    return `<option value="${id}"${id === current ? ' selected' : ''}>${escHtml(label)}</option>`;
+  }).join('');
+}
+
+// When the unit's project changes, re-scope the Source PO list to that project.
+function onUnitProjectChange() {
+  const projectId = Number(document.getElementById('unit-project')?.value || 0) || 0;
+  populateUnitSourcePoSelect(projectId, Number(document.getElementById('unit-source-po')?.value || 0) || 0);
 }
 
 function switchInventoryTab(tab, options = {}) {
-  const safeTab = normalizeInventoryTab(tab);
+  let safeTab = normalizeInventoryTab(tab);
+  // Serial Units is an admin-only view; never let staff land on it.
+  if (safeTab === 'units' && isInventoryStaffRole()) safeTab = 'products';
   document.querySelectorAll('.inventory-tab').forEach(button => {
     button.classList.toggle('active', button.dataset.tab === safeTab);
   });
@@ -441,19 +572,24 @@ function openInventoryModal(type) {
   setStatus('');
   document.getElementById('inventory-modal').classList.add('open');
   document.getElementById('inventory-modal').setAttribute('aria-hidden', 'false');
+  editingUnitId = null;
   const staffRole = isInventoryStaffRole();
-  document.getElementById('inventory-modal-title').textContent = staffRole
-    ? (type === 'product' ? 'Request Product' : type === 'warehouse' ? 'Request Warehouse' : 'Request Stock Movement')
-    : (type === 'product' ? 'New Product' : type === 'warehouse' ? 'New Warehouse' : 'Stock Movement');
-  ['product-form', 'warehouse-form', 'movement-form'].forEach(id => document.getElementById(id).classList.remove('active'));
+  const titles = staffRole
+    ? { product: 'Request Product', warehouse: 'Request Warehouse', movement: 'Request Stock Movement', unit: 'Add Serial Unit' }
+    : { product: 'New Product', warehouse: 'New Warehouse', movement: 'Stock Movement', unit: 'Add Serial Unit' };
+  document.getElementById('inventory-modal-title').textContent = titles[type] || 'Inventory';
+  ['product-form', 'warehouse-form', 'movement-form', 'unit-form'].forEach(id => document.getElementById(id)?.classList.remove('active'));
   document.getElementById(`${type}-form`)?.classList.add('active');
   const productSave = document.querySelector('#product-form .btn-save');
   const warehouseSave = document.querySelector('#warehouse-form .btn-save');
   const movementSave = document.querySelector('#movement-form .btn-save');
+  const unitSave = document.querySelector('#unit-form .btn-save');
   if (productSave) productSave.textContent = staffRole ? 'Save Product Request' : 'Save Product';
   if (warehouseSave) warehouseSave.textContent = staffRole ? 'Save Warehouse Request' : 'Save Warehouse';
   if (movementSave) movementSave.textContent = staffRole ? 'Save Movement Request' : 'Save Movement';
+  if (unitSave) unitSave.textContent = 'Save Unit';
   if (type === 'product') populateProductCategorySelect('');
+  if (type === 'unit') populateUnitSelects();
 }
 
 function openInventoryRequestDraft(requestId) {
@@ -578,6 +714,7 @@ function closeInventoryModal() {
   editingInventoryRequestType = '';
   editingProductId = null;
   editingWarehouseId = null;
+  editingUnitId = null;
   document.getElementById('inventory-modal').classList.remove('open');
   document.getElementById('inventory-modal').setAttribute('aria-hidden', 'true');
 }
@@ -692,6 +829,92 @@ async function saveProduct(event) {
     }
   } catch (err) {
     setStatus(err.message || 'Unable to save product.');
+  }
+}
+
+async function saveUnit(event) {
+  event.preventDefault();
+  setStatus('');
+  const start = document.getElementById('unit-warranty-start').value;
+  const end = document.getElementById('unit-warranty-end').value;
+  if (start && end && end < start) {
+    setStatus('Warranty end date cannot be before the start date.');
+    return;
+  }
+  const payload = {
+    business_entity_id: getCurrentBusinessEntityId(),
+    product_id: document.getElementById('unit-product').value,
+    serial_number: document.getElementById('unit-serial').value,
+    status: document.getElementById('unit-status').value,
+    warehouse_id: document.getElementById('unit-warehouse').value,
+    customer_name: document.getElementById('unit-customer').value,
+    project_id: document.getElementById('unit-project').value,
+    source_po_id: document.getElementById('unit-source-po').value,
+    warranty_start: start,
+    warranty_end: end,
+    notes: document.getElementById('unit-notes').value
+  };
+  try {
+    if (editingUnitId) {
+      await fetchJson(`/api/inventory/units/${Number(editingUnitId)}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      });
+    } else {
+      await fetchJson('/api/inventory/units', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+    }
+    event.target.reset();
+    closeInventoryModal();
+    await loadInventory();
+    switchInventoryTab('units');
+  } catch (err) {
+    setStatus(err.message || 'Unable to save serial unit.');
+  }
+}
+
+function editUnit(id) {
+  if (isInventoryStaffRole()) return;
+  const row = unitsDb.find(item => Number(item.id) === Number(id));
+  if (!row) {
+    setStatus('Serial unit not found.');
+    return;
+  }
+  openInventoryModal('unit');
+  editingUnitId = Number(row.id);
+  document.getElementById('inventory-modal-title').textContent = 'Edit Serial Unit';
+  document.getElementById('unit-product').value = row.product_id || '';
+  document.getElementById('unit-serial').value = row.serial_number || '';
+  document.getElementById('unit-status').value = String(row.status || 'in_stock');
+  document.getElementById('unit-warehouse').value = row.warehouse_id || '';
+  document.getElementById('unit-customer').value = row.customer_name || '';
+  document.getElementById('unit-project').value = row.project_id || '';
+  populateUnitSourcePoSelect(Number(row.project_id || 0) || 0, Number(row.source_po_id || 0) || 0);
+  document.getElementById('unit-warranty-start').value = String(row.warranty_start || '').slice(0, 10);
+  document.getElementById('unit-warranty-end').value = String(row.warranty_end || '').slice(0, 10);
+  document.getElementById('unit-notes').value = row.notes || '';
+  const saveBtn = document.querySelector('#unit-form .btn-save');
+  if (saveBtn) saveBtn.textContent = 'Update Unit';
+}
+
+async function deleteUnit(id) {
+  if (isInventoryStaffRole()) return;
+  const row = unitsDb.find(item => Number(item.id) === Number(id));
+  if (!row) return;
+  const confirmed = await openInventoryConfirmDialog({
+    title: 'Delete Serial Unit',
+    message: `Delete serial "${row.serial_number || ''}"? This cannot be undone.`,
+    yesText: 'Delete'
+  });
+  if (!confirmed) return;
+  try {
+    await fetchJson(`/api/inventory/units/${Number(id)}`, { method: 'DELETE' });
+    await loadInventory();
+    switchInventoryTab('units');
+  } catch (err) {
+    setStatus(err.message || 'Unable to delete serial unit.');
   }
 }
 

@@ -7,7 +7,7 @@
   <script src="/assets/js/auth-guard.js?v=20260604staff1"></script>
   <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260608ui">
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a">
-  <link rel="stylesheet" href="/sales-management/sales-management.css?v=20260605cards">
+  <link rel="stylesheet" href="/sales-management/sales-management.css?v=20260609twocol">
   <link rel="stylesheet" href="/assets/css/warm-minimal.css?v=20260605wm2">
 </head>
 <body class="erp-clean-page sales-management-page">
@@ -338,10 +338,21 @@
           <label>Delivery Address</label>
           <input id="sales-delivery-address" type="text" maxlength="255" placeholder="Site / delivery address" />
         </div>
+        <!-- Delivery Receipt: which purchase order supplied the delivered goods -->
+        <div class="field full" data-sales-field="source-po">
+          <label>Source PO <span class="field-hint">(saan binili — para sa traceability / warranty)</span></label>
+          <select id="sales-source-po-id">
+            <option value="">No source PO</option>
+          </select>
+        </div>
 
         <!-- Inventory section (Delivery Receipt stage) -->
         <div class="field full" data-sales-field="inventory-note">
           <div class="sales-inventory-note">Inventory is deducted only when a Delivery Receipt is saved as Delivered or Completed.</div>
+        </div>
+        <div class="field" data-sales-field="product">
+          <label>Category</label>
+          <select id="sales-product-category" onchange="filterSalesProductByCategory()"></select>
         </div>
         <div class="field" data-sales-field="product">
           <label>Inventory Product <span class="req-star delivery-required">*</span></label>
@@ -361,6 +372,15 @@
         <div class="field" data-sales-field="unit-price">
           <label>Unit Price</label>
           <input id="sales-unit-price" type="number" min="0" step="0.01" />
+        </div>
+
+        <!-- Delivery Receipt: pick which serial units are going out (auto-marks
+             them Sold when the DR is saved as Delivered/Completed) -->
+        <div class="field full" data-sales-field="serials">
+          <label>Serial Units <span class="field-hint">(piliin ang mga lalabas — auto-Sold kapag Delivered)</span></label>
+          <div id="sales-serial-picker" class="sales-serial-picker">
+            <div class="sales-serial-empty">Pumili muna ng Inventory Product.</div>
+          </div>
         </div>
 
         <!-- Requested Items (same as PR — full width, inside grid) -->
@@ -407,7 +427,7 @@
   </div>
 
   <script src="/assets/js/erp-core.js?v=20260605logout"></script>
-  <script src="/sales-management/sales-management.js?v=20260608nosq"></script>
+  <script src="/sales-management/sales-management.js?v=20260609serials"></script>
 </body>
 </html>
 

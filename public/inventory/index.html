@@ -8,7 +8,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260608ui">
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a">
-  <link rel="stylesheet" href="/inventory/inventory.css?v=20260608cat3">
+  <link rel="stylesheet" href="/inventory/inventory.css?v=20260609srcpo">
   <link rel="stylesheet" href="/assets/css/warm-minimal.css?v=20260605wm2">
 </head>
 <body class="erp-clean-page inventory-page">
@@ -62,6 +62,7 @@
         <button class="btn btn-add btn-sm" type="button" data-inventory-action="products" onclick="openInventoryModal('product')">New Product</button>
         <button class="btn btn-edit btn-sm" type="button" data-inventory-action="warehouses" onclick="openInventoryModal('warehouse')">New Warehouse</button>
         <button class="btn btn-save btn-sm" type="button" data-inventory-action="stock movements" onclick="openInventoryModal('movement')">Stock Movement</button>
+        <button class="btn btn-add btn-sm" type="button" data-inventory-action="units" data-inventory-admin-col hidden onclick="openInventoryModal('unit')">Add Serial Unit</button>
       </div>
     </section>
 
@@ -86,6 +87,10 @@
         <span class="module-summary-label">Movements</span>
         <div class="module-summary-value" id="metric-movements">0</div>
       </article>
+      <article class="module-summary-card" data-inventory-admin-col hidden>
+        <span class="module-summary-label">Serial Units</span>
+        <div class="module-summary-value" id="metric-units">0</div>
+      </article>
     </section>
 
     <section class="module-tabs inventory-tabs" aria-label="Inventory views">
@@ -93,6 +98,7 @@
       <button class="module-tab inventory-tab" type="button" data-tab="warehouses" onclick="switchInventoryTab('warehouses')">Warehouses</button>
       <button class="module-tab inventory-tab" type="button" data-tab="stock" onclick="switchInventoryTab('stock')">Stock Levels</button>
       <button class="module-tab inventory-tab" type="button" data-tab="movements" onclick="switchInventoryTab('movements')">Movements</button>
+      <button class="module-tab inventory-tab" type="button" data-tab="units" onclick="switchInventoryTab('units')" data-inventory-admin-col hidden>Serial Units</button>
       <button class="module-tab inventory-tab" type="button" data-tab="requests" onclick="switchInventoryTab('requests')" data-staff-inventory-requests hidden>Requests</button>
     </section>
 
@@ -184,6 +190,39 @@
               </tr>
             </thead>
             <tbody id="movement-tbody"></tbody>
+          </table>
+        </div>
+    </section>
+
+    <section class="content-section inventory-panel inventory-section" id="inventory-tab-units">
+        <div class="panel-head">
+          <h2>Serial Units</h2>
+          <div class="inventory-filter-bar">
+            <select id="units-status-filter" onchange="renderUnits()" aria-label="Filter by status">
+              <option value="">All statuses</option>
+              <option value="in_stock">In Stock</option>
+              <option value="sold">Sold</option>
+              <option value="installed">Installed</option>
+              <option value="returned">Returned</option>
+              <option value="rma">RMA</option>
+              <option value="defective">Defective</option>
+            </select>
+            <input id="units-search" type="search" placeholder="Search serial, product, customer..." oninput="renderUnits()">
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Serial No.</th>
+                <th>Product</th>
+                <th>Status</th>
+                <th>Location / Customer</th>
+                <th>Warranty Until</th>
+                <th class="text-right" data-inventory-admin-col hidden>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="units-tbody"></tbody>
           </table>
         </div>
     </section>
@@ -339,6 +378,63 @@
         </div>
       </form>
 
+      <form id="unit-form" class="inventory-form" onsubmit="saveUnit(event)">
+        <div class="section-divider">Serial Unit Details</div>
+        <div class="modal-grid-compact">
+          <div class="field">
+            <label>Product <span class="field-label-status is-required">Required</span></label>
+            <select id="unit-product" required></select>
+          </div>
+          <div class="field">
+            <label>Serial Number <span class="field-label-status is-required">Required</span></label>
+            <input id="unit-serial" placeholder="e.g. SN-2024-00123" required />
+          </div>
+          <div class="field">
+            <label>Status <span class="field-label-status is-required">Required</span></label>
+            <select id="unit-status" required>
+              <option value="in_stock">In Stock</option>
+              <option value="sold">Sold</option>
+              <option value="installed">Installed</option>
+              <option value="returned">Returned</option>
+              <option value="rma">RMA</option>
+              <option value="defective">Defective</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Warehouse <span class="field-label-status is-optional">Optional</span></label>
+            <select id="unit-warehouse"></select>
+          </div>
+          <div class="field">
+            <label>Customer <span class="field-label-status is-optional">Optional</span></label>
+            <input id="unit-customer" placeholder="Customer / client name" />
+          </div>
+          <div class="field">
+            <label>Project <span class="field-label-status is-optional">Optional</span></label>
+            <select id="unit-project" onchange="onUnitProjectChange()"></select>
+          </div>
+          <div class="field full">
+            <label>Source PO <span class="field-label-status is-optional">Saan binili — traceability/warranty</span></label>
+            <select id="unit-source-po"></select>
+          </div>
+          <div class="field">
+            <label>Warranty Start <span class="field-label-status is-optional">Optional</span></label>
+            <input id="unit-warranty-start" type="date" />
+          </div>
+          <div class="field">
+            <label>Warranty End <span class="field-label-status is-optional">Optional</span></label>
+            <input id="unit-warranty-end" type="date" />
+          </div>
+          <div class="field full">
+            <label>Notes <span class="field-label-status is-optional">Optional</span></label>
+            <textarea id="unit-notes" rows="3"></textarea>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-cancel btn-sm" type="button" onclick="closeInventoryModal()">Cancel</button>
+          <button class="btn btn-save btn-sm" type="submit">Save Unit</button>
+        </div>
+      </form>
+
       <div id="inventory-status" class="inventory-status"></div>
     </div>
   </div>
@@ -354,7 +450,7 @@
     </div>
   </div>
 
-  <script src="/inventory/inventory.js?v=20260608cat3"></script>
+  <script src="/inventory/inventory.js?v=20260609srcpo"></script>
 </body>
 </html>
 
