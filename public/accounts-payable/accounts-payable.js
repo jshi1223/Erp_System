@@ -264,6 +264,7 @@ function getDefaultBillBusinessEntityId() {
 function getCurrentBusinessEntityId() {
   const rows = Array.isArray(businessEntitiesDb) ? businessEntitiesDb : [];
   const stored = String(currentBusinessEntityContextId || localStorage.getItem(BUSINESS_ENTITY_CONTEXT_KEY) || '').trim();
+  if (stored === 'all') { currentBusinessEntityContextId = 'all'; return 'all'; }
   if (!rows.length) return stored;
   if (stored && rows.some(row => String(row.id || '') === stored)) {
     currentBusinessEntityContextId = stored;

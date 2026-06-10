@@ -76,6 +76,7 @@ function getDefaultBusinessEntityId() {
 
 function getCurrentBusinessEntityId() {
   const stored = String(localStorage.getItem(BUSINESS_ENTITY_CONTEXT_KEY) || '').trim();
+  if (stored === 'all') return 'all';
   if (stored && businessEntitiesDb.some(row => String(row.id || '') === stored)) return stored;
   const fallback = getDefaultBusinessEntityId();
   if (fallback) localStorage.setItem(BUSINESS_ENTITY_CONTEXT_KEY, fallback);

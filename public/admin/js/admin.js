@@ -3001,26 +3001,6 @@ function renderProjectOverview(snapshot) {
         </div>
       </div>
 
-      <div class="project-overview-card project-overview-pipeline-card">
-        <div class="project-overview-section-head">
-          <div>
-            <div class="project-overview-kicker">1. Procurement Flow</div>
-            <h4>PR &rarr; RFQ &rarr; PO &rarr; GRN &rarr; AP / Bill</h4>
-          </div>
-        </div>
-        <div class="project-overview-pipeline">${procurementStrip}</div>
-      </div>
-
-      <div class="project-overview-card project-overview-pipeline-card">
-        <div class="project-overview-section-head">
-          <div>
-            <div class="project-overview-kicker">2. Sales Management Flow</div>
-            <h4>Project &rarr; Inquiry &rarr; Quotation &rarr; Sales Order &rarr; Delivery &rarr; Invoice</h4>
-          </div>
-        </div>
-        <div class="project-overview-pipeline">${pipelineStrip}</div>
-      </div>
-
       <div class="project-overview-grid project-overview-related-grid">
         ${apRelationship}
         ${arRelationship}

@@ -44,14 +44,14 @@ const SALES_STAGE_FIELDS = {
   'sales-order': {
     sectionTitle: 'Sales Order Details',
     descriptionLabel: 'Confirmed Scope',
-    fields: ['source', 'company', 'project', 'contact', 'title', 'requested-date', 'target-date', 'amount', 'payment-terms', 'downpayment', 'customer-po-ref', 'inventory-note', 'product', 'warehouse', 'quantity', 'unit-price', 'description', 'notes'],
-    required: ['company', 'project', 'title', 'requested-date']
+    fields: ['source', 'company', 'project', 'contact', 'requested-date', 'target-date', 'payment-terms', 'customer-po-ref', 'line-items', 'description', 'notes'],
+    required: ['company', 'project', 'requested-date', 'line-items']
   },
   'project-delivery': {
     sectionTitle: 'Delivery Receipt Details',
     descriptionLabel: 'Delivery Notes / Received Items',
-    fields: ['source', 'company', 'project', 'title', 'target-date', 'received-by', 'delivery-address', 'source-po', 'inventory-note', 'product', 'warehouse', 'quantity', 'unit-price', 'serials', 'description', 'notes'],
-    required: ['company', 'project', 'title', 'target-date', 'received-by', 'product', 'warehouse', 'quantity']
+    fields: ['source', 'company', 'project', 'target-date', 'received-by', 'delivery-address', 'source-po', 'inventory-note', 'warehouse', 'line-items', 'serials', 'description', 'notes'],
+    required: ['company', 'project', 'target-date', 'received-by', 'warehouse', 'line-items']
   }
 };
 
@@ -73,6 +73,9 @@ const SALES_FIELD_CONTROLS = {
   'delivery-address': 'sales-delivery-address',
   'source-po': 'sales-source-po-id'
 };
+
+// Stages whose title is auto-built from the line items (no manual title field).
+const AUTO_TITLE_SALES_TYPES = ['sales-request', 'sales-order', 'project-delivery'];
 
 let salesRecords = [];
 let companyRecords = [];
@@ -108,6 +111,7 @@ function bindSalesEvents() {
 
   document.getElementById('sales-project-id')?.addEventListener('change', () => syncSalesProjectContext());
   document.getElementById('sales-product-id')?.addEventListener('change', () => loadDeliverySerialOptions());
+  document.getElementById('sales-source-record-id')?.addEventListener('change', () => onSalesSourceChange());
   document.getElementById('sales-modal-close')?.addEventListener('click', closeSalesModal);
   document.getElementById('sales-cancel-btn')?.addEventListener('click', closeSalesModal);
   document.getElementById('sales-modal-backdrop')?.addEventListener('click', (event) => {
@@ -473,10 +477,10 @@ function renderSalesRecords() {
   const rows = salesRecords
     .filter((row) => {
       if (row.record_type !== activeSalesTab) return false;
-      // Staff sees only non-draft Sales Inquiries (admin-approved/processed ones)
-      if (isSalesStaffView() && activeSalesTab === 'sales-request') {
-        return !['draft', 'submitted'].includes(String(row.status || '').toLowerCase());
-      }
+      // Hide drafts / pending-approval records from the main stage tables — they
+      // live in the Approval Center (admin) and the Requests tab (staff) instead.
+      // The table shows only official/processed records.
+      if (['draft', 'submitted', 'in_review'].includes(String(row.status || '').toLowerCase())) return false;
       return true;
     })
     .filter((row) => {
@@ -671,11 +675,12 @@ function openSalesModal(record = null) {
   setValue('sales-received-by', record?.received_by || '');
   setValue('sales-delivery-address', record?.delivery_address || '');
   populateSalesSourcePoSelect(Number(record?.project_id || 0) || 0, Number(record?.source_po_id || 0) || 0);
-  // Load the serial-unit checklist for this DR's product (pre-checks linked units).
-  loadDeliverySerialOptions();
   setValue('sales-description', record?.description || '');
   setValue('sales-notes', record?.notes || '');
   setSalesLineItems(record?.line_items || [{}]);
+  // Load the serial checklist AFTER line items render (it reads the line products);
+  // linked units are pre-checked via their sales_record_id.
+  loadDeliverySerialOptions();
   const backdrop = document.getElementById('sales-modal-backdrop');
   if (backdrop) {
     backdrop.hidden = false;
@@ -729,7 +734,9 @@ async function saveSalesRecord() {
     project_id: getValue('sales-project-id'),
     source_record_id: getValue('sales-source-record-id'),
     contact_person: getValue('sales-contact-person'),
-    title: getValue('sales-record-type') === 'sales-request' ? (itemSummary || 'Sales Inquiry') : getValue('sales-title'),
+    title: AUTO_TITLE_SALES_TYPES.includes(getValue('sales-record-type'))
+      ? (itemSummary || SALES_TYPES[getValue('sales-record-type')]?.label || 'Sales Record')
+      : getValue('sales-title'),
     requested_date: getValue('sales-requested-date'),
     target_date: getValue('sales-target-date'),
     amount: getValue('sales-amount'),
@@ -748,6 +755,13 @@ async function saveSalesRecord() {
     notes: getValue('sales-notes'),
     items: lineItems.items
   };
+
+  // SO/DR are multi-item: derive the record amount from the line totals so the AR
+  // invoice (generated from the DR) matches the delivered lines.
+  if (['sales-order', 'project-delivery'].includes(payload.record_type)) {
+    payload.amount = lineItems.items.reduce(
+      (sum, it) => sum + (Number(it.quantity || 0) * Number(it.estimated_unit_price || 0)), 0);
+  }
 
   // Delivery Receipt: which serial units are going out (auto-marked Sold on deliver).
   if (payload.record_type === 'project-delivery') {
@@ -813,7 +827,8 @@ function collectSalesValidationErrors(payload = {}, lineItems = { items: [], inc
     product: 'Inventory Product',
     warehouse: 'Source Warehouse',
     quantity: 'Quantity',
-    'received-by': 'Received By'
+    'received-by': 'Received By',
+    'line-items': 'Items'
   };
   const values = {
     source: payload.source_record_id,
@@ -838,9 +853,9 @@ function collectSalesValidationErrors(payload = {}, lineItems = { items: [], inc
     errors.push({ key, message });
   };
 
-  if (payload.record_type === 'sales-request') {
+  if (['sales-request', 'sales-order', 'project-delivery'].includes(payload.record_type)) {
     if (!lineItems.items.length) {
-      pushError('line-items', 'Select at least one product item for the Sales Inquiry.');
+      pushError('line-items', 'Select at least one product item.');
     } else if (lineItems.incompleteRows.length) {
       pushError('line-items', `Enter quantity for item ${lineItems.incompleteRows[0]}.`);
     }
@@ -977,20 +992,51 @@ async function loadDeliverySerialOptions(preselectIds = null) {
     picker.innerHTML = '';
     return;
   }
-  const productId = Number(getValue('sales-product-id') || 0) || 0;
-  if (!productId) {
+  // Multi-item DR: serials come from every product on the line items.
+  const productIds = [...new Set(collectSalesLineItems().items.map((it) => Number(it.product_id || 0)).filter(Boolean))];
+  if (!productIds.length) {
     deliverySerialUnits = [];
-    picker.innerHTML = '<div class="sales-serial-empty">Pumili muna ng Inventory Product.</div>';
+    picker.innerHTML = '<div class="sales-serial-empty">Magdagdag muna ng item (product) sa ibaba.</div>';
     return;
   }
   picker.innerHTML = '<div class="sales-serial-empty">Loading serial units...</div>';
-  const res = await fetch(`/api/inventory/units?product_id=${encodeURIComponent(productId)}`, { cache: 'no-store' });
-  const all = res.ok ? await res.json().catch(() => []) : [];
+  const lists = await Promise.all(productIds.map((pid) =>
+    fetch(`/api/inventory/units?product_id=${encodeURIComponent(pid)}`, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : [])).catch(() => [])));
+  const all = lists.flat();
   const editingId = Number(editingSalesRecordId || 0) || 0;
   // In-stock units, plus any already assigned to THIS delivery (so edits keep them).
   deliverySerialUnits = (Array.isArray(all) ? all : []).filter((u) =>
     String(u.status || '') === 'in_stock' || (editingId && Number(u.sales_record_id || 0) === editingId));
   renderDeliverySerialOptions(preselectIds);
+}
+
+// Called whenever the line items change so the serial checklist tracks the products.
+function onSalesLineItemsChanged() {
+  if (getValue('sales-record-type') === 'project-delivery') loadDeliverySerialOptions();
+}
+
+// Auto-link: when a source document (e.g. the SO behind a DR) is picked, pull its
+// company, project, contact, terms, and line items so nothing is re-encoded.
+function onSalesSourceChange() {
+  const sourceId = Number(getValue('sales-source-record-id') || 0) || 0;
+  if (!sourceId) return;
+  const source = salesRecords.find((r) => Number(r.id || 0) === sourceId);
+  if (!source) return;
+  if (source.project_id) {
+    setValue('sales-project-id', source.project_id);
+    syncSalesProjectContext({ preserveExistingCompany: false });
+  } else if (source.company_id) {
+    setValue('sales-company-id', source.company_id);
+  }
+  if (source.contact_person) setValue('sales-contact-person', source.contact_person);
+  if (source.payment_terms) setValue('sales-payment-terms', source.payment_terms);
+  if (source.customer_po_ref) setValue('sales-customer-po-ref', source.customer_po_ref);
+  // Carry the source document's line items forward (and refresh the serial picker).
+  if (Array.isArray(source.line_items) && source.line_items.length) {
+    setSalesLineItems(source.line_items);
+    onSalesLineItemsChanged();
+  }
 }
 
 function renderDeliverySerialOptions(preselectIds = null) {
@@ -1006,7 +1052,8 @@ function renderDeliverySerialOptions(preselectIds = null) {
     const id = Number(u.id || 0);
     const checked = preset ? preset.has(id) : (editingId && Number(u.sales_record_id || 0) === editingId);
     const warranty = String(u.warranty_end || '').slice(0, 10);
-    const meta = [warranty ? `warranty ${warranty}` : '', u.warehouse_code || u.warehouse_name || ''].filter(Boolean).join(' | ');
+    const product = [u.sku, u.product_name].filter(Boolean).join(' - ');
+    const meta = [product, warranty ? `warranty ${warranty}` : '', u.warehouse_code || u.warehouse_name || ''].filter(Boolean).join(' | ');
     return `<label class="sales-serial-item">
       <input type="checkbox" class="sales-serial-checkbox" value="${escAttr(id)}"${checked ? ' checked' : ''} />
       <span>${escHtml(u.serial_number || `Unit #${id}`)}${meta ? ` <span class="sales-serial-meta">(${escHtml(meta)})</span>` : ''}</span>
@@ -1134,6 +1181,7 @@ function addSalesLineItem(item = {}) {
   container.insertAdjacentHTML('beforeend', renderSalesLineItemRow(item, index));
   recalculateSalesLineTotals();
   container.querySelector('[data-sales-line-item]:last-child .sales-line-product')?.focus();
+  onSalesLineItemsChanged();
 }
 
 function removeSalesLineItem(button) {
@@ -1149,6 +1197,7 @@ function removeSalesLineItem(button) {
   }
   renumberSalesLineItems();
   recalculateSalesLineTotals();
+  onSalesLineItemsChanged();
 }
 
 function renumberSalesLineItems() {
@@ -1213,6 +1262,7 @@ function syncSalesLineProduct(source) {
     unitPriceInput.disabled = false;
   }
   syncSalesLineItem(source);
+  onSalesLineItemsChanged();
 }
 
 function syncSalesLineItem(source) {
