@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260608ui">
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a">
-  <link rel="stylesheet" href="/inventory/inventory.css?v=20260609srcpo">
+  <link rel="stylesheet" href="/inventory/inventory.css?v=20260609tabsum">
   <link rel="stylesheet" href="/assets/css/warm-minimal.css?v=20260605wm2">
 </head>
 <body class="erp-clean-page inventory-page">
@@ -34,6 +34,25 @@
       <span class="admin-badge">Inventory Module</span>
     </div>
   </header>
+  <script>
+    // Keep the header title consistent with the rest of the system: "All Companies"
+    // when the all-companies filter is active, otherwise the selected entity name.
+    (function () {
+      var ctx = '';
+      try { ctx = String(localStorage.getItem('kinaadman_businessEntityContext') || '').trim().toLowerCase(); } catch (_) {}
+      var name = 'KVSK CCTV & IT Solution';
+      try {
+        var raw = localStorage.getItem('kinaadman_businessEntityTheme');
+        var stored = raw ? JSON.parse(raw) : null;
+        if (stored && stored.company_name) name = String(stored.company_name).trim();
+      } catch (_) {}
+      var brand = document.querySelector('header .brand-copy .header-logo');
+      if (brand) brand.textContent = ctx === 'all' ? 'All Companies' : name;
+      if (document.documentElement && document.documentElement.dataset) {
+        document.documentElement.dataset.businessEntityBrandTextReady = '1';
+      }
+    })();
+  </script>
 
   <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
   <div class="sidebar" id="sidebar">
@@ -71,27 +90,19 @@
     <section class="module-summary-grid inventory-summary-grid" aria-label="Inventory summary">
       <article class="module-summary-card">
         <span class="module-summary-label">Products</span>
-        <div class="module-summary-value" id="metric-products">0</div>
+        <div class="module-summary-value">0</div>
       </article>
       <article class="module-summary-card">
-        <span class="module-summary-label">Warehouses</span>
-        <div class="module-summary-value" id="metric-warehouses">0</div>
-      </article>
-      <article class="module-summary-card">
-        <span class="module-summary-label">Qty On Hand</span>
-        <div class="module-summary-value" id="metric-on-hand">0</div>
+        <span class="module-summary-label">Categories</span>
+        <div class="module-summary-value">0</div>
       </article>
       <article class="module-summary-card">
         <span class="module-summary-label">Low Stock</span>
-        <div class="module-summary-value" id="metric-low-stock">0</div>
+        <div class="module-summary-value">0</div>
       </article>
       <article class="module-summary-card">
-        <span class="module-summary-label">Movements</span>
-        <div class="module-summary-value" id="metric-movements">0</div>
-      </article>
-      <article class="module-summary-card" data-inventory-admin-col hidden>
-        <span class="module-summary-label">Serial Units</span>
-        <div class="module-summary-value" id="metric-units">0</div>
+        <span class="module-summary-label">Qty On Hand</span>
+        <div class="module-summary-value">0</div>
       </article>
     </section>
 
@@ -452,7 +463,7 @@
     </div>
   </div>
 
-  <script src="/inventory/inventory.js?v=20260609srcpo"></script>
+  <script src="/inventory/inventory.js?v=20260609tabsum"></script>
 </body>
 </html>
 

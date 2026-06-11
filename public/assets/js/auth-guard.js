@@ -345,6 +345,17 @@
     ) {
       return;
     }
+    // Shared-sidebar (module) pages: don't reveal until the role-based nav is
+    // actually rendered. The early mount runs before /api/me resolves the role,
+    // so the nav is still empty — revealing here would flash an empty sidebar
+    // then pop the items in on every refresh.
+    if (
+      !isAdminRoleManagedPage() &&
+      sidebar.dataset &&
+      sidebar.dataset.sharedSidebarRendered !== '1'
+    ) {
+      return;
+    }
     if (document.documentElement && document.documentElement.dataset) {
       document.documentElement.dataset.sidebarReady = '1';
     }

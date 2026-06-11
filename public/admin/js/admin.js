@@ -4685,7 +4685,7 @@ function applyBusinessEntityBrand(row) {
   });
   try {
     const storedProfile = {
-      company_name: row?.company_name || 'KVSK CCTV & IT Solution',
+      company_name: row?.company_name || (getBusinessEntityFilterId() === 'all' ? 'All Companies' : 'KVSK CCTV & IT Solution'),
       theme: profile.theme,
       logo: profile.logo,
       alt: profile.alt,

@@ -121,3 +121,19 @@ body.accounts-payable-page .module-summary-card,
 body.erp-clean-page.accounts-payable-page[data-business-entity-theme] .module-summary-card {
   border-left: 3px solid #b42318 !important;
 }
+
+/* Consistent Logout button across admin and all modules: maroon outline that
+   fills solid maroon on hover. Page-specific stylesheets gave it different
+   looks (red on admin, green-ish on modules); normalize it here (loaded last). */
+body.admin-page .btn-logout,
+body.erp-clean-page .btn-logout {
+  background: rgba(255, 255, 255, 0.9) !important;
+  color: #7a1d16 !important;
+  border: 1px solid color-mix(in srgb, #b42318 38%, transparent) !important;
+}
+body.admin-page .btn-logout:hover,
+body.erp-clean-page .btn-logout:hover {
+  background: #b42318 !important;
+  color: #ffffff !important;
+  border-color: #b42318 !important;
+}

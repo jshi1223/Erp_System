@@ -69,6 +69,14 @@
     wrap.appendChild(menu);
     host.insertBefore(wrap, host.firstChild);
 
+    // The static workspace-badge label is redundant once this switcher is shown
+    // (both display the same entity). Hide it so only ONE entity control remains.
+    // Never touch the admin business-profile-trigger (that IS the single control).
+    var staticBadge = document.getElementById('current-workspace-badge');
+    if (staticBadge && !staticBadge.classList.contains('business-profile-trigger')) {
+      staticBadge.style.display = 'none';
+    }
+
     btn.addEventListener('click', function (e) { e.stopPropagation(); menu.hidden = !menu.hidden; });
     document.addEventListener('click', function () { menu.hidden = true; });
     menu.addEventListener('click', function (e) {
@@ -85,6 +93,10 @@
   function init() {
     var host = document.querySelector('header .header-right') || document.querySelector('.header-right');
     if (!host) return;
+    // Don't add a second switcher when the page already has the richer
+    // business-profile menu (admin/dashboard). It uses the same
+    // kinaadman_businessEntityContext key, so injecting ours would duplicate it.
+    if (document.querySelector('.business-profile-menu, .business-profile-trigger')) return;
     injectStyles();
     fetch('/api/business-entities', { cache: 'no-store' })
       .then(function (r) { return r.ok ? r.json() : []; })

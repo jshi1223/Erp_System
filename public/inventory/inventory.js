@@ -149,15 +149,50 @@ async function loadInventory() {
   populateUnitSelects();
 }
 
+let inventorySummaryDb = {};
+
 function renderSummary(summary) {
-  document.getElementById('metric-products').textContent = Number(summary.products || 0);
-  document.getElementById('metric-warehouses').textContent = Number(summary.warehouses || 0);
-  document.getElementById('metric-on-hand').textContent = Number(summary.on_hand || 0).toLocaleString('en-PH');
-  document.getElementById('metric-low-stock').textContent = Number(summary.low_stock || 0);
-  const movementsMetric = document.getElementById('metric-movements');
-  if (movementsMetric) movementsMetric.textContent = Number(movementsDb.length || 0).toLocaleString('en-PH');
-  const unitsMetric = document.getElementById('metric-units');
-  if (unitsMetric) unitsMetric.textContent = Number(unitsDb.length || 0).toLocaleString('en-PH');
+  inventorySummaryDb = summary || {};
+  renderTabSummary();
+}
+
+// Each tab shows its OWN summary cards (relevant to that tab), not one shared row
+// of every metric. Rebuilds the summary grid based on the active tab.
+function renderTabSummary(tab = (document.querySelector('.inventory-tab.active')?.dataset.tab || 'products')) {
+  const grid = document.querySelector('.inventory-summary-grid');
+  if (!grid) return;
+  const num = (n) => Number(n || 0).toLocaleString('en-PH');
+  const card = (label, value) => `<article class="module-summary-card"><span class="module-summary-label">${escHtml(label)}</span><div class="module-summary-value">${value}</div></article>`;
+
+  const lowStock = productsDb.filter(p => Number(p.reorder_level || 0) > 0 && Number(p.quantity_on_hand || 0) <= Number(p.reorder_level || 0)).length;
+  const categories = new Set(productsDb.map(p => String(p.category || '').trim()).filter(Boolean)).size;
+  const onHand = stockDb.reduce((sum, r) => sum + Number(r.quantity_on_hand || 0), 0);
+  const unitsBy = (st) => unitsDb.filter(u => String(u.status || '') === st).length;
+  const moveBy = (t) => movementsDb.filter(m => String(m.movement_type || '') === t).length;
+
+  let cards;
+  switch (tab) {
+    case 'warehouses':
+      cards = card('Warehouses', num(warehousesDb.length)) + card('Active', num(warehousesDb.filter(w => Number(w.is_active ?? 1)).length));
+      break;
+    case 'stock':
+      cards = card('Qty On Hand', num(onHand)) + card('Stock Records', num(stockDb.length)) + card('Low Stock', num(lowStock));
+      break;
+    case 'movements':
+      cards = card('Movements', num(movementsDb.length)) + card('Stock In', num(moveBy('in'))) + card('Stock Out', num(moveBy('out')));
+      break;
+    case 'units':
+      cards = card('Serial Units', num(unitsDb.length)) + card('In Stock', num(unitsBy('in_stock'))) + card('Sold', num(unitsBy('sold'))) + card('RMA / Defective', num(unitsBy('rma') + unitsBy('defective')));
+      break;
+    case 'requests':
+      cards = card('Requests', num(inventoryRequestsDb.length)) + card('Pending', num(inventoryRequestsDb.filter(r => ['draft', 'submitted'].includes(String(r.status || '').toLowerCase())).length));
+      break;
+    case 'products':
+    default:
+      cards = card('Products', num(productsDb.length)) + card('Categories', num(categories)) + card('Low Stock', num(lowStock)) + card('Qty On Hand', num(onHand));
+  }
+  grid.innerHTML = cards;
+  grid.dataset.summaryReady = '1';
 }
 
 function applyInventoryAdminColumns() {
@@ -393,6 +428,7 @@ function switchInventoryTab(tab, options = {}) {
   document.querySelectorAll('.inventory-section').forEach(section => {
     section.classList.toggle('active', section.id === `inventory-tab-${safeTab}`);
   });
+  renderTabSummary(safeTab);
   syncInventoryToolbarActions(safeTab);
   if (options.syncUrl !== false && window.history?.replaceState) {
     const url = new URL(window.location.href);

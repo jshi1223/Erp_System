@@ -167,8 +167,9 @@ function renderBusinessEntitySwitcher() {
   renderBusinessEntityProfilePanel(current);
   renderCurrentWorkspaceBadge(activeEntity);
   syncModalBusinessContext(activeEntity);
+  const isAllCompaniesContext = String(localStorage.getItem('kinaadman_businessEntityContext') || '').trim().toLowerCase() === 'all';
   document.querySelectorAll('header .brand-copy .header-logo').forEach((node) => {
-    node.textContent = activeEntity?.company_name || 'Kinaadman ERP';
+    node.textContent = activeEntity?.company_name || (isAllCompaniesContext ? 'All Companies' : 'KVSK CCTV & IT Solution');
   });
 }
 

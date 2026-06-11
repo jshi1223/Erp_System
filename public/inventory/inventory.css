@@ -215,7 +215,7 @@ body.inventory-page .module-page-toolbar .section-back-btn {
 
 .inventory-summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 14px;
   margin: 0 0 16px;
 }

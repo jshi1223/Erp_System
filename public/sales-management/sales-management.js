@@ -445,6 +445,7 @@ function renderSalesSummaryForTab(tab) {
       <span class="module-summary-hint">${escHtml(card.hint)}</span>
     </div>
   `).join('');
+  grid.dataset.summaryReady = '1';
 }
 
 function renderSalesRecords() {

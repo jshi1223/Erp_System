@@ -99,16 +99,18 @@
         stored = raw ? JSON.parse(raw) : null;
       } catch (_) {}
       if (!stored || !stored.theme) return;
+      var rawContext = '';
+      try { rawContext = String(localStorage.getItem('kinaadman_businessEntityContext') || '').trim().toLowerCase(); } catch (_) {}
+      var isAllCompanies = rawContext === 'all';
       var name = String(stored && stored.company_name ? stored.company_name : 'KVSK CCTV & IT Solution').trim();
-      var label = /kitsi|ktiis/i.test(name) ? 'KITSI' : 'KVSK';
       var badge = document.getElementById('current-workspace-badge');
-      if (badge) {
+      if (badge && isAllCompanies) {
         badge.textContent = 'All Companies';
         badge.title = 'Showing records from all business entities';
         badge.setAttribute('aria-label', 'Showing all business entities');
       }
       var brand = document.querySelector('header .brand-copy .header-logo');
-      if (brand) brand.textContent = name;
+      if (brand) brand.textContent = isAllCompanies ? 'All Companies' : name;
       if (document.documentElement && document.documentElement.dataset) {
         document.documentElement.dataset.businessEntityBrandTextReady = '1';
       }

@@ -130,81 +130,10 @@
       </div>
       <button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()" aria-label="Close menu">X</button>
     </div>
-    <nav class="sidebar-nav">
-      <a href="/admin?view=dashboard" class="sidebar-link">Dashboard</a>
-
-      <div class="sidebar-group" data-sidebar-group="projects">
-        <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
-          <span>Projects</span>
-          <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
-        </button>
-        <div class="sidebar-group-items">
-          <a href="/admin?panel=project-records" class="sidebar-link is-subitem">Project Records</a>
-        </div>
-      </div>
-
-      <div class="sidebar-group" data-sidebar-group="sales-management">
-        <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
-          <span>Sales Management</span>
-          <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
-        </button>
-        <div class="sidebar-group-items">
-          <a href="/sales-management?tab=sales-request" class="sidebar-link is-subitem" id="menu-sales-management">Sales Inquiry</a>
-          <a href="/sales-management?tab=requests" class="sidebar-link is-subitem" data-sales-staff-only>Requests</a>
-          <a href="/sales-management?tab=sales-order" class="sidebar-link is-subitem" data-sales-admin-tab>SO</a>
-          <a href="/sales-management?tab=project-delivery" class="sidebar-link is-subitem" data-sales-admin-tab>Delivery Receipt</a>
-        </div>
-      </div>
-
-      <div class="sidebar-group" data-sidebar-group="procurement">
-        <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
-          <span>Procurement Management</span>
-          <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
-        </button>
-        <div class="sidebar-group-items">
-          <a href="/procurement?tab=requisitions" class="sidebar-link is-subitem">Purchase Requisitions</a>
-          <a href="/procurement?tab=rfq" class="sidebar-link is-subitem">RFQ</a>
-          <a href="/procurement?tab=quotations" class="sidebar-link is-subitem">Quotations &amp; Evaluation</a>
-          <a href="/procurement?tab=purchase-orders" class="sidebar-link is-subitem">Purchase Orders</a>
-          <a href="/procurement?tab=goods-receipts" class="sidebar-link is-subitem">Goods Receipts</a>
-        </div>
-      </div>
-
-      <div class="sidebar-group" data-sidebar-group="finance">
-        <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
-          <span>Financial Management</span>
-          <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
-        </button>
-        <div class="sidebar-group-items">
-          <a href="/accounts-payable?tab=bills" class="sidebar-link is-subitem">AP Bills</a>
-          <a href="/accounts-payable?tab=payments" class="sidebar-link is-subitem">AP Payments</a>
-          <a href="/accounts-receivable?tab=invoices" class="sidebar-link is-subitem">AR Invoices</a>
-          <a href="/accounts-receivable?tab=collections" class="sidebar-link is-subitem">AR Collections</a>
-        </div>
-      </div>
-
-      <div class="sidebar-group" data-sidebar-group="admin" data-sidebar-default-collapsed="1">
-        <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
-          <span>Admin</span>
-          <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
-        </button>
-        <div class="sidebar-group-items">
-          <a href="/user-management" class="sidebar-link is-subitem">User Management</a>
-          <a href="/business-entities" class="sidebar-link is-subitem">Business Entities</a>
-          <a href="/admin?view=logs" class="sidebar-link is-subitem">System Logs</a>
-        </div>
-      </div>
-
-      <div class="sidebar-group" data-sidebar-group="archived" data-sidebar-default-collapsed="1">
-        <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
-          <span>Archived</span>
-          <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
-        </button>
-        <div class="sidebar-group-items">
-          <a href="/admin?panel=archive-center" class="sidebar-link">Archive Center</a>
-        </div>
-      </div>
-    </nav>
+    <!-- Sidebar nav is built from the shared role config in auth-guard.js
+         (renderSharedSidebar), same as every other module — do NOT hardcode
+         groups here or the content will drift from the rest of the app. -->
+    <nav class="sidebar-nav"></nav>
   </div>
 
   <div class="modal-backdrop" id="sales-modal-backdrop" hidden aria-hidden="true">

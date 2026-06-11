@@ -41,6 +41,25 @@ html:not([data-sidebar-ready="1"]) body.erp-clean-page .sidebar {
   visibility: hidden;
 }
 
+/* Hide the dashboard summary cards until the role-based card JS finishes
+   rebuilding/reordering them, so the intermediate layout never flickers on
+   refresh. The flag is set in role-dashboard-cards.js / staff-dashboard-cards.js. */
+html:not([data-dashboard-cards-ready="1"]) body.admin-page #dashboard-summary-cards,
+html:not([data-dashboard-cards-ready="1"]) body.erp-clean-page #dashboard-summary-cards {
+  visibility: hidden;
+}
+
+/* Same idea for module summary cards that JS rebuilds/re-scopes on load
+   (inventory rebuilds per tab, sales fills the grid, AR shows/hides per tab).
+   Hide until the render sets data-summary-ready="1" so the old/default set
+   never flashes before the correct one. Scoped to these specific grids so
+   static grids (AP, company) are never hidden. */
+.inventory-summary-grid:not([data-summary-ready="1"]),
+#sales-summary-grid:not([data-summary-ready="1"]),
+#ar-summary-grid:not([data-summary-ready="1"]) {
+  visibility: hidden;
+}
+
 body.admin-page header,
 body.erp-clean-page header {
   background:
@@ -1370,13 +1389,13 @@ body.erp-clean-page .stats,
 body.admin-page .module-summary-grid,
 body.erp-clean-page .module-summary-grid {
   align-items: stretch !important;
-  grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)) !important;
 }
 
 @media (max-width: 1180px) {
   body.admin-page .module-summary-grid,
   body.erp-clean-page .module-summary-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)) !important;
   }
 }
 

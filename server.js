@@ -1426,25 +1426,38 @@ async function resolveProjectAssignedStaffId(req, requestedAssignedTo = null) {
   return assignedTo;
 }
 
-function normalizeProjectStatusForSave(status, actualStartDate = null, actualEndDate = null, plannedEndDate = null) {
+// Derives the operational project status from its dates:
+//   planning  -> today is before the planned start date
+//   active    -> planned start reached, but no actual start recorded yet
+//   ongoing   -> an actual start date is recorded (work has begun)
+//   completed -> an actual end date is recorded
+//   overdue   -> past the planned end date but not yet completed
+// Workflow statuses (draft/needs_revision/submitted/on_hold/cancelled) are kept as-is.
+function normalizeProjectStatusForSave(status, actualStartDate = null, actualEndDate = null, plannedEndDate = null, plannedStartDate = null) {
   const requestedStatus = String(status || '').trim().toLowerCase();
-  const allowedProjectStatuses = new Set(['draft', 'needs_revision', 'submitted', 'planning', 'active', 'on_hold', 'completed', 'cancelled', 'overdue']);
+  const allowedProjectStatuses = new Set(['draft', 'needs_revision', 'submitted', 'planning', 'active', 'ongoing', 'on_hold', 'completed', 'cancelled', 'overdue']);
   const safeStatus = allowedProjectStatuses.has(requestedStatus) ? requestedStatus : 'planning';
-  const hasActualStart = Boolean(String(actualStartDate || '').trim());
-  const hasActualEnd = Boolean(String(actualEndDate || '').trim());
 
   if (safeStatus === 'draft' || safeStatus === 'needs_revision' || safeStatus === 'submitted' || safeStatus === 'cancelled' || safeStatus === 'on_hold') return safeStatus;
-  if (hasActualEnd) return 'completed';
-  const plannedEnd = new Date(String(plannedEndDate || '').slice(0, 10));
-  if (!Number.isNaN(plannedEnd.getTime())) {
-    plannedEnd.setHours(0, 0, 0, 0);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    if (today > plannedEnd) return 'overdue';
-  }
-  if (safeStatus === 'completed') return hasActualEnd ? 'completed' : (hasActualStart ? 'active' : 'planning');
-  if (hasActualStart) return 'active';
-  return 'planning';
+
+  const parseDate = (value) => {
+    const d = new Date(String(value || '').slice(0, 10));
+    if (Number.isNaN(d.getTime())) return null;
+    d.setHours(0, 0, 0, 0);
+    return d;
+  };
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const actualStart = parseDate(actualStartDate);
+  const actualEnd = parseDate(actualEndDate);
+  const plannedStart = parseDate(plannedStartDate);
+  const plannedEnd = parseDate(plannedEndDate);
+
+  if (actualEnd) return 'completed';
+  if (plannedEnd && today > plannedEnd) return 'overdue';
+  if (actualStart && today >= actualStart) return 'ongoing';
+  if (plannedStart) return today >= plannedStart ? 'active' : 'planning';
+  return actualStart ? 'ongoing' : 'planning';
 }
 
 function computeProjectPriority(plannedEndDate = null, actualEndDate = null, status = '') {
@@ -18366,7 +18379,7 @@ app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res)
     const projectSubmitAction = String(req.body.project_submit_action || '').trim().toLowerCase();
     let resolvedProjectStatus = isStaffRole(actorRole)
       ? currentProjectStatus
-      : normalizeProjectStatusForSave(status || currentProjectStatus, actual_start_date, actual_end_date, resolvedPlannedEnd);
+      : normalizeProjectStatusForSave(status || currentProjectStatus, actual_start_date, actual_end_date, resolvedPlannedEnd, resolvedPlannedStart);
     if (!isStaffRole(actorRole) && (currentProjectStatus === 'draft' || currentProjectStatus === 'needs_revision' || currentProjectStatus === 'submitted')) {
       resolvedProjectStatus = projectSubmitAction === 'submit' ? 'submitted' : 'draft';
     }
@@ -19866,9 +19879,41 @@ app.patch('/api/admin/users/:id/reset-password', protectAdminOnly, async (req, r
 
 
 // ==================== START ====================
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`\nâœ… Server running at http://localhost:${PORT}`);
   console.log(`   â†’ Login Page  : http://localhost:${PORT}/`);
   console.log(`   â†’ Admin Panel : http://localhost:${PORT}/admin`);
   console.log(`   â†’ Public View : http://localhost:${PORT}/status\n`);
 });
+
+
+// ==================== PROCESS SAFETY NETS ====================
+// Log instead of letting a stray rejection/exception kill the server silently.
+process.on("unhandledRejection", (reason) => {
+  console.error("[unhandledRejection]", reason && reason.stack ? reason.stack : reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[uncaughtException]", err && err.stack ? err.stack : err);
+});
+
+// Graceful shutdown: stop accepting connections, then drain the DB pool so a
+// deploy/restart does not leave half-open Postgres connections behind.
+let shuttingDown = false;
+function gracefulShutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`
+[${signal}] shutting down...`);
+  const done = () => process.exit(0);
+  const force = setTimeout(() => process.exit(1), 10000);
+  force.unref();
+  server.close(() => {
+    if (db && typeof db.end === "function") {
+      db.end(() => done());
+    } else {
+      done();
+    }
+  });
+}
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));

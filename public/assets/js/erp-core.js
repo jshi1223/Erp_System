@@ -74,10 +74,15 @@ function erpApplyBusinessEntityBrand(row) {
     img.alt = profile.alt;
   });
 
+  // When the workspace context is "All Companies", the header title should say
+  // "All Companies" (matching the badge) instead of the default/parent entity
+  // name — otherwise it looks like you're scoped to one company.
+  var rawEntityContext = String(localStorage.getItem(window.__ERP_BUSINESS_ENTITY_CONTEXT_KEY__) || '').trim().toLowerCase();
+  var brandTitle = rawEntityContext === 'all'
+    ? 'All Companies'
+    : (row && row.company_name ? row.company_name : 'KVSK CCTV & IT Solution');
   document.querySelectorAll('header .brand-copy .header-logo').forEach(function (node) {
-    node.textContent = row && row.company_name
-      ? row.company_name
-      : 'KVSK CCTV & IT Solution';
+    node.textContent = brandTitle;
   });
   if (document.documentElement && document.documentElement.dataset) {
     document.documentElement.dataset.businessEntityBrandTextReady = '1';
@@ -85,7 +90,7 @@ function erpApplyBusinessEntityBrand(row) {
 
   try {
     var storedProfile = {
-      company_name: row && row.company_name ? row.company_name : 'KVSK CCTV & IT Solution',
+      company_name: brandTitle,
       theme: profile.theme,
       logo: profile.logo,
       alt: profile.alt,
