@@ -1660,8 +1660,8 @@ body.admin-page .gantt-planner-table,
 body.erp-clean-page .gantt-planner-table,
 body.admin-page .public-table,
 body.erp-clean-page .public-table {
-  width: max-content !important;
-  min-width: max(100%, 1120px) !important;
+  width: 100% !important;
+  min-width: 0 !important;
   table-layout: auto !important;
   border-collapse: separate !important;
   border-spacing: 0 !important;

@@ -1707,6 +1707,10 @@ function renderProjectMasterTable() {
 function renderProjectRecordsTable() {
   const tbody = document.getElementById('project-records-table-body');
   if (!tbody) return;
+  // Mark the table rendered so the CSS gate can reveal it. Until this runs the
+  // table is hidden, so the narrow/loading layout never flashes on refresh.
+  const recordsWrap = tbody.closest('.project-records-wrap');
+  if (recordsWrap) recordsWrap.dataset.ready = '1';
 
   const rawQuery = String(document.getElementById('project-records-search-input')?.value || '').trim();
   const q = rawQuery.toLowerCase();

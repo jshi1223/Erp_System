@@ -1704,6 +1704,12 @@ body.admin-page #project-records-section .project-records-table {
   table-layout: auto !important;
 }
 
+/* Hide the table until renderProjectRecordsTable() has run, so the narrow
+   loading/transitional layout (the "first pic") never flashes on refresh. */
+body.admin-page #project-records-section .project-records-wrap:not([data-ready="1"]) {
+  visibility: hidden;
+}
+
 body.admin-page #project-records-section .project-records-table th,
 body.admin-page #project-records-section .project-records-table td,
 body.admin-page #project-ledger-page-section .project-ledger-table-wrap th,
