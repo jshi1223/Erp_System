@@ -1693,6 +1693,17 @@ body.admin-page #project-records-section .project-records-wrap {
   max-height: 58vh;
 }
 
+/* Projects table should fill the available width with natural column widths
+   (matches the desired layout). The shared rule forces min-width 1120px /
+   max-content, which makes it overflow into a horizontal scroll and look narrow
+   on refresh. Drop the floor and let width:100% + auto layout fit it. */
+body.admin-page #project-records-section .project-records-table {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  table-layout: auto !important;
+}
+
 body.admin-page #project-records-section .project-records-table th,
 body.admin-page #project-records-section .project-records-table td,
 body.admin-page #project-ledger-page-section .project-ledger-table-wrap th,

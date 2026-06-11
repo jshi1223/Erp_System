@@ -31,15 +31,18 @@
     if (document.getElementById('ws-switch-styles')) return;
     var style = document.createElement('style');
     style.id = 'ws-switch-styles';
+    // Match the dashboard entity chip + panel look (white pill with status dot on
+    // the maroon header, white rounded panel) so the switcher is consistent app-wide.
     style.textContent =
       '.ws-switch{position:relative;display:inline-flex;}' +
-      '.ws-switch-btn{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.95);color:#7a1812;border:1px solid rgba(180,35,24,.25);border-radius:999px;padding:6px 12px;font-size:.8rem;font-weight:700;cursor:pointer;line-height:1;white-space:nowrap;}' +
-      '.ws-switch-btn:hover{background:#fff;}' +
-      '.ws-switch-caret{font-size:.7rem;opacity:.7;}' +
-      '.ws-switch-menu{position:absolute;top:calc(100% + 6px);right:0;min-width:220px;max-height:320px;overflow:auto;background:#fff;border:1px solid #e2e8f0;border-radius:10px;box-shadow:0 12px 28px rgba(0,0,0,.16);padding:6px;z-index:1200;}' +
-      '.ws-switch-item{display:block;width:100%;text-align:left;background:none;border:none;border-radius:7px;padding:8px 10px;font-size:.83rem;color:#334155;cursor:pointer;}' +
-      '.ws-switch-item:hover{background:#f1f5f9;}' +
-      '.ws-switch-item.is-active{background:#fef2f2;color:#b42318;font-weight:700;}';
+      '.ws-switch-btn{display:inline-flex;align-items:center;gap:8px;min-height:34px;background:rgba(255,255,255,0.14);color:#fff;border:1px solid rgba(255,255,255,0.28);border-radius:999px;padding:8px 14px;font-size:.72rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;line-height:1;cursor:pointer;white-space:nowrap;}' +
+      '.ws-switch-btn::before{content:"";width:8px;height:8px;border-radius:999px;background:#fff;box-shadow:0 0 0 3px rgba(255,255,255,0.18);}' +
+      '.ws-switch-btn:hover{background:rgba(255,255,255,0.22);}' +
+      '.ws-switch-caret{font-size:.7rem;opacity:.85;}' +
+      '.ws-switch-menu{position:absolute;top:calc(100% + 10px);right:0;min-width:240px;max-height:340px;overflow:auto;background:rgba(255,255,255,0.98);border:1px solid color-mix(in srgb, #b42318 18%, transparent);border-radius:16px;box-shadow:0 18px 42px rgba(75,18,16,0.14);padding:8px;z-index:1300;}' +
+      '.ws-switch-item{display:block;width:100%;text-align:left;background:none;border:1px solid transparent;border-radius:10px;padding:10px 12px;font-size:.85rem;color:#3a2a28;font-weight:600;cursor:pointer;}' +
+      '.ws-switch-item:hover{background:#fbeeec;}' +
+      '.ws-switch-item.is-active{background:linear-gradient(145deg, color-mix(in srgb, #b42318 8%, #ffffff), #ffffff);border-color:color-mix(in srgb, #b42318 40%, transparent);color:#b42318;font-weight:800;}';
     document.head.appendChild(style);
   }
 
