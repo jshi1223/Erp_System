@@ -32,9 +32,8 @@ async function loadReportsData() {
       }
     };
 
-    const [projects, transactions, receivables, bills, apPayments, purchaseOrders, vendors, companies] = await Promise.all([
+    const [projects, receivables, bills, apPayments, purchaseOrders, vendors, companies] = await Promise.all([
       loadReportRows('/api/projects', 'projects'),
-      loadReportRows('/api/transactions', 'transactions'),
       loadReportRows('/api/receivables', 'receivables'),
       loadReportRows('/api/bills', 'bills'),
       loadReportRows('/api/payments?type=ap', 'AP payments'),
@@ -45,7 +44,7 @@ async function loadReportsData() {
 
     window.reportsCompaniesDb = companies.filter(matchesBusinessEntity);
     window.reportsProjectsDb = projects.filter(matchesBusinessEntity);
-    window.reportsTransactionsDb = transactions.filter(matchesBusinessEntity);
+    window.reportsTransactionsDb = []; // Transactions feature retired; AR invoices now come from Sales.
     window.reportsReceivablesDb = receivables.filter(matchesBusinessEntity);
     window.reportsBillsDb = bills.filter(matchesBusinessEntity);
     window.reportsApPaymentsDb = apPayments.filter(matchesBusinessEntity);

@@ -1,19 +1,19 @@
-﻿<!-- accounts-payable.html - Accounts Payable Module for ERP -->
+<!-- accounts-payable.html - Accounts Payable Module for ERP -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KVSK CCTV & IT Solution - Accounts Payable</title>
-  <script src="/assets/js/auth-guard.js?v=20260611fix"></script>
+  <script src="/assets/js/auth-guard.js?v=20260622crm"></script>
   <script defer src="/assets/js/table-paginate.js?v=20260609pg"></script>
-  <script defer src="/assets/js/workspace-switcher.js?v=20260611fix"></script>
+  <script defer src="/assets/js/workspace-switcher.js?v=20260611rev"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260611fix" />
+  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260611rev" />
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a" />
   <link rel="stylesheet" href="/accounts-payable/accounts-payable.css?v=20260601a" />
-  <link rel="stylesheet" href="/accounts-payable/ap-purchasing.css?v=20260609grnserial" />
-  <link rel="stylesheet" href="/assets/css/warm-minimal.css?v=20260611fix" />
+  <link rel="stylesheet" href="/accounts-payable/ap-purchasing.css?v=20260622trail" />
+  <link rel="stylesheet" href="/assets/css/warm-minimal.css?v=20260611rev" />
 
   <style>
     /* Procurement "Requests" tab is staff-only; admin/super-admin approve staff PRs in the Approval Center. */
@@ -90,9 +90,9 @@
     </button>
     <button class="brand-link" type="button" onclick="goBackToDashboard()" aria-label="Go back to dashboard">
       <div class="brand-lockup">
-      <img class="brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <img class="brand-mark" alt="" hidden />
       <div class="brand-copy">
-      <div class="header-logo">KVSK CCTV & IT Solution</div>
+      <div class="header-logo">All Companies</div>
       <div class="header-sub" id="module-header-sub">Accounts Payable</div>
       </div>
       </div>
@@ -116,7 +116,7 @@
           </div>
           <div class="notifications-panel-actions">
             <button class="notifications-mark" type="button" onclick="markNotificationsAsRead(); loadNotifications();">Mark as read</button>
-            <button class="notifications-close" type="button">ï¿½</button>
+            <button class="notifications-close" type="button">�</button>
           </div>
         </div>
         <div class="notifications-list" id="notifications-list">
@@ -592,7 +592,7 @@
       <div class="module-panel-head">
         <div>
           <div class="section-title">Quotations &amp; Evaluation</div>
-          <div class="proc-help">Record vendor offers, score them, select the winner, then create the purchase order.</div>
+          <div class="proc-help">Record vendor offers, compare them, select the winner, then create the purchase order.</div>
         </div>
       </div>
       <div class="table-wrap" style="margin-top: 12px;">
@@ -605,12 +605,11 @@
               <th>Quote Date</th>
               <th class="text-right">Quoted Total</th>
               <th class="text-right">Delivery</th>
-              <th class="text-right">Score</th>
               <th>Status</th>
               <th class="text-center">Actions</th>
             </tr>
           </thead>
-          <tbody id="quote-body"><tr class="empty-row"><td colspan="9">No quotations yet.</td></tr></tbody>
+          <tbody id="quote-body"><tr class="empty-row"><td colspan="8">No quotations yet.</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -691,6 +690,7 @@
             <th>Bill Number</th>
             <th>Vendor</th>
             <th>Project</th>
+            <th>GR Ref</th>
             <th>Bill Date</th>
             <th>Due Date</th>
             <th>Total Amount</th>
@@ -824,7 +824,7 @@
   <div class="modal modal-project" style="max-width: 760px;">
     <button class="modal-close" type="button" onclick="closeMasterDataCompanyModal()">X</button>
     <div class="user-modal-brand">
-      <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <img class="user-modal-brand-mark" alt="" hidden />
       <div>
         <div class="user-modal-kicker">Master Data</div>
         <div class="modal-title" id="master-company-modal-title" style="margin-bottom:0;">Add Company</div>
@@ -888,7 +888,7 @@
   <div class="modal modal-project" style="max-width: 760px;">
     <button class="modal-close" onclick="closeVendorModal()">X</button>
     <div class="user-modal-brand">
-      <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <img class="user-modal-brand-mark" alt="" hidden />
       <div>
         <div class="user-modal-kicker">Procurement</div>
         <div class="modal-title" id="vendor-modal-title" style="margin-bottom:0;">Add Vendor</div>
@@ -947,7 +947,7 @@
   <div class="modal modal-project" style="max-width: 760px;">
     <button class="modal-close" onclick="closeRequisitionModal()">X</button>
     <div class="user-modal-brand">
-      <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <img class="user-modal-brand-mark" alt="" hidden />
       <div>
         <div class="user-modal-kicker">Procurement</div>
         <div class="modal-title" id="pr-modal-title" style="margin-bottom:0;">Add Requisition</div>
@@ -957,8 +957,8 @@
     <div class="modal-inline-message is-hidden" data-procurement-field-message="pr_readonly" aria-live="polite"></div>
     <div class="modal-grid-compact">
       <div class="field">
-        <label>PR No. <span class="req-star">*</span></label>
-        <input id="pr-number" type="text" placeholder="Auto-generated" readonly required aria-required="true" style="background:var(--surface2);cursor:default;color:var(--muted);" />
+        <label>PR No.</label>
+        <input id="pr-number" type="text" placeholder="Auto-generated on save" readonly aria-readonly="true" style="background:var(--surface2);cursor:default;color:var(--muted);" />
         <div class="modal-inline-message is-hidden" data-procurement-field-message="pr_number" aria-live="polite"></div>
       </div>
       <div class="field full" id="pr-project-field">
@@ -1038,11 +1038,80 @@
 </div>
 
 <!-- QUOTATION / EVALUATION MODAL -->
+<div class="modal-backdrop" id="po-match-modal-backdrop" data-procurement-only>
+  <div class="modal modal-project" style="max-width: 820px;">
+    <button class="modal-close" onclick="closeThreeWayMatch()">X</button>
+    <div class="user-modal-brand">
+      <img class="user-modal-brand-mark" alt="" hidden />
+      <div>
+        <div class="user-modal-kicker">Procurement</div>
+        <div class="modal-title" id="po-match-title" style="margin-bottom:0;">3-Way Match</div>
+      </div>
+    </div>
+    <div class="section-divider">PO &harr; Goods Receipt &harr; Bill</div>
+    <div id="po-match-body" style="overflow:auto;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-cancel btn-sm" onclick="closeThreeWayMatch()">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="rfq-compare-modal-backdrop" data-procurement-only>
+  <div class="modal modal-project" style="max-width: 880px;">
+    <button class="modal-close" onclick="closeRfqComparison()">X</button>
+    <div class="user-modal-brand">
+      <img class="user-modal-brand-mark" alt="" hidden />
+      <div>
+        <div class="user-modal-kicker">Procurement</div>
+        <div class="modal-title" id="rfq-compare-title" style="margin-bottom:0;">Compare Quotations</div>
+      </div>
+    </div>
+    <div class="section-divider">Vendor Comparison</div>
+    <div id="rfq-compare-body" style="overflow:auto;"></div>
+    <div class="modal-actions">
+      <button class="btn btn-cancel btn-sm" onclick="closeRfqComparison()">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="rfq-email-modal-backdrop" data-procurement-only>
+  <div class="modal modal-project" style="max-width: 640px;">
+    <button class="modal-close" onclick="closeRfqEmailModal()">X</button>
+    <div class="user-modal-brand">
+      <img class="user-modal-brand-mark" alt="" hidden />
+      <div>
+        <div class="user-modal-kicker">Procurement</div>
+        <div class="modal-title" id="rfq-email-modal-title" style="margin-bottom:0;">Email RFQ to Vendors</div>
+      </div>
+    </div>
+    <div class="section-divider">Send Request for Quotation</div>
+    <div class="modal-grid-compact">
+      <div class="field full">
+        <label>Vendors <span class="req-star">*</span></label>
+        <div id="rfq-email-vendor-list" class="rfq-email-vendor-list" style="max-height:220px;overflow:auto;border:1px solid var(--border,#e6d7d3);border-radius:10px;padding:8px;"></div>
+        <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">A PDF of the requested items (with blank prices to fill in) is attached to each email.</div>
+      </div>
+      <div class="field">
+        <label>Quote Deadline</label>
+        <input id="rfq-email-deadline" type="date" />
+      </div>
+      <div class="field full">
+        <label>Message (optional)</label>
+        <textarea id="rfq-email-message" style="height:80px" placeholder="Optional note included in the email and PDF..."></textarea>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-cancel btn-sm" onclick="closeRfqEmailModal()">Cancel</button>
+      <button class="btn btn-save btn-sm" id="rfq-email-send-btn" onclick="sendRfqEmails()">Send RFQ Emails</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="quote-modal-backdrop" data-procurement-only>
   <div class="modal modal-project" style="max-width: 760px;">
     <button class="modal-close" onclick="closeQuotationModal()">X</button>
     <div class="user-modal-brand">
-      <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <img class="user-modal-brand-mark" alt="" hidden />
       <div>
         <div class="user-modal-kicker">Procurement</div>
         <div class="modal-title" id="quote-modal-title" style="margin-bottom:0;">Add Quotation</div>
@@ -1071,17 +1140,14 @@
         <input id="quote-date" type="date" />
       </div>
       <div class="field">
-        <label>Quoted Total <span class="req-star">*</span></label>
-        <input id="quote-total" type="number" step="0.01" min="0" placeholder="0.00" />
+        <label>Quoted Total</label>
+        <input id="quote-total" type="text" inputmode="decimal" class="js-money-input" placeholder="0.00" />
+        <div style="margin-top:6px;font-size:0.68rem;color:var(--muted);">Optional — leave blank if the vendor only sent a PDF.</div>
         <div class="modal-inline-message is-hidden" data-procurement-field-message="quotation_total" aria-live="polite"></div>
       </div>
       <div class="field">
         <label>Delivery Days</label>
         <input id="quote-delivery-days" type="number" step="1" min="0" placeholder="0" />
-      </div>
-      <div class="field">
-        <label>Score</label>
-        <input id="quote-score" type="number" step="1" min="0" max="100" placeholder="0-100" />
       </div>
       <div class="field" hidden>
         <label>Status</label>
@@ -1104,6 +1170,12 @@
         <label>Remarks</label>
         <textarea id="quote-remarks" style="height:70px" placeholder="Evaluation notes..."></textarea>
       </div>
+      <div class="field full">
+        <label>Vendor Quotation PDF</label>
+        <input id="quote-pdf-file" type="file" accept="application/pdf" />
+        <div id="quote-pdf-existing" style="margin-top:6px;font-size:0.68rem;"></div>
+        <div style="margin-top:4px;font-size:0.68rem;color:var(--muted);">Optional. Attach the PDF the vendor emailed you — it shows as this quote's "Vendor PDF". Uploading replaces any existing one.</div>
+      </div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-cancel btn-sm" onclick="closeQuotationModal()">Cancel</button>
@@ -1117,7 +1189,7 @@
   <div class="modal modal-project" style="max-width: 760px;">
     <button class="modal-close" onclick="closeRecordDocumentsModal()">X</button>
     <div class="user-modal-brand">
-      <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <img class="user-modal-brand-mark" alt="" hidden />
       <div>
         <div class="user-modal-kicker">Documents</div>
         <div class="modal-title" id="record-documents-title" style="margin-bottom:0;">Attached PDFs</div>
@@ -1173,7 +1245,7 @@
   <div class="modal modal-project" style="max-width: 940px;">
     <button class="modal-close" onclick="closePurchaseOrderModal()">X</button>
     <div class="user-modal-brand">
-      <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <img class="user-modal-brand-mark" alt="" hidden />
       <div>
         <div class="user-modal-kicker">Procurement</div>
         <div class="modal-title" id="po-modal-title" style="margin-bottom:0;">Add Purchase Order</div>
@@ -1223,20 +1295,20 @@
           <div class="modal-inline-message is-hidden" data-procurement-field-message="po_date" aria-live="polite"></div>
         </div>
         <div class="field">
-          <label>Delivery Date</label>
+          <label>Delivery Date <span class="field-hint">(optional)</span></label>
           <input id="po-delivery" type="date" onchange="renderPurchaseOrderPaymentTermsPreview()" />
         </div>
         <div class="field">
-          <label>Payment Terms</label>
+          <label>Payment Terms <span class="field-hint">(optional, needed for AP bill schedule)</span></label>
           <input id="po-payment-terms" type="text" placeholder="e.g. 30% downpayment, 70% upon delivery" oninput="renderPurchaseOrderPaymentTermsPreview()" />
           <div class="modal-inline-message is-hidden" id="po-payment-terms-preview" aria-live="polite"></div>
         </div>
         <div class="field">
-          <label>Prepared By</label>
+          <label>Prepared By <span class="field-hint">(optional)</span></label>
           <input id="po-prepared-by" type="text" placeholder="Prepared by" />
         </div>
         <div class="field">
-          <label>Approved By</label>
+          <label>Approved By <span class="field-hint">(optional)</span></label>
           <input id="po-approved-by" type="text" placeholder="Approved by" />
         </div>
         <div class="field" hidden>
@@ -1253,7 +1325,7 @@
       <div class="field full po-lines-field">
         <div class="po-line-toolbar">
           <div>
-            <label>Descriptions</label>
+            <label>Descriptions <span class="req-star">*</span></label>
             <div class="po-line-helper">Add one or more descriptions. Each line item will be saved and shown in the PO table.</div>
             <div class="po-line-lock-note">Line items are locked from the approved RFQ.</div>
           </div>
@@ -1270,7 +1342,7 @@
         <div class="modal-inline-message is-hidden" data-procurement-field-message="line_items" aria-live="polite"></div>
       </div>
       <div class="field full">
-        <label>Notes</label>
+        <label>Notes <span class="field-hint">(optional)</span></label>
         <textarea id="po-notes" style="height:70px" placeholder="Vendor instructions or remarks..."></textarea>
       </div>
     </div>
@@ -1283,10 +1355,10 @@
 
 <!-- GOODS RECEIPT MODAL -->
 <div class="modal-backdrop" id="grn-modal-backdrop" data-procurement-only>
-  <div class="modal modal-project" style="max-width: 680px;">
+  <div class="modal modal-project" id="grn-modal" style="max-width: 820px;">
     <button class="modal-close" onclick="closeGoodsReceiptModal()">X</button>
     <div class="user-modal-brand">
-      <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <img class="user-modal-brand-mark" alt="" hidden />
       <div>
         <div class="user-modal-kicker">Procurement</div>
         <div class="modal-title" id="grn-modal-title" style="margin-bottom:0;">Add Goods Receipt</div>
@@ -1305,19 +1377,19 @@
         <div class="modal-inline-message is-hidden" data-procurement-field-message="po_id" aria-live="polite"></div>
       </div>
       <div class="field">
-        <label>Vendor</label>
+        <label>Vendor <span class="field-hint">(from PO)</span></label>
         <input id="grn-po-vendor-context" type="text" readonly style="background:var(--surface2);cursor:default;" />
       </div>
       <div class="field">
-        <label>Company</label>
+        <label>Company <span class="field-hint">(from PO)</span></label>
         <input id="grn-po-company-context" type="text" readonly style="background:var(--surface2);cursor:default;" />
       </div>
       <div class="field">
-        <label>Project</label>
+        <label>Project <span class="field-hint">(from PO)</span></label>
         <input id="grn-po-project-context" type="text" readonly style="background:var(--surface2);cursor:default;" />
       </div>
       <div class="field">
-        <label>PO Total</label>
+        <label>PO Total <span class="field-hint">(from PO)</span></label>
         <input id="grn-po-amount-context" type="text" readonly style="background:var(--surface2);cursor:default;" />
       </div>
       <div class="field">
@@ -1331,7 +1403,7 @@
         <div class="modal-inline-message is-hidden" data-procurement-field-message="warehouse_id" aria-live="polite"></div>
       </div>
       <div class="field">
-        <label>Received By</label>
+        <label>Received By <span class="field-hint">(optional)</span></label>
         <input id="grn-received-by" type="text" placeholder="Receiver name" />
       </div>
       <div class="field" hidden>
@@ -1343,14 +1415,24 @@
         </select>
       </div>
       <div class="field full">
-        <label>Notes</label>
+        <label>Notes <span class="field-hint">(optional)</span></label>
         <textarea id="grn-notes" style="height:70px" placeholder="Receiving remarks..."></textarea>
       </div>
+      <div class="field full" id="grn-receiving-field" hidden>
+        <label>Receiving Quantities <span class="field-hint">(adjust for partial delivery)</span></label>
+        <div id="grn-receiving-lines"></div>
+      </div>
+      <div class="field full" id="grn-product-mapping-field" hidden>
+        <label>Inventory Mapping <span class="field-hint">(required before stock update)</span></label>
+        <div id="grn-product-mapping"></div>
+      </div>
       <!-- Serial capture: one box per product line; paste/scan serials (one per line).
-           Each becomes an in-stock Serial Unit auto-linked to this PO. Optional. -->
+           Each becomes an in-stock Serial Unit auto-linked to this PO. Required: the
+           serial count must match the quantity received now for each line. -->
       <div class="field full" id="grn-serials-field" hidden>
-        <label>Serial Numbers <span class="field-hint">(optional — isa per linya; pwede i-paste mula Excel o i-scan)</span></label>
+        <label>Serial Numbers <span class="field-hint">(optional — isa per linya kung naka-serial ang item; hindi dapat lumampas sa dami na natanggap)</span></label>
         <div id="grn-serials"></div>
+        <div class="modal-inline-message is-hidden" data-procurement-field-message="serials" aria-live="polite"></div>
       </div>
     </div>
     <div class="modal-actions">
@@ -1368,6 +1450,12 @@
       <button class="close-btn" onclick="closeBillModal()">X</button>
     </div>
       <div class="modal-body">
+      <!-- 1. Bill ID (number) first -->
+      <div class="form-group">
+        <label>Bill ID No. *</label>
+        <input id="f-bill-number" type="text" placeholder="Auto-generated" readonly required aria-required="true" style="background:var(--surface2);cursor:default;color:var(--muted);" />
+      </div>
+      <!-- 2. Vendor -->
       <div class="form-group">
         <label>Vendor *</label>
         <div class="search-wrap bill-vendor-search">
@@ -1376,41 +1464,53 @@
           <div id="f-bill-vendor-results" class="search-results-list" role="listbox" aria-label="Vendor search results" style="display:none;"></div>
         </div>
       </div>
+      <!-- 3. PO Reference (auto-fills GR ref, items, vendor, amount) -->
       <div class="form-group">
-        <label>Purchase Order</label>
+        <label>PO Reference <span class="field-hint">(optional, recommended for 3-way match)</span></label>
         <select id="f-bill-po" onchange="syncBillFromPurchaseOrder()">
           <option value="">No linked PO</option>
+        </select>
+      </div>
+      <!-- 4. GR Reference (read-only, from the PO's goods receipts) -->
+      <div class="form-group">
+        <label>GR Reference <span class="field-hint">(goods receipt/s, auto)</span></label>
+        <input id="f-bill-gr-ref" type="text" readonly placeholder="—" style="background:var(--surface2);cursor:default;color:var(--muted);" />
+      </div>
+      <!-- 5. Project -->
+      <div class="form-group">
+        <label>Project <span class="field-hint">(optional/from PO)</span></label>
+        <select id="f-bill-project">
+          <option value="">No linked project</option>
         </select>
       </div>
       <div class="form-group">
         <label>Business Entity *</label>
         <select id="f-bill-business-entity" required aria-required="true"></select>
       </div>
+      <!-- 6-8. Items / Quantity Received / Unit Cost (read-only breakdown from PO+GR) -->
       <div class="form-group">
-        <label>Bill Number *</label>
-        <input id="f-bill-number" type="text" placeholder="Auto-generated" readonly required aria-required="true" style="background:var(--surface2);cursor:default;color:var(--muted);" />
+        <label>Items Received <span class="field-hint">(from PO / goods receipt)</span></label>
+        <div id="f-bill-items" class="bill-items-box"><div class="bill-items-empty">Pumili ng PO Reference para makita ang items.</div></div>
       </div>
-      <div class="form-group">
-        <label>Project</label>
-        <select id="f-bill-project">
-          <option value="">No linked project</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Bill Date *</label>
-        <input id="f-bill-date" type="date" required aria-required="true" />
-      </div>
-      <div class="form-group">
-        <label>Due Date</label>
-        <input id="f-bill-due-date" type="date" />
-      </div>
+      <!-- 9. Total Amount -->
       <div class="form-group">
         <label>Total Amount *</label>
-        <input id="f-bill-amount" type="number" step="0.01" placeholder="0.00" required aria-required="true" />
+        <input id="f-bill-amount" type="text" inputmode="decimal" class="js-money-input" placeholder="0.00" required aria-required="true" />
+      </div>
+      <!-- Bill date + due date (side by side) -->
+      <div class="form-group bill-date-row" style="display:flex; gap:12px; align-items:flex-start;">
+        <div style="flex:1;">
+          <label>Bill Date *</label>
+          <input id="f-bill-date" type="date" required aria-required="true" style="width:100%;" />
+        </div>
+        <div style="flex:1;">
+          <label>Due Date <span class="field-hint">(optional)</span></label>
+          <input id="f-bill-due-date" type="date" style="width:100%;" />
+        </div>
       </div>
       <div class="section-divider">Attach PDF Document</div>
       <div class="pdf-upload-shell">
-        <div class="pdf-upload-caption">PDF attachment</div>
+        <div class="pdf-upload-caption">PDF attachment (optional)</div>
         <div class="pdf-upload-zone" id="bill-upload-zone"
              ondragover="event.preventDefault(); this.classList.add('drag-over')"
              ondragleave="this.classList.remove('drag-over')"
@@ -1434,7 +1534,7 @@
         </div>
       </div>
       <div class="form-group">
-        <label>Notes</label>
+        <label>Notes <span class="field-hint">(optional)</span></label>
         <textarea id="f-bill-notes" placeholder="Bill notes..." style="height:60px"></textarea>
       </div>
     </div>
@@ -1463,7 +1563,7 @@
       </div>
       <div class="form-group">
         <label>Amount Paid *</label>
-        <input id="f-payment-amount" type="number" step="0.01" placeholder="0.00" required aria-required="true" />
+        <input id="f-payment-amount" type="text" inputmode="decimal" class="js-money-input" placeholder="0.00" required aria-required="true" />
       </div>
       <div class="form-group">
         <label>Payment Method</label>
@@ -1514,9 +1614,9 @@
 <div class="sidebar" id="sidebar">
   <div class="sidebar-header">
     <div class="sidebar-brand">
-      <img class="sidebar-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <img class="sidebar-brand-mark" alt="" hidden />
       <div>
-        <div class="header-logo" style="font-size: 1rem;">KVSK CCTV</div>
+        <div class="header-logo" style="font-size: 1rem;">All Companies</div>
         <div class="header-sub">Operations Control Panel</div>
       </div>
     </div>
@@ -1536,13 +1636,32 @@
   </div>
 </div>
 
-  <script src="/assets/js/erp-core.js?v=20260611fix"></script>
-  <script src="/accounts-payable/ap-purchasing.js?v=20260609grnserial"></script>
-  <script src="/accounts-payable/accounts-payable.js?v=20260611fix"></script>
+  <script src="/assets/js/erp-core.js?v=20260621brand"></script>
+  <script src="/accounts-payable/ap-purchasing.js?v=20260622grnlink"></script>
+  <script src="/accounts-payable/accounts-payable.js?v=20260622nosearch"></script>
+  <script src="/assets/js/support-chat.js?v=20260618chat"></script>
+  <!-- Global-search landing: if arriving with ?q=, pre-fill the page's search so the exact
+       document is shown. One-time (the q is stripped from the URL afterwards). -->
+  <script>
+    (function () {
+      var q = new URLSearchParams(window.location.search).get('q');
+      if (!q) return;
+      var tries = 0;
+      var iv = setInterval(function () {
+        tries++;
+        var si = document.querySelector('#procurement-search-input, #bills-search, #payments-search');
+        if (si) {
+          si.value = q;
+          si.dispatchEvent(new Event('input', { bubbles: true }));
+          clearInterval(iv);
+          var u = new URL(window.location.href); u.searchParams.delete('q');
+          window.history.replaceState({}, '', u.pathname + u.search);
+        } else if (tries > 30) { clearInterval(iv); }
+      }, 150);
+    })();
+  </script>
 </body>
 </html>
-
-
 
 
 

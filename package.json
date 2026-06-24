@@ -9,6 +9,13 @@
     "predeploy": "npm test && npm run check",
     "start": "node server.js",
     "start:migrate": "npm run postgres:migrate && npm start",
+    "pm2:start": "pm2 start ecosystem.config.js",
+    "pm2:stop": "pm2 stop ecosystem.config.js",
+    "pm2:restart": "pm2 restart ecosystem.config.js",
+    "pm2:reload": "pm2 reload ecosystem.config.js",
+    "pm2:status": "pm2 status",
+    "pm2:logs": "pm2 logs kinaadman-erp",
+    "pm2:delete": "pm2 delete ecosystem.config.js",
     "backup": "powershell -ExecutionPolicy Bypass -File scripts/backup-production.ps1",
     "postgres:migrate": "node scripts/postgres-migrate.js",
     "postgres:setup": "npm run postgres:migrate"
@@ -21,11 +28,13 @@
     "bcrypt": "6.0.0",
     "body-parser": "2.2.2",
     "cors": "2.8.6",
+    "dotenv": "^17.4.2",
     "express": "5.2.1",
     "express-session": "1.19.0",
     "multer": "2.1.1",
     "nodemailer": "8.0.10",
     "open": "11.0.0",
-    "pg": "8.20.0"
+    "pg": "8.20.0",
+    "pm2": "^7.0.1"
   }
 }

@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Submit Quotation — Request for Quotation</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <style>
+    :root { --maroon:#b42318; --maroon-dark:#4b1210; --ink:#2a1816; --muted:#7a6a68; --line:#efe1dc; --bg:#fbf4f2; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: Inter, system-ui, -apple-system, Segoe UI, Arial, sans-serif; background: var(--bg); color: var(--ink); line-height:1.5; }
+    .wrap { max-width: 820px; margin: 0 auto; padding: 24px 16px 60px; }
+    .card { background:#fff; border:1px solid var(--line); border-radius:18px; box-shadow: 0 18px 42px rgba(75,18,16,0.08); overflow:hidden; }
+    .head { background: linear-gradient(135deg, var(--maroon) 0%, var(--maroon-dark) 100%); color:#fff; padding: 22px 24px; }
+    .head .kicker { font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; opacity:.85; font-weight:700; }
+    .head h1 { margin:6px 0 2px; font-size:1.35rem; }
+    .head .sub { font-size:.9rem; opacity:.92; }
+    .body { padding: 22px 24px; }
+    .meta { display:flex; flex-wrap:wrap; gap:10px 26px; margin-bottom:18px; font-size:.86rem; }
+    .meta b { display:block; font-size:.68rem; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:800; margin-bottom:2px; }
+    .deadline-pill { display:inline-block; background:#fff4cc; color:#7a5a00; border:1px solid #f0c33c; border-radius:999px; padding:3px 11px; font-weight:700; font-size:.8rem; }
+    table { width:100%; border-collapse: collapse; margin-top:8px; }
+    th, td { padding:10px 8px; border-bottom:1px solid var(--line); text-align:left; font-size:.88rem; vertical-align: middle; }
+    th { font-size:.68rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }
+    th.r, td.r { text-align:right; }
+    td.r input { text-align:right; }
+    .price-in { width:120px; max-width:38vw; padding:8px 10px; border:1px solid #d9c7c2; border-radius:8px; font:inherit; }
+    .price-in:focus { outline:none; border-color:var(--maroon); box-shadow:0 0 0 3px rgba(180,35,24,.12); }
+    .grand { display:flex; justify-content:flex-end; gap:14px; align-items:baseline; margin-top:14px; font-size:1.05rem; }
+    .grand .amt { font-weight:800; color:var(--maroon-dark); font-size:1.3rem; }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:20px; }
+    .field label { display:block; font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); font-weight:800; margin-bottom:5px; }
+    .field input, .field textarea { width:100%; padding:9px 11px; border:1px solid #d9c7c2; border-radius:9px; font:inherit; background:#fff; }
+    .field input:focus, .field textarea:focus { outline:none; border-color:var(--maroon); box-shadow:0 0 0 3px rgba(180,35,24,.12); }
+    .field.full { grid-column:1 / -1; }
+    .actions { margin-top:22px; display:flex; justify-content:flex-end; }
+    .btn { background: linear-gradient(135deg, var(--maroon), var(--maroon-dark)); color:#fff; border:none; border-radius:10px; padding:13px 26px; font-weight:700; font-size:.95rem; cursor:pointer; }
+    .btn:disabled { opacity:.6; cursor:default; }
+    .note { font-size:.78rem; color:var(--muted); margin-top:8px; }
+    .msg { padding:14px 16px; border-radius:12px; margin-bottom:16px; font-size:.9rem; }
+    .msg.err { background:#fdecea; color:#9b1c14; border:1px solid #f3c0bb; }
+    .msg.ok { background:#e9f7ef; color:#1b6b3a; border:1px solid #b7e2c8; }
+    .status-banner { display:flex; gap:12px; align-items:flex-start; padding:14px 16px; border-radius:12px; margin-bottom:16px; font-size:.9rem; }
+    .status-banner b { display:block; margin-bottom:2px; font-size:.94rem; }
+    .status-banner .mark { flex:0 0 auto; width:28px; height:28px; border-radius:50%; display:grid; place-items:center; font-weight:800; }
+    .status-banner.submitted { background:#eef8ff; color:#164e63; border:1px solid #bae6fd; }
+    .status-banner.submitted .mark { background:#0ea5e9; color:#fff; }
+    .status-banner.locked { background:#f4f4f5; color:#3f3f46; border:1px solid #d4d4d8; }
+    .status-banner.locked .mark { background:#71717a; color:#fff; }
+    .center { text-align:center; padding:50px 24px; }
+    .center h2 { margin:0 0 8px; }
+    .foot { text-align:center; font-size:.74rem; color:var(--muted); margin-top:18px; }
+    @media (max-width:560px){ .grid{ grid-template-columns:1fr; } .price-in{ width:100%; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="head">
+        <div class="kicker">Request for Quotation</div>
+        <h1 id="company-name">Loading…</h1>
+        <div class="sub" id="head-sub"></div>
+      </div>
+      <div class="body" id="portal-body">
+        <div class="center"><h2>Loading your RFQ…</h2></div>
+      </div>
+    </div>
+    <div class="foot">This is a secure quotation link. Please do not share it.</div>
+  </div>
+
+  <script>
+    (function () {
+      'use strict';
+      var parts = String(location.pathname || '').split('/').filter(Boolean);
+      var token = parts[parts.length - 1] || '';
+      var data = null;
+
+      function esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+          return ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[c];
+        });
+      }
+      function peso(n) {
+        return 'PHP ' + (Number(n) || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+      function fmtDate(d) {
+        if (!d) return '';
+        try { return new Date(d).toLocaleDateString('en-PH', { year:'numeric', month:'short', day:'numeric' }); } catch (e) { return String(d); }
+      }
+      function el(id) { return document.getElementById(id); }
+
+      function centerMessage(title, body, cls) {
+        el('portal-body').innerHTML = '<div class="center"><div class="msg ' + (cls || 'err') + '" style="text-align:left;">' +
+          '<h2 style="margin:0 0 6px;">' + esc(title) + '</h2>' + esc(body) + '</div></div>';
+      }
+
+      function load() {
+        fetch('/api/public/rfq/' + encodeURIComponent(token), { headers: { 'Accept':'application/json' } })
+          .then(function (r) { return r.json().catch(function(){ return { ok:false }; }); })
+          .then(function (d) {
+            if (!d || !d.ok) { centerMessage('Link not found', (d && d.error) || 'This RFQ link is invalid or has expired.', 'err'); return; }
+            data = d;
+            render();
+          })
+          .catch(function () { centerMessage('Connection error', 'Unable to load this RFQ. Please check your connection and try again.', 'err'); });
+      }
+
+      function priorPrice(itemId) {
+        if (!data.submission || !Array.isArray(data.submission.lines)) return '';
+        var m = data.submission.lines.find(function (l) { return Number(l.item_id) === Number(itemId); });
+        return m && Number(m.unit_price) > 0 ? Number(m.unit_price) : '';
+      }
+      function priorVal(key) {
+        return data.submission && data.submission[key] != null ? data.submission[key] : '';
+      }
+
+      function render() {
+        el('company-name').textContent = data.company_name || 'Request for Quotation';
+        el('head-sub').textContent = (data.pr_number ? data.pr_number : '') + (data.vendor_name ? ' • For: ' + data.vendor_name : '');
+
+        var expired = !!data.expired;
+        var locked = !!data.locked;
+        var readOnly = expired || locked;
+        var hasSubmission = !!data.submitted_at;
+        var rows = (data.items || []).map(function (it) {
+          var pp = priorPrice(it.id);
+          return '<tr data-item="' + it.id + '">' +
+            '<td>' + esc(it.name) + '</td>' +
+            '<td class="r">' + (Number(it.qty) || 0) + '</td>' +
+            '<td>' + esc(it.unit) + '</td>' +
+            '<td class="r"><input class="price-in" type="number" min="0" step="0.01" inputmode="decimal" ' +
+              'data-qty="' + (Number(it.qty) || 0) + '" value="' + (pp === '' ? '' : pp) + '" ' + (readOnly ? 'disabled' : '') + ' placeholder="0.00" /></td>' +
+            '<td class="r line-amt">' + peso((Number(it.qty)||0) * (Number(pp)||0)) + '</td>' +
+          '</tr>';
+        }).join('');
+
+        var deadlineHtml = data.deadline
+          ? '<span class="deadline-pill">Deadline: ' + esc(fmtDate(data.deadline)) + '</span>'
+          : '';
+        var finalLabel = data.final_status === 'awarded'
+          ? 'This quotation has been awarded. Editing is no longer allowed.'
+          : data.final_status === 'closed'
+            ? 'A supplier has already been awarded for this RFQ. This link is now read-only.'
+            : data.final_status === 'ordered'
+              ? 'A purchase order has already been created for this RFQ. This link is now read-only.'
+              : data.final_status === 'rejected'
+                ? 'This quotation was not selected. Editing is no longer allowed.'
+                : data.final_status === 'cancelled'
+                  ? 'This RFQ has been cancelled. This link is now read-only.'
+                  : '';
+        var lockedNote = locked
+          ? '<div class="status-banner locked"><div class="mark">!</div><div><b>Read-only RFQ</b><span>' + esc(finalLabel || 'A final decision has already been made. This form is now read-only.') + '</span></div></div>'
+          : '';
+        var resentNote = hasSubmission && !locked
+          ? '<div class="status-banner submitted"><div class="mark">OK</div><div><b>Quotation submitted</b><span>Submitted on ' + esc(fmtDate(data.submitted_at)) + '. This form is still editable before the deadline; change any field and click Update Quotation.</span></div></div>'
+          : '';
+        var expiredNote = expired
+          ? '<div class="msg err">The deadline for this RFQ has passed. This form is now read-only. Please contact us directly if you still wish to quote.</div>'
+          : '';
+
+        el('portal-body').innerHTML =
+          '<div id="form-msg"></div>' +
+          lockedNote + expiredNote + resentNote +
+          '<div class="meta">' +
+            '<div><b>Reference</b>' + esc(data.pr_number || '-') + '</div>' +
+            (data.vendor_name ? '<div><b>Vendor</b>' + esc(data.vendor_name) + '</div>' : '') +
+            (deadlineHtml ? '<div><b>&nbsp;</b>' + deadlineHtml + '</div>' : '') +
+          '</div>' +
+          '<table><thead><tr>' +
+            '<th>Item</th><th class="r">Qty</th><th>Unit</th><th class="r">Unit Price</th><th class="r">Amount</th>' +
+          '</tr></thead><tbody>' + (rows || '<tr><td colspan="5">No items listed.</td></tr>') + '</tbody></table>' +
+          '<div class="grand">Total Quotation: <span class="amt" id="grand-total">' + peso(0) + '</span></div>' +
+          '<div class="grid">' +
+            '<div class="field"><label>Delivery Lead Time (days)</label><input id="f-delivery" type="number" min="0" step="1" value="' + esc(priorVal('delivery_days') || '') + '" ' + (readOnly?'disabled':'') + ' placeholder="e.g. 7" /></div>' +
+            '<div class="field"><label>Payment Terms</label><input id="f-payment" type="text" maxlength="100" value="' + esc(priorVal('payment_terms') || '') + '" ' + (readOnly?'disabled':'') + ' placeholder="e.g. Net 30, 50% DP" /></div>' +
+            '<div class="field full"><label>Warranty / Terms</label><input id="f-warranty" type="text" maxlength="255" value="' + esc(priorVal('warranty_terms') || '') + '" ' + (readOnly?'disabled':'') + ' placeholder="e.g. 1 year warranty" /></div>' +
+            '<div class="field full"><label>Remarks (optional)</label><textarea id="f-remarks" rows="3" maxlength="1000" ' + (readOnly?'disabled':'') + ' placeholder="Any notes for your quotation...">' + esc(priorVal('remarks') || '') + '</textarea></div>' +
+          '</div>' +
+          (readOnly ? '' :
+            '<div class="actions"><button class="btn" id="submit-btn" type="button">' + (hasSubmission ? 'Update Quotation' : 'Submit Quotation') + '</button></div>' +
+            '<div class="note">By submitting, you confirm the prices above are your official quotation for this request.</div>');
+
+        bind(readOnly);
+        recompute();
+      }
+
+      function recompute() {
+        var total = 0;
+        Array.prototype.forEach.call(document.querySelectorAll('#portal-body tbody tr'), function (tr) {
+          var input = tr.querySelector('.price-in');
+          if (!input) return;
+          var qty = Number(input.getAttribute('data-qty')) || 0;
+          var price = Number(input.value) || 0;
+          var amt = qty * price;
+          total += amt;
+          var cell = tr.querySelector('.line-amt');
+          if (cell) cell.textContent = peso(amt);
+        });
+        var gt = el('grand-total');
+        if (gt) gt.textContent = peso(total);
+        return total;
+      }
+
+      function bind(expired) {
+        if (expired) return;
+        Array.prototype.forEach.call(document.querySelectorAll('.price-in'), function (input) {
+          input.addEventListener('input', recompute);
+        });
+        var btn = el('submit-btn');
+        if (btn) btn.addEventListener('click', submit);
+      }
+
+      function showFormMsg(text, cls) {
+        var box = el('form-msg');
+        if (box) box.innerHTML = '<div class="msg ' + (cls || 'err') + '">' + esc(text) + '</div>';
+        if (box) box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+
+      function submit() {
+        var total = recompute();
+        if (total <= 0) { showFormMsg('Please enter a unit price for at least one item.', 'err'); return; }
+        var lines = Array.prototype.map.call(document.querySelectorAll('#portal-body tbody tr'), function (tr) {
+          var input = tr.querySelector('.price-in');
+          return { id: Number(tr.getAttribute('data-item')) || 0, unit_price: Number(input && input.value) || 0 };
+        });
+        var fd = new FormData();
+        fd.append('lines', JSON.stringify(lines));
+        fd.append('delivery_days', String(Number((el('f-delivery') || {}).value) || 0));
+        fd.append('payment_terms', (el('f-payment') || {}).value || '');
+        fd.append('warranty_terms', (el('f-warranty') || {}).value || '');
+        fd.append('remarks', (el('f-remarks') || {}).value || '');
+        var btn = el('submit-btn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
+        // No Content-Type header — the browser sets the multipart boundary itself.
+        fetch('/api/public/rfq/' + encodeURIComponent(token), {
+          method: 'POST',
+          body: fd
+        })
+          .then(function (r) { return r.json().catch(function(){ return { ok:false }; }); })
+          .then(function (d) {
+            if (d && d.ok) {
+              el('portal-body').innerHTML = '<div class="center"><div class="msg ok" style="text-align:left;">' +
+                '<h2 style="margin:0 0 6px;">Quotation submitted ✓</h2>' +
+                'Thank you! Your quotation (Total: <strong>' + esc(peso(total)) + '</strong>) has been received. ' +
+                'You may revisit this link to update it before the deadline.</div></div>';
+              return;
+            }
+            showFormMsg((d && d.error) || 'Unable to submit. Please try again.', 'err');
+            if (btn) { btn.disabled = false; btn.textContent = 'Submit Quotation'; }
+          })
+          .catch(function () {
+            showFormMsg('Connection error. Please try again.', 'err');
+            if (btn) { btn.disabled = false; btn.textContent = 'Submit Quotation'; }
+          });
+      }
+
+      if (!token) { centerMessage('Invalid link', 'No RFQ token found in the link.', 'err'); }
+      else { load(); }
+    })();
+  </script>
+</body>
+</html>

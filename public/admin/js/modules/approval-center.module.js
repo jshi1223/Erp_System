@@ -24,7 +24,7 @@
     return '-';
   }
 
-  function makeApprovalItem({ category, type, title, requestedBy, date, status, url, approveUrl, rejectUrl, timeline = [], checklist = [] }) {
+  function makeApprovalItem({ category, type, title, requestedBy, date, status, url, approveUrl, rejectUrl, reviseUrl, timeline = [], checklist = [], raw = {} }) {
     return {
       category,
       type,
@@ -35,9 +35,55 @@
       url: String(url || '/admin').trim(),
       approveUrl: String(approveUrl || '').trim(),
       rejectUrl: String(rejectUrl || '').trim(),
+      reviseUrl: String(reviseUrl || '').trim(),
       timeline: Array.isArray(timeline) ? timeline : [],
-      checklist: Array.isArray(checklist) ? checklist : []
+      checklist: Array.isArray(checklist) ? checklist : [],
+      raw: raw && typeof raw === 'object' ? raw : {}
     };
+  }
+
+  // Peso formatter for the record-detail view (kept local so the module stays self-contained).
+  function approvalMoney(value) {
+    var n = Number(value || 0);
+    if (!isFinite(n)) return '';
+    return 'PHP ' + n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  // Builds the human-readable record fields shown in the View modal, pulling whatever
+  // exists on the raw row (different record types expose different columns).
+  function getApprovalRecordDetails(item) {
+    var r = (item && item.raw) || {};
+    var p = r.payload || {};
+    var out = [];
+    var add = function (label, value) {
+      var s = (value === 0 || value === '0') ? '0' : (value == null ? '' : String(value).trim());
+      if (s) out.push({ label: label, value: s });
+    };
+    add('Document No.', r.document_no || r.pr_number || r.po_number || r.bill_number || r.invoice_number || r.request_no || r.project_docno);
+    add('Reference', r.reference_number);
+    add('Company / Customer', r.company_name || r.registry_company_name || p.company_name);
+    add('Vendor', r.vendor_name || p.vendor_name);
+    add('Project', r.project_name || r.project_docno);
+    add('Requested / Prepared by', r.requested_by || r.prepared_by || r.submitted_by || r.created_by_name || r.project_manager);
+    add('Contact', r.contact_person || p.contact_person);
+    add('Phone', p.phone);
+    add('Email', p.email);
+    add('TIN', p.tin);
+    add('Address', p.address);
+    add('Product', p.product_name || r.product_name);
+    add('SKU', p.sku);
+    add('Warehouse', p.warehouse_name);
+    add('Quantity', p.quantity != null ? p.quantity : r.quantity);
+    add('Request / Doc date', formatDateYmd(r.request_date || r.po_date || r.bill_date || r.payment_date || r.requested_date));
+    add('Needed / Due by', formatDateYmd(r.needed_by || r.due_date || r.delivery_date || r.target_date));
+    add('Payment terms', r.payment_terms);
+    add('Payment type', r.payment_type);
+    add('Payment method', r.payment_method);
+    add('Items', r.item_summary);
+    var amount = r.total_amount != null ? r.total_amount : (r.amount != null ? r.amount : p.amount);
+    if (amount != null && String(amount).trim() !== '' && Number(amount) > 0) add('Amount', approvalMoney(amount));
+    add('Notes', r.notes || r.remarks || p.notes);
+    return out;
   }
 
   function buildApprovalTimeline(row = {}, labels = {}) {
@@ -83,6 +129,20 @@
       finance: source.filter(item => item.category === 'finance').length,
       users: source.filter(item => item.category === 'users').length
     };
+  }
+
+  function getApprovalRevisionUrl(item = {}) {
+    const explicitUrl = String(item.reviseUrl || '').trim();
+    if (explicitUrl) return explicitUrl;
+    const category = String(item.category || '').trim();
+    const type = String(item.type || '').trim().toLowerCase();
+    const canReturnViaReject = (
+      category === 'projects'
+      || type === 'purchase request'
+      || type === 'purchase order'
+      || category === 'sales'
+    );
+    return canReturnViaReject ? String(item.rejectUrl || '').trim() : '';
   }
 
   function applyApprovalCenterSummary(items = []) {
@@ -182,6 +242,7 @@
       .forEach(row => {
         const payload = row.payload || {};
         items.push(makeApprovalItem({
+          raw: row,
           category: 'master-data',
           type: 'Company Registry Request',
           title: payload.company_name || row.request_no || 'Company Registry',
@@ -191,6 +252,7 @@
           url: '/master-data?tab=companies',
           approveUrl: `/api/company-registry-requests/${Number(row.id || 0)}/approve`,
           rejectUrl: `/api/company-registry-requests/${Number(row.id || 0)}/reject`,
+          reviseUrl: `/api/company-registry-requests/${Number(row.id || 0)}/revise`,
           timeline: buildApprovalTimeline(row, { created: 'Requested' }),
           checklist: buildApprovalChecklist([
             payload.company_name ? 'Company name provided' : 'Company name missing',
@@ -206,6 +268,7 @@
       .forEach(row => {
         const payload = row.payload || {};
         items.push(makeApprovalItem({
+          raw: row,
           category: 'master-data',
           type: 'Vendor Registry Request',
           title: payload.vendor_name || row.request_no || 'Vendor Registry',
@@ -215,6 +278,7 @@
           url: '/master-data?tab=vendors',
           approveUrl: `/api/vendor-registry-requests/${Number(row.id || 0)}/approve`,
           rejectUrl: `/api/vendor-registry-requests/${Number(row.id || 0)}/reject`,
+          reviseUrl: `/api/vendor-registry-requests/${Number(row.id || 0)}/revise`,
           timeline: buildApprovalTimeline(row, { created: 'Requested' }),
           checklist: buildApprovalChecklist([
             payload.vendor_name ? 'Vendor name provided' : 'Vendor name missing',
@@ -238,6 +302,7 @@
               ? [String(payload.movement_type || '').toUpperCase(), payload.quantity ? `Qty ${payload.quantity}` : ''].filter(Boolean).join(' - ')
               : row.request_no;
         items.push(makeApprovalItem({
+          raw: row,
           category: 'inventory',
           type: 'Inventory Request',
           title: title || row.request_no || 'Inventory Request',
@@ -263,6 +328,7 @@
       .forEach(row => {
         const stageLabel = SALES_STAGE_LABELS[row.record_type] || 'Sales Record';
         items.push(makeApprovalItem({
+          raw: row,
           category: 'sales',
           type: stageLabel,
           title: row.document_no || row.title || stageLabel,
@@ -287,6 +353,7 @@
       .filter(row => approvalStatusPending(row.status))
       .forEach(row => {
         items.push(makeApprovalItem({
+          raw: row,
           category: 'projects',
           type: 'Project',
           title: getProjectLinkLabel(row) || row.project_name,
@@ -310,6 +377,7 @@
       .filter(row => approvalStatusPending(row.status))
       .forEach(row => {
         items.push(makeApprovalItem({
+          raw: row,
           category: 'procurement',
           type: 'Purchase Request',
           title: row.pr_number || row.item_summary || 'Purchase Requisition',
@@ -333,6 +401,7 @@
       .filter(row => approvalStatusPending(row.status))
       .forEach(row => {
         items.push(makeApprovalItem({
+          raw: row,
           category: 'procurement',
           type: 'Purchase Order',
           title: row.po_number || 'Purchase Order',
@@ -356,6 +425,7 @@
       .filter(row => approvalStatusPending(row.approval_status))
       .forEach(row => {
         items.push(makeApprovalItem({
+          raw: row,
           category: 'finance',
           type: 'AP Bill',
           title: row.bill_number || 'Bill',
@@ -379,6 +449,7 @@
       .filter(row => approvalStatusPending(row.approval_status))
       .forEach(row => {
         items.push(makeApprovalItem({
+          raw: row,
           category: 'finance',
           type: 'Payment',
           title: [row.payment_type, row.reference_number].filter(Boolean).join(' - ') || 'Payment',
@@ -402,6 +473,7 @@
       .filter(row => approvalStatusPending(row.approval_status))
       .forEach(row => {
         items.push(makeApprovalItem({
+          raw: row,
           category: 'users',
           type: 'User Account',
           title: row.fullname || row.username || row.email || 'User',
@@ -633,6 +705,30 @@
     }
   }
 
+  // Return-for-revision: hands a submitted request back to the staff (editable +
+  // resubmittable) instead of a terminal reject. Only items with a reviseUrl show it.
+  async function reviseApprovalItem(index) {
+    const item = approvalCenterItems[Number(index || 0)];
+    const reviseUrl = getApprovalRevisionUrl(item);
+    if (!reviseUrl) return;
+    const note = await openApprovalCommentDialog({
+      title: 'Return for Revision',
+      message: `Return ${item.type}: ${item.title} to the requester for revision? A note is required and will be shown to staff.`,
+      placeholder: 'What needs to be fixed before resubmitting...',
+      submitText: 'Return for Revision',
+      required: true
+    });
+    if (note === null) return;
+    try {
+      await postApprovalCenterAction(reviseUrl, { reason: note, comment: note });
+      showToast('Returned to requester for revision.', 'success');
+      await renderApprovalCenter(true);
+      if (typeof updateStats === 'function') await updateStats();
+    } catch (err) {
+      showToast(err.message || 'Unable to return for revision.', 'error');
+    }
+  }
+
   function showApprovalItemTimeline(index) {
     const item = approvalCenterItems[Number(index || 0)];
     if (!item) return;
@@ -674,26 +770,22 @@
         <div class="modal-header">
           <div>
             <div class="approval-modal-kicker" id="approval-timeline-modal-type">Approval Details</div>
-            <div class="modal-title" id="approval-timeline-modal-title">Approval Timeline</div>
+            <div class="modal-title" id="approval-timeline-modal-title">Record Details</div>
           </div>
           <button class="modal-close" type="button" id="approval-timeline-modal-close" aria-label="Close">&times;</button>
         </div>
         <div class="approval-timeline-grid">
-          <section>
-            <h3>Timeline</h3>
-            <div id="approval-timeline-modal-timeline"></div>
+          <section style="grid-column:1 / -1;">
+            <h3>Record Details</h3>
+            <div id="approval-timeline-modal-details"></div>
           </section>
           <section>
-            <h3>Checklist</h3>
+            <h3>Readiness Checklist</h3>
             <div id="approval-timeline-modal-checklist"></div>
           </section>
           <section>
-            <h3>Missing Fields</h3>
-            <div id="approval-timeline-modal-missing"></div>
-          </section>
-          <section>
-            <h3>Audit Trail</h3>
-            <div id="approval-timeline-modal-audit"></div>
+            <h3>Timeline</h3>
+            <div id="approval-timeline-modal-timeline"></div>
           </section>
         </div>
         <div class="modal-actions">
@@ -721,7 +813,14 @@
     const audit = document.getElementById('approval-timeline-modal-audit');
     const openBtn = document.getElementById('approval-timeline-modal-open');
     if (type) type.textContent = `${item.type} | ${String(item.status || 'pending').replace(/_/g, ' ')}`;
-    if (title) title.textContent = item.title || 'Approval Details';
+    if (title) title.textContent = item.title || 'Record Details';
+    const details = document.getElementById('approval-timeline-modal-details');
+    if (details) {
+      const detailRows = getApprovalRecordDetails(item);
+      details.innerHTML = detailRows.length
+        ? detailRows.map(d => `<div style="display:flex;justify-content:space-between;gap:16px;padding:6px 0;border-bottom:1px solid rgba(180,35,24,0.10);"><span style="color:#9a7b77;font-weight:600;font-size:.78rem;">${escHtml(d.label)}</span><span style="color:#3a2a28;font-weight:700;font-size:.82rem;text-align:right;">${escHtml(d.value)}</span></div>`).join('')
+        : '<div class="approval-empty-line">No additional record details.</div>';
+    }
     if (timeline) {
       const rows = item.timeline.length ? item.timeline : ['No timeline yet.'];
       timeline.innerHTML = rows.map(row => `<div class="approval-timeline-line">${escHtml(row)}</div>`).join('');
@@ -839,6 +938,7 @@
       const sla = getApprovalSlaState(item.date);
       const statusClass = getApprovalStatusClass(item.status);
       const actionNeeded = getApprovalActionNeeded(item);
+      const revisionUrl = getApprovalRevisionUrl(item);
       return `
         <tr>
           <td>${escHtml(item.type)}</td>
@@ -852,11 +952,11 @@
           </td>
           <td>${escHtml(item.date)}<div style="margin-top:4px;"><span class="status-pill ${escHtml(sla.className)}">${escHtml(sla.label)}</span></div></td>
           <td><span class="status-pill ${escHtml(statusClass)}">${escHtml(String(item.status || 'pending').replace(/_/g, ' '))}</span></td>
-          <td class="text-center">
+          <td style="text-align:left; white-space:nowrap;">
             <button class="btn btn-add btn-sm" type="button" onclick="approveApprovalItem(${Number(item.index)})">Approve</button>
             <button class="btn btn-delete btn-sm" type="button" onclick="rejectApprovalItem(${Number(item.index)})">Reject</button>
-            <button class="btn btn-cancel btn-sm" type="button" onclick="showApprovalItemTimeline(${Number(item.index)})">Timeline</button>
-            <button class="btn btn-cancel btn-sm" type="button" onclick="navigateDashboardCard('${escHtml(item.url)}')">Open</button>
+            ${revisionUrl ? `<button class="btn btn-cancel btn-sm" type="button" onclick="reviseApprovalItem(${Number(item.index)})">Return for Revision</button>` : ''}
+            <button class="btn btn-cancel btn-sm" type="button" onclick="showApprovalItemTimeline(${Number(item.index)})">View</button>
           </td>
         </tr>
       `;
@@ -943,6 +1043,7 @@
     closeApprovalCommentDialog,
     approveApprovalItem,
     rejectApprovalItem,
+    reviseApprovalItem,
     showApprovalItemTimeline,
     getApprovalMissingFields,
     getApprovalAuditTrail,

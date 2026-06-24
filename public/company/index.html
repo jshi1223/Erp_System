@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -12,14 +12,14 @@
       window.location.replace('/master-data?tab=companies');
     }
   </script>
-  <script src="/assets/js/auth-guard.js?v=20260611fix"></script>
+  <script src="/assets/js/auth-guard.js?v=20260622crm"></script>
   <script defer src="/assets/js/table-paginate.js?v=20260609pg"></script>
-  <script defer src="/assets/js/workspace-switcher.js?v=20260611fix"></script>
+  <script defer src="/assets/js/workspace-switcher.js?v=20260611rev"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260611fix" />
+  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260611rev" />
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a" />
   <link rel="stylesheet" href="/company/company.css?v=20260522a" />
-  <link rel="stylesheet" href="/assets/css/warm-minimal.css?v=20260611fix" />
+  <link rel="stylesheet" href="/assets/css/warm-minimal.css?v=20260611rev" />
 
 </head>
 <body class="company-registry-page erp-clean-page">
@@ -32,9 +32,9 @@
       </button>
       <button class="brand-link" type="button" onclick="window.location.href='/admin'" aria-label="Go to dashboard">
         <div class="brand-lockup">
-          <img class="brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+          <img class="brand-mark" alt="" hidden />
           <div class="brand-copy">
-            <div class="header-logo">KVSK CCTV & IT Solution</div>
+            <div class="header-logo">All Companies</div>
             <div class="header-sub">Master Data</div>
           </div>
         </div>
@@ -52,9 +52,9 @@
   <div class="sidebar" id="sidebar">
     <div class="sidebar-header">
       <div class="sidebar-brand">
-        <img class="sidebar-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+        <img class="sidebar-brand-mark" alt="" hidden />
         <div>
-          <div class="header-logo" style="font-size: 1rem;">KVSK CCTV</div>
+          <div class="header-logo" style="font-size: 1rem;">All Companies</div>
           <div class="header-sub">Operations Control Panel</div>
         </div>
       </div>
@@ -65,7 +65,7 @@
       <div class="sidebar-group" data-sidebar-group="projects">
         <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
           <span>Projects</span>
-          <span class="sidebar-group-caret">â–¾</span>
+          <span class="sidebar-group-caret">▾</span>
         </button>
         <div class="sidebar-group-items">
           <a href="/admin?panel=project-records" class="sidebar-link" id="menu-projects">Projects</a>
@@ -75,7 +75,7 @@
       <div class="sidebar-group" data-sidebar-group="master-data">
         <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
           <span>Master Data</span>
-          <span class="sidebar-group-caret">Ã¢â€“Â¾</span>
+          <span class="sidebar-group-caret">â–¾</span>
         </button>
         <div class="sidebar-group-items">
           <a href="/master-data?tab=companies" class="sidebar-link is-subitem active" id="menu-company-registry">Company Registry</a>
@@ -86,7 +86,7 @@
       <div class="sidebar-group" data-sidebar-group="accounts-payable">
         <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
           <span>AP</span>
-          <span class="sidebar-group-caret">â–¾</span>
+          <span class="sidebar-group-caret">▾</span>
         </button>
         <div class="sidebar-group-items">
           <a href="/accounts-payable?tab=requisitions" class="sidebar-link is-subitem">Purchase Requisitions</a>
@@ -100,10 +100,9 @@
       <div class="sidebar-group" data-sidebar-group="accounts-receivable">
         <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
           <span>AR</span>
-          <span class="sidebar-group-caret">â–¾</span>
+          <span class="sidebar-group-caret">▾</span>
         </button>
         <div class="sidebar-group-items">
-          <a href="/admin?panel=project-records&tab=transactions" class="sidebar-link is-subitem">Project Transactions</a>
           <a href="/accounts-receivable?tab=receivables" class="sidebar-link is-subitem">Receivables</a>
           <a href="/accounts-receivable?tab=collections" class="sidebar-link is-subitem">Payments</a>
         </div>
@@ -112,7 +111,7 @@
       <div class="sidebar-group" data-sidebar-group="admin">
         <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="false">
           <span>Admin</span>
-          <span class="sidebar-group-caret">â–¾</span>
+          <span class="sidebar-group-caret">▾</span>
         </button>
         <div class="sidebar-group-items">
           <a href="/user-management" class="sidebar-link is-subitem" id="menu-users">User Management</a>
@@ -266,7 +265,7 @@
             <div class="company-relations-head">
               <div>
                 <div class="company-relations-title">Related Records</div>
-                <div class="company-relations-sub">Company-linked projects, service orders, transactions, purchase orders, vendors, and receivables.</div>
+                <div class="company-relations-sub">Company-linked projects, purchase orders, vendors, and receivables.</div>
               </div>
               <span class="company-relations-badge" id="company-relations-state">Save a company to view linked records.</span>
             </div>
@@ -274,14 +273,6 @@
               <div class="company-relation-card">
                 <span>Projects</span>
                 <strong id="company-relations-project-count">0</strong>
-              </div>
-              <div class="company-relation-card">
-                <span>Service Orders</span>
-                <strong id="company-relations-so-count">0</strong>
-              </div>
-              <div class="company-relation-card">
-                <span>Transactions</span>
-                <strong id="company-relations-transaction-count">0</strong>
               </div>
               <div class="company-relation-card">
                 <span>Purchase Orders</span>
@@ -299,10 +290,6 @@
             <div class="company-relations-list">
               <div class="company-relations-list-title">Recent Projects</div>
               <div class="company-relations-items" id="company-relations-projects"></div>
-            </div>
-            <div class="company-relations-list">
-              <div class="company-relations-list-title">Recent Service Orders</div>
-              <div class="company-relations-items" id="company-relations-service-orders"></div>
             </div>
           </div>
           <div class="modal-actions">
@@ -334,8 +321,8 @@
       setTimeout(postEmbeddedHeight, 600);
     }
   </script>
-  <script src="/assets/js/erp-core.js?v=20260611fix"></script>
-  <script src="/company/company.js?v=20260611fix"></script>
+  <script src="/assets/js/erp-core.js?v=20260621brand"></script>
+  <script src="/company/company.js?v=20260620delegacy"></script>
 </body>
 </html>
 

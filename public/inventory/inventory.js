@@ -198,6 +198,10 @@ function renderTabSummary(tab = (document.querySelector('.inventory-tab.active')
 function applyInventoryAdminColumns() {
   const showAdminCols = !isInventoryStaffRole();
   document.querySelectorAll('[data-inventory-admin-col]').forEach(node => {
+    // Tab-scoped action buttons (e.g. "Add Serial Unit") are owned by
+    // syncInventoryToolbarActions, which shows them only on their matching tab.
+    // Skip them here so a re-render never re-reveals them on the wrong tab.
+    if (node.hasAttribute('data-inventory-action')) return;
     node.hidden = !showAdminCols;
   });
 }
@@ -270,7 +274,7 @@ function renderInventory() {
         <td class="text-right">${Number(row.unit_cost || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</td>
         <td class="text-right">${Number(row.selling_price || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}</td>
         <td class="text-right">${reorder.toLocaleString('en-PH')}</td>
-        <td class="text-right">${onHand.toLocaleString('en-PH')}${isLow ? ' <span class="inventory-low-tag">Low</span>' : ''}</td>
+        <td class="text-right">${isLow ? '<span class="inventory-low-tag">Low</span>' : ''}<span class="inventory-onhand-num">${onHand.toLocaleString('en-PH')}</span></td>
         ${isAdmin ? `<td class="text-right inventory-row-actions">
           <button class="btn btn-edit btn-sm" type="button" onclick="editProduct(${Number(row.id)})">Edit</button>
           <button class="btn btn-cancel btn-sm" type="button" onclick="archiveProduct(${Number(row.id)})">Archive</button>
@@ -461,14 +465,54 @@ function syncInventoryToolbarActions(tab = 'stock') {
 }
 
 function populateMovementSelects() {
-  const productSelect = document.getElementById('movement-product');
   const warehouseSelect = document.getElementById('movement-warehouse');
   const projectSelect = document.getElementById('movement-project');
-  productSelect.innerHTML = '<option value="">Select product</option>' + productsDb.map(row => `<option value="${Number(row.id)}">${escHtml([row.sku, row.product_name].filter(Boolean).join(' - '))}</option>`).join('');
-  warehouseSelect.innerHTML = '<option value="">Select warehouse</option>' + warehousesDb.map(row => `<option value="${Number(row.id)}">${escHtml([row.warehouse_code, row.warehouse_name].filter(Boolean).join(' - '))}</option>`).join('');
+  populateMovementCategorySelect();
+  populateMovementProducts(document.getElementById('movement-category')?.value || '');
+  if (warehouseSelect) {
+    warehouseSelect.innerHTML = '<option value="">Select warehouse</option>' + warehousesDb.map(row => `<option value="${Number(row.id)}">${escHtml([row.warehouse_code, row.warehouse_name].filter(Boolean).join(' - '))}</option>`).join('');
+  }
   if (projectSelect) {
     projectSelect.innerHTML = '<option value="">No project link</option>' + projectsDb.map(row => `<option value="${Number(row.id)}">${escHtml([row.project_docno, row.project_name].filter(Boolean).join(' - '))}</option>`).join('');
   }
+}
+
+// Category filter inside the Stock Movement form. Picking a category narrows the
+// Product dropdown to that category (with an "Uncategorized" bucket when relevant).
+function populateMovementCategorySelect() {
+  const select = document.getElementById('movement-category');
+  if (!select) return;
+  const current = String(select.value || '').trim();
+  const categories = getProductCategories();
+  const hasUncategorized = productsDb.some(row => !String(row.category || '').trim());
+  const values = categories.concat(hasUncategorized ? ['Uncategorized'] : []);
+  select.innerHTML = ['<option value="">All categories</option>']
+    .concat(values.map(name => `<option value="${escHtml(name)}"${name === current ? ' selected' : ''}>${escHtml(name)}</option>`))
+    .join('');
+  if (current && values.includes(current)) select.value = current;
+}
+
+function movementProductMatchesCategory(row, category) {
+  const cat = String(category || '').trim();
+  if (!cat) return true;
+  const rowCat = String(row.category || '').trim();
+  if (cat === 'Uncategorized') return !rowCat;
+  return rowCat === cat;
+}
+
+function populateMovementProducts(category = '') {
+  const productSelect = document.getElementById('movement-product');
+  if (!productSelect) return;
+  const previous = String(productSelect.value || '');
+  const list = productsDb.filter(row => movementProductMatchesCategory(row, category));
+  productSelect.innerHTML = '<option value="">Select product</option>' +
+    list.map(row => `<option value="${Number(row.id)}">${escHtml([row.sku, row.product_name].filter(Boolean).join(' - '))}</option>`).join('');
+  // Keep the current product selected if it still matches the chosen category.
+  if (previous && list.some(row => String(row.id) === previous)) productSelect.value = previous;
+}
+
+function onMovementCategoryChange() {
+  populateMovementProducts(document.getElementById('movement-category')?.value || '');
 }
 
 function getProductCategories() {
@@ -584,7 +628,26 @@ function nextSkuForCategory(category) {
     const match = String(row.sku || '').trim().toUpperCase().match(re);
     if (match) max = Math.max(max, parseInt(match[1], 10));
   });
-  return `${prefix}-${String(max + 1).padStart(3, '0')}`;
+  return `${prefix}-${String(max + 1).padStart(5, '0')}`;
+}
+
+function nextWarehouseCode() {
+  const prefix = 'WARE';
+  const re = new RegExp(`^${prefix}-(\\d+)$`);
+  let max = 0;
+  warehousesDb.forEach(row => {
+    const match = String(row.warehouse_code || '').trim().toUpperCase().match(re);
+    if (match) max = Math.max(max, parseInt(match[1], 10));
+  });
+  return `${prefix}-${String(max + 1).padStart(5, '0')}`;
+}
+
+// Previews the auto warehouse code (fixed WARE- prefix + 5-digit sequence). The
+// server assigns the final number on save, so editing keeps the stored code.
+function refreshAutoWarehouseCode() {
+  if (editingWarehouseId || editingInventoryRequestId) return;
+  const codeInput = document.getElementById('warehouse-code');
+  if (codeInput) codeInput.value = nextWarehouseCode();
 }
 
 // Shows a preview SKU for new products. The server is authoritative and assigns
@@ -626,7 +689,13 @@ function openInventoryModal(type) {
   if (movementSave) movementSave.textContent = staffRole ? 'Save Movement Request' : 'Save Movement';
   if (unitSave) unitSave.textContent = 'Save Unit';
   if (type === 'product') populateProductCategorySelect('');
+  if (type === 'warehouse') refreshAutoWarehouseCode();
   if (type === 'unit') populateUnitSelects();
+  if (type === 'movement') {
+    const movementCategory = document.getElementById('movement-category');
+    if (movementCategory) movementCategory.value = '';
+    populateMovementProducts('');
+  }
 }
 
 function openInventoryRequestDraft(requestId) {
@@ -960,7 +1029,9 @@ async function saveWarehouse(event) {
   setStatus('');
   const payload = {
     business_entity_id: getCurrentBusinessEntityId(),
-    warehouse_code: document.getElementById('warehouse-code').value,
+    // Leave the code blank for new warehouses so the server assigns the next
+    // per-name sequence; keep the existing code only when editing.
+    warehouse_code: editingWarehouseId ? document.getElementById('warehouse-code').value : '',
     warehouse_name: document.getElementById('warehouse-name').value,
     location: document.getElementById('warehouse-location').value
   };

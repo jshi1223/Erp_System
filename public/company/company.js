@@ -67,11 +67,12 @@ function businessEntityProfileValue(value, fallback = 'Not set') {
 }
 
 function getBusinessEntityBrandProfile(row) {
-  void row;
+  const logo = String(row?.logo_path || row?.logo || '').trim();
+  const name = String(row?.company_name || '').trim();
   return {
     theme: 'kvsk',
-    logo: '/assets/img/kvsk-logo-switch.png',
-    alt: 'KVSK logo',
+    logo,
+    alt: name ? `${name} logo` : 'Company logo',
     primary: '#b42318',
     primaryLight: '#ef5b4f',
     primaryDark: '#4b1210',
@@ -89,8 +90,16 @@ function applyBusinessEntityBrand(row) {
   document.documentElement.style.setProperty('--accent', profile.accent);
   document.documentElement.style.setProperty('--accent2', profile.accent2);
   document.querySelectorAll('.brand-mark, .sidebar-brand-mark, .user-modal-brand-mark').forEach((img) => {
-    img.src = profile.logo;
-    img.alt = profile.alt;
+    if (profile.logo) {
+      img.src = profile.logo;
+      img.alt = profile.alt;
+      img.style.removeProperty('display');
+      img.removeAttribute('hidden');
+    } else {
+      img.style.display = 'none';
+      img.removeAttribute('src');
+      img.alt = '';
+    }
   });
   try {
     localStorage.setItem(BUSINESS_ENTITY_THEME_KEY, JSON.stringify({
@@ -116,9 +125,12 @@ function renderBusinessEntityProfilePanel(current = getCurrentBusinessEntityId()
         const id = String(row.id || '');
         const isActive = id === String(current || '');
         const profile = getBusinessEntityBrandProfile(row);
+        const logoMarkup = profile.logo
+          ? `<span class="business-profile-logo-wrap"><img src="${escHtml(profile.logo)}" alt="${escHtml(profile.alt)}" /></span>`
+          : `<span class="business-profile-logo-wrap business-profile-logo-mono">${escHtml(businessEntityShortLabel(row))}</span>`;
         return `
           <button class="business-profile-card${isActive ? ' is-active' : ''}" type="button" onclick="setBusinessEntityContext('${escHtml(id)}')">
-            <span class="business-profile-logo-wrap"><img src="${escHtml(profile.logo)}" alt="${escHtml(profile.alt)}" /></span>
+            ${logoMarkup}
             <span class="business-profile-copy">
               <span class="business-profile-name">${escHtml(row.company_name || businessEntityShortLabel(row))}</span>
               <span class="business-profile-meta">${escHtml(row.entity_code || 'Operating company')} · ${escHtml(businessEntityProfileValue(row.status, 'active'))}${Number(row.is_default || 0) ? ' · Default' : ''}</span>
@@ -452,19 +464,12 @@ function getProjectPeriodLabel(project) {
   return 'No schedule set';
 }
 
-function getServiceOrderPeriodLabel(serviceOrder) {
-  const date = serviceOrder?.service_date || '';
-  return date ? `Date ${date}` : 'No service date set';
-}
-
 function renderCompanyOverview(overview = null) {
   state.companyOverview = overview || null;
   const counts = overview?.counts || {};
   const company = overview?.company || null;
 
   setCompanyOverviewValue('company-relations-project-count', counts.project_count);
-  setCompanyOverviewValue('company-relations-so-count', counts.service_order_count);
-  setCompanyOverviewValue('company-relations-transaction-count', counts.transaction_count);
   setCompanyOverviewValue('company-relations-po-count', counts.purchase_order_count);
   setCompanyOverviewValue('company-relations-vendor-count', counts.vendor_count);
   setCompanyOverviewValue('company-relations-ar-count', counts.receivable_count);
@@ -499,27 +504,6 @@ function renderCompanyOverview(overview = null) {
         `;
       }).join('')
       : '<div class="company-relations-empty">No related projects yet.</div>';
-  }
-
-  const serviceOrderHost = $('company-relations-service-orders');
-  if (serviceOrderHost) {
-    const serviceOrders = Array.isArray(overview?.recent_service_orders) ? overview.recent_service_orders : [];
-    serviceOrderHost.innerHTML = serviceOrders.length
-      ? serviceOrders.map((serviceOrder) => {
-        const soLabel = [serviceOrder.so_number, serviceOrder.service_title].filter(Boolean).join(' - ') || 'Untitled Service Order';
-        const projectLabel = [serviceOrder.project_docno, serviceOrder.project_name].filter(Boolean).join(' - ') || 'No linked project';
-        const meta = [projectLabel, getServiceOrderPeriodLabel(serviceOrder)].filter(Boolean).join(' | ');
-        return `
-          <div class="company-relations-item">
-            <div class="company-relations-item-main">
-              <div class="company-relations-item-title">${escHtml(soLabel)}</div>
-              <div class="company-relations-item-meta">${escHtml(meta)}</div>
-            </div>
-            <span class="company-relations-item-status">${escHtml(String(serviceOrder.status || 'draft'))}</span>
-          </div>
-        `;
-      }).join('')
-      : '<div class="company-relations-empty">No related service orders yet.</div>';
   }
 }
 

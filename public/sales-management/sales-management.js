@@ -3,12 +3,10 @@
 // Project-centric spine: Project -> [SI] -> SO -> DR -> AR.
 // SI is OPTIONAL — a project can go straight to SO. The `source` link is
 // therefore optional at every stage (see SALES_STAGE_FIELDS.required).
-// NOTE: the Sales Quotation (SQ) stage was retired. Its entry is kept as a
-// hidden (isVirtual) label so any legacy SQ records still resolve a name, but
-// it is no longer a creatable/navigable tab and is skipped in the SI -> SO flow.
+// NOTE: the Sales Quotation (SQ) stage was removed entirely — no record type, tab,
+// fields, or DB handling. The flow is SI -> SO -> DR -> AR.
 const SALES_TYPES = {
   'sales-request': { label: 'Sales Inquiry', next: 'sales-order', sourceLabel: '', sourceType: '' },
-  'sales-quotation': { label: 'Quotation', next: 'sales-order', sourceLabel: 'Sales Inquiry', sourceType: 'sales-request', isVirtual: true },
   'sales-order': { label: 'SO', next: 'project-delivery', sourceLabel: 'Sales Inquiry', sourceType: 'sales-request' },
   'project-delivery': { label: 'Delivery Receipt', next: '', sourceLabel: 'SO', sourceType: 'sales-order' },
   'requests': { label: 'Requests', next: '', sourceLabel: '', sourceType: '', isVirtual: true }
@@ -35,16 +33,10 @@ const SALES_STAGE_FIELDS = {
     fields: ['company', 'project', 'contact', 'requested-date', 'target-date', 'line-items', 'notes'],
     required: ['company', 'project', 'contact', 'requested-date', 'target-date', 'line-items']
   },
-  'sales-quotation': {
-    sectionTitle: 'Quotation Details',
-    descriptionLabel: 'Quoted Scope / Inclusions',
-    fields: ['source', 'company', 'project', 'contact', 'title', 'requested-date', 'target-date', 'amount', 'payment-terms', 'quote-validity', 'description', 'notes'],
-    required: ['company', 'project', 'title', 'requested-date', 'amount']
-  },
   'sales-order': {
     sectionTitle: 'Sales Order Details',
     descriptionLabel: 'Confirmed Scope',
-    fields: ['source', 'company', 'project', 'contact', 'requested-date', 'target-date', 'payment-terms', 'customer-po-ref', 'line-items', 'description', 'notes'],
+    fields: ['source', 'company', 'project', 'contact', 'requested-date', 'target-date', 'payment-terms', 'downpayment', 'customer-po-ref', 'line-items', 'description', 'notes'],
     required: ['company', 'project', 'requested-date', 'line-items']
   },
   'project-delivery': {
@@ -66,7 +58,6 @@ const SALES_FIELD_CONTROLS = {
   product: 'sales-product-id',
   warehouse: 'sales-warehouse-id',
   quantity: 'sales-quantity',
-  'quote-validity': 'sales-quote-validity',
   downpayment: 'sales-downpayment',
   'customer-po-ref': 'sales-customer-po-ref',
   'received-by': 'sales-received-by',
@@ -248,7 +239,6 @@ function renderSalesToolbarControls(tab) {
   const label = SALES_TYPES[tab]?.label || 'Record';
   const placeholder = {
     'sales-request': 'Search customer, project, or item...',
-    'sales-quotation': 'Search customer, project, or title...',
     'sales-order': 'Search customer, project, or SO title...',
     'project-delivery': 'Search customer, project, or delivery...'
   }[tab] || 'Search...';
@@ -318,16 +308,41 @@ function syncSalesModalFields(recordType = activeSalesTab) {
 
 function syncSalesSidebarActiveLink() {
   const targetHref = `/sales-management?tab=${activeSalesTab}`;
+  let activeLink = null;
   document.querySelectorAll('#sidebar .sidebar-link').forEach((link) => {
     let isActive = false;
     try {
       const href = new URL(link.getAttribute('href') || '', window.location.origin);
-      isActive = `${href.pathname}${href.search}` === targetHref;
+      const linkRoute = `${href.pathname}${href.search}`;
+      const currentDefaultRoute = window.location.pathname.replace(/\/+$/, '') === '/sales-management'
+        && !new URLSearchParams(window.location.search || '').has('tab')
+        && activeSalesTab === 'sales-request'
+        && linkRoute === '/sales-management?tab=sales-request';
+      isActive = linkRoute === targetHref || currentDefaultRoute;
     } catch (_) {
       isActive = false;
     }
     link.classList.toggle('active', isActive);
+    if (isActive) activeLink = link;
   });
+
+  const activeGroup = activeLink && typeof activeLink.closest === 'function'
+    ? activeLink.closest('.sidebar-group')
+    : null;
+  if (activeGroup) {
+    activeGroup.classList.remove('is-collapsed');
+    const toggle = activeGroup.querySelector('.sidebar-group-toggle');
+    if (toggle) toggle.setAttribute('aria-expanded', 'true');
+    const key = String(activeGroup.getAttribute('data-sidebar-group') || '').trim();
+    if (key) {
+      try { localStorage.setItem(`kinaadman_sidebarGroup_${key}`, '0'); } catch (_) {}
+    }
+    window.requestAnimationFrame(() => {
+      if (typeof activeLink.scrollIntoView === 'function') {
+        activeLink.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
+    });
+  }
 }
 
 // A project can only be linked once it is a real (approved) project — not while
@@ -585,7 +600,13 @@ function renderInvoiceButton(row) {
   const status = String(row.status || '').toLowerCase();
   if (!['delivered', 'completed'].includes(status)) return '';
   if (row.ar_invoice_number) {
-    return `<span class="status-chip status-approved" title="Invoice: ${escAttr(row.ar_invoice_number)}">&#x2713; ${escHtml(row.ar_invoice_number)}</span>`;
+    // Show the AR collection status (Paid / Partial / Overdue / Unpaid / Invoiced)
+    // so Sales sees how far along collection is, not just the invoice number.
+    const arStatus = String(row.ar_invoice_status || 'draft').toLowerCase();
+    const labels = { paid: 'Paid', partial: 'Partial', overdue: 'Overdue', sent: 'Unpaid', draft: 'Invoiced', cancelled: 'Cancelled' };
+    const cls = ['paid', 'partial', 'overdue', 'sent', 'draft', 'cancelled'].includes(arStatus) ? arStatus : 'draft';
+    const label = labels[cls] || 'Invoiced';
+    return `<span class="status-chip status-${cls}" title="Invoice ${escAttr(row.ar_invoice_number)} — ${escAttr(label)}">&#x2713; ${escHtml(row.ar_invoice_number)} · ${escHtml(label)}</span>`;
   }
   return `<button class="btn btn-primary btn-sm" type="button" onclick="generateDeliveryInvoice(${Number(row.id)})">Generate Invoice</button>`;
 }
@@ -626,6 +647,20 @@ async function loadSalesNumberPreview(recordType) {
   }
 }
 
+// Name of the logged-in user, for the Sales Inquiry "Requested By" default.
+// Mirrors the PR modal: cached login badge first, then the global currentUser.
+function getSalesRequesterName() {
+  try {
+    const badge = JSON.parse(localStorage.getItem('kinaadman_currentUserBadge') || '{}');
+    const name = String(badge.fullname || badge.username || badge.email || '').trim();
+    if (name) return name;
+  } catch (_) {}
+  const u = (typeof window !== 'undefined' && window.currentUser)
+    ? window.currentUser
+    : (typeof currentUser !== 'undefined' ? currentUser : null);
+  return String(u?.fullname || u?.name || u?.username || u?.email || '').trim();
+}
+
 function openSalesModal(record = null) {
   clearSalesFieldErrors();
   const isExistingRecord = Boolean(record && Number(record.id || 0));
@@ -656,7 +691,8 @@ function openSalesModal(record = null) {
   setValue('sales-project-id', record?.project_id || '');
   syncSalesProjectContext({ preserveExistingCompany: Boolean(record?.company_id) });
   setValue('sales-source-record-id', record?.source_record_id || '');
-  setValue('sales-contact-person', record?.contact_person || '');
+  // New Sales Inquiry: "Requested By" defaults to the logged-in user (still editable).
+  setValue('sales-contact-person', record?.contact_person || (!isExistingRecord && recordType === 'sales-request' ? getSalesRequesterName() : ''));
   setValue('sales-title', record?.title || '');
   setValue('sales-requested-date', toDateInputValue(record?.requested_date) || toDateInputValue(new Date()));
   setValue('sales-target-date', toDateInputValue(record?.target_date) || '');
@@ -670,7 +706,6 @@ function openSalesModal(record = null) {
   setValue('sales-quantity', record?.quantity || '');
   setValue('sales-unit-price', record?.unit_price || '');
   setValue('sales-payment-terms', record?.payment_terms || '');
-  setValue('sales-quote-validity', toDateInputValue(record?.quote_validity) || '');
   setValue('sales-downpayment', Number(record?.downpayment || 0) > 0 ? Number(record?.downpayment || 0) : '');
   setValue('sales-customer-po-ref', record?.customer_po_ref || '');
   setValue('sales-received-by', record?.received_by || '');
@@ -746,7 +781,6 @@ async function saveSalesRecord() {
     quantity: getValue('sales-quantity'),
     unit_price: getValue('sales-unit-price'),
     payment_terms: getValue('sales-payment-terms'),
-    quote_validity: getValue('sales-quote-validity'),
     downpayment: getValue('sales-downpayment'),
     customer_po_ref: getValue('sales-customer-po-ref'),
     received_by: getValue('sales-received-by'),
@@ -1418,6 +1452,12 @@ function promoteSalesRecord(id) {
     quantity: record.quantity,
     unit_price: record.unit_price,
     payment_terms: record.payment_terms,
+    downpayment: record.downpayment,
+    customer_po_ref: record.customer_po_ref,
+    // Carry the source record's requested items forward so the next stage (e.g. the
+    // Delivery Receipt from a Sales Order) opens pre-filled instead of empty — which
+    // otherwise fails the required line-items validation even when "filled up".
+    line_items: Array.isArray(record.line_items) ? record.line_items : [],
     description: record.description,
     status: getDefaultSalesStatus(next),
     notes: `Created from ${record.document_no || 'source record'}.`

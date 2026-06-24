@@ -7,16 +7,16 @@
   <meta http-equiv="Expires" content="0">
   <title>KVSK CCTV &amp; IT Solutions - Admin Panel</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<script src="/assets/js/auth-guard.js?v=20260611fix"></script>
+<script src="/assets/js/auth-guard.js?v=20260622crm"></script>
 <script defer src="/assets/js/table-paginate.js?v=20260609pg"></script>
-<script defer src="/assets/js/workspace-switcher.js?v=20260611fix"></script>
+<script defer src="/assets/js/workspace-switcher.js?v=20260611rev"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&amp;family=Orbitron:wght@500;700;800&amp;family=Playfair+Display:wght@600;700&amp;family=IBM+Plex+Mono:wght@300;400;500&amp;display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260611fix">
+  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260611rev">
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a">
-  <link rel="stylesheet" href="/admin/css/admin.css?v=20260611fix">
-  <link rel="stylesheet" href="/admin/css/roles/role-admin.css?v=20260611fix">
-  <link rel="stylesheet" href="/admin/css/roles/role-super-admin.css?v=20260611fix">
-  <link rel="stylesheet" href="/assets/css/warm-minimal.css?v=20260611fix">
+  <link rel="stylesheet" href="/admin/css/admin.css?v=20260611rev">
+  <link rel="stylesheet" href="/admin/css/roles/role-admin.css?v=20260611rev">
+  <link rel="stylesheet" href="/admin/css/roles/role-super-admin.css?v=20260611rev">
+  <link rel="stylesheet" href="/assets/css/warm-minimal.css?v=20260611rev">
 </head>
 <body class="admin-page">
 <script>
@@ -55,16 +55,16 @@
       </button>
       <button class="brand-link" type="button" onclick="openSidebarDashboard(this)" aria-label="Go to dashboard">
         <div class="brand-lockup">
-        <img class="brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV &amp; IT Solution logo">
+        <img class="brand-mark" alt="" hidden />
         <div class="brand-copy">
-          <div class="header-logo">KVSK CCTV &amp; IT Solution</div>
+          <div class="header-logo">All Companies</div>
         </div>
         </div>
       </button>
     </div>
     <div class="header-right">
       <div class="business-profile-menu">
-        <button class="workspace-badge business-profile-trigger" id="current-workspace-badge" type="button" aria-haspopup="true" aria-expanded="false">KVSK Workspace</button>
+        <button class="workspace-badge business-profile-trigger" id="current-workspace-badge" type="button" aria-haspopup="true" aria-expanded="false">All Companies</button>
         <div class="business-profile-panel" id="business-profile-panel" role="menu" aria-label="Switch workspace"></div>
       </div>
       <span class="admin-badge" id="role-badge" data-user-ready="0" aria-live="polite"></span>
@@ -93,24 +93,32 @@
   </header>
   <script>
     (function () {
+      var rawContext = '';
+      try { rawContext = String(localStorage.getItem('kinaadman_businessEntityContext') || '').trim().toLowerCase(); } catch (_) {}
       var stored = null;
       try {
         var raw = localStorage.getItem('kinaadman_businessEntityTheme');
         stored = raw ? JSON.parse(raw) : null;
       } catch (_) {}
-      if (!stored || !stored.theme) return;
-      var rawContext = '';
-      try { rawContext = String(localStorage.getItem('kinaadman_businessEntityContext') || '').trim().toLowerCase(); } catch (_) {}
-      var isAllCompanies = rawContext === 'all';
-      var name = String(stored && stored.company_name ? stored.company_name : 'KVSK CCTV & IT Solution').trim();
+      // Default scope is "All Companies" until a specific operating company is chosen.
+      // On the very first login nothing is stored yet, so treat that as All Companies
+      // too — that way the header never flashes the hard-coded KVSK workspace.
+      var isAllCompanies = (rawContext === '' || rawContext === 'all');
+      var name = String(stored && stored.company_name ? stored.company_name : '').trim();
       var badge = document.getElementById('current-workspace-badge');
-      if (badge && isAllCompanies) {
-        badge.textContent = 'All Companies';
-        badge.title = 'Showing records from all business entities';
-        badge.setAttribute('aria-label', 'Showing all business entities');
+      if (badge) {
+        if (isAllCompanies) {
+          badge.textContent = 'All Companies';
+          badge.title = 'Showing records from all business entities';
+          badge.setAttribute('aria-label', 'Showing all business entities');
+        } else if (name) {
+          badge.textContent = name;
+          badge.title = 'Showing records for ' + name;
+          badge.setAttribute('aria-label', 'Showing records for ' + name);
+        }
       }
       var brand = document.querySelector('header .brand-copy .header-logo');
-      if (brand) brand.textContent = isAllCompanies ? 'All Companies' : name;
+      if (brand) brand.textContent = isAllCompanies ? 'All Companies' : (name || 'All Companies');
       if (document.documentElement && document.documentElement.dataset) {
         document.documentElement.dataset.businessEntityBrandTextReady = '1';
       }
@@ -135,11 +143,20 @@
         else if (panel === 'ongoing-projects') title.textContent = 'Ongoing Projects';
         else if (panel === 'system-logs') title.textContent = 'System Logs';
         else if (panel === 'archive-center') title.textContent = 'Archive Center';
+        else if (panel === 'approval-center') title.textContent = 'Approval Center';
       })();
     </script>
 
     <!-- Alerts Strip — populated by renderDashboardAlerts() -->
     <div class="dashboard-alerts-strip" id="dashboard-alerts-strip" hidden aria-live="polite"></div>
+
+    <!-- Global Search — find any document number/name and jump straight to it -->
+    <div class="global-search" id="global-search">
+      <div class="global-search-box">
+        <input id="global-search-input" type="search" autocomplete="off" placeholder="🔍  Search any document — PR, PO, GRN, Bill, Invoice, Project, Company, Vendor..." aria-label="Global search" />
+      </div>
+      <div class="global-search-results" id="global-search-results" hidden></div>
+    </div>
 
     <!-- Quick Actions -->
     <div class="dashboard-quick-actions" id="dashboard-quick-actions">
@@ -209,7 +226,7 @@
       </div>
 
       <!-- Sales Management -->
-      <div class="stat-card stat-card-accent stat-card-link" id="stat-card-sales" onclick="navigateDashboardCard('/sales-management')">
+      <div class="stat-card stat-card-accent stat-card-link" id="stat-card-sales" onclick="navigateDashboardCard('/sales-management?tab=sales-request')">
         <div class="stat-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24">
             <path d="M5.5 19.5V5A1.5 1.5 0 0 1 7 3.5h8l3.5 3.5v12.5"></path>
@@ -268,7 +285,22 @@
         <div class="stat-val" id="stat-inventory">0</div>
         <div class="stat-mini" id="stat-inventory-mini">All Companies &bull; 0 warehouses &bull; 0 low stock</div>
       </div>
-      
+
+      <!-- Customer Relationship Management -->
+      <div class="stat-card stat-card-accent stat-card-link" id="stat-card-crm" onclick="navigateDashboardCard('/crm?tab=leads')">
+        <div class="stat-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <circle cx="9" cy="8" r="3"></circle>
+            <path d="M3.5 19a5.5 5.5 0 0 1 11 0"></path>
+            <path d="M16 8.4a2.8 2.8 0 0 1 0 5.5"></path>
+            <path d="M17.8 19a5 5 0 0 0-3-4.6"></path>
+          </svg>
+        </div>
+        <div class="stat-label">Customer Relationship</div>
+        <div class="stat-val" id="stat-crm">0 open</div>
+        <div class="stat-mini" id="stat-crm-mini">All Companies &bull; leads &amp; contacts</div>
+      </div>
+
       <!-- Accounts Payable -->
       <div class="stat-card stat-card-danger stat-card-link" id="stat-card-ap" onclick="navigateDashboardCard('/accounts-payable?tab=bills')">
         <div class="stat-icon" aria-hidden="true">
@@ -319,10 +351,6 @@
       <div class="approval-center-head">
         <div class="approval-center-title-wrap">
           <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-smart-back="1" data-back-force-fallback="1" data-back-fallback="/admin" onclick="goBackSmart('/admin', true)" aria-label="Go back to Dashboard">Back to Dashboard</button>
-          <div class="approval-center-heading">
-            <span class="approval-center-kicker">Workflow</span>
-            <h2>Approval Center</h2>
-          </div>
         </div>
         <div class="approval-center-actions">
           <button class="btn btn-cancel btn-sm" type="button" onclick="renderApprovalCenter(true)">Refresh</button>
@@ -713,11 +741,6 @@
           <div class="stat-val" id="archive-count-projects">0</div>
           <div class="stat-mini">Hidden project records</div>
         </div>
-        <div class="stat-card stat-card-warning">
-          <div class="stat-label">Archived Transactions</div>
-          <div class="stat-val gold" id="archive-count-transactions">0</div>
-          <div class="stat-mini">Archived invoices/receipts</div>
-        </div>
         <div class="stat-card stat-card-company">
           <div class="stat-label">Archived Companies</div>
           <div class="stat-val" id="archive-count-companies">0</div>
@@ -728,27 +751,16 @@
           <div class="stat-val gold" id="archive-count-receivables">0</div>
           <div class="stat-mini">Receivable records</div>
         </div>
-        <div class="stat-card stat-card-danger">
-          <div class="stat-label">Archived Service Orders</div>
-          <div class="stat-val" id="archive-count-service-orders">0</div>
-          <div class="stat-mini">Service order records</div>
-        </div>
       </div>
       <div class="module-tabs archive-center-tabs" role="tablist" aria-label="Archive Center categories">
         <button class="module-tab archive-center-tab active" type="button" data-archive-center-tab="project" onclick="setArchiveCenterTab('project')" aria-selected="true">
           Projects <span class="archive-tab-count" id="archive-tab-count-projects">0</span>
-        </button>
-        <button class="module-tab archive-center-tab" type="button" data-archive-center-tab="transaction" onclick="setArchiveCenterTab('transaction')" aria-selected="false">
-          Transactions <span class="archive-tab-count" id="archive-tab-count-transactions">0</span>
         </button>
         <button class="module-tab archive-center-tab" type="button" data-archive-center-tab="company" onclick="setArchiveCenterTab('company')" aria-selected="false">
           Companies <span class="archive-tab-count" id="archive-tab-count-companies">0</span>
         </button>
         <button class="module-tab archive-center-tab" type="button" data-archive-center-tab="receivable" onclick="setArchiveCenterTab('receivable')" aria-selected="false">
           AR <span class="archive-tab-count" id="archive-tab-count-receivables">0</span>
-        </button>
-        <button class="module-tab archive-center-tab" type="button" data-archive-center-tab="service-order" onclick="setArchiveCenterTab('service-order')" aria-selected="false">
-          Service Orders <span class="archive-tab-count" id="archive-tab-count-service-orders">0</span>
         </button>
       </div>
       <div class="table-wrap archive-center-wrap">
@@ -819,7 +831,7 @@
 <div class="sidebar" id="sidebar" data-admin-role-sidebar="1" data-shared-sidebar-rendered="role-managed">
   <div class="sidebar-header">
     <a class="sidebar-brand" href="/admin?view=dashboard" onclick="openSidebarDashboard(this); return false;" aria-label="Go to dashboard">
-      <img class="sidebar-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV &amp; IT Solution logo">
+      <img class="sidebar-brand-mark" alt="" hidden />
       <div>
         <div class="header-logo" style="font-size: 1rem;">KVSK CCTV</div>
         <div class="header-sub">Operations Control Panel</div>
@@ -861,6 +873,17 @@
         <a href="/sales-management?tab=sales-request" class="sidebar-link is-subitem" id="menu-sales-management">Sales Request</a>
         <a href="/sales-management?tab=sales-order" class="sidebar-link is-subitem">Sales Order</a>
         <a href="/sales-management?tab=project-delivery" class="sidebar-link is-subitem">Project Delivery</a>
+      </div>
+    </div>
+
+    <div class="sidebar-group" data-sidebar-group="crm">
+      <button type="button" class="sidebar-group-toggle" onclick="toggleSidebarGroup(this)" aria-expanded="true">
+        <span>Customer Relationship</span>
+        <span class="sidebar-group-caret" aria-hidden="true">&#9662;</span>
+      </button>
+      <div class="sidebar-group-items">
+        <a href="/crm?tab=leads" class="sidebar-link is-subitem" id="menu-crm">Leads &amp; Pipeline</a>
+        <a href="/crm?tab=contacts" class="sidebar-link is-subitem">Contacts</a>
       </div>
     </div>
 
@@ -1361,7 +1384,7 @@
   <div class="modal" style="max-width: 400px;">
     <button class="modal-close" onclick="closeUserModal()">&times;</button>
     <div class="user-modal-brand">
-      <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV &amp; IT Solution logo">
+      <img class="user-modal-brand-mark" alt="" hidden />
       <div>
         <div class="user-modal-kicker">KITSI Access Control</div>
         <div class="modal-title" id="user-modal-title" style="margin-bottom: 0;">Edit User</div>
@@ -1745,23 +1768,103 @@
 
 <!-- Scripts -->
 <script src="/admin/js/navigation/role-navigation-renderer.js?v=20260531b"></script>
-<script src="/admin/js/navigation/role-admin.js?v=20260611fix"></script>
-<script src="/admin/js/navigation/role-super-admin.js?v=20260611fix"></script>
+<script src="/admin/js/navigation/role-admin.js?v=20260622crm"></script>
+<script src="/admin/js/navigation/role-super-admin.js?v=20260622crm"></script>
 <script src="/admin/js/dashboard-cards/role-dashboard-cards.js?v=20260531k"></script>
-<script src="/admin/js/dashboard-cards/role-dashboard-admin.js?v=20260611fix"></script>
-<script src="/admin/js/dashboard-cards/role-dashboard-super-admin.js?v=20260611fix"></script>
+<script src="/admin/js/dashboard-cards/role-dashboard-admin.js?v=20260622crm"></script>
+<script src="/admin/js/dashboard-cards/role-dashboard-super-admin.js?v=20260622crm"></script>
 <script src="/admin/js/roles/role-flow.js?v=20260531c"></script>
 <script src="/admin/js/modules/notifications.module.js?v=20260531a"></script>
-<script src="/admin/js/admin.js?v=20260611fix"></script>
-<script src="/admin/js/modules/approval-center.module.js?v=20260605sales"></script>
+<script src="/admin/js/admin.js?v=20260621arch"></script>
+<script src="/admin/js/modules/approval-center.module.js?v=20260611rev"></script>
 
+<!-- CRM dashboard card: live count (isolated from admin.js; updates by element id). -->
+<script>
+  (function () {
+    function crmEntityId() {
+      try { return String(localStorage.getItem('kinaadman_businessEntityContext') || '').trim(); } catch (_) { return ''; }
+    }
+    function updateCrmCard() {
+      var id = crmEntityId();
+      var scoped = id && id !== 'all';
+      var q = scoped ? ('?business_entity_id=' + encodeURIComponent(id)) : '';
+      fetch('/api/crm/summary' + q, { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) {
+          if (!d) return;
+          var val = document.getElementById('stat-crm');
+          var mini = document.getElementById('stat-crm-mini');
+          if (val) val.textContent = (d.open_leads || 0) + ' open';
+          if (mini) mini.textContent = (scoped ? 'This workspace' : 'All Companies') + ' • ' + (d.total_leads || 0) + ' leads • ' + (d.contacts || 0) + ' contacts';
+        })
+        .catch(function () {});
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', updateCrmCard);
+    else updateCrmCard();
+    window.addEventListener('storage', function (e) { if (e.key === 'kinaadman_businessEntityContext') updateCrmCard(); });
+  })();
+</script>
 
+<!-- Global dashboard search: type any document number/name → results → jump straight there. -->
+<style>
+  .global-search { position: relative; max-width: 460px; margin: 0 0 16px auto; }
+  @media (max-width: 640px) { .global-search { max-width: 100%; margin: 0 0 16px; } }
+  .global-search-box { display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid var(--border, #e5d9d2); border-radius: 12px; padding: 10px 14px; box-shadow: 0 2px 10px rgba(0,0,0,0.04); }
+  .global-search-box:focus-within { border-color: var(--primary, #7a1f1f); box-shadow: 0 4px 18px rgba(122,31,31,0.12); }
+  .global-search-icon { width: 18px; height: 18px; flex: none; color: var(--muted, #8a7d75); }
+  .global-search-icon circle, .global-search-icon path { fill: none; stroke: currentColor; }
+  #global-search-input { flex: 1; border: 0; outline: 0; font-size: 0.95rem; background: transparent; color: var(--text, #3a2c25); }
+  .global-search-results { position: absolute; left: 0; right: 0; top: calc(100% + 6px); background: #fff; border: 1px solid var(--border, #e5d9d2); border-radius: 12px; box-shadow: 0 16px 50px rgba(0,0,0,0.18); max-height: 420px; overflow-y: auto; z-index: 2000; padding: 6px; }
+  .gs-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; text-decoration: none; color: var(--text, #3a2c25); }
+  .gs-item:hover { background: var(--surface2, #f7f1ed); }
+  .gs-type { font-size: 0.64rem; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; color: var(--primary, #7a1f1f); background: #f3e6e2; border-radius: 6px; padding: 3px 8px; flex: none; min-width: 120px; text-align: center; }
+  .gs-label { font-weight: 700; }
+  .gs-draft { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: #475569; background: #eef2f7; border: 1px solid #d7dee8; border-radius: 999px; padding: 2px 8px; flex: none; }
+  .gs-pending { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: #b45309; background: #fff4e2; border: 1px solid #f6d9a8; border-radius: 999px; padding: 2px 8px; flex: none; }
+  .gs-sub { color: var(--muted, #8a7d75); font-size: 0.8rem; margin-left: auto; }
+  .gs-empty { padding: 16px; color: var(--muted, #8a7d75); font-style: italic; text-align: center; }
+</style>
+<script>
+  (function () {
+    var input = document.getElementById('global-search-input');
+    var box = document.getElementById('global-search-results');
+    var wrap = document.getElementById('global-search');
+    if (!input || !box || !wrap) return;
+    var timer = null, lastQ = '';
+    function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+    function hide() { box.hidden = true; box.innerHTML = ''; }
+    function render(results, q) {
+      if (!results || !results.length) { box.innerHTML = '<div class="gs-empty">Walang nahanap para sa &quot;' + esc(q) + '&quot;</div>'; box.hidden = false; return; }
+      box.innerHTML = results.map(function (r) {
+        return '<a class="gs-item" href="' + esc(r.url) + '">' +
+          '<span class="gs-type">' + esc(r.type) + '</span>' +
+          '<span class="gs-label">' + esc(r.label) + '</span>' +
+          (r.state === 'pending' ? '<span class="gs-pending">Pending</span>' : (r.state === 'draft' ? '<span class="gs-draft">Draft</span>' : '')) +
+          (r.sub ? '<span class="gs-sub">' + esc(r.sub) + '</span>' : '') + '</a>';
+      }).join('');
+      box.hidden = false;
+    }
+    function run() {
+      var q = input.value.trim(); lastQ = q;
+      if (q.length < 2) { hide(); return; }
+      var ctx = '';
+      try { ctx = String(localStorage.getItem('kinaadman_businessEntityContext') || '').trim(); } catch (_) {}
+      var url = '/api/search?q=' + encodeURIComponent(q) + (ctx ? '&business_entity_id=' + encodeURIComponent(ctx) : '');
+      fetch(url, { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : { results: [] }; })
+        .then(function (d) { if (input.value.trim() === lastQ) render(d.results || [], q); })
+        .catch(function () {});
+    }
+    input.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(run, 220); });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { hide(); input.blur(); }
+      else if (e.key === 'Enter') { var first = box.querySelector('.gs-item'); if (first) window.location.href = first.getAttribute('href'); }
+    });
+    document.addEventListener('click', function (e) { if (!wrap.contains(e.target)) hide(); });
+  })();
+</script>
 
 </body></html>
-
-
-
-
 
 
 

@@ -239,6 +239,11 @@
 .status-completed { color: #5b1a24; background: #f7f1f1; border-color: #dfd3d5; }
 .status-rejected,
 .status-cancelled { color: #8f1f14; background: #fbe9e7; border-color: #f3c2bc; }
+/* AR collection status (mirrors the Accounts Receivable chips) so Sales can see
+   whether a delivered order has been paid without leaving the module. */
+.status-paid     { color: #1b5e20; background: #eef7ee; border-color: #c5e2c5; }
+.status-partial  { color: #9a6a00; background: #fff8e6; border-color: #f3dca0; }
+.status-overdue  { color: #8f1f14; background: #fbe9e7; border-color: #f3c2bc; }
 
 /* ── req star ──────────────────────────────────────────────── */
 .req-star { color: #b42318; }

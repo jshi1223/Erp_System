@@ -1,16 +1,16 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>KVSK CCTV & IT Solution - Sales Management</title>
-  <script src="/assets/js/auth-guard.js?v=20260611fix"></script>
+  <script src="/assets/js/auth-guard.js?v=20260622crm"></script>
   <script defer src="/assets/js/table-paginate.js?v=20260609pg"></script>
-  <script defer src="/assets/js/workspace-switcher.js?v=20260611fix"></script>
-  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260611fix">
+  <script defer src="/assets/js/workspace-switcher.js?v=20260611rev"></script>
+  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260611rev">
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a">
-  <link rel="stylesheet" href="/sales-management/sales-management.css?v=20260609twocol">
-  <link rel="stylesheet" href="/assets/css/warm-minimal.css?v=20260611fix">
+  <link rel="stylesheet" href="/sales-management/sales-management.css?v=20260611arstatus">
+  <link rel="stylesheet" href="/assets/css/warm-minimal.css?v=20260611rev">
 </head>
 <body class="erp-clean-page sales-management-page">
 <script>
@@ -21,7 +21,7 @@
       if (role === 'staff') {
         document.body.dataset.accessRole = 'staff';
         document.body.dataset.initialSalesTab = 'sales-request';
-        // Hide admin-only tabs immediately — no flash before JS loads
+        // Hide admin-only tabs immediately � no flash before JS loads
         document.body.dataset.salesStaffView = '1';
       } else {
         document.body.dataset.initialSalesTab = 'sales-request';
@@ -30,7 +30,7 @@
   })();
 </script>
 <style>
-  /* Hide admin tabs immediately for staff — overridden by JS after load */
+  /* Hide admin tabs immediately for staff � overridden by JS after load */
   body[data-sales-staff-view="1"] [data-sales-admin-tab] {
     display: none !important;
   }
@@ -48,9 +48,9 @@
       </button>
       <button class="brand-link" type="button" onclick="window.location.href='/admin'" aria-label="Go to admin dashboard">
         <div class="brand-lockup">
-          <img class="brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo">
+          <img class="brand-mark" alt="" hidden />
           <div class="brand-copy">
-            <div class="header-logo">KVSK CCTV & IT Solution</div>
+            <div class="header-logo">All Companies</div>
             <div class="header-sub">Sales Management</div>
           </div>
         </div>
@@ -68,7 +68,7 @@
     <section class="page-hero">
       <div class="page-hero-copy" style="max-width:none;">
         <div class="page-title">Sales Management</div>
-        <div class="page-sub">Manage sales inquiries, sales orders, and delivery receipts — all linked to a project.</div>
+        <div class="page-sub">Manage sales inquiries, sales orders, and delivery receipts � all linked to a project.</div>
       </div>
     </section>
 
@@ -122,16 +122,16 @@
   <div class="sidebar" id="sidebar">
     <div class="sidebar-header">
       <div class="sidebar-brand">
-        <img class="sidebar-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo">
+        <img class="sidebar-brand-mark" alt="" hidden />
         <div>
-          <div class="header-logo" style="font-size: 1rem;">KVSK CCTV</div>
+          <div class="header-logo" style="font-size: 1rem;">All Companies</div>
           <div class="header-sub">Operations Control Panel</div>
         </div>
       </div>
       <button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()" aria-label="Close menu">X</button>
     </div>
     <!-- Sidebar nav is built from the shared role config in auth-guard.js
-         (renderSharedSidebar), same as every other module — do NOT hardcode
+         (renderSharedSidebar), same as every other module � do NOT hardcode
          groups here or the content will drift from the rest of the app. -->
     <nav class="sidebar-nav"></nav>
   </div>
@@ -141,7 +141,7 @@
       <button class="modal-close" type="button" id="sales-modal-close" aria-label="Close">&#x2715;</button>
 
       <div class="user-modal-brand">
-        <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+        <img class="user-modal-brand-mark" alt="" hidden />
         <div>
           <div class="user-modal-kicker">Sales Management</div>
           <div class="modal-title" id="sales-modal-title" style="margin-bottom:0;">New Sales Inquiry</div>
@@ -184,7 +184,7 @@
         <div class="field full" id="sales-source-field" data-sales-field="source">
           <label><span id="sales-source-label">Source Record</span> <span class="proc-help" style="display:inline;font-weight:600;">(optional)</span></label>
           <select id="sales-source-record-id"></select>
-          <div class="proc-help">Optional — link the previous-stage document for traceability. A project can start straight at SO.</div>
+          <div class="proc-help">Optional � link the previous-stage document for traceability. A project can start straight at SO.</div>
           <div class="modal-inline-message is-hidden" data-sales-field-message="source" aria-live="polite"></div>
         </div>
 
@@ -200,7 +200,7 @@
         <div class="field full" data-sales-field="company">
           <label>Customer / Company <span class="req-star">*</span></label>
           <select id="sales-company-id"></select>
-          <div class="proc-help">Select a project first — company is filled automatically from the linked project.</div>
+          <div class="proc-help">Select a project first � company is filled automatically from the linked project.</div>
           <div class="modal-inline-message is-hidden" data-sales-field-message="company" aria-live="polite"></div>
         </div>
 
@@ -243,12 +243,6 @@
           <input id="sales-payment-terms" type="text" maxlength="100" />
         </div>
 
-        <!-- Quotation: validity (mirrors RFQ) -->
-        <div class="field" data-sales-field="quote-validity">
-          <label>Quote Valid Until</label>
-          <input id="sales-quote-validity" type="date" />
-        </div>
-
         <!-- Sales Order: downpayment + customer PO ref (mirrors PO) -->
         <div class="field" data-sales-field="downpayment">
           <label>Downpayment</label>
@@ -271,7 +265,7 @@
         </div>
         <!-- Delivery Receipt: which purchase order supplied the delivered goods -->
         <div class="field full" data-sales-field="source-po">
-          <label>Source PO <span class="field-hint">(saan binili — para sa traceability / warranty)</span></label>
+          <label>Source PO <span class="field-hint">(saan binili � para sa traceability / warranty)</span></label>
           <select id="sales-source-po-id">
             <option value="">No source PO</option>
           </select>
@@ -308,13 +302,13 @@
         <!-- Delivery Receipt: pick which serial units are going out (auto-marks
              them Sold when the DR is saved as Delivered/Completed) -->
         <div class="field full" data-sales-field="serials">
-          <label>Serial Units <span class="field-hint">(piliin ang mga lalabas — auto-Sold kapag Delivered)</span></label>
+          <label>Serial Units <span class="field-hint">(piliin ang mga lalabas � auto-Sold kapag Delivered)</span></label>
           <div id="sales-serial-picker" class="sales-serial-picker">
             <div class="sales-serial-empty">Pumili muna ng Inventory Product.</div>
           </div>
         </div>
 
-        <!-- Requested Items (same as PR — full width, inside grid) -->
+        <!-- Requested Items (same as PR � full width, inside grid) -->
         <div class="field full po-lines-field" data-sales-field="line-items">
           <div class="po-line-toolbar">
             <div>
@@ -342,7 +336,7 @@
           <textarea id="sales-description" style="height:60px" placeholder="Scope, inclusions, remarks..."></textarea>
         </div>
 
-        <!-- Notes (same as PR — full width) -->
+        <!-- Notes (same as PR � full width) -->
         <div class="field full" data-sales-field="notes">
           <label>Notes</label>
           <textarea id="sales-notes" style="height:60px" placeholder="Internal notes..."></textarea>
@@ -357,8 +351,7 @@
     </div>
   </div>
 
-  <script src="/assets/js/erp-core.js?v=20260611fix"></script>
-  <script src="/sales-management/sales-management.js?v=20260611fix"></script>
+  <script src="/assets/js/erp-core.js?v=20260621brand"></script>
+  <script src="/sales-management/sales-management.js?v=20260611rev"></script>
 </body>
 </html>
-

@@ -13,7 +13,8 @@
     id: '1',
     code: 'KVSK',
     name: 'KVSK CCTV & IT Solution',
-    theme: 'kvsk'
+    theme: 'kvsk',
+    logo: ''
   };
 
   function normalizeLoginUsername(value) {
@@ -220,13 +221,14 @@
     return `${message}. ${attemptsRemaining} ${attemptLabel} remaining.`;
   }
 
-  function getThemeProfile(theme, name) {
-    void theme;
-    void name;
+  function getThemeProfile(theme, name, logoPath = '') {
+    const safeTheme = /kitsi|ktiis/i.test(`${theme || ''} ${name || ''}`) ? 'kitsi' : 'kvsk';
+    const fallbackLogo = safeTheme === 'kitsi' ? '/assets/img/kitsi-logo.png' : '/assets/img/kvsk-logo-switch.png';
+    const logo = String(logoPath || fallbackLogo).trim();
     return {
-      theme: 'kvsk',
-      logo: '/assets/img/kvsk-logo-switch.png',
-      alt: 'KVSK logo',
+      theme: safeTheme,
+      logo,
+      alt: `${name || (safeTheme === 'kitsi' ? 'KITSI' : 'KVSK')} logo`,
       primary: '#b42318',
       primaryLight: '#ef5b4f',
       primaryDark: '#4b1210',
@@ -236,9 +238,12 @@
   }
 
   function persistSelectedLoginEntity() {
-    const profile = getThemeProfile(selectedLoginEntity.theme, selectedLoginEntity.name);
+    const profile = getThemeProfile(selectedLoginEntity.theme, selectedLoginEntity.name, selectedLoginEntity.logo);
     document.documentElement.dataset.loginWorkspace = profile.theme;
-    localStorage.setItem(BUSINESS_ENTITY_CONTEXT_KEY, String(selectedLoginEntity.id || ''));
+    // Start every login in the "All Companies" workspace instead of locking to one
+    // operating company. The chosen brand panel still drives the theme below; only the
+    // data scope defaults to unscoped. Users can still pick a company from the header.
+    localStorage.setItem(BUSINESS_ENTITY_CONTEXT_KEY, 'all');
     const storedThemeProfile = {
       company_name: selectedLoginEntity.name || 'KVSK CCTV & IT Solution',
       theme: profile.theme,
@@ -268,7 +273,8 @@
       id: String(match?.id || fallbackId || ''),
       code: String(match?.entity_code || code || '').toUpperCase(),
       name: String(match?.company_name || fallbackName || '').trim(),
-      theme: fallbackTheme || (String(match?.company_name || '').toLowerCase().includes('kitsi') ? 'kitsi' : 'kvsk')
+      theme: fallbackTheme || (String(match?.company_name || '').toLowerCase().includes('kitsi') ? 'kitsi' : 'kvsk'),
+      logo: String(match?.logo_path || panel.querySelector('.login-brand-mark')?.getAttribute('src') || '').trim()
     };
   }
 
@@ -295,7 +301,15 @@
       copy.textContent = `Sign in to the ${label} workspace for projects, AP, AR, and reports.`;
     }
     if (document.body) {
-      document.body.dataset.loginWorkspace = 'kvsk';
+      document.body.dataset.loginWorkspace = selectedLoginEntity.theme || 'kvsk';
+    }
+    if (document.documentElement) {
+      document.documentElement.dataset.loginWorkspace = selectedLoginEntity.theme || 'kvsk';
+    }
+    const mark = panel.querySelector('.login-brand-mark');
+    if (mark && selectedLoginEntity.logo) {
+      mark.src = selectedLoginEntity.logo;
+      mark.alt = `${selectedLoginEntity.name || selectedLoginEntity.code || 'Company'} logo`;
     }
     persistSelectedLoginEntity();
     if (shouldAnimate) playBrandPanelAnimation(panel);
@@ -376,6 +390,9 @@
       if (res.ok && data.status === 'success') {
         localStorage.removeItem('kinaadman_activeTab');
         localStorage.removeItem('kinaadman_dashboardPanel');
+        // Land every new session on "All Companies" so the first login doesn't flash
+        // the hard-coded KVSK workspace before the entity data finishes loading.
+        localStorage.setItem(BUSINESS_ENTITY_CONTEXT_KEY, 'all');
         try {
           localStorage.setItem('kinaadman_currentUserBadge', JSON.stringify({
             id: data.id || '',
@@ -738,4 +755,3 @@
     showLoginForm();
     setTimeout(() => document.getElementById('uname').focus(), 100);
   };
-

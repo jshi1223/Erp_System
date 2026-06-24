@@ -17,8 +17,8 @@
     var stored = String(localStorage.getItem(KEY) || '').trim();
     if (stored === 'all') return 'all';
     if (stored && rows.some(function (r) { return String(r.id || '') === stored; })) return stored;
-    var def = rows.find(function (r) { return Number(r.is_default || 0) === 1; }) || rows[0];
-    return def ? String(def.id || '') : '';
+    // No saved choice yet → default to "All Companies" (not the is_default entity).
+    return 'all';
   }
 
   function labelFor(val, rows) {
@@ -93,6 +93,38 @@
     });
   }
 
+  // Show the active company's uploaded logo in the page/sidebar/modal brand marks.
+  // The default scope ("All Companies") or a company without a logo shows no mark.
+  function applyEntityLogo(rows) {
+    var stored = String(localStorage.getItem(KEY) || '').trim();
+    var entity = (stored && stored !== 'all')
+      ? rows.find(function (r) { return String(r.id || '') === stored; })
+      : null;
+    var logo = entity && entity.logo_path ? String(entity.logo_path) : '';
+    // Keep the shared theme key in sync so the logo survives a refresh even on pages
+    // (business-entities, inventory, staff) that have no dedicated brand applier — the
+    // auth-guard reads kinaadman_businessEntityTheme.logo on the next page load.
+    try {
+      var tp = JSON.parse(localStorage.getItem('kinaadman_businessEntityTheme') || 'null') || {};
+      tp.logo = logo;
+      if (!tp.theme) tp.theme = 'kvsk';
+      if (entity && entity.company_name) tp.company_name = entity.company_name;
+      localStorage.setItem('kinaadman_businessEntityTheme', JSON.stringify(tp));
+    } catch (e) {}
+    document.querySelectorAll('.brand-mark, .sidebar-brand-mark, .user-modal-brand-mark').forEach(function (img) {
+      if (logo) {
+        img.src = logo;
+        img.alt = (entity.company_name || 'Company') + ' logo';
+        img.style.removeProperty('display');
+        img.removeAttribute('hidden');
+      } else {
+        img.style.display = 'none';
+        img.removeAttribute('src');
+        img.alt = '';
+      }
+    });
+  }
+
   function init() {
     var host = document.querySelector('header .header-right') || document.querySelector('.header-right');
     if (!host) return;
@@ -105,6 +137,7 @@
       .then(function (r) { return r.ok ? r.json() : []; })
       .then(function (rows) {
         rows = Array.isArray(rows) ? rows : [];
+        applyEntityLogo(rows);
         if (rows.length) build(host, rows);
       })
       .catch(function () {});

@@ -1,0 +1,155 @@
+/* CRM module — page-specific styling. Layout (header, sidebar, tables, modal, summary grid,
+   tabs) comes from shared-ui.css / shared.css / warm-minimal.css; this only adds CRM bits. */
+
+.crm-filter-bar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.crm-filter-bar select,
+.crm-filter-bar input[type="search"],
+#contacts-search {
+  min-width: 180px;
+}
+
+/* Pipeline stage badges */
+.crm-stage {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.crm-stage-new        { background: #eef2f7; color: #475569; border-color: #d7dee8; }
+.crm-stage-qualified  { background: #e8f1ff; color: #1d4ed8; border-color: #c7dbff; }
+.crm-stage-proposal   { background: #fff4e2; color: #b45309; border-color: #f6d9a8; }
+.crm-stage-won        { background: #e7f6ec; color: #15803d; border-color: #b7e4c4; }
+.crm-stage-lost       { background: #fdeaea; color: #b42318; border-color: #f3c4c0; }
+
+/* Draft/approval status badge (staff leads): draft -> pending -> approved/rejected. */
+.crm-approval {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.crm-approval-draft    { background: #eef2f7; color: #475569; border-color: #d7dee8; }
+.crm-approval-pending  { background: #fff4e2; color: #b45309; border-color: #f6d9a8; }
+.crm-approval-rejected { background: #fdeaea; color: #b42318; border-color: #f3c4c0; }
+
+/* Company picker — searchable dropdown bound to master data (company_registry). */
+.crm-company-search { position: relative; }
+.crm-company-search > input { width: 100%; }
+.crm-company-results {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid #d7dee8;
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14);
+  padding: 4px;
+}
+.crm-company-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+  font: inherit;
+}
+.crm-company-option:hover,
+.crm-company-option:focus { background: #f1f5f9; }
+.crm-company-option-name { font-weight: 600; color: #1f2937; font-size: 0.86rem; }
+.crm-company-option-sub { font-size: 0.72rem; color: #6b7280; }
+.crm-company-empty { padding: 10px 12px; color: #6b7280; font-size: 0.8rem; font-style: italic; }
+
+/* Entity-coded Lead No (e.g. LEAD-KVSK-2026-001) — monospace for scannability. */
+.crm-docno {
+  font-family: ui-monospace, "SFMono-Regular", "Consolas", monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #7a1220;
+  white-space: nowrap;
+}
+#lead-docno[readonly] {
+  background: #f6f1ec;
+  font-family: ui-monospace, "SFMono-Regular", "Consolas", monospace;
+  font-weight: 700;
+  color: #7a1220;
+  cursor: default;
+}
+
+.crm-sub {
+  font-size: 0.74rem;
+  color: var(--muted, #6b7280);
+  margin-top: 2px;
+}
+
+.crm-empty {
+  text-align: center;
+  color: var(--muted, #6b7280);
+  padding: 28px 12px !important;
+  font-style: italic;
+}
+
+.crm-row-actions {
+  white-space: nowrap;
+}
+.crm-row-actions .btn { margin-left: 4px; }
+
+/* Small action buttons used in table rows */
+.btn-xs {
+  padding: 3px 10px;
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
+/* Toast / status line */
+.crm-status {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%) translateY(12px);
+  background: #1f2937;
+  color: #fff;
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 4000;
+}
+.crm-status.is-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+.crm-status-error { background: #b42318; }
+.crm-status-success { background: #15803d; }
+
+textarea {
+  width: 100%;
+  font: inherit;
+  resize: vertical;
+}

@@ -379,7 +379,9 @@ function applyInitialAdminView(user) {
     users: document.getElementById('menu-users')
   };
 
-  if (requestedView === 'dashboard') {
+  // A stale view=dashboard must not override an explicit panel (e.g. approval-center)
+  // still in the URL — otherwise refreshing on that panel bounces back to the dashboard.
+  if (requestedView === 'dashboard' && !requestedPanel) {
     activeTab = 'all';
     localStorage.setItem('kinaadman_activeTab', 'all');
     localStorage.setItem('kinaadman_dashboardPanel', 'home');
@@ -908,16 +910,6 @@ function getTransactionCompanyName(record) {
   ).trim();
 }
 
-function getServiceOrderCompanyName(row) {
-  if (!row) return '';
-  const companyId = Number(row.company_id || 0) || 0;
-  if (companyId) {
-    const companyRecord = findRegistryCompanyById(companyId);
-    if (companyRecord?.company_name) return String(companyRecord.company_name || '').trim();
-  }
-  return String(row.company_name || row.company_no || '').trim();
-}
-
 function getReceivableCompanyName(row) {
   if (!row) return '';
   const linkedProjectId = Number(row.project_id || 0);
@@ -1058,18 +1050,8 @@ function collectDashboardCompanies() {
     addCompany(companyName, companyName);
   });
 
-  (Array.isArray(allTransactionsDb) ? allTransactionsDb : []).filter(businessEntityMatches).forEach(record => {
-    const companyName = getTransactionCompanyName(record);
-    addCompany(companyName, companyName);
-  });
-
   (Array.isArray(allReceivablesDb) ? allReceivablesDb : []).filter(businessEntityMatches).forEach(row => {
     const companyName = getReceivableCompanyName(row);
-    addCompany(companyName, companyName);
-  });
-
-  (Array.isArray(serviceOrdersDb) ? serviceOrdersDb : []).filter(businessEntityMatches).forEach(row => {
-    const companyName = getServiceOrderCompanyName(row);
     addCompany(companyName, companyName);
   });
 
@@ -1417,10 +1399,6 @@ function setDashboardCompanyFilter(value = 'all') {
   if (typeof updateStats === 'function') {
     updateStats();
   }
-}
-
-function getDashboardInvoiceRows(records = allTransactionsDb) {
-  return getInvoiceRows(records).filter(row => companyMatchesDashboardFilter(getDashboardCompanyNameForRecord(row)));
 }
 
 function getProjectSourceMembers(project) {
@@ -1810,7 +1788,7 @@ function renderProjectRecordsTable() {
 function normalizeProjectWorkspaceTab(tab) {
   const safeTab = String(tab || '').trim().toLowerCase();
   if (isStaffUser()) return ['projects', 'needs-revision', 'requests'].includes(safeTab) ? safeTab : 'projects';
-  return ['projects', 'ongoing', 'transactions', 'service-orders', 'ledger', 'documents'].includes(safeTab)
+  return ['projects', 'ongoing', 'ledger', 'documents'].includes(safeTab)
     ? safeTab
     : 'projects';
 }
@@ -1843,9 +1821,12 @@ function renderProjectWorkspaceTable(title, headers, rows, emptyText) {
     ? rows.join('')
     : `<tr class="empty-row"><td colspan="${headers.length}">${escHtml(emptyText)}</td></tr>`;
 
+  // data-ready="1": these workspace tables are injected fully-rendered, so opt them out
+  // of the #project-records-section anti-flicker gate (which hides .project-records-wrap
+  // until ready). Without it the Ongoing/Overview tables stay visibility:hidden.
   return `
     <div class="section-divider">${escHtml(title)}</div>
-    <div class="table-wrap project-records-wrap">
+    <div class="table-wrap project-records-wrap" data-ready="1">
       <table class="project-records-table">
         <thead><tr>${headerHtml}</tr></thead>
         <tbody>${bodyHtml}</tbody>
@@ -1868,32 +1849,21 @@ function getProjectWorkspaceMetrics() {
   const projects = getProjectWorkspaceProjects();
   const ongoing = projects.filter((project) => getProjectPhase(project) === 'ongoing');
   const upcoming = projects.filter((project) => getProjectPhase(project) === 'upcoming');
-  const transactions = getDashboardInvoiceRows(allTransactionsDb)
-    .filter((row) => businessEntityMatches(row))
-    .filter((row) => companyMatchesDashboardFilter(row.company_name || row.client || getTransactionCompanyName(row)));
   const receivables = (Array.isArray(allReceivablesDb) ? allReceivablesDb : [])
     .filter((row) => businessEntityMatches(row))
     .filter((row) => companyMatchesDashboardFilter(row.company_name || row.customer_name || ''));
-  const serviceOrders = (Array.isArray(serviceOrdersDb) ? serviceOrdersDb : [])
-    .filter((row) => Number(row.is_archived || 0) === 0)
-    .filter((row) => businessEntityMatches(row))
-    .filter((row) => companyMatchesDashboardFilter(getServiceOrderCompanyName(row)));
   const documents = projects.filter((project) => String(project.pdfFilename || '').trim());
   const arTotal = receivables.reduce((sum, row) => sum + Number(row.total_amount || row.amount || 0), 0);
   const collected = receivables.reduce((sum, row) => sum + Number(row.paid_amount || 0), 0);
-  const serviceOrderTotal = serviceOrders.reduce((sum, row) => sum + Number(row.total_amount || row.amount || 0), 0);
 
   return {
     projects,
     ongoing,
     upcoming,
-    transactions,
     receivables,
-    serviceOrders,
     documents,
     arTotal,
-    collected,
-    serviceOrderTotal
+    collected
   };
 }
 
@@ -1922,26 +1892,10 @@ function updateProjectWorkspaceSummary() {
     return;
   }
 
-  if (activeTab === 'transactions') {
-    setProjectWorkspaceSummaryCard(0, 'Transactions', String(metrics.transactions.length), 'Linked invoices and receipts');
-    setProjectWorkspaceSummaryCard(1, 'Receivables', String(metrics.receivables.length), 'AR records');
-    setProjectWorkspaceSummaryCard(2, 'AR Total', formatPhpCurrency(metrics.arTotal), 'Total receivable amount');
-    setProjectWorkspaceSummaryCard(3, 'Collected', formatPhpCurrency(metrics.collected), 'Recorded paid amount');
-    return;
-  }
-
-  if (activeTab === 'service-orders') {
-    setProjectWorkspaceSummaryCard(0, 'Service Orders', String(metrics.serviceOrders.length), 'Linked service records');
-    setProjectWorkspaceSummaryCard(1, 'Issued', String(metrics.serviceOrders.filter((row) => String(row.status || '').toLowerCase() === 'issued').length), 'Issued SOs');
-    setProjectWorkspaceSummaryCard(2, 'In Progress', String(metrics.serviceOrders.filter((row) => String(row.status || '').toLowerCase() === 'in_progress').length), 'Active service work');
-    setProjectWorkspaceSummaryCard(3, 'SO Total', formatPhpCurrency(metrics.serviceOrderTotal), 'Total service amount');
-    return;
-  }
-
   if (activeTab === 'ledger') {
     setProjectWorkspaceSummaryCard(0, getDashboardProjectLabel(), String(metrics.projects.length), 'Ledger-ready project records');
-    setProjectWorkspaceSummaryCard(1, 'Transactions', String(metrics.transactions.length), 'AR-linked records');
-    setProjectWorkspaceSummaryCard(2, 'Service Orders', String(metrics.serviceOrders.length), 'SO-linked records');
+    setProjectWorkspaceSummaryCard(1, 'Receivables', String(metrics.receivables.length), 'AR-linked records');
+    setProjectWorkspaceSummaryCard(2, 'AR Total', formatPhpCurrency(metrics.arTotal), 'Total receivable amount');
     setProjectWorkspaceSummaryCard(3, 'Net AR', formatPhpCurrency(metrics.arTotal - metrics.collected), 'Open receivable balance');
     return;
   }
@@ -1956,7 +1910,7 @@ function updateProjectWorkspaceSummary() {
 
   setProjectWorkspaceSummaryCard(0, getDashboardTotalProjectLabel(), String(metrics.projects.length), `${getCurrentDashboardCompanyLabel()} active records`);
   setProjectWorkspaceSummaryCard(1, 'Ongoing', String(metrics.ongoing.length), 'Currently active');
-  setProjectWorkspaceSummaryCard(2, 'Transactions', String(metrics.transactions.length), 'Linked records');
+  setProjectWorkspaceSummaryCard(2, 'Receivables', String(metrics.receivables.length), 'AR-linked records');
   setProjectWorkspaceSummaryCard(3, 'Documents', String(metrics.documents.length), 'Attached files');
 }
 
@@ -2019,75 +1973,10 @@ function renderProjectWorkspaceOngoing() {
   );
 }
 
-function renderProjectWorkspaceTransactions() {
-  const query = getProjectWorkspaceQuery();
-  const rows = getDashboardInvoiceRows(allTransactionsDb)
-    .filter((row) => businessEntityMatches(row))
-    .filter((row) => companyMatchesDashboardFilter(row.company_name || row.client || getTransactionCompanyName(row)))
-    .filter((row) => projectWorkspaceMatchesSearch([row.docno, row.project_name, row.client, row.description, row.status, row.amount], query))
-    .slice(0, 200)
-    .map((row) => `
-      <tr>
-        <td>${highlight(row.docno || row.invoice_number || '-', query)}</td>
-        <td>${highlight(row.project_name || row.project_docno || '-', query)}</td>
-        <td>${highlight(row.client || row.company_name || '-', query)}</td>
-        <td class="text-right">${formatPhpCurrency(row.amount || row.total_amount || 0)}</td>
-        <td class="text-center">${escHtml(getProjectLedgerRowStatus(row))}</td>
-      </tr>
-    `);
-
-  return renderProjectWorkspaceTable(
-    'Project Transactions',
-    [
-      { label: 'Doc No.' },
-      { label: 'Project' },
-      { label: 'Client' },
-      { label: 'Amount', className: 'text-right' },
-      { label: 'Status', className: 'text-center' }
-    ],
-    rows,
-    'No linked project transactions found.'
-  );
-}
-
-function renderProjectWorkspaceServiceOrders() {
-  const query = getProjectWorkspaceQuery();
-  const rows = (Array.isArray(serviceOrdersDb) ? serviceOrdersDb : [])
-    .filter((row) => Number(row.is_archived || 0) === 0)
-    .filter((row) => businessEntityMatches(row))
-    .filter((row) => companyMatchesDashboardFilter(getServiceOrderCompanyName(row)))
-    .filter((row) => projectWorkspaceMatchesSearch([row.so_number, row.project_name, row.service_title, getServiceOrderCompanyName(row), row.status], query))
-    .slice(0, 200)
-    .map((row) => `
-      <tr>
-        <td>${highlight(row.so_number || '-', query)}</td>
-        <td>${highlight(row.project_name || row.project_docno || '-', query)}</td>
-        <td>${highlight(getServiceOrderCompanyName(row) || '-', query)}</td>
-        <td>${highlight(row.service_title || '-', query)}</td>
-        <td class="text-right">${formatPhpCurrency(row.total_amount || row.amount || 0)}</td>
-        <td class="text-center">${escHtml(getProjectLedgerRowStatus(row))}</td>
-      </tr>
-    `);
-
-  return renderProjectWorkspaceTable(
-    'Project Service Orders',
-    [
-      { label: 'SO No.' },
-      { label: 'Project' },
-      { label: 'Company' },
-      { label: 'Service' },
-      { label: 'Amount', className: 'text-right' },
-      { label: 'Status', className: 'text-center' }
-    ],
-    rows,
-    'No linked service orders found.'
-  );
-}
-
 function renderProjectWorkspaceLedger() {
   const query = getProjectWorkspaceQuery();
   const transactionsByProject = new Map();
-  getDashboardInvoiceRows(allTransactionsDb).forEach((row) => {
+  getDashboardInvoiceRows().forEach((row) => {
     const projectId = Number(row.project_id || 0);
     if (!projectId) return;
     const current = transactionsByProject.get(projectId) || { count: 0, amount: 0 };
@@ -2379,10 +2268,6 @@ function renderProjectWorkspace() {
     altContent.innerHTML = renderProjectWorkspaceRequests('needs-revision');
   } else if (activeTab === 'requests') {
     altContent.innerHTML = renderProjectWorkspaceRequests();
-  } else if (activeTab === 'transactions') {
-    altContent.innerHTML = renderProjectWorkspaceTransactions();
-  } else if (activeTab === 'service-orders') {
-    altContent.innerHTML = renderProjectWorkspaceServiceOrders();
   } else if (activeTab === 'ledger') {
     altContent.innerHTML = renderProjectWorkspaceLedger();
   } else if (activeTab === 'documents') {
@@ -2396,9 +2281,6 @@ function switchProjectWorkspaceTab(tab) {
   if (currentDashboardPanel === 'project-records') {
     syncAdminViewUrl('project-records', activeTab);
   }
-  if (currentProjectWorkspaceTab === 'service-orders' && !serviceOrdersInitialLoadAttempted) {
-    loadServiceOrdersData(true).finally(() => renderProjectWorkspace());
-  }
   renderProjectWorkspace();
 }
 
@@ -2408,11 +2290,9 @@ function handleProjectWorkspaceSummaryClick(index) {
     return;
   }
   const tabMap = {
-    projects: ['projects', 'ongoing', 'transactions', 'documents'],
+    projects: ['projects', 'ongoing', 'ledger', 'documents'],
     ongoing: ['ongoing', 'ongoing', 'ongoing', 'ongoing'],
-    transactions: ['transactions', 'transactions', 'transactions', 'transactions'],
-    'service-orders': ['service-orders', 'service-orders', 'service-orders', 'service-orders'],
-    ledger: ['ledger', 'transactions', 'service-orders', 'ledger'],
+    ledger: ['ledger', 'ongoing', 'documents', 'ledger'],
     documents: ['documents', 'projects', 'documents', 'projects']
   };
   const activeTab = normalizeProjectWorkspaceTab(currentProjectWorkspaceTab);
@@ -2446,8 +2326,7 @@ function setProjectLedgerMetric(id, value) {
 }
 
 async function fetchProjectLedgerData() {
-  const [transactionsRes, receivablesRes, billsRes, requisitionsRes, quotationsRes, purchaseOrdersRes, goodsReceiptsRes, apPaymentsRes, arPaymentsRes, serviceOrdersRes, inventoryMovementsRes, salesRecordsRes] = await Promise.all([
-    fetch('/api/transactions', { cache: 'no-store' }),
+  const [receivablesRes, billsRes, requisitionsRes, quotationsRes, purchaseOrdersRes, goodsReceiptsRes, apPaymentsRes, arPaymentsRes, inventoryMovementsRes, salesRecordsRes] = await Promise.all([
     fetch('/api/receivables?include_archived=1', { cache: 'no-store' }),
     fetch('/api/bills', { cache: 'no-store' }),
     fetch('/api/procurement/requisitions', { cache: 'no-store' }),
@@ -2456,23 +2335,25 @@ async function fetchProjectLedgerData() {
     fetch('/api/procurement/goods-receipts', { cache: 'no-store' }),
     fetch('/api/payments?type=ap', { cache: 'no-store' }),
     fetch('/api/payments?type=ar', { cache: 'no-store' }),
-    fetch('/api/service-orders?include_archived=1', { cache: 'no-store' }),
     fetch('/api/inventory/movements?include_all=1', { cache: 'no-store' }),
     fetch('/api/sales-management/records', { cache: 'no-store' })
   ]);
 
-  const responses = [transactionsRes, receivablesRes, billsRes, requisitionsRes, quotationsRes, purchaseOrdersRes, goodsReceiptsRes, apPaymentsRes, arPaymentsRes, serviceOrdersRes, inventoryMovementsRes, salesRecordsRes];
-  // Service Operations was removed, so /api/service-orders may 404 — treat it as
-  // optional so one missing data source never breaks the whole Project Overview.
-  const failed = responses.find((response) => !response.ok && response !== serviceOrdersRes);
+  const responses = [receivablesRes, billsRes, requisitionsRes, quotationsRes, purchaseOrdersRes, goodsReceiptsRes, apPaymentsRes, arPaymentsRes, inventoryMovementsRes, salesRecordsRes];
+  // Treat a 404 (a retired/optional data source) as "no data" instead of a hard failure, so
+  // one missing endpoint never blocks the whole Project Ledger. Only genuine server errors abort.
+  const failed = responses.find((response) => !response.ok && response.status !== 404);
   if (failed) throw new Error(`Unable to load project ledger data (${failed.status}).`);
 
-  const [transactions, receivables, bills, requisitions, quotations, purchaseOrders, goodsReceipts, apPayments, arPayments, serviceOrders, inventoryMovements, salesRecords] = await Promise.all(
+  const [receivables, bills, requisitions, quotations, purchaseOrders, goodsReceipts, apPayments, arPayments, inventoryMovements, salesRecords] = await Promise.all(
     responses.map((response) => response.json().catch(() => []))
   );
 
   return {
-    transactions: Array.isArray(transactions) ? transactions : [],
+    // Transactions + Service Orders are retired; kept as empty arrays so the Project
+    // Overview snapshot builders never crash while the leftover refs are removed. See [[transactions-legacy]].
+    transactions: [],
+    serviceOrders: [],
     receivables: Array.isArray(receivables) ? receivables : [],
     bills: Array.isArray(bills) ? bills : [],
     requisitions: Array.isArray(requisitions) ? requisitions : [],
@@ -2481,7 +2362,6 @@ async function fetchProjectLedgerData() {
     goodsReceipts: Array.isArray(goodsReceipts) ? goodsReceipts : [],
     apPayments: Array.isArray(apPayments) ? apPayments : [],
     arPayments: Array.isArray(arPayments) ? arPayments : [],
-    serviceOrders: Array.isArray(serviceOrders) ? serviceOrders : [],
     inventoryMovements: Array.isArray(inventoryMovements) ? inventoryMovements : [],
     salesRecords: Array.isArray(salesRecords) ? salesRecords : []
   };
@@ -2503,9 +2383,7 @@ function isDraftLedgerRow(row = {}) {
 function buildProjectLedgerSnapshot(project, data) {
   const id = Number(project?.id || 0);
   const notDraft = (row) => !isDraftLedgerRow(row);
-  const transactions = data.transactions.filter((row) => Number(row.project_id || 0) === id);
-  const transactionIds = new Set(transactions.map((row) => Number(row.id || 0)).filter(Boolean));
-  const receivables = data.receivables.filter((row) => (Number(row.project_id || 0) === id || transactionIds.has(Number(row.transaction_id || 0))) && notDraft(row));
+  const receivables = data.receivables.filter((row) => Number(row.project_id || 0) === id && notDraft(row));
   const receivableIds = new Set(receivables.map((row) => Number(row.id || 0)).filter(Boolean));
   const bills = data.bills.filter((row) => Number(row.project_id || 0) === id && notDraft(row));
   const requisitions = data.requisitions.filter((row) => Number(row.project_id || 0) === id && notDraft(row));
@@ -2517,7 +2395,6 @@ function buildProjectLedgerSnapshot(project, data) {
   const billIds = new Set(bills.map((row) => Number(row.id || 0)).filter(Boolean));
   const apPayments = data.apPayments.filter((row) => billIds.has(Number(row.ap_id || 0)));
   const arPayments = data.arPayments.filter((row) => receivableIds.has(Number(row.ar_id || 0)));
-  const serviceOrders = data.serviceOrders.filter((row) => Number(row.project_id || 0) === id);
   const inventoryMovements = data.inventoryMovements.filter((row) => Number(row.project_id || 0) === id);
   // Sales pipeline records (SI -> SQ -> SO -> DR) tied to this project; skip cancelled
   // and still-draft rows (only approved/official sales records belong in the ledger).
@@ -2549,7 +2426,6 @@ function buildProjectLedgerSnapshot(project, data) {
 
   return {
     project,
-    transactions,
     receivables,
     bills,
     requisitions,
@@ -2558,7 +2434,6 @@ function buildProjectLedgerSnapshot(project, data) {
     goodsReceipts,
     apPayments,
     arPayments,
-    serviceOrders,
     inventoryMovements,
     salesRecords,
     pipeline,
@@ -2572,7 +2447,7 @@ function buildProjectLedgerSnapshot(project, data) {
       grossProfit,
       marginPercent,
       netTotal: arTotal - apTotal - inventoryCostTotal,
-      recordCount: transactions.length + receivables.length + bills.length + requisitions.length + quotations.length + purchaseOrders.length + goodsReceipts.length + apPayments.length + arPayments.length + serviceOrders.length + inventoryMovements.length
+      recordCount: receivables.length + bills.length + requisitions.length + quotations.length + purchaseOrders.length + goodsReceipts.length + apPayments.length + arPayments.length + inventoryMovements.length
     }
   };
 }
@@ -2679,16 +2554,6 @@ function renderProjectOverviewMetric(label, value, note = '', tone = '') {
   `;
 }
 
-function renderProjectOverviewSignal(label, value, note = '', tone = '') {
-  return `
-    <div class="project-overview-signal${tone ? ` is-${escHtml(tone)}` : ''}">
-      <span>${escHtml(label)}</span>
-      <strong>${escHtml(String(value || '-').trim() || '-')}</strong>
-      ${note ? `<em>${escHtml(note)}</em>` : ''}
-    </div>
-  `;
-}
-
 function renderProjectOverviewStep(number, label, value, tone = '') {
   return `
     <div class="project-overview-step${tone ? ` is-${escHtml(tone)}` : ''}">
@@ -2725,17 +2590,6 @@ function renderProjectRelationshipCard(title, subtitle, items = []) {
   `;
 }
 
-function renderProjectPipelineNode(label, count, amountText = '', tone = '', sub = '') {
-  return `
-    <div class="project-pipeline-node${tone ? ` is-${escHtml(tone)}` : ''}">
-      <span class="project-pipeline-node-label">${escHtml(label)}</span>
-      <strong class="project-pipeline-node-count">${escHtml(String(count))}</strong>
-      ${amountText ? `<em class="project-pipeline-node-amount">${escHtml(amountText)}</em>` : ''}
-      ${sub ? `<small class="project-pipeline-node-sub">${escHtml(sub)}</small>` : ''}
-    </div>
-  `;
-}
-
 function renderProjectOverview(snapshot) {
   const project = snapshot?.project || {};
   const totals = snapshot?.totals || {};
@@ -2751,8 +2605,6 @@ function renderProjectOverview(snapshot) {
   const contractAmount = Number(project.budget || 0) || 0;
   const projectDownpayment = Number(project.downpayment || 0) || 0;
   const projectBalance = Math.max(0, contractAmount - projectDownpayment);
-  const serviceOrderCount = (snapshot.serviceOrders || []).length;
-  const transactionCount = (snapshot.transactions || []).length;
   const receivableCount = (snapshot.receivables || []).length;
   const requisitionCount = (snapshot.requisitions || []).length;
   const quotationCount = (snapshot.quotations || []).length;
@@ -2760,7 +2612,6 @@ function renderProjectOverview(snapshot) {
   const goodsReceiptCount = (snapshot.goodsReceipts || []).length;
   const inventoryMovementCount = (snapshot.inventoryMovements || []).length;
   const billCount = (snapshot.bills || []).length;
-  const documentCount = project.pdfFilename ? 1 : 0;
   const arPaymentCount = (snapshot.arPayments || []).length;
   const apPaymentCount = (snapshot.apPayments || []).length;
   const linkedRecordCount = Number(totals.recordCount || 0);
@@ -2771,49 +2622,28 @@ function renderProjectOverview(snapshot) {
   const apPaidRate = Number(totals.apTotal || 0) > 0
     ? Math.min(100, Math.round((Number(totals.apPaidTotal || 0) / Number(totals.apTotal || 0)) * 100))
     : 0;
-  const healthLabel = arBalance <= 0 && Number(totals.arTotal || 0) > 0
-    ? 'Fully collected'
-    : arBalance > 0
-      ? 'Collection pending'
-      : 'No AR yet';
-  const costLabel = apBalance <= 0 && Number(totals.apTotal || 0) > 0
-    ? 'Supplier costs paid'
-    : apBalance > 0
-      ? 'Supplier balance pending'
-      : 'No AP cost yet';
   const netTone = netTotal >= 0 ? 'positive' : 'negative';
   const grossProfit = Number(totals.grossProfit || 0);
   const marginPercent = Number(totals.marginPercent || 0);
-  const profitTone = grossProfit >= 0 ? 'positive' : 'negative';
 
-  // ── Sales pipeline strip (Project -> SI -> SQ -> SO -> DR -> AR) ──────────
   const pipeline = snapshot.pipeline || { inquiry: [], quotation: [], order: [], delivery: [] };
   const sumAmt = (rows) => (rows || []).reduce((sum, row) => sum + Number(row.amount || 0), 0);
   const inquiryCount = (pipeline.inquiry || []).length;
   const salesQuotationCount = (pipeline.quotation || []).length;
   const salesOrderCount = (pipeline.order || []).length;
   const deliveryCount = (pipeline.delivery || []).length;
-  const deliveredCount = (pipeline.delivery || []).filter((row) => ['delivered', 'completed'].includes(String(row.status || '').toLowerCase())).length;
-  const pipelineStrip = [
-    renderProjectPipelineNode('Project', projectDocNo !== '-' ? 1 : 0, '', projectDocNo !== '-' ? 'positive' : 'muted', 'Root'),
-    renderProjectPipelineNode('Sales Inquiry', inquiryCount, '', inquiryCount ? 'positive' : 'muted', 'optional'),
-    renderProjectPipelineNode('Quotation', salesQuotationCount, '', salesQuotationCount ? 'positive' : 'muted', 'optional'),
-    renderProjectPipelineNode('Sales Order', salesOrderCount, salesOrderCount ? formatPhpCurrency(sumAmt(pipeline.order)) : '', salesOrderCount ? 'positive' : 'muted'),
-    renderProjectPipelineNode('Delivery', deliveryCount, deliveryCount ? formatPhpCurrency(sumAmt(pipeline.delivery)) : '', deliveredCount ? 'positive' : (deliveryCount ? 'warning' : 'muted'), deliveredCount ? `${deliveredCount} delivered` : ''),
-    renderProjectPipelineNode('AR / Invoice', receivableCount, receivableCount ? formatPhpCurrency(totals.arTotal || 0) : '', receivableCount ? (arBalance > 0 ? 'warning' : 'positive') : 'muted', arBalance > 0 ? `${formatPhpCurrency(arBalance)} due` : (receivableCount ? 'collected' : ''))
-  ].join('<div class="project-pipeline-arrow" aria-hidden="true">&rarr;</div>');
 
-  // ── PALDO / PALUBOG verdict (from gross profit) ──────────────────────────
-  const verdictPaldo = grossProfit >= 0;
+  // ── Profitability verdict (from gross profit) ────────────────────────────
+  const verdictPositive = grossProfit >= 0;
   const revenueShown = Number(totals.arTotal || 0) || contractAmount || 0;
   const costShown = Number(totals.apTotal || 0) + Number(totals.inventoryCostTotal || 0);
   const verdictBanner = `
-    <div class="project-overview-verdict is-${verdictPaldo ? 'paldo' : 'palubog'}">
+    <div class="project-overview-verdict is-${verdictPositive ? 'positive' : 'negative'}">
       <div class="project-overview-verdict-main">
-        <span class="project-overview-verdict-tag">${verdictPaldo ? 'PALDO' : 'PALUBOG'}</span>
+        <span class="project-overview-verdict-tag">${verdictPositive ? 'Profitable' : 'At Risk'}</span>
         <div class="project-overview-verdict-copy">
           <strong>${escHtml(formatPhpCurrency(grossProfit))}</strong>
-          <em>${verdictPaldo ? 'Kumikita ang project' : 'Lugi ang project'} &middot; ${escHtml(String(marginPercent))}% margin</em>
+          <em>${verdictPositive ? 'Project is currently earning' : 'Project cost is exceeding revenue'} &middot; ${escHtml(String(marginPercent))}% margin</em>
         </div>
       </div>
       <div class="project-overview-verdict-side">
@@ -2827,29 +2657,6 @@ function renderProjectOverview(snapshot) {
   const memberHtml = members.length
     ? members.map((member, index) => formatProjectMemberSummary(member, index)).join('')
     : '<div class="project-overview-empty">No project team listed yet.</div>';
-  const latestServiceOrders = [...(snapshot.serviceOrders || [])]
-    .sort((a, b) => String(b.service_date || b.created_at || '').localeCompare(String(a.service_date || a.created_at || '')))
-    .slice(0, 3);
-  const latestRows = latestServiceOrders.length
-    ? latestServiceOrders.map((row) => `
-      <div class="project-overview-activity">
-        <div>
-          <strong>${escHtml(row.so_number || 'Service Order')}</strong>
-          <span>${escHtml(row.service_title || 'Untitled service')} ${row.service_date ? `| ${formatDateYmd(row.service_date)}` : ''}</span>
-        </div>
-        <em>${escHtml(getProjectLedgerRowStatus(row))}</em>
-      </div>
-    `).join('')
-    : '<div class="project-overview-empty">No linked service orders yet.</div>';
-  const isStatus = (value, expected) => String(value || '').trim().toLowerCase() === expected;
-  const timelineRows = [
-    { label: 'Project created', value: projectDocNo, tone: projectDocNo !== '-' ? '' : 'muted' },
-    { label: 'PR approved', value: (snapshot.requisitions || []).some(row => isStatus(row.status, 'approved') || row.approved_at) ? 'Done' : 'Pending', tone: (snapshot.requisitions || []).some(row => isStatus(row.status, 'approved') || row.approved_at) ? 'positive' : 'muted' },
-    { label: 'PO approved', value: (snapshot.purchaseOrders || []).some(row => isStatus(row.status, 'approved') || row.approved_at) ? 'Done' : 'Pending', tone: (snapshot.purchaseOrders || []).some(row => isStatus(row.status, 'approved') || row.approved_at) ? 'positive' : 'muted' },
-    { label: 'AP bill generated', value: billCount ? `${billCount} bill${billCount === 1 ? '' : 's'}` : 'Pending', tone: billCount ? 'positive' : 'muted' },
-    { label: 'AR collected', value: arBalance <= 0 && Number(totals.arTotal || 0) > 0 ? 'Done' : 'Pending', tone: arBalance <= 0 && Number(totals.arTotal || 0) > 0 ? 'positive' : 'muted' },
-    { label: 'Project completed', value: isStatus(project.status, 'completed') ? 'Done' : 'Pending', tone: isStatus(project.status, 'completed') ? 'positive' : 'muted' }
-  ];
   const preSalesCount = inquiryCount + salesQuotationCount;
   const arRelationship = renderProjectRelationshipCard('Project to AR', 'Project &rarr; Sales Management &rarr; AR collection trail', [
     renderProjectRelationshipItem('Project', projectDocNo, 'Source record', 'positive'),
@@ -2868,13 +2675,6 @@ function renderProjectOverview(snapshot) {
     renderProjectRelationshipItem('AP Bills', billCount, formatPhpCurrency(totals.apTotal || 0), billCount ? 'positive' : 'muted'),
     renderProjectRelationshipItem('AP Payments', apPaymentCount, formatPhpCurrency(totals.apPaidTotal || 0), apPaymentCount ? 'positive' : 'warning')
   ]);
-  const keySignals = [
-    renderProjectOverviewSignal('Collection', healthLabel, `${formatPhpCurrency(arBalance)} remaining`, arBalance > 0 ? 'warning' : 'positive'),
-    renderProjectOverviewSignal('Supplier Cost', costLabel, `${formatPhpCurrency(apBalance)} unpaid`, apBalance > 0 ? 'warning' : 'positive'),
-    renderProjectOverviewSignal('Inventory Cost', formatPhpCurrency(totals.inventoryCostTotal || 0), `${inventoryMovementCount} movement${inventoryMovementCount === 1 ? '' : 's'}`, inventoryMovementCount ? 'warning' : 'muted'),
-    renderProjectOverviewSignal('Margin', `${marginPercent}%`, formatPhpCurrency(grossProfit), profitTone),
-    renderProjectOverviewSignal('Linked Records', linkedRecordCount, 'Across AR, AP, payments, and documents', linkedRecordCount ? 'positive' : 'muted')
-  ].join('');
   // Actual money flow: Sales -> AR (billed/collected) and Procurement -> AP (cost/paid).
   const compactMoneyMetrics = [
     renderProjectOverviewMetric('Contract', formatPhpCurrency(contractAmount), 'Agreed project amount'),
@@ -2884,24 +2684,6 @@ function renderProjectOverview(snapshot) {
     renderProjectOverviewMetric('Supplier Balance', formatPhpCurrency(apBalance), `${apPaidRate}% paid`, apBalance > 0 ? 'warning' : 'positive'),
     renderProjectOverviewMetric('Net Position', formatPhpCurrency(netTotal), 'AR minus AP', netTone)
   ].join('');
-  const recordCountHtml = [
-    renderProjectOverviewDetail('Receivables', receivableCount),
-    renderProjectOverviewDetail('Purchase Requests', requisitionCount),
-    renderProjectOverviewDetail('Purchase Orders', purchaseOrderCount),
-    renderProjectOverviewDetail('Inventory Moves', inventoryMovementCount),
-    renderProjectOverviewDetail('Bills', billCount),
-    renderProjectOverviewDetail('Documents', documentCount)
-  ].join('');
-
-  // ── Procurement flow strip (PR -> RFQ -> PO -> GRN -> AP) ─────────────────
-  const procurementStrip = [
-    renderProjectPipelineNode('PR', requisitionCount, '', requisitionCount ? 'positive' : 'muted', 'Request'),
-    renderProjectPipelineNode('RFQ', quotationCount, '', quotationCount ? 'positive' : 'muted', 'optional'),
-    renderProjectPipelineNode('PO', purchaseOrderCount, purchaseOrderCount ? formatPhpCurrency(totals.apTotal || 0) : '', purchaseOrderCount ? 'positive' : 'muted'),
-    renderProjectPipelineNode('GRN', goodsReceiptCount, '', goodsReceiptCount ? 'positive' : 'muted'),
-    renderProjectPipelineNode('AP / Bill', billCount, billCount ? formatPhpCurrency(totals.apTotal || 0) : '', billCount ? (apBalance > 0 ? 'warning' : 'positive') : 'muted', apBalance > 0 ? `${formatPhpCurrency(apBalance)} due` : (billCount ? 'paid' : ''))
-  ].join('<div class="project-pipeline-arrow" aria-hidden="true">&rarr;</div>');
-
   // ── Information (project form + company registry contact) ─────────────────
   const serviceTypeLabel = String(project.service_type || '').trim()
     ? String(project.service_type).replace(/^\w/, (c) => c.toUpperCase())
@@ -2917,6 +2699,15 @@ function renderProjectOverview(snapshot) {
   const estMaterial = Number(project.estimated_material_cost || 0) || 0;
   const estLabor = Number(project.estimated_labor_cost || 0) || 0;
   const estOther = Number(project.estimated_other_cost || 0) || 0;
+  const estimatedCostTotal = estMaterial + estLabor + estOther;
+  const actualCostTotal = Number(totals.apTotal || 0) + Number(totals.inventoryCostTotal || 0);
+  const costVariance = estimatedCostTotal - actualCostTotal;
+  const costBurnRate = estimatedCostTotal > 0 ? Math.round((actualCostTotal / estimatedCostTotal) * 100) : 0;
+  const costBurnWidth = Math.max(0, Math.min(100, costBurnRate));
+  const actualProfit = contractAmount - actualCostTotal;
+  const actualMarginPct = contractAmount > 0 ? Math.round((actualProfit / contractAmount) * 100) : 0;
+  const varianceTone = costVariance >= 0 ? 'positive' : 'negative';
+  const burnTone = !estimatedCostTotal ? 'muted' : costBurnRate <= 85 ? 'positive' : (costBurnRate <= 100 ? 'warning' : 'negative');
   const estProfit = contractAmount - (estMaterial + estLabor + estOther);
   const estMarginPct = contractAmount > 0 ? Math.round((estProfit / contractAmount) * 100) : 0;
   const assignedStaffName = String(project.assigned_to_name || project.assigned_to_username || '-').trim() || '-';
@@ -2947,22 +2738,46 @@ function renderProjectOverview(snapshot) {
     </div>
   `;
 
-  // Estimated (planned) cost breakdown from the project form.
-  const estimateCard = `
-    <div class="project-overview-card">
+  const budgetAnalyticsCard = `
+    <div class="project-overview-card project-budget-analytics-card">
       <div class="project-overview-section-head">
         <div>
-          <div class="project-overview-kicker">Estimate (from form)</div>
-          <h4>Planned cost &amp; profit</h4>
+          <div class="project-overview-kicker">Budget vs Actual Analytics</div>
+          <h4>Estimate compared with posted costs</h4>
         </div>
-        <span class="project-overview-health is-${estProfit >= 0 ? 'positive' : 'negative'}">${estProfit >= 0 ? 'Projected gain' : 'Projected loss'}</span>
+        <span class="project-overview-health is-${varianceTone}">${costVariance >= 0 ? 'Within budget' : 'Over budget'}</span>
+      </div>
+      <div class="project-budget-analytics-strip">
+        <div>
+          <span>Estimated Cost</span>
+          <strong>${escHtml(formatPhpCurrency(estimatedCostTotal))}</strong>
+          <em>Material, labor, and other estimate</em>
+        </div>
+        <div>
+          <span>Actual Cost</span>
+          <strong>${escHtml(formatPhpCurrency(actualCostTotal))}</strong>
+          <em>AP bills plus inventory movement cost</em>
+        </div>
+        <div class="is-${varianceTone}">
+          <span>Variance</span>
+          <strong>${escHtml(formatPhpCurrency(Math.abs(costVariance)))}</strong>
+          <em>${costVariance >= 0 ? 'Remaining estimate cushion' : 'Actual cost exceeded estimate'}</em>
+        </div>
+      </div>
+      <div class="project-budget-progress" data-tone="${burnTone}">
+        <div class="project-budget-progress-head">
+          <span>Cost burn rate</span>
+          <strong>${escHtml(String(costBurnRate))}%</strong>
+        </div>
+        <div class="project-budget-progress-track" aria-hidden="true">
+          <span style="width:${costBurnWidth}%;"></span>
+        </div>
+        <em>${estimatedCostTotal > 0 ? `${escHtml(formatPhpCurrency(actualCostTotal))} used from ${escHtml(formatPhpCurrency(estimatedCostTotal))} estimate` : 'No estimate entered yet'}</em>
       </div>
       <div class="project-overview-metric-grid">
-        ${renderProjectOverviewMetric('Contract', formatPhpCurrency(contractAmount), 'Agreed amount')}
-        ${renderProjectOverviewMetric('Material', formatPhpCurrency(estMaterial), 'Estimated')}
-        ${renderProjectOverviewMetric('Labor', formatPhpCurrency(estLabor), 'Estimated')}
-        ${renderProjectOverviewMetric('Other', formatPhpCurrency(estOther), 'Estimated')}
-        ${renderProjectOverviewMetric('Est. Profit', formatPhpCurrency(estProfit), `${estMarginPct}% margin`, estProfit >= 0 ? 'positive' : 'negative')}
+        ${renderProjectOverviewMetric('Planned Profit', formatPhpCurrency(estProfit), `${estMarginPct}% planned margin`, estProfit >= 0 ? 'positive' : 'negative')}
+        ${renderProjectOverviewMetric('Actual Profit', formatPhpCurrency(actualProfit), `${actualMarginPct}% actual margin`, actualProfit >= 0 ? 'positive' : 'negative')}
+        ${renderProjectOverviewMetric('Cost Records', linkedRecordCount, `${billCount} AP bill${billCount === 1 ? '' : 's'} | ${inventoryMovementCount} inventory move${inventoryMovementCount === 1 ? '' : 's'}`, linkedRecordCount ? 'positive' : 'muted')}
       </div>
     </div>
   `;
@@ -2980,10 +2795,6 @@ function renderProjectOverview(snapshot) {
             <span>${escHtml(startDate)} to ${escHtml(endDate)}</span>
           </div>
         </div>
-        <div class="project-overview-hero-side">
-          ${renderProjectOverviewDetail('Net Position', formatPhpCurrency(netTotal))}
-          ${renderProjectOverviewDetail('Margin', `${marginPercent}%`)}
-        </div>
       </div>
 
       ${verdictBanner}
@@ -2999,27 +2810,17 @@ function renderProjectOverview(snapshot) {
           </div>
           <div class="project-overview-metric-grid">${compactMoneyMetrics}</div>
         </div>
-        <div class="project-overview-card project-overview-signals-card">
-          <div class="project-overview-kicker">Review Signals</div>
-          <div class="project-overview-signal-grid">${keySignals}</div>
-        </div>
       </div>
+
+      ${budgetAnalyticsCard}
 
       <div class="project-overview-grid project-overview-related-grid">
         ${apRelationship}
         ${arRelationship}
       </div>
 
-      <div class="project-overview-grid">
+      <div class="project-overview-grid project-overview-info-grid">
         ${informationCard}
-        ${estimateCard}
-      </div>
-
-      <div class="project-overview-card">
-        <div class="project-overview-kicker">Status Timeline</div>
-        <div class="project-overview-steps">
-          ${timelineRows.map((row, index) => renderProjectOverviewStep(String(index + 1), row.label, row.value, row.tone)).join('')}
-        </div>
       </div>
     </section>
   `;
@@ -3039,7 +2840,7 @@ function renderProjectLedgerPage() {
   const type = normalizeProjectLedgerSubmodule(currentProjectLedgerSubmodule);
   syncProjectLedgerSubmoduleTabs();
   const showSection = (key) => type === 'overview' || type === key;
-  const { transactions, receivables, bills, requisitions, quotations, purchaseOrders, goodsReceipts, apPayments, arPayments, serviceOrders, inventoryMovements } = snapshot;
+  const { receivables, bills, requisitions, quotations, purchaseOrders, goodsReceipts, apPayments, arPayments, inventoryMovements } = snapshot;
 
   const filteredReceivables = receivables.filter((row) => projectLedgerMatchesSearch([row.invoice_number, row.due_date, row.payment_terms, row.status, row.total_amount], query));
   const filteredBills = bills.filter((row) => projectLedgerMatchesSearch([row.bill_number, row.vendor_name, row.vendor_id, row.due_date, row.status, row.total_amount], query));
@@ -3051,7 +2852,6 @@ function renderProjectLedgerPage() {
     ...arPayments.map((row) => ({ ...row, ledgerType: 'AR' })),
     ...apPayments.map((row) => ({ ...row, ledgerType: 'AP' }))
   ].filter((row) => projectLedgerMatchesSearch([row.ledgerType, row.payment_date, row.reference_number, row.payment_method, row.amount], query));
-  const filteredServiceOrders = serviceOrders.filter((row) => projectLedgerMatchesSearch([row.so_number, row.service_date, row.service_title, row.status, row.total_amount], query));
   const filteredInventoryMovements = inventoryMovements.filter((row) => projectLedgerMatchesSearch([row.movement_date, row.movement_type, row.sku, row.product_name, row.warehouse_name, row.reference_type, row.reference_no], query));
 
   const sections = [];
@@ -3759,14 +3559,9 @@ function renderDashboardAnalytics(records = getDashboardInvoiceRows()) {
   renderDashboardPieChart(records);
 }
 
-function getInvoiceRows(records = allTransactionsDb) {
-  const invoiceRows = (Array.isArray(records) ? records : [])
-    .filter(r => String(r.type || '').toLowerCase() === 'invoice')
-    .map(row => ({
-      ...row,
-      source: String(row?.source || 'transaction').toLowerCase() === 'receivable' ? 'receivable' : 'transaction',
-      transaction_id: Number(row?.transaction_id || row?.id || 0) || null
-    }));
+function getInvoiceRows() {
+  // Receivables rendered as dashboard "invoice" rows (the Transactions feed was retired,
+  // so AR is sourced entirely from accounts_receivable). De-duped by invoice/doc number.
   const receivableRows = (Array.isArray(allReceivablesDb) ? allReceivablesDb : []).map(row => ({
     type: 'invoice',
     source: 'receivable',
@@ -3776,35 +3571,20 @@ function getInvoiceRows(records = allTransactionsDb) {
     downpayment: Number(row.paid_amount || 0),
     status: row.status || 'draft',
     project_docno: row.project_docno || '',
-    project_id: row.project_id || null,
-    transaction_id: Number(row.transaction_id || 0) || null
+    project_id: row.project_id || null
   }));
-  const combined = [...invoiceRows, ...receivableRows];
   const seenKeys = new Set();
-
-  return combined.filter((row, index) => {
-    const transactionId = Number(row?.transaction_id || 0) || 0;
-    const key = transactionId
-      ? `tx:${transactionId}`
-      : `inv:${String(
-        row?.invoice_number ||
-        row?.docno ||
-        row?.project_docno ||
-        ''
-      ).trim().toLowerCase()}`;
-    if (key === 'inv:') {
-      return true;
-    }
-    if (seenKeys.has(key)) {
-      return false;
-    }
+  return receivableRows.filter((row) => {
+    const key = String(row.docno || '').trim().toLowerCase();
+    if (!key) return true;
+    if (seenKeys.has(key)) return false;
     seenKeys.add(key);
     return true;
   });
 }
 
-function getDashboardInvoiceRows(records = allTransactionsDb) {
-  return getInvoiceRows(records).filter(row => companyMatchesDashboardFilter(getDashboardCompanyNameForRecord(row)));
+function getDashboardInvoiceRows() {
+  return getInvoiceRows().filter(row => companyMatchesDashboardFilter(getDashboardCompanyNameForRecord(row)));
 }
 
 function getComputedTransactionPaymentStatus(row) {
@@ -3976,20 +3756,9 @@ function getProjectLifecycleClass(project) {
   return `status-${label.replace(/_/g, '-')}`;
 }
 
-function findSourceTransactionForProject(project) {
-  if (!project) return null;
-
-  const transactions = Array.isArray(allTransactionsDb) ? allTransactionsDb : [];
-  const transactionId = Number(project.transaction_id || 0);
-  if (transactionId) {
-    const byTransactionId = transactions.find(entry => Number(entry.id || 0) === transactionId);
-    if (byTransactionId) return byTransactionId;
-  }
-
-  const sourceDocno = String(project.source_docno || '').trim().toLowerCase();
-  if (!sourceDocno) return null;
-
-  return transactions.find(entry => String(entry.docno || '').trim().toLowerCase() === sourceDocno) || null;
+function findSourceTransactionForProject() {
+  // Transactions feature retired — projects no longer have a linked source transaction.
+  return null;
 }
 
 function getProjectPaymentStatus(project) {
@@ -4354,10 +4123,8 @@ let userModalMode = 'create';
 let userModalSnapshot = null;
 let isSavingRecord = false;
 let projectsDashboardDb = [];
-let allTransactionsDb = [];
 let allReceivablesDb = [];
 let serviceOrdersDb = [];
-let serviceOrdersLoadPromise = null;
 let serviceOrdersInitialLoadAttempted = false;
 let businessEntitiesDb = [];
 const BUSINESS_ENTITY_CONTEXT_KEY = 'kinaadman_businessEntityContext';
@@ -4500,7 +4267,7 @@ function renderBusinessEntityProfilePanel(current = getBusinessEntityFilterId())
   const allActive = filter === 'all';
   const allCard = `
     <button class="business-profile-card${allActive ? ' is-active' : ''}" type="button" onclick="setBusinessEntityContext('all')">
-      <span class="business-profile-logo-wrap"><img src="/assets/img/kvsk-logo-switch.png" alt="All companies" /></span>
+      <span class="business-profile-logo-wrap business-profile-logo-mono">ALL</span>
       <span class="business-profile-copy">
         <span class="business-profile-name">All Companies</span>
         <span class="business-profile-meta">Records from every operating company</span>
@@ -4510,10 +4277,12 @@ function renderBusinessEntityProfilePanel(current = getBusinessEntityFilterId())
   const companyCards = rows.map((row) => {
     const id = String(row.id || '');
     const isActive = id === filter;
-    const profile = getBusinessEntityBrandProfile(row);
+    const logoMarkup = row.logo_path
+      ? `<span class="business-profile-logo-wrap"><img src="${escHtml(row.logo_path)}" alt="${escHtml(row.company_name || 'Company')} logo" /></span>`
+      : `<span class="business-profile-logo-wrap business-profile-logo-mono">${escHtml(businessEntityShortLabel(row))}</span>`;
     return `
           <button class="business-profile-card${isActive ? ' is-active' : ''}" type="button" onclick="setBusinessEntityContext('${escHtml(id)}')">
-            <span class="business-profile-logo-wrap"><img src="${escHtml(profile.logo)}" alt="${escHtml(profile.alt)}" /></span>
+            ${logoMarkup}
             <span class="business-profile-copy">
               <span class="business-profile-name">${escHtml(row.company_name || businessEntityShortLabel(row))}</span>
               <span class="business-profile-meta">${escHtml(row.entity_code || 'Operating company')} · ${escHtml(businessEntityProfileValue(row.status, 'active'))}${Number(row.is_default || 0) ? ' · Default' : ''}</span>
@@ -4582,11 +4351,12 @@ function businessEntityMatches(row) {
 }
 
 function getBusinessEntityBrandProfile(row) {
-  void row;
+  const logo = String(row?.logo_path || row?.logo || '').trim();
+  const name = String(row?.company_name || '').trim();
   return {
     theme: 'kvsk',
-    logo: '/assets/img/kvsk-logo-switch.png',
-    alt: 'KVSK logo',
+    logo,
+    alt: name ? `${name} logo` : 'Company logo',
     primary: '#b42318',
     primaryLight: '#ef5b4f',
     primaryDark: '#4b1210',
@@ -4596,9 +4366,12 @@ function getBusinessEntityBrandProfile(row) {
 }
 
 function sanitizeStoredBusinessEntityThemeProfile(profile) {
+  const fallback = getBusinessEntityBrandProfile({ theme: 'kvsk' });
   return {
+    ...fallback,
     ...profile,
-    ...getBusinessEntityBrandProfile({ theme: 'kvsk' }),
+    logo: profile.logo || profile.logo_path || '',
+    alt: profile.alt || (profile.company_name ? `${profile.company_name} logo` : fallback.alt),
     company_name: profile.company_name || 'KVSK CCTV & IT Solution'
   };
 }
@@ -4655,7 +4428,8 @@ function applyStoredBusinessEntityBrand() {
     return;
   }
   if (document.documentElement?.dataset?.businessEntityThemeReady === '1') return;
-  applyBusinessEntityBrand({ company_name: 'KVSK CCTV & IT Solution' });
+  // No saved workspace yet → default scope is "All Companies" (context-aware), never KVSK.
+  applyBusinessEntityBrand({});
 }
 
 function applyBusinessEntityBrand(row) {
@@ -4674,12 +4448,32 @@ function applyBusinessEntityBrand(row) {
   document.documentElement.style.setProperty('--accent', profile.accent);
   document.documentElement.style.setProperty('--accent2', profile.accent2);
 
+  // Brand marks show the active company's uploaded logo. "All Companies" (or a
+  // company without an uploaded logo) shows no mark — walang logo muna.
+  const filterId = getBusinessEntityFilterId();
+  let logoEntity = (row && row.logo_path) ? row : null;
+  if (!logoEntity && filterId && filterId !== 'all') {
+    logoEntity = findBusinessEntityById(filterId);
+  }
+  const entityLogo = (filterId !== 'all' && logoEntity && logoEntity.logo_path)
+    ? String(logoEntity.logo_path)
+    : '';
   document.querySelectorAll('.brand-mark, .sidebar-brand-mark, .user-modal-brand-mark').forEach((img) => {
-    img.src = profile.logo;
-    img.alt = profile.alt;
+    if (entityLogo) {
+      img.src = entityLogo;
+      img.alt = (logoEntity && logoEntity.company_name ? logoEntity.company_name : 'Company') + ' logo';
+      img.style.removeProperty('display');
+      img.removeAttribute('hidden');
+    } else {
+      img.style.display = 'none';
+      img.removeAttribute('src');
+      img.alt = '';
+    }
   });
   document.querySelectorAll('.sidebar-header .header-logo').forEach((node) => {
-    node.textContent = 'KVSK CCTV';
+    node.textContent = (filterId !== 'all' && logoEntity && logoEntity.company_name)
+      ? logoEntity.company_name
+      : 'All Companies';
   });
   document.querySelectorAll('.user-modal-kicker').forEach((node) => {
     const currentText = String(node.textContent || '').trim();
@@ -4689,7 +4483,7 @@ function applyBusinessEntityBrand(row) {
   });
   try {
     const storedProfile = {
-      company_name: row?.company_name || (getBusinessEntityFilterId() === 'all' ? 'All Companies' : 'KVSK CCTV & IT Solution'),
+      company_name: getBusinessEntityFilterId() === 'all' ? 'All Companies' : (row?.company_name || 'All Companies'),
       theme: profile.theme,
       logo: profile.logo,
       alt: profile.alt,
@@ -5185,54 +4979,22 @@ function syncProjectSearchFromUrl() {
 
 function loadRecords() {
   const requestSeq = ++recordsLoadSeq;
-  return fetch('/api/transactions')
-    .then(res => {
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.json();
-    })
-    .then(data => {
-      if (requestSeq !== recordsLoadSeq) return;
-      db = data;
-      allTransactionsDb = Array.isArray(data) ? data : [];
-      renderTable();
-      return loadProjectsDashboardData();
-    })
-    .catch(err => {
-      console.error('Load error:', err);
-      showToast('Hindi ma-load ang records: ' + err.message, 'error');
-      const tbody = document.getElementById('table-body');
-      const colCount = document.querySelector('thead tr')?.children?.length || 1;
-      if (tbody) {
-        tbody.innerHTML = `<tr class="empty-row"><td colspan="${colCount}">Hindi ma-load ang records.</td></tr>`;
-      }
-      return loadProjectsDashboardData();
-    });
+  // Transactions retired (/api/transactions is now 410). The legacy records table stays
+  // empty; the live dashboard data is projects, loaded by loadProjectsDashboardData().
+  if (requestSeq !== recordsLoadSeq) return Promise.resolve();
+  db = [];
+  renderTable();
+  return loadProjectsDashboardData();
 }
 
 function loadArchivedRecords() {
   const requestSeq = ++recordsLoadSeq;
-  return fetch('/api/transactions/archived')
-    .then(res => res.json())
-    .then(data => {
-      if (requestSeq !== recordsLoadSeq) return;
-      db = (Array.isArray(data) ? data : []).map(row => ({
-        ...row,
-        archived: 1,
-        archived_auto: 0
-      }));
-      renderTable();
-      return loadProjectsDashboardData();
-    })
-    .catch(err => {
-      console.error('Load archived error:', err);
-      showToast('Hindi ma-load ang archived records.', 'error');
-      const tbody = document.getElementById('table-body');
-      const colCount = document.querySelector('thead tr')?.children?.length || 1;
-      if (tbody) {
-        tbody.innerHTML = `<tr class="empty-row"><td colspan="${colCount}">Hindi ma-load ang archived records.</td></tr>`;
-      }
-      return loadProjectsDashboardData();
-    });
+  // Transactions retired — no archived transactions to load. Keep the table empty and
+  // refresh the live projects dashboard.
+  if (requestSeq !== recordsLoadSeq) return Promise.resolve();
+  db = [];
+  renderTable();
+  return loadProjectsDashboardData();
 }
 
 async function loadArchiveCenter() {
@@ -5261,10 +5023,8 @@ async function loadArchiveCenter() {
 
     const counts = data.counts || {};
     setArchiveCount('projects', counts.projects || 0);
-    setArchiveCount('transactions', counts.transactions || 0);
     setArchiveCount('companies', counts.companies || 0);
     setArchiveCount('receivables', counts.receivables || 0);
-    setArchiveCount('service-orders', counts.service_orders || counts.serviceOrders || 0);
     updateArchiveCenterTabs();
     renderArchiveCenter();
   } catch (err) {
@@ -5550,13 +5310,6 @@ function openApprovalCenterFromDashboard() {
 
 function openProjectStatsModal() {
   const showModal = async () => {
-    if (!Array.isArray(serviceOrdersDb) || !serviceOrdersDb.length) {
-      try {
-        await loadServiceOrdersData(true);
-      } catch (err) {
-        console.error('Failed to load service orders for project stats:', err);
-      }
-    }
     updateProjectStatsModal();
     const backdrop = document.getElementById('project-stats-modal-backdrop');
     if (backdrop) {
@@ -8680,8 +8433,6 @@ async function updateStats() {
   const statSalesMini = document.getElementById('stat-sales-mini');
   const statApprovals = document.getElementById('stat-approvals');
   const statApprovalsMini = document.getElementById('stat-approvals-mini');
-  const statServiceOperations = document.getElementById('stat-service-operations');
-  const statServiceOperationsMini = document.getElementById('stat-service-operations-mini');
   const statsYear = new Date().getFullYear();
   let dashboardReceivableBalance = 0;
   let dashboardPayableBalance = 0;
@@ -8760,27 +8511,16 @@ async function updateStats() {
   }
 
   try {
-    const transactionsRes = await fetch('/api/transactions');
-    const transactions = await transactionsRes.json();
-    if (statsSeq !== dashboardStatsSeq) return;
-    allTransactionsDb = Array.isArray(transactions) ? transactions : [];
-
     const receivablesRes = await fetch('/api/receivables');
     const receivables = await receivablesRes.json();
     if (statsSeq !== dashboardStatsSeq) return;
     allReceivablesDb = Array.isArray(receivables) ? receivables : [];
 
-    try {
-      await loadServiceOrdersData(true);
-    } catch (err) {
-      console.error('Error fetching service order stats:', err);
-      serviceOrdersDb = [];
-    }
-    if (statsSeq !== dashboardStatsSeq) return;
     syncDashboardCompanyFilterOptions();
     updateCompanyRegistryStatCard();
 
-    const invoiceRows = getDashboardInvoiceRows(allTransactionsDb).filter(row => businessEntityMatches(row));
+    // AR / invoice rows are derived from receivables (the retired Transactions feed merged in here).
+    const invoiceRows = getDashboardInvoiceRows().filter(row => businessEntityMatches(row));
     const totalReceivable = invoiceRows.reduce((sum, r) => {
       const amount = parseFloat(r.amount) || 0;
       const paidAmount = getTransactionPaidAmountValue(r);
@@ -8811,20 +8551,6 @@ async function updateStats() {
       }
     }
 
-    const serviceRows = (Array.isArray(serviceOrdersDb) ? serviceOrdersDb : [])
-      .filter(row => businessEntityMatches(row))
-      .filter(row => companyMatchesDashboardFilter(getServiceOrderCompanyName(row)));
-    const activeServiceRows = serviceRows.filter((row) => {
-      if (Number(row.is_archived || 0) === 1 || row.is_archived === true) return false;
-      const status = String(row.status || '').toLowerCase();
-      return !['completed', 'cancelled', 'archived'].includes(status);
-    });
-    const completedServiceRows = serviceRows.filter((row) => String(row.status || '').toLowerCase() === 'completed');
-    const serviceTotal = serviceRows.reduce((sum, row) => sum + (parseFloat(row.total_amount || row.amount) || 0), 0);
-    if (statServiceOperations) statServiceOperations.textContent = String(activeServiceRows.length);
-    if (statServiceOperationsMini) {
-      statServiceOperationsMini.textContent = `${getCurrentDashboardCompanyLabel()} • ${serviceRows.length} SO • ${completedServiceRows.length} completed • ${formatPhpCurrency(serviceTotal)}`;
-    }
     updateProjectWorkspaceSummary();
 
     renderDashboardAnalytics(invoiceRows);
@@ -8838,8 +8564,6 @@ async function updateStats() {
     if (statArMini) statArMini.textContent = `${getCurrentDashboardCompanyLabel()} • 0 invoices`;
     if (statSales) statSales.textContent = '0';
     if (statSalesMini) statSalesMini.textContent = `${getCurrentDashboardCompanyLabel()} • 0 requests • 0 quotations`;
-    if (statServiceOperations) statServiceOperations.textContent = '0';
-    if (statServiceOperationsMini) statServiceOperationsMini.textContent = `${getCurrentDashboardCompanyLabel()} • 0 active service orders`;
     dashboardReceivableBalance = 0;
     renderInvoiceStatusQuickView([]);
     renderProjectLedgerStats([]);
@@ -9053,10 +8777,8 @@ async function openModal(id = null, preselectProjectId = null) {
     if (!Array.isArray(projectsDashboardDb) || !projectsDashboardDb.length) {
       await loadProjectsDashboardData();
     }
-    await loadServiceOrdersData(true);
   } catch (err) {
     console.error('Transaction modal preload warning:', err);
-    showToast(err.message || 'Unable to load service order references.', 'error');
   }
 
   if (normalizedId) {
@@ -10680,36 +10402,13 @@ function populateServiceOrderProjectSelect(selectedProjectId = '') {
   syncServiceOrderCompanyFromProject();
 }
 
-async function loadServiceOrdersData(force = false) {
-  if (!force && Array.isArray(serviceOrdersDb) && serviceOrdersDb.length) {
-    return serviceOrdersDb;
-  }
-
-  if (!force && serviceOrdersLoadPromise) {
-    return serviceOrdersLoadPromise;
-  }
-
+async function loadServiceOrdersData() {
+  // Service Operations was retired — there is no /api/service-orders endpoint anymore.
+  // This is now a no-op that keeps the (empty) array so any remaining callers degrade
+  // gracefully without ever hitting a dead 404. See [[transactions-legacy]].
+  serviceOrdersDb = [];
   serviceOrdersInitialLoadAttempted = true;
-  serviceOrdersLoadPromise = (async () => {
-    const res = await fetch('/api/service-orders?include_archived=1', { cache: 'no-store' });
-    const data = await res.json().catch(() => []);
-    // Service Operations module was removed; a 404 here just means "no service
-    // orders" rather than an error. Only surface genuine server failures.
-    if (!res.ok) {
-      if (res.status === 404) {
-        serviceOrdersDb = [];
-        return serviceOrdersDb;
-      }
-      throw new Error((data && data.error) || `HTTP ${res.status}`);
-    }
-
-    serviceOrdersDb = Array.isArray(data) ? data : [];
-    return serviceOrdersDb;
-  })();
-
-  return serviceOrdersLoadPromise.finally(() => {
-    serviceOrdersLoadPromise = null;
-  });
+  return serviceOrdersDb;
 }
 
 function renderServiceOrdersTable() {

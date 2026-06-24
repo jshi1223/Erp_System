@@ -1,18 +1,18 @@
-﻿<!-- gantt-chart.html - Project Timeline & Cost Planning Module -->
+<!-- gantt-chart.html - Project Timeline & Cost Planning Module -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KVSK CCTV & IT Solution - Gantt Chart</title>
-  <script src="/assets/js/auth-guard.js?v=20260611fix"></script>
+  <script src="/assets/js/auth-guard.js?v=20260622crm"></script>
   <script defer src="/assets/js/table-paginate.js?v=20260609pg"></script>
-  <script defer src="/assets/js/workspace-switcher.js?v=20260611fix"></script>
+  <script defer src="/assets/js/workspace-switcher.js?v=20260611rev"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&family=Playfair+Display:wght@600;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260611fix" />
+  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260611rev" />
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a" />
   <link rel="stylesheet" href="/gantt-chart/gantt-chart.css?v=20260521p" />
-  <link rel="stylesheet" href="/assets/css/warm-minimal.css?v=20260611fix" />
+  <link rel="stylesheet" href="/assets/css/warm-minimal.css?v=20260611rev" />
 
   
 </head>
@@ -28,9 +28,9 @@
     </button>
     <button class="brand-link" type="button" onclick="goBackToDashboard()" aria-label="Go back to dashboard">
       <div class="brand-lockup">
-      <img class="brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+      <img class="brand-mark" alt="" hidden />
       <div class="brand-copy">
-      <div class="header-logo">KVSK CCTV & IT Solution</div>
+      <div class="header-logo">All Companies</div>
       </div>
       </div>
     </button>
@@ -306,9 +306,9 @@
 <div class="sidebar" id="sidebar">
   <div class="sidebar-header">
       <div class="sidebar-brand">
-        <img class="sidebar-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+        <img class="sidebar-brand-mark" alt="" hidden />
         <div>
-          <div class="header-logo" style="font-size: 1rem;">KVSK CCTV</div>
+          <div class="header-logo" style="font-size: 1rem;">All Companies</div>
         </div>
       </div>
     <button class="modal-close" style="position:static; padding: 5px;" onclick="toggleSidebar()">X</button>
@@ -357,7 +357,6 @@
         <span class="sidebar-group-caret">?</span>
       </button>
       <div class="sidebar-group-items">
-        <a href="/admin?panel=project-records&tab=transactions" class="sidebar-link is-subitem">Project Transactions</a>
         <a href="/accounts-receivable?tab=receivables" class="sidebar-link is-subitem">Receivables</a>
         <a href="/accounts-receivable?tab=collections" class="sidebar-link is-subitem">Payments</a>
       </div>
@@ -387,7 +386,7 @@
   </nav>
 </div>
 
-<script src="/assets/js/erp-core.js?v=20260611fix"></script>
+<script src="/assets/js/erp-core.js?v=20260621brand"></script>
 <script src="/gantt-chart/gantt-chart.js?v=20260605logout"></script>
 </body>
 </html>

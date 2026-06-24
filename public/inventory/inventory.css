@@ -23,7 +23,7 @@ body.inventory-page tr.inventory-row-low:hover td {
 
 body.inventory-page .inventory-low-tag {
   display: inline-block;
-  margin-left: 6px;
+  margin-right: 6px;
   padding: 1px 7px;
   border-radius: 999px;
   background: #f59e0b;
@@ -35,16 +35,39 @@ body.inventory-page .inventory-low-tag {
   vertical-align: middle;
 }
 
+/* Fixed right-aligned slot for the On Hand number so the LOW badge (placed to its
+   left) never pushes the number out of column alignment. */
+body.inventory-page .inventory-onhand-num {
+  display: inline-block;
+  min-width: 2.5ch;
+  text-align: right;
+}
+
 body.inventory-page .inventory-filter-bar {
   display: flex;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
+  justify-content: flex-end;
 }
 
 body.inventory-page .inventory-filter-bar select,
 body.inventory-page .inventory-filter-bar input {
   height: 38px;
+}
+
+/* Keep the category dropdown and the search box on ONE row (side by side). Without
+   this the search input inherits width:100% from .panel-head input and wraps below. */
+body.inventory-page .inventory-filter-bar select {
+  width: auto;
+  flex: 0 0 auto;
+}
+
+body.inventory-page .inventory-filter-bar input[type="search"] {
+  width: auto;
+  flex: 1 1 auto;
+  min-width: 150px;
+  max-width: 260px;
 }
 
 /* Yellow-highlighted search bars across the inventory module. */
@@ -343,6 +366,19 @@ body.inventory-page .module-tab.active {
 
 .text-right {
   text-align: right !important;
+}
+
+/* Numeric headers with a sort arrow: put the arrow to the LEFT of the label and keep
+   the label flush-right, so the header lines up with the right-aligned numbers below.
+   direction:rtl just swaps the inline order of [label, arrow] -> [arrow, label] while
+   keeping the th a normal table-cell (display:flex on a th breaks the table grid). The
+   label text itself stays left-to-right. */
+body.inventory-page .inventory-panel th.text-right.table-sort-header {
+  direction: rtl;
+}
+
+body.inventory-page .inventory-panel th.text-right.table-sort-header .table-sort-trigger {
+  margin: 0 6px 0 0;
 }
 
 .stock-low,

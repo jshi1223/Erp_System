@@ -4,14 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>KVSK CCTV & IT Solution - Inventory</title>
-  <script src="/assets/js/auth-guard.js?v=20260611fix"></script>
+  <script src="/assets/js/auth-guard.js?v=20260622crm"></script>
   <script defer src="/assets/js/table-paginate.js?v=20260609pg"></script>
-  <script defer src="/assets/js/workspace-switcher.js?v=20260611fix"></script>
+  <script defer src="/assets/js/workspace-switcher.js?v=20260611rev"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260611fix">
+  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260611rev">
   <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a">
-  <link rel="stylesheet" href="/inventory/inventory.css?v=20260611fix">
-  <link rel="stylesheet" href="/assets/css/warm-minimal.css?v=20260611fix">
+  <link rel="stylesheet" href="/inventory/inventory.css?v=20260611rev">
+  <link rel="stylesheet" href="/assets/css/warm-minimal.css?v=20260611rev">
 </head>
 <body class="erp-clean-page inventory-page">
   <header>
@@ -21,9 +21,9 @@
       </button>
       <button class="brand-link" type="button" onclick="location.href='/admin?view=dashboard'" aria-label="Go back to dashboard">
         <div class="brand-lockup">
-          <img class="brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo">
+          <img class="brand-mark" alt="" hidden />
           <div class="brand-copy">
-            <div class="header-logo">KVSK CCTV & IT Solution</div>
+            <div class="header-logo">All Companies</div>
             <div class="header-sub">Inventory Management</div>
           </div>
         </div>
@@ -58,9 +58,9 @@
   <div class="sidebar" id="sidebar">
     <div class="sidebar-header">
       <div class="sidebar-brand">
-        <img class="sidebar-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo">
+        <img class="sidebar-brand-mark" alt="" hidden />
         <div>
-          <div class="header-logo">KVSK CCTV</div>
+          <div class="header-logo">All Companies</div>
           <div class="header-sub">Operations Control Panel</div>
         </div>
       </div>
@@ -81,8 +81,8 @@
       <button class="btn btn-cancel btn-sm section-back-btn" type="button" onclick="location.href='/admin?view=dashboard'">Back to Dashboard</button>
       <div class="module-page-toolbar-actions inventory-actions">
         <button class="btn btn-add btn-sm" type="button" data-inventory-action="products" onclick="openInventoryModal('product')">New Product</button>
-        <button class="btn btn-edit btn-sm" type="button" data-inventory-action="warehouses" onclick="openInventoryModal('warehouse')">New Warehouse</button>
-        <button class="btn btn-save btn-sm" type="button" data-inventory-action="stock movements" onclick="openInventoryModal('movement')">Stock Movement</button>
+        <button class="btn btn-add btn-sm" type="button" data-inventory-action="warehouses" hidden onclick="openInventoryModal('warehouse')">New Warehouse</button>
+        <button class="btn btn-save btn-sm" type="button" data-inventory-action="stock movements" hidden onclick="openInventoryModal('movement')">Stock Movement</button>
         <button class="btn btn-add btn-sm" type="button" data-inventory-action="units" data-inventory-admin-col hidden onclick="openInventoryModal('unit')">Add Serial Unit</button>
       </div>
     </section>
@@ -266,7 +266,7 @@
     <div class="modal modal-project inventory-modal-shell" role="dialog" aria-modal="true" aria-labelledby="inventory-modal-title" style="max-width: 760px;">
       <button class="modal-close inventory-modal-close" type="button" onclick="closeInventoryModal()" aria-label="Close inventory modal">&times;</button>
       <div class="user-modal-brand">
-        <img class="user-modal-brand-mark" src="/assets/img/kvsk-logo.jpg" alt="KVSK CCTV & IT Solution logo" />
+        <img class="user-modal-brand-mark" alt="" hidden />
         <div>
           <div class="user-modal-kicker">Inventory</div>
           <div class="modal-title" id="inventory-modal-title" style="margin-bottom:0;">Inventory</div>
@@ -323,8 +323,8 @@
         <div class="section-divider">Warehouse Details</div>
         <div class="modal-grid-compact">
           <div class="field">
-            <label>Code <span class="field-label-status is-required">Required</span></label>
-            <input id="warehouse-code" required />
+            <label>Code <span class="field-label-status is-optional">Auto</span></label>
+            <input id="warehouse-code" readonly placeholder="Auto-generated, e.g. WARE-00001" />
           </div>
           <div class="field">
             <label>Name <span class="field-label-status is-required">Required</span></label>
@@ -344,6 +344,10 @@
       <form id="movement-form" class="inventory-form" onsubmit="saveMovement(event)">
         <div class="section-divider">Movement Details</div>
         <div class="modal-grid-compact">
+          <div class="field">
+            <label>Category <span class="field-label-status is-optional">Filter</span></label>
+            <select id="movement-category" onchange="onMovementCategoryChange()"></select>
+          </div>
           <div class="field">
             <label>Product <span class="field-label-status is-required">Required</span></label>
             <select id="movement-product" required></select>
@@ -463,7 +467,7 @@
     </div>
   </div>
 
-  <script src="/inventory/inventory.js?v=20260611fix"></script>
+  <script src="/inventory/inventory.js?v=20260611rev"></script>
 </body>
 </html>
 

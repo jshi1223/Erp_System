@@ -3,12 +3,14 @@ let billsDb = [];
 let paymentsDb = [];
 let projectsDb = [];
 let purchaseOrdersDb = [];
+let goodsReceiptsDb = [];
 let businessEntitiesDb = [];
 const BUSINESS_ENTITY_CONTEXT_KEY = 'kinaadman_businessEntityContext';
 const BUSINESS_ENTITY_THEME_KEY = 'kinaadman_businessEntityTheme';
 let currentBusinessEntityContextId = '';
 let stagedBillPdf = null;
 let editingBillId = null;
+let pendingBillGrnId = null; // the specific GRN a new bill is being raised from (via the GRN shortcut)
 let removeExistingBillPdf = false;
 let billVendorSearchBound = false;
 const AP_UI_STATE_KEY = 'accounts-payable.uiState';
@@ -96,8 +98,11 @@ function saveApUiState() {
 function restoreApUiState() {
   const state = loadApUiState();
   activeApTab = state.activeTab;
-  apToolbarState.bills.search = state.toolbarState.bills.search;
-  apToolbarState.payments.search = state.toolbarState.payments.search;
+  // Do NOT carry a free-text search across reloads. A leftover term silently hides records — a
+  // stale "002" once made the bills list look like it only had one bill. Always start with a clean
+  // search box; only the active tab is remembered.
+  apToolbarState.bills.search = '';
+  apToolbarState.payments.search = '';
 }
 
 function setAccountsPayableActiveTab(tab, options = {}) {
@@ -222,15 +227,39 @@ document.addEventListener('DOMContentLoaded', () => {
     syncApTabUrl(requestedTab);
   }
   initBillVendorSearch();
-  loadVendors();
-  loadBusinessEntitiesForBills();
-  loadProjectsForBills();
-  loadPurchaseOrdersForBills();
+  const billRefData = Promise.all([
+    loadVendors(),
+    loadBusinessEntitiesForBills(),
+    loadProjectsForBills(),
+    loadPurchaseOrdersForBills(),
+    loadGoodsReceiptsForBills()
+  ].map((p) => Promise.resolve(p)));
   loadBills();
   loadPayments();
   document.getElementById('f-bill-date').valueAsDate = new Date();
   document.getElementById('f-payment-date').valueAsDate = new Date();
   if (typeof loadNotifications === 'function') loadNotifications();
+  // Auto-open the bill modal pre-filled when arriving from a Goods Receipt "Create Bill" shortcut
+  // (/accounts-payable?tab=bills&action=bill&po_id=X). Waits for the reference data so the PO
+  // dropdown + vendor/entity/project auto-fill are ready.
+  if (String(params.get('action') || '').toLowerCase() === 'bill') {
+    const billPoId = Number(params.get('po_id') || 0) || 0;
+    const billGrnId = Number(params.get('grn_id') || 0) || 0;
+    billRefData.then(() => {
+      if (typeof openBillModal !== 'function') return;
+      openBillModal();
+      pendingBillGrnId = billGrnId || null; // set AFTER openBillModal (which resets it) so the new bill links to this GRN
+      if (typeof updateBillPurchaseOrderSelect === 'function') updateBillPurchaseOrderSelect();
+      const poSelect = document.getElementById('f-bill-po');
+      if (poSelect && billPoId) {
+        poSelect.value = String(billPoId);
+        if (typeof syncBillFromPurchaseOrder === 'function') syncBillFromPurchaseOrder();
+      }
+      const url = new URL(window.location.href);
+      ['action', 'po_id', 'grn_id'].forEach((k) => url.searchParams.delete(k));
+      window.history.replaceState({}, '', `${url.pathname}${url.search}`);
+    });
+  }
 });
 
 function bindMasterDataTabLinks() {
@@ -302,9 +331,12 @@ function renderBusinessEntityProfilePanel(current = getCurrentBusinessEntityId()
         const id = String(row.id || '');
         const isActive = id === String(current || '');
         const profile = getBusinessEntityBrandProfile(row);
+        const logoMarkup = profile.logo
+          ? `<span class="business-profile-logo-wrap"><img src="${escHtml(profile.logo)}" alt="${escHtml(profile.alt)}" /></span>`
+          : `<span class="business-profile-logo-wrap business-profile-logo-mono">${escHtml(businessEntityShortLabel(row))}</span>`;
         return `
           <button class="business-profile-card${isActive ? ' is-active' : ''}" type="button" onclick="setBusinessEntityContext('${escHtml(id)}')">
-            <span class="business-profile-logo-wrap"><img src="${escHtml(profile.logo)}" alt="${escHtml(profile.alt)}" /></span>
+            ${logoMarkup}
             <span class="business-profile-copy">
               <span class="business-profile-name">${escHtml(row.company_name || businessEntityShortLabel(row))}</span>
               <span class="business-profile-meta">${escHtml(row.entity_code || 'Operating company')} · ${escHtml(businessEntityProfileValue(row.status, 'active'))}${Number(row.is_default || 0) ? ' · Default' : ''}</span>
@@ -350,11 +382,12 @@ function renderArchivedProjectBadge(row = {}) {
 }
 
 function getBusinessEntityBrandProfile(row) {
-  void row;
+  const logo = String(row?.logo_path || row?.logo || '').trim();
+  const name = String(row?.company_name || '').trim();
   return {
     theme: 'kvsk',
-    logo: '/assets/img/kvsk-logo-switch.png',
-    alt: 'KVSK logo',
+    logo,
+    alt: name ? `${name} logo` : 'Company logo',
     primary: '#b42318',
     primaryLight: '#ef5b4f',
     primaryDark: '#4b1210',
@@ -373,8 +406,16 @@ function applyBusinessEntityBrand(row) {
   document.documentElement.style.setProperty('--accent2', profile.accent2);
 
   document.querySelectorAll('.brand-mark, .sidebar-brand-mark, .user-modal-brand-mark').forEach((img) => {
-    img.src = profile.logo;
-    img.alt = profile.alt;
+    if (profile.logo) {
+      img.src = profile.logo;
+      img.alt = profile.alt;
+      img.style.removeProperty('display');
+      img.removeAttribute('hidden');
+    } else {
+      img.style.display = 'none';
+      img.removeAttribute('src');
+      img.alt = '';
+    }
   });
   try {
     localStorage.setItem(BUSINESS_ENTITY_THEME_KEY, JSON.stringify({
@@ -456,7 +497,7 @@ function renderBillBusinessEntityOptions(selectedValue = '') {
 }
 
 function loadBusinessEntitiesForBills() {
-  fetch('/api/business-entities', { cache: 'no-store' })
+  return fetch('/api/business-entities', { cache: 'no-store' })
     .then(async (r) => {
       const data = await r.json().catch(() => []);
       if (!r.ok) throw new Error(data.error || 'Unable to load operating companies.');
@@ -563,13 +604,15 @@ function getMasterDataRequestStatusBadge(status) {
     draft: 'Draft',
     submitted: 'Submitted',
     approved: 'Approved',
-    rejected: 'Rejected'
+    rejected: 'Rejected',
+    needs_revision: 'Needs Revision'
   };
   const classMap = {
     draft: 'status-draft',
     submitted: 'status-submitted',
     approved: 'status-approved',
-    rejected: 'status-rejected'
+    rejected: 'status-rejected',
+    needs_revision: 'status-pending'
   };
   return `<span class="status-pill ${classMap[safe] || 'status-draft'}">${escHtml(labelMap[safe] || safe || 'Open')}</span>`;
 }
@@ -634,13 +677,13 @@ function renderMasterDataRequests() {
     const status = String(row.status || 'submitted').toLowerCase();
     const endpoint = type === 'vendor' ? 'vendor-registry-requests' : 'company-registry-requests';
     let actions = '<span class="text-muted">No action</span>';
-    if (isStaff && status === 'draft') {
+    if (isStaff && (status === 'draft' || status === 'needs_revision')) {
       const editAction = type === 'vendor'
         ? `openVendorRequestDraft(${id})`
         : `openMasterDataCompanyRequestDraft(${id})`;
       actions = `
         <button class="btn btn-edit btn-sm" type="button" onclick="${editAction}">Edit</button>
-        <button class="btn btn-save btn-sm" type="button" onclick="submitMasterDataRequest('${endpoint}', ${id})">Submit</button>
+        <button class="btn btn-save btn-sm" type="button" onclick="submitMasterDataRequest('${endpoint}', ${id})">${status === 'needs_revision' ? 'Resubmit' : 'Submit'}</button>
       `;
     } else if (canApprove && status === 'submitted') {
       actions = `
@@ -1029,8 +1072,9 @@ function resetMasterDataCompanyForm() {
 
 function openMasterDataCompanyRequestDraft(requestId) {
   const row = masterDataRequestsDb.find((entry) => Number(entry.id || 0) === Number(requestId || 0) && entry.request_type === 'company');
-  if (!row || String(row.status || '').toLowerCase() !== 'draft') {
-    showToast('Only draft company requests can be edited.', 'error');
+  const companyDraftStatus = String(row?.status || '').toLowerCase();
+  if (!row || (companyDraftStatus !== 'draft' && companyDraftStatus !== 'needs_revision')) {
+    showToast('Only draft or returned-for-revision company requests can be edited.', 'error');
     return;
   }
   resetMasterDataCompanyForm();
@@ -1564,6 +1608,19 @@ function loadPurchaseOrdersForBills() {
     });
 }
 
+// Goods receipts (for the bill's GR Reference). On the AP page the procurement loader doesn't run,
+// so the bill modal has its own copy here instead of relying on procurementState.goodsReceipts.
+function loadGoodsReceiptsForBills() {
+  return fetch('/api/procurement/goods-receipts')
+    .then(async (r) => {
+      const data = await r.json().catch(() => []);
+      if (!r.ok) throw new Error(data.error || 'Unable to load goods receipts.');
+      return data;
+    })
+    .then((data) => { goodsReceiptsDb = Array.isArray(data) ? data : []; })
+    .catch((e) => { console.error('Error:', e); goodsReceiptsDb = []; });
+}
+
 function updateBillPurchaseOrderSelect() {
   const select = document.getElementById('f-bill-po');
   if (!select) return;
@@ -1571,6 +1628,9 @@ function updateBillPurchaseOrderSelect() {
   const current = String(select.value || '').trim();
   const options = purchaseOrdersDb
     .filter((po) => businessEntityMatches(po))
+    // Partial billing: keep a PO available until it's fully billed (bills total < PO total), so each
+    // partial delivery can be billed. Also keep the currently-selected PO (when editing its bill).
+    .filter((po) => billPoHasBalance(po) || String(po.id) === current)
     .map((po) => {
       const label = [
         po.po_number || `PO #${po.id}`,
@@ -1601,6 +1661,9 @@ function selectBillVendorById(vendorId) {
 
 function syncBillFromPurchaseOrder() {
   const po = getBillPurchaseOrderById(document.getElementById('f-bill-po')?.value || 0);
+  // Always refresh the GR reference + items breakdown (clears them when no PO).
+  setBillGrReference(po);
+  renderBillReceivedItems(po);
   if (!po) return;
 
   renderBillBusinessEntityOptions(po.business_entity_id || '');
@@ -1613,13 +1676,82 @@ function syncBillFromPurchaseOrder() {
 
   const amountInput = document.getElementById('f-bill-amount');
   if (amountInput && !String(amountInput.value || '').trim()) {
-    amountInput.value = Number(po.computed_total || po.total_amount || 0) || '';
+    // Partial billing: default to the received-but-unbilled amount (received total − already billed).
+    // You can bill each partial delivery, or wait for full delivery — the amount stays editable.
+    const remaining = Math.max(0, billReceivedItemsTotal(po) - billPoBilledTotal(po));
+    amountInput.value = remaining ? formatMoneyInputValue(remaining) : '';
   }
 
   const billNumberInput = document.getElementById('f-bill-number');
   if (billNumberInput && !String(billNumberInput.value || '').trim()) {
     void loadBillNumberPreview();
   }
+}
+
+// Qty actually received per line (falls back to ordered qty if receipts aren't tracked per line).
+function billLineReceivedQty(item) {
+  const received = Number(item?.received_qty || 0);
+  return received > 0 ? received : Number(item?.quantity || 0) || 0;
+}
+
+function billReceivedItemsTotal(po) {
+  const items = po && Array.isArray(po.line_items) ? po.line_items : [];
+  return items.reduce((sum, it) => sum + billLineReceivedQty(it) * (Number(it.unit_price || 0) || 0), 0);
+}
+
+// Sum of bills already recorded against this PO (for the partial-billing balance).
+function billPoBilledTotal(po) {
+  const bills = po && Array.isArray(po.bill_details) ? po.bill_details : [];
+  return bills.reduce((sum, b) => sum + (Number(b.total_amount || 0) || 0), 0);
+}
+
+// A PO can still be billed while its recorded bills total less than the PO total — this is what
+// lets you bill several partial deliveries against one PO instead of being limited to a single bill.
+function billPoHasBalance(po) {
+  const poTotal = Number(po?.computed_total || po?.total_amount || 0) || 0;
+  return billPoBilledTotal(po) < poTotal - 0.005;
+}
+
+// GR Reference: the goods receipt number(s) recorded for this PO (read-only).
+function setBillGrReference(po) {
+  const input = document.getElementById('f-bill-gr-ref');
+  if (!input) return;
+  // Use the AP page's own goods-receipts copy; fall back to procurementState (procurement page).
+  const source = (Array.isArray(goodsReceiptsDb) && goodsReceiptsDb.length)
+    ? goodsReceiptsDb
+    : (typeof procurementState !== 'undefined' && Array.isArray(procurementState.goodsReceipts) ? procurementState.goodsReceipts : []);
+  const grns = (po ? source : [])
+    .filter((g) => Number(g.po_id || 0) === Number(po?.id || 0))
+    .map((g) => String(g.grn_number || '').trim()).filter(Boolean);
+  input.value = grns.join(', ');
+  input.placeholder = po ? (grns.length ? '' : 'No goods receipt yet') : '—';
+}
+
+// Read-only breakdown of the received items being billed (Item / Qty Received / Unit Cost / Total).
+function renderBillReceivedItems(po) {
+  const box = document.getElementById('f-bill-items');
+  if (!box) return;
+  const items = po && Array.isArray(po.line_items) ? po.line_items : [];
+  if (!items.length) {
+    box.innerHTML = '<div class="bill-items-empty">Pumili ng PO Reference para makita ang items.</div>';
+    return;
+  }
+  const body = items.map((it) => {
+    const qty = billLineReceivedQty(it);
+    const cost = Number(it.unit_price || 0) || 0;
+    return `<tr>
+      <td>${escHtml(it.description || '-')}</td>
+      <td class="text-right">${qty}</td>
+      <td class="text-right">${formatMoneyInputValue(cost)}</td>
+      <td class="text-right">${formatMoneyInputValue(qty * cost)}</td>
+    </tr>`;
+  }).join('');
+  box.innerHTML = `
+    <table class="bill-items-table">
+      <thead><tr><th>Items</th><th class="text-right">Qty Received</th><th class="text-right">Unit Cost</th><th class="text-right">Total</th></tr></thead>
+      <tbody>${body}</tbody>
+      <tfoot><tr><td colspan="3" class="text-right"><strong>Total</strong></td><td class="text-right"><strong>${formatMoneyInputValue(billReceivedItemsTotal(po))}</strong></td></tr></tfoot>
+    </table>`;
 }
 
 function getBillProjectLabel(bill) {
@@ -1729,11 +1861,16 @@ function filterBills() {
     const approveButton = canApproveApRecords() && approval.key === 'pending'
       ? `<button class="btn btn-save btn-sm" type="button" onclick="approveBill(${b.id})">Approve</button>`
       : '';
+    // Once a bill is APPROVED and still has a balance, offer a one-click jump to record its payment.
+    const payButton = (approval.key === 'approved' && balance > 0)
+      ? `<button class="btn btn-add btn-sm" type="button" onclick="createPaymentForBill(${b.id})">Create Payment</button>`
+      : '';
     return `
       <tr>
         <td style="font-weight:600;color:var(--primary)">${escHtml(b.bill_number)}</td>
         <td>${escHtml(vendorsDb.find(v => v.id === b.vendor_id)?.vendor_name || '-')}</td>
         <td>${escHtml(getBillProjectLabel(b))}${renderArchivedProjectBadge(b)}</td>
+        <td>${escHtml(getBillGrReferenceText(b) || '-')}</td>
         <td>${formatDate(b.bill_date)}</td>
         <td>${formatDate(b.due_date)}</td>
         <td>PHP ${(b.total_amount).toLocaleString('en-PH', {minimumFractionDigits: 2})}</td>
@@ -1744,14 +1881,84 @@ function filterBills() {
           ${isOverdue && status.key !== 'paid' ? '<div style="margin-top:4px;font-size:0.68rem;color:var(--danger);font-weight:600;">Overdue</div>' : ''}
         </td>
         <td>${renderApprovalPill(b)}</td>
-        <td style="display:flex; gap:6px; flex-wrap:wrap;">
-          ${pdfButton}
-          <button class="btn btn-edit btn-sm" type="button" onclick="editBill(${b.id})">Edit</button>
-          ${approveButton}
+        <td style="white-space:nowrap;">
+          <div style="display:inline-flex; gap:6px; align-items:center; flex-wrap:nowrap;">
+            ${pdfButton}
+            <button class="btn btn-pdf btn-sm" type="button" onclick="viewDocumentTrail('${b.bill_number}')">Trail</button>
+            ${approval.key !== 'approved' ? `<button class="btn btn-edit btn-sm" type="button" onclick="editBill(${b.id})">Edit</button>` : ''}
+            ${approveButton}
+            ${payButton}
+          </div>
         </td>
       </tr>
     `;
-  }).join('') : '<tr class="empty-row"><td colspan="11">No bills found</td></tr>';
+  }).join('') : '<tr class="empty-row"><td colspan="12">No bills found</td></tr>';
+}
+
+// GRN number(s) for a bill's PO — shown in the bills table so the goods-receipt link is visible
+// without opening the bill. Uses the AP page's goods-receipts copy (falls back to procurementState).
+function getBillGrReferenceText(bill) {
+  // Prefer the SPECIFIC GRN this bill was raised from — so partial bills each show their own
+  // receipt (BILL-001 → GRN-001, BILL-002 → GRN-002) instead of every GRN on the PO.
+  const own = String(bill && bill.bill_grn_number || '').trim();
+  if (own) return own;
+  // Fallback for older/manual bills with no direct GRN link: show the PO's goods receipt(s).
+  const poId = Number(bill && bill.po_id || 0) || 0;
+  if (!poId) return '';
+  const source = (Array.isArray(goodsReceiptsDb) && goodsReceiptsDb.length)
+    ? goodsReceiptsDb
+    : (typeof procurementState !== 'undefined' && Array.isArray(procurementState.goodsReceipts) ? procurementState.goodsReceipts : []);
+  return source
+    .filter((g) => Number(g.po_id || 0) === poId)
+    .map((g) => String(g.grn_number || '').trim())
+    .filter(Boolean)
+    .join(', ');
+}
+
+// View the full PR → Quote → PO → GRN → Bill → Payment trail for any procurement document number
+// (uses /api/procurement/trace, which returns human-readable status lines + the current stage).
+async function viewDocumentTrail(docNo) {
+  const q = String(docNo || '').trim();
+  if (!q) return;
+  let data = null;
+  try {
+    const r = await fetch('/api/procurement/trace?q=' + encodeURIComponent(q), { credentials: 'same-origin' });
+    data = await r.json().catch(() => null);
+  } catch (_) { data = null; }
+  showDocumentTrailModal(q, data);
+}
+
+function showDocumentTrailModal(query, data) {
+  let backdrop = document.getElementById('doc-trail-backdrop');
+  if (!backdrop) {
+    backdrop = document.createElement('div');
+    backdrop.id = 'doc-trail-backdrop';
+    backdrop.className = 'modal-backdrop';
+    backdrop.addEventListener('click', (e) => { if (e.target === backdrop) backdrop.classList.remove('open'); });
+    document.body.appendChild(backdrop);
+  }
+  let bodyHtml;
+  if (data && data.ok && data.found) {
+    const lines = (Array.isArray(data.lines) ? data.lines : []).map((l) => `<li>${escHtml(l)}</li>`).join('');
+    bodyHtml = `
+      <ul class="doc-trail-lines">${lines || '<li>—</li>'}</ul>
+      <div class="doc-trail-stage">📍 Nasaan ngayon: <strong>${escHtml(data.stage || '-')}</strong></div>`;
+  } else {
+    bodyHtml = `<div class="doc-trail-empty">${escHtml((data && data.message) || 'Walang trail na nahanap para sa dokumentong ito.')}</div>`;
+  }
+  const title = (data && data.title) ? escHtml(data.title) : escHtml(query);
+  backdrop.innerHTML = `
+    <div class="modal" style="max-width:540px;">
+      <div class="modal-header">
+        <h3>Document Trail — ${title}</h3>
+        <button class="close-btn" type="button" onclick="document.getElementById('doc-trail-backdrop').classList.remove('open')">X</button>
+      </div>
+      <div class="modal-body doc-trail-body">${bodyHtml}</div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" type="button" onclick="document.getElementById('doc-trail-backdrop').classList.remove('open')">Close</button>
+      </div>
+    </div>`;
+  backdrop.classList.add('open');
 }
 
 function toDateInputValue(value) {
@@ -1816,6 +2023,9 @@ function openBillModal(id = null) {
   document.getElementById('f-bill-amount').value = '';
   document.getElementById('f-bill-notes').value = '';
   removeBillPdf(true, false);
+  setBillGrReference(null);
+  renderBillReceivedItems(null);
+  pendingBillGrnId = null; // only set via the GRN "Create Bill" shortcut (after this reset)
   if (bill) {
     const vendor = vendorsDb.find((entry) => Number(entry.id || 0) === Number(bill.vendor_id || 0));
     document.getElementById('f-bill-number').value = bill.bill_number || '';
@@ -1825,8 +2035,11 @@ function openBillModal(id = null) {
     renderBillBusinessEntityOptions(bill.business_entity_id || '');
     document.getElementById('f-bill-vendor-search').value = vendor?.vendor_name || bill.vendor_name || '';
     if (document.getElementById('f-bill-po')) document.getElementById('f-bill-po').value = bill.po_id || '';
+    const billPo = getBillPurchaseOrderById(bill.po_id);
+    setBillGrReference(billPo);
+    renderBillReceivedItems(billPo);
     document.getElementById('f-bill-project').value = bill.project_id || '';
-    document.getElementById('f-bill-amount').value = bill.total_amount || '';
+    document.getElementById('f-bill-amount').value = bill.total_amount ? formatMoneyInputValue(bill.total_amount) : '';
     document.getElementById('f-bill-notes').value = bill.notes || '';
     if (bill.pdfFilename) {
       document.getElementById('bill-pdf-name').textContent = bill.pdfFilename;
@@ -1852,7 +2065,7 @@ function closeBillModal() {
 async function saveBill() {
   const vendorId = resolveBillVendorSelection();
   const billNumber = document.getElementById('f-bill-number').value.trim();
-  const totalAmount = parseFloat(document.getElementById('f-bill-amount').value);
+  const totalAmount = parseMoneyInput(document.getElementById('f-bill-amount').value);
 
   if (!billNumber) {
     showToast('Bill Number is required.', 'error');
@@ -1881,6 +2094,8 @@ async function saveBill() {
   formData.append('bill_date', document.getElementById('f-bill-date').value);
   formData.append('due_date', document.getElementById('f-bill-due-date').value);
   formData.append('po_id', document.getElementById('f-bill-po')?.value || '');
+  // Link this NEW bill to the specific GRN it was raised from (set by the GRN "Create Bill" shortcut).
+  if (pendingBillGrnId) formData.append('grn_id', String(pendingBillGrnId));
   formData.append('project_id', document.getElementById('f-bill-project').value || '');
   formData.append('total_amount', totalAmount);
   formData.append('notes', document.getElementById('f-bill-notes').value.trim());
@@ -1902,6 +2117,7 @@ async function saveBill() {
       throw new Error(data.error || 'Unable to save bill.');
     }
     closeBillModal();
+    pendingBillGrnId = null;
     await loadBills();
     showToast(isEdit ? 'Bill updated and sent for approval.' : 'Bill submitted for approval.', 'success');
   } catch (e) {
@@ -2053,7 +2269,7 @@ function syncPaymentFromBill() {
   const amountInput = document.getElementById('f-payment-amount');
   if (amountInput) {
     const balance = Math.max(0, Number(bill.total_amount || 0) - Number(bill.paid_amount || 0));
-    amountInput.value = balance ? String(balance.toFixed(2)) : '';
+    amountInput.value = balance ? formatMoneyInputValue(balance) : '';
   }
 }
 
@@ -2361,6 +2577,24 @@ function renderDisbursements() {
   }).join('') : '<tr class="empty-row"><td colspan="7">No disbursements found</td></tr>';
 }
 
+// Shortcut from an approved bill row: jump to the AP Payments tab and open the payment modal
+// pre-filled with this bill (amount = its outstanding balance, via syncPaymentFromBill). Both the
+// bill and payment live in the AP workspace, so this switches tab in place — no navigation needed.
+function createPaymentForBill(billId) {
+  const id = Number(billId || 0) || 0;
+  if (!id) return;
+  if (typeof switchApWorkspaceTab === 'function') {
+    switchApWorkspaceTab('payments', document.querySelector('.ap-workspace-tab[data-workspace-tab="payments"]'));
+  }
+  openPaymentModal();
+  if (typeof updateBillSelects === 'function') updateBillSelects();
+  const billSelect = document.getElementById('f-payment-bill');
+  if (billSelect) {
+    billSelect.value = String(id);
+    if (typeof syncPaymentFromBill === 'function') syncPaymentFromBill();
+  }
+}
+
 function openPaymentModal() {
   document.getElementById('f-payment-date').valueAsDate = new Date();
   document.getElementById('f-payment-bill').value = '';
@@ -2377,7 +2611,7 @@ function closePaymentModal() {
 
 async function savePayment() {
   const billId = document.getElementById('f-payment-bill').value;
-  const amount = parseFloat(document.getElementById('f-payment-amount').value);
+  const amount = parseMoneyInput(document.getElementById('f-payment-amount').value);
   
   if (!billId || !amount) {
     showToast('Bill and payment amount are required.', 'error');

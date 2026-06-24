@@ -35,6 +35,15 @@
     },
     {
       type: 'group',
+      key: 'crm',
+      label: 'Customer Relationship',
+      items: [
+        { label: 'Leads & Pipeline', href: '/crm?tab=leads', id: 'menu-crm' },
+        { label: 'Contacts', href: '/crm?tab=contacts' }
+      ]
+    },
+    {
+      type: 'group',
       key: 'procurement',
       label: 'Procurement',
       items: [

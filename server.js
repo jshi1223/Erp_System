@@ -1,7 +1,62 @@
 ﻿﻿// server.js - Updated with Session, CRUD, Double Login Fix, and Connection Pool
+// Load .env first so DATABASE_URL etc. are available no matter how the app is started (node or
+// PM2) — the DB pool is built from process.env when src/database is required below.
+require('dotenv').config();
 const express = require('express');
 const path    = require('path');
-const { createPostgresAppPool } = require('./lib/db/postgres-app');
+
+// ── Global safety net ─────────────────────────────────────────────────────────────────────
+// Without these, ONE stray unhandled promise rejection or exception anywhere in an async route
+// can take down the whole server (and it stays down with no auto-restart). We log loudly so the
+// issue is still visible (PM2 captures these to its log files).
+process.on('unhandledRejection', (reason) => {
+  // A rejected promise in a route — often after a response was already sent — should NOT crash
+  // the app. Log it and keep serving everyone else.
+  console.error('[unhandledRejection]', reason && reason.stack ? reason.stack : reason);
+});
+process.on('uncaughtException', (err) => {
+  // After an uncaught exception the process state is unknown, so exit and let the process
+  // manager (PM2) start a clean instance. Without PM2 this behaves like before (the process
+  // stops) — but now it's logged, and under PM2 it auto-recovers in ~1s.
+  console.error('[uncaughtException]', err && err.stack ? err.stack : err);
+  process.exit(1);
+});
+// ───────────────────────────────────────────────────────────────────────────────────────────
+// Database layer (pool + queryAsync + pg error helpers) lives in src/database now.
+const {
+  db,
+  queryAsync,
+  isPostgresUniqueViolation,
+  isPostgresUndefinedTable,
+  isPostgresUndefinedColumn,
+  isPostgresDuplicateObject,
+} = require('./src/database');
+const {
+  normalizePhone,
+  normalizeTin,
+  formatTin,
+  isValidPhone,
+  isValidCompanyRegistryPhone,
+  isValidEmail,
+} = require('./src/shared/validation');
+const { formatPdfMoney, formatPdfDate } = require('./src/shared/format');
+const {
+  getAuthenticatedUser,
+  hasBearerAuth,
+  normalizeAccessRole,
+  formatAccessRoleLabel,
+  isSuperAdminRole,
+  isAdminRole,
+  isPrivilegedRole,
+  isStaffRole,
+  isApiRequest,
+  rejectUnauthorized,
+  protectAuthenticated,
+  protectAdmin,
+  protectAdminOnly,
+  protectStaffOnly,
+  protectSuperAdmin,
+} = require('./src/middleware/auth');
 const { createPostgresSessionStore } = require('./lib/db/postgres-session-store');
 const session = require('express-session');
 const bcrypt  = require('bcrypt');
@@ -661,7 +716,7 @@ async function notifyPurchaseOrderRequester(req, poId, decision = 'approved', op
     ['Vendor', row.vendor_name],
     ['PO Date', row.po_date],
     ['Delivery Date', row.delivery_date],
-    ['Amount', row.total_amount],
+    ['Amount', formatPdfMoney(row.total_amount)],
     [(cancelled || rejected) ? `${statusText} By` : 'Approved By', actor],
     [(cancelled || rejected) ? `${statusText} At` : 'Approved At', decidedAt],
     (cancelled || rejected) ? ['Reason', reason] : null
@@ -696,6 +751,90 @@ async function notifyPurchaseOrderRequester(req, poId, decision = 'approved', op
         <p style="margin:0 0 12px;">Purchase order <strong>${htmlEscape(row.po_number || poId)}</strong> has been ${htmlEscape(statusText.toLowerCase())}.</p>
         <table style="border-collapse:collapse;margin:12px 0;">${detailRows}</table>
         <p style="margin:16px 0;"><a href="${htmlEscape(reviewUrl)}" style="background:#14532d;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;display:inline-block;">View in ERP</a></p>
+      </div>
+    `
+  });
+}
+
+async function notifyPurchaseOrderVendor(req, poId) {
+  const rows = await queryAsync(`
+    SELECT
+      po.po_number,
+      po.po_date,
+      po.delivery_date,
+      po.total_amount,
+      po.payment_terms,
+      c.company_name,
+      p.project_name,
+      pr.pr_number,
+      v.vendor_name,
+      v.contact_person,
+      v.email AS vendor_email,
+      be.company_name AS business_entity_name
+    FROM purchase_orders po
+    LEFT JOIN business_entities be ON be.id = po.business_entity_id
+    LEFT JOIN purchase_requisitions pr ON pr.id = po.requisition_id
+    LEFT JOIN company_registry c ON c.id = po.company_id
+    LEFT JOIN projects p ON p.id = po.project_id
+    LEFT JOIN vendors v ON v.id = po.vendor_id
+    WHERE po.id = ?
+    LIMIT 1
+  `, [poId]);
+  const row = rows?.[0] || null;
+  if (!row) return { sent: false, reason: 'not-found' };
+
+  const recipients = dedupeEmailList(parseEmailList(row.vendor_email || ''));
+  if (!recipients.length) {
+    console.warn(`No vendor email configured for purchase order ${row.po_number || poId}.`);
+    return { sent: false, reason: 'no-vendor-email' };
+  }
+
+  const attachments = [];
+  try {
+    attachments.push(await buildPurchaseOrderPdfAttachment(poId, { status: 'approved' }));
+  } catch (pdfErr) {
+    console.error('PO vendor PDF attachment warning:', pdfErr);
+  }
+
+  const detailRows = [
+    ['PO No.', row.po_number],
+    ['PR No.', row.pr_number],
+    ['Company', row.company_name],
+    ['Project', row.project_name],
+    ['PO Date', row.po_date],
+    ['Delivery Date', row.delivery_date],
+    ['Payment Terms', row.payment_terms],
+    ['Amount', formatPdfMoney(row.total_amount)]
+  ].filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== '')
+    .map(([label, value]) => `
+      <tr>
+        <td style="padding:6px 10px;border:1px solid #d9e2ec;font-weight:600;">${htmlEscape(label)}</td>
+        <td style="padding:6px 10px;border:1px solid #d9e2ec;">${htmlEscape(value)}</td>
+      </tr>
+    `)
+    .join('');
+
+  const vendorName = row.contact_person || row.vendor_name || 'Vendor';
+  const buyerName = row.business_entity_name || 'Kinaadman ERP';
+  return sendSystemEmail({
+    from: `Kinaadman ERP <${SMTP_FROM}>`,
+    to: recipients.join(','),
+    subject: `Purchase Order: ${row.po_number || poId}`,
+    attachments: attachments.length ? attachments : undefined,
+    text: [
+      `Dear ${vendorName},`,
+      `Please find attached purchase order ${row.po_number || poId}.`,
+      `Delivery date: ${row.delivery_date || 'To be coordinated'}`,
+      `Total: ${formatPdfMoney(row.total_amount)}`,
+      'Thank you.'
+    ].join('\n'),
+    html: `
+      <div style="font-family:Arial,sans-serif;color:#1f2937;line-height:1.5;">
+        <h2 style="margin:0 0 12px;">Purchase Order</h2>
+        <p style="margin:0 0 12px;">Dear ${htmlEscape(vendorName)},</p>
+        <p style="margin:0 0 12px;">Please find attached purchase order <strong>${htmlEscape(row.po_number || poId)}</strong>.</p>
+        <table style="border-collapse:collapse;margin:12px 0;">${detailRows}</table>
+        <p style="margin:16px 0 0;">Thank you,<br>${htmlEscape(buyerName)}</p>
       </div>
     `
   });
@@ -740,7 +879,7 @@ async function notifyRfqAwardedRequester(req, quotationId) {
     ['RFQ No.', row.quote_number],
     ['PR No.', row.pr_number],
     ['Awarded Vendor', row.vendor_name],
-    ['Quoted Total', row.quoted_total],
+    ['Quoted Total', formatPdfMoney(row.quoted_total)],
     ['Delivery Days', row.delivery_days],
     ['Payment Terms', row.payment_terms],
     ['Company', row.company_name],
@@ -765,6 +904,94 @@ async function notifyRfqAwardedRequester(req, quotationId) {
         <p style="margin:0 0 12px;">The winning RFQ for PR <strong>${htmlEscape(row.pr_number || '')}</strong> has been selected.</p>
         <table style="border-collapse:collapse;margin:12px 0;">${detailRows}</table>
         <p style="margin:16px 0;"><a href="${htmlEscape(reviewUrl)}" style="background:#14532d;color:#ffffff;text-decoration:none;padding:10px 14px;border-radius:6px;display:inline-block;">View in ERP</a></p>
+      </div>
+    `
+  });
+}
+
+async function notifyRfqAwardedVendor(req, quotationId) {
+  const rows = await queryAsync(`
+    SELECT
+      q.quote_number,
+      q.quoted_total,
+      q.delivery_days,
+      q.payment_terms,
+      q.warranty_terms,
+      pr.pr_number,
+      pr.needed_by,
+      c.company_name,
+      p.project_name,
+      v.vendor_name,
+      v.contact_person,
+      v.email AS vendor_email,
+      be.company_name AS business_entity_name
+    FROM procurement_quotations q
+    JOIN purchase_requisitions pr ON pr.id = q.requisition_id
+    LEFT JOIN business_entities be ON be.id = pr.business_entity_id
+    LEFT JOIN company_registry c ON c.id = pr.company_id
+    LEFT JOIN projects p ON p.id = pr.project_id
+    LEFT JOIN vendors v ON v.id = q.vendor_id
+    WHERE q.id = ?
+    LIMIT 1
+  `, [quotationId]);
+  const row = rows?.[0] || null;
+  if (!row) return { sent: false, reason: 'not-found' };
+
+  const recipients = dedupeEmailList(parseEmailList(row.vendor_email || ''));
+  if (!recipients.length) {
+    console.warn(`No vendor email configured for awarded RFQ ${row.quote_number || quotationId}.`);
+    return { sent: false, reason: 'no-vendor-email' };
+  }
+
+  const attachments = [];
+  try {
+    attachments.push(await buildQuotationPdfAttachment(quotationId));
+  } catch (pdfErr) {
+    console.error('Awarded vendor quotation PDF attachment warning:', pdfErr);
+  }
+
+  const detailRows = [
+    ['RFQ No.', row.quote_number],
+    ['PR No.', row.pr_number],
+    ['Company', row.company_name],
+    ['Project', row.project_name],
+    ['Needed By', row.needed_by],
+    ['Quoted Total', formatPdfMoney(row.quoted_total)],
+    ['Delivery Days', Number(row.delivery_days || 0) ? `${Number(row.delivery_days)} days` : ''],
+    ['Payment Terms', row.payment_terms],
+    ['Warranty', row.warranty_terms]
+  ].filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== '')
+    .map(([label, value]) => `
+      <tr>
+        <td style="padding:6px 10px;border:1px solid #d9e2ec;font-weight:600;">${htmlEscape(label)}</td>
+        <td style="padding:6px 10px;border:1px solid #d9e2ec;">${htmlEscape(value)}</td>
+      </tr>
+    `)
+    .join('');
+
+  const vendorName = row.contact_person || row.vendor_name || 'Vendor';
+  const buyerName = row.business_entity_name || 'Kinaadman ERP';
+
+  return sendSystemEmail({
+    from: `Kinaadman ERP <${SMTP_FROM}>`,
+    to: recipients.join(','),
+    subject: `RFQ Award Notice: ${row.quote_number || quotationId}`,
+    attachments: attachments.length ? attachments : undefined,
+    text: [
+      `Dear ${vendorName},`,
+      `Your quotation ${row.quote_number || quotationId} for PR ${row.pr_number || ''} has been approved.`,
+      `${buyerName} selected your company as the supplier for this purchase. Our team will coordinate the purchase order and next steps.`,
+      `Quoted total: ${formatPdfMoney(row.quoted_total)}`,
+      'Thank you.'
+    ].join('\n'),
+    html: `
+      <div style="font-family:Arial,sans-serif;color:#1f2937;line-height:1.5;">
+        <h2 style="margin:0 0 12px;">RFQ Award Notice</h2>
+        <p style="margin:0 0 12px;">Dear ${htmlEscape(vendorName)},</p>
+        <p style="margin:0 0 12px;">Your quotation for PR <strong>${htmlEscape(row.pr_number || '')}</strong> has been <strong>approved</strong>.</p>
+        <p style="margin:0 0 12px;"><strong>${htmlEscape(buyerName)}</strong> selected your company as the supplier for this purchase. Our team will coordinate the purchase order and next steps.</p>
+        <table style="border-collapse:collapse;margin:12px 0;">${detailRows}</table>
+        <p style="margin:16px 0 0;">Thank you,<br>${htmlEscape(buyerName)}</p>
       </div>
     `
   });
@@ -825,7 +1052,7 @@ async function notifyFinanceApproval(req, type = 'bill', recordId = 0, options =
     ['Reference No.', row.reference_number],
     ['Linked Bill/Invoice', row.bill_number || row.invoice_number],
     ['Payment Date', row.payment_date],
-    ['Amount', row.amount],
+    ['Amount', formatPdfMoney(row.amount)],
     ['Method', row.payment_method],
     [rejected ? 'Rejected By' : 'Approved By', approvedBy],
     [rejected ? 'Rejected At' : 'Approved At', row.approved_at],
@@ -836,7 +1063,7 @@ async function notifyFinanceApproval(req, type = 'bill', recordId = 0, options =
     ['Vendor', row.vendor_name],
     ['Bill Date', row.bill_date],
     ['Due Date', row.due_date],
-    ['Amount', row.total_amount],
+    ['Amount', formatPdfMoney(row.total_amount)],
     [rejected ? 'Rejected By' : 'Approved By', approvedBy],
     [rejected ? 'Rejected At' : 'Approved At', row.approved_at],
     rejected ? ['Reason', options.reason] : null
@@ -1109,7 +1336,7 @@ async function notifyProjectRequester(req, projectId, decision = 'approved', opt
     ['Manager', row.project_manager],
     ['Start Date', row.start_date],
     ['End Date', row.end_date],
-    ['Budget', row.budget],
+    ['Budget', formatPdfMoney(row.budget)],
     ['Priority', row.priority],
     [rejected ? 'Rejected By' : 'Approved By', actor],
     [rejected ? 'Rejected At' : 'Approved At', row.approved_at],
@@ -1192,6 +1419,36 @@ const upload = multer({
 const ganttImportUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024 }
+});
+
+// Business-entity logos are public images shown in app headers, so they live under
+// public/ (served by express.static) instead of the auth-gated PDF upload dir.
+const LOGO_UPLOAD_DIR = path.join(__dirname, 'public', 'uploads', 'entity-logos');
+if (!fs.existsSync(LOGO_UPLOAD_DIR)) {
+  fs.mkdirSync(LOGO_UPLOAD_DIR, { recursive: true });
+}
+const LOGO_ALLOWED_EXT = ['.png', '.jpg', '.jpeg', '.webp', '.svg', '.gif'];
+const LOGO_ALLOWED_MIME = new Set([
+  'image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/svg+xml', 'image/gif'
+]);
+const logoStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, LOGO_UPLOAD_DIR),
+  filename: (req, file, cb) => {
+    const ext = String(path.extname(file.originalname || '')).toLowerCase();
+    const safeExt = LOGO_ALLOWED_EXT.includes(ext) ? ext : '.png';
+    cb(null, `entity-${Date.now()}-${Math.round(Math.random() * 1e9)}${safeExt}`);
+  }
+});
+const logoUpload = multer({
+  storage: logoStorage,
+  limits: { fileSize: 2 * 1024 * 1024 }, // 2MB
+  fileFilter: (req, file, cb) => {
+    if (LOGO_ALLOWED_MIME.has(String(file.mimetype || '').toLowerCase())) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PNG, JPG, WEBP, SVG, or GIF images are allowed.'), false);
+    }
+  }
 });
 
 // Middleware
@@ -1316,40 +1573,7 @@ function attachBearerAuth(req, res, next) {
   next();
 }
 
-function getAuthenticatedUser(req) {
-  return req.session?.user || req.authUser || null;
-}
-
-function hasBearerAuth(req) {
-  return Boolean(req.authType === 'bearer' && req.authUser);
-}
-
-function normalizeAccessRole(role) {
-  const safeRole = String(role || 'user').trim().toLowerCase();
-  return ['super_admin', 'admin', 'staff', 'user'].includes(safeRole) ? safeRole : 'user';
-}
-
-function formatAccessRoleLabel(role) {
-  return normalizeAccessRole(role)
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function isSuperAdminRole(role) {
-  return normalizeAccessRole(role) === 'super_admin';
-}
-
-function isAdminRole(role) {
-  return ['super_admin', 'admin'].includes(normalizeAccessRole(role));
-}
-
-function isPrivilegedRole(role) {
-  return ['super_admin', 'admin', 'staff'].includes(normalizeAccessRole(role));
-}
-
-function isStaffRole(role) {
-  return normalizeAccessRole(role) === 'staff';
-}
+// Auth/role helpers + route guards now live in src/middleware/auth (imported at top).
 
 function getActorIdentityTerms(actor = {}) {
   return [actor.fullname, actor.username, actor.email]
@@ -2310,6 +2534,11 @@ function handleMasterDataPage(req, res) {
   if (!tab) {
     return res.redirect('/master-data?tab=companies');
   }
+  // Migrated to React (Companies + Vendors + Requests tabs). Serve the React build when present;
+  // fall back to the classic accounts-payable shell if the bundle is missing. Revert this branch
+  // to roll back the cut-over. See [[react-migration]].
+  const reactIndex = path.join(__dirname, 'public', 'react', 'index.html');
+  if (fs.existsSync(reactIndex)) return res.sendFile(reactIndex);
   res.sendFile(path.join(__dirname, 'public', 'accounts-payable', 'index.html'));
 }
 
@@ -2327,41 +2556,28 @@ app.get(['/notifications', '/notifications/'], protectAdmin, (req, res) => {
 
 app.use(express.static('public', {
   index: false,
+  etag: true,
+  lastModified: true,
   setHeaders: (res, filePath) => {
     const normalizedPath = String(filePath || '').toLowerCase();
     if (/\.(html|css|js)$/.test(normalizedPath)) {
-      noCache(res);
+      // Cache but ALWAYS revalidate against the file's ETag/Last-Modified on every load. The
+      // browser sends a conditional GET: it gets a tiny 304 when the file is unchanged, and a
+      // fresh 200 the moment the file is edited. This is more reliable for picking up edits than
+      // `no-store`, and removes the need to manually bump `?v=` cache-busters — a normal refresh
+      // always serves the latest JS/CSS. (Sensitive API/page responses keep `no-store` via
+      // noCache().) See [[react-migration]] / cache strategy.
+      res.setHeader('Cache-Control', 'no-cache');
     }
   }
 }));
 
-// ==================== CONNECTION POOL ====================
-let db;
-
-function isPostgresUniqueViolation(err) {
-  return String(err?.code || '') === '23505';
-}
-
-function isPostgresUndefinedTable(err) {
-  return String(err?.code || '') === '42P01';
-}
-
-function isPostgresUndefinedColumn(err) {
-  return String(err?.code || '') === '42703';
-}
-
-function isPostgresDuplicateObject(err) {
-  const code = String(err?.code || '');
-  return ['42P07', '42701', '42710'].includes(code)
-    || /already exists|duplicate/i.test(String(err?.message || ''));
-}
-
 // ==================== Database Bootstrap ====================
+// db, queryAsync, and the pg error helpers now live in src/database (imported at top).
 initApp();
 
 function initApp() {
-  db = createPostgresAppPool();
-  console.log('âœ… PostgreSQL connection pool created');
+  console.log('PostgreSQL connection pool ready');
 
   function addIndexIfMissing(sql, label) {
     db.query(sql, (err) => {
@@ -2421,47 +2637,6 @@ function initApp() {
       ON UPDATE CASCADE
       ON DELETE SET NULL
     `, 'Projects business entity FK');
-    addForeignKeyIfMissing(`
-      ALTER TABLE service_orders
-      ADD CONSTRAINT fk_service_orders_business_entity_id
-      FOREIGN KEY (business_entity_id) REFERENCES business_entities(id)
-      ON UPDATE CASCADE
-      ON DELETE SET NULL
-    `, 'Service orders business entity FK');
-    addForeignKeyIfMissing(`
-      ALTER TABLE service_orders
-      ADD CONSTRAINT fk_service_orders_company_id
-      FOREIGN KEY (company_id) REFERENCES company_registry(id)
-      ON UPDATE CASCADE
-    `, 'Service orders company FK');
-    addForeignKeyIfMissing(`
-      ALTER TABLE service_orders
-      ADD CONSTRAINT fk_service_orders_project_id
-      FOREIGN KEY (project_id) REFERENCES projects(id)
-      ON UPDATE CASCADE
-      ON DELETE SET NULL
-    `, 'Service orders project FK');
-    addForeignKeyIfMissing(`
-      ALTER TABLE service_orders
-      ADD CONSTRAINT fk_service_orders_vendor_id
-      FOREIGN KEY (vendor_id) REFERENCES vendors(id)
-      ON UPDATE CASCADE
-      ON DELETE SET NULL
-    `, 'Service orders vendor FK');
-    addForeignKeyIfMissing(`
-      ALTER TABLE transactions
-      ADD CONSTRAINT fk_transactions_business_entity_id
-      FOREIGN KEY (business_entity_id) REFERENCES business_entities(id)
-      ON UPDATE CASCADE
-      ON DELETE SET NULL
-    `, 'Transactions business entity FK');
-    addForeignKeyIfMissing(`
-      ALTER TABLE transactions
-      ADD CONSTRAINT fk_transactions_company_id
-      FOREIGN KEY (company_id) REFERENCES company_registry(id)
-      ON UPDATE CASCADE
-      ON DELETE SET NULL
-    `, 'Transactions company FK');
     addForeignKeyIfMissing(`
       ALTER TABLE purchase_requisitions
       ADD CONSTRAINT fk_purchase_requisitions_business_entity_id
@@ -2526,20 +2701,6 @@ function initApp() {
     `, 'Journal lines single-side amount check');
   }
 
-  function backfillTransactionProjectDates() {
-    db.query(`
-      UPDATE transactions t
-      SET
-        project_start_date = COALESCE(t.project_start_date, p.planned_start_date, p.start_date),
-        project_end_date = COALESCE(t.project_end_date, p.planned_end_date, p.end_date)
-      FROM projects p
-      WHERE p.transaction_id = t.id
-        AND (t.project_start_date IS NULL OR t.project_end_date IS NULL)
-    `, (err) => {
-      if (err) console.error('Project date backfill error:', err);
-    });
-  }
-
   function backfillProjectTimelineFields() {
   db.query(`
       UPDATE projects
@@ -2548,7 +2709,6 @@ function initApp() {
         planned_end_date = COALESCE(planned_end_date, end_date)
     `, (err) => {
       if (err) console.error('Project timeline backfill error:', err);
-      else backfillTransactionProjectDates();
     });
   }
 
@@ -2590,126 +2750,8 @@ function initApp() {
     }
   });
 
-  db.query(`
-    CREATE TABLE IF NOT EXISTS transactions (
-  id          integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-  docno       VARCHAR(20)   NOT NULL UNIQUE,
-  type        text NOT NULL,
-  client      VARCHAR(255)  NOT NULL,
-  address     TEXT,
-  tin         VARCHAR(20),
-  bizstyle    VARCHAR(100),
-  phone       VARCHAR(20),
-  description TEXT,
-  archived    boolean DEFAULT false,
-  archived_at TIMESTAMP NULL DEFAULT NULL,
-  archived_auto boolean DEFAULT false,
-  qty         integer           NOT NULL DEFAULT 1,
-  unitprice   DECIMAL(12,2),
-  product_id  integer NULL,
-  warehouse_id integer NULL,
-  amount      DECIMAL(12,2) NOT NULL,
-  downpayment DECIMAL(12,2) NOT NULL DEFAULT 0,
-  business_entity_id integer NULL,
-  project_id  integer NULL,
-  company_id  integer NULL,
-  project_tx_no integer NULL,
-  checkno     VARCHAR(100),
-  pono        VARCHAR(100),
-  date        DATE          NOT NULL,
-  status      text NOT NULL DEFAULT 'unpaid',
-  pdfFilename VARCHAR(255),                    -- Changed: filename only
-  project_members VARCHAR(255),
-  member_role     VARCHAR(50),
-  member_phone    VARCHAR(20),
-  project_members_2 VARCHAR(255),
-  member_role_2     VARCHAR(50),
-  member_phone_2    VARCHAR(20),
-  project_members_3 VARCHAR(255),
-  member_role_3     VARCHAR(50),
-  member_phone_3    VARCHAR(20),
-  created_at  TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP
-)
-    `, (err) => {
-    if (err) console.error('Transactions table error:', err);
-    else     console.log('âœ… Table "transactions" ready');
-  });
-
-  // Migration for pdfFilename (para sa existing old records)
-  db.query(`
-  ALTER TABLE transactions 
-  ADD COLUMN IF NOT EXISTS pdfFilename VARCHAR(255)
-  `, (err) => {
-    if (err) console.error('pdfFilename migration error:', err);
-    else     console.log('âœ… pdfFilename column is ready');
-  });
-
-  // Migration for project member details
-  db.query(`ALTER TABLE transactions
-    ADD COLUMN IF NOT EXISTS project_members VARCHAR(255),
-    ADD COLUMN IF NOT EXISTS member_role VARCHAR(50),
-    ADD COLUMN IF NOT EXISTS member_phone VARCHAR(20),
-    ADD COLUMN IF NOT EXISTS project_members_2 VARCHAR(255),
-    ADD COLUMN IF NOT EXISTS member_role_2 VARCHAR(50),
-    ADD COLUMN IF NOT EXISTS member_phone_2 VARCHAR(20),
-    ADD COLUMN IF NOT EXISTS project_members_3 VARCHAR(255),
-    ADD COLUMN IF NOT EXISTS member_role_3 VARCHAR(50),
-    ADD COLUMN IF NOT EXISTS member_phone_3 VARCHAR(20)
-  `, (err) => {
-    if (err) console.error('Member details migration error:', err);
-  });
-
-  db.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS project_start_date DATE, ADD COLUMN IF NOT EXISTS project_end_date DATE`, (err) => {
-    if (err) console.error('Project date migration error:', err);
-  });
-
-  db.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS project_id integer NULL`, (err) => {
-    if (err) console.error('Transactions project_id migration error:', err);
-  });
-  db.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS business_entity_id integer NULL`, (err) => {
-    if (err) console.error('Transactions business_entity_id migration error:', err);
-  });
-  db.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS company_id integer NULL`, (err) => {
-    if (err) console.error('Transactions company_id migration error:', err);
-  });
-  db.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS service_order_id integer NULL`, (err) => {
-    if (err) console.error('Transactions service_order_id migration error:', err);
-  });
-  db.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS project_tx_no integer NULL`, (err) => {
-    if (err) console.error('Transactions project_tx_no migration error:', err);
-  });
-  db.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS product_id integer NULL`, (err) => {
-    if (err) console.error('Transactions product_id migration error:', err);
-  });
-  db.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS warehouse_id integer NULL`, (err) => {
-    if (err) console.error('Transactions warehouse_id migration error:', err);
-  });
-  db.query(`
-    UPDATE transactions t
-    SET company_id = COALESCE(t.company_id, p.company_id)
-    FROM projects p
-    WHERE p.id = t.project_id
-      AND COALESCE(t.company_id, 0) = 0
-      AND COALESCE(t.project_id, 0) > 0
-  `, (err) => {
-    if (err) console.error('Transactions company_id backfill from projects error:', err);
-  });
-  db.query(`
-    UPDATE transactions t
-    SET company_id = COALESCE(t.company_id, so.company_id)
-    FROM service_orders so
-    WHERE so.id = t.service_order_id
-      AND COALESCE(t.company_id, 0) = 0
-      AND COALESCE(t.service_order_id, 0) > 0
-  `, (err) => {
-    if (err) console.error('Transactions company_id backfill from service orders error:', err);
-  });
-
-  db.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS archived_auto boolean NOT NULL DEFAULT false`, (err) => {
-    if (err) console.error('Transactions archived_auto migration error:', err);
-  });
-  db.query(`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP NULL DEFAULT NULL`, (err) => {
-    if (err) console.error('Transactions archived_at migration error:', err);
+  db.query(`ALTER TABLE business_entities ADD COLUMN IF NOT EXISTS logo_path TEXT`, (err) => {
+    if (err) console.error('Business entities logo_path column error:', err);
   });
 
   db.query(`
@@ -2949,6 +2991,12 @@ function initApp() {
   });
   db.query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP NULL`, (err) => {
     if (err) console.error('Purchase orders approved_at migration error:', err);
+  });
+  db.query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false`, (err) => {
+    if (err) console.error('Purchase orders archived migration error:', err);
+  });
+  db.query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP NULL`, (err) => {
+    if (err) console.error('Purchase orders archived_at migration error:', err);
   });
   db.query(`ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS cancelled_by VARCHAR(255) NULL`, (err) => {
     if (err) console.error('Purchase orders cancelled_by migration error:', err);
@@ -3211,6 +3259,11 @@ function initApp() {
   db.query(`ALTER TABLE accounts_payable ADD COLUMN IF NOT EXISTS approved_by VARCHAR(255) NULL`, (err) => {
     if (err) console.error('Accounts payable approved_by migration error:', err);
   });
+  // Links a bill to the SPECIFIC goods receipt it was raised from (so partial bills each show
+  // their own GRN, not every GRN on the PO).
+  db.query(`ALTER TABLE accounts_payable ADD COLUMN IF NOT EXISTS grn_id INTEGER NULL`, (err) => {
+    if (err) console.error('Accounts payable grn_id migration error:', err);
+  });
   db.query(`ALTER TABLE accounts_payable ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP NULL`, (err) => {
     if (err) console.error('Accounts payable approved_at migration error:', err);
   });
@@ -3312,7 +3365,7 @@ function initApp() {
       db.query(`
         UPDATE sales_management_records
         SET status = 'cancelled', updated_at = NOW()
-        WHERE record_type IN ('proposal-request', 'service-order')
+        WHERE record_type IN ('proposal-request', 'service-order', 'sales-quotation')
           AND status <> 'cancelled'
       `, (alterErr, result) => {
         if (alterErr) console.error('Sales records legacy-type soft-archive migration error:', alterErr);
@@ -3359,9 +3412,7 @@ function initApp() {
       total_amount DECIMAL(12,2) NOT NULL,
       paid_amount DECIMAL(12,2) DEFAULT 0,
       status      text DEFAULT 'draft',
-      transaction_id integer,
-      created_at  TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (transaction_id) REFERENCES transactions(id)
+      created_at  TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `, (err) => {
     if (err) console.error('Accounts receivable table error:', err);
@@ -3410,16 +3461,6 @@ function initApp() {
     if (err) console.error('Accounts receivable project_id column error:', err);
   });
   db.query(`
-    UPDATE accounts_receivable ar
-    SET project_id = COALESCE(ar.project_id, t.project_id)
-    FROM transactions t
-    WHERE t.id = ar.transaction_id
-      AND COALESCE(ar.project_id, 0) = 0
-      AND COALESCE(t.project_id, 0) > 0
-  `, (err) => {
-    if (err) console.error('Accounts receivable project_id backfill error:', err);
-  });
-  db.query(`
     CREATE INDEX IF NOT EXISTS idx_accounts_receivable_project_id
     ON accounts_receivable (project_id)
   `, (err) => {
@@ -3439,13 +3480,6 @@ function initApp() {
     ADD COLUMN IF NOT EXISTS project_docno VARCHAR(20) NULL
   `, (err) => {
     if (err) console.error('Accounts receivable project_docno column error:', err);
-  });
-
-  db.query(`
-    ALTER TABLE accounts_receivable
-    ADD COLUMN IF NOT EXISTS service_order_no VARCHAR(50) NULL
-  `, (err) => {
-    if (err) console.error('Accounts receivable service_order_no column error:', err);
   });
 
   db.query(`
@@ -3549,7 +3583,6 @@ function initApp() {
       draft_docno VARCHAR(24) UNIQUE,
       project_name VARCHAR(255)  NOT NULL,
       business_entity_id integer NULL,
-      transaction_id integer,
       company_id  integer,
       source_docno VARCHAR(20),
       company_no  VARCHAR(20),
@@ -3696,9 +3729,6 @@ function initApp() {
   db.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP NULL`, (err) => {
     if (err) console.error('Projects approved_at migration error:', err);
   });
-  db.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS transaction_id integer`, (err) => {
-    if (err) console.error('Projects transaction_id migration error:', err);
-  });
   // Safe migration: Add company_id column if not exists
   db.query(`ALTER TABLE projects ADD COLUMN company_id integer NULL`, (err) => {
     if (err) {
@@ -3734,102 +3764,10 @@ function initApp() {
     ON DELETE SET NULL
   `, 'Accounts payable project FK');
 
-  addForeignKeyIfMissing(`
-    ALTER TABLE transactions
-    ADD CONSTRAINT fk_transactions_project_id
-    FOREIGN KEY (project_id) REFERENCES projects(id)
-    ON DELETE SET NULL
-  `, 'Transactions project_id FK');
   db.query(`ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS project_id integer NULL`, (err) => {
     if (err) console.error('Stock movements project_id migration error:', err);
   });
 
-  db.query(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_transactions_project_tx_no ON transactions (project_id, project_tx_no)`, (err) => {
-    if (err && !isPostgresDuplicateObject(err)) {
-      console.error('Transactions project_tx_no unique index migration error:', err);
-    }
-  });
-  addForeignKeyIfMissing(`
-    ALTER TABLE transactions
-    ADD CONSTRAINT fk_transactions_service_order_id
-    FOREIGN KEY (service_order_id) REFERENCES service_orders(id)
-    ON DELETE SET NULL
-  `, 'Transactions service_order_id FK');
-  db.query(`
-    UPDATE transactions t
-    SET service_order_id = so.id
-    FROM service_orders so
-    WHERE so.project_id = t.project_id
-      AND COALESCE(t.service_order_id, 0) = 0
-      AND COALESCE(t.project_id, 0) > 0
-  `, (err) => {
-    if (err) console.error('Transactions service_order_id backfill error:', err);
-  });
-  db.query(`
-    SELECT ns.nspname AS schema_name, idx.relname AS index_name
-    FROM pg_class tbl
-    JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
-    JOIN pg_index ix ON ix.indrelid = tbl.oid
-    JOIN pg_class idx ON idx.oid = ix.indexrelid
-    JOIN pg_attribute att ON att.attrelid = tbl.oid AND att.attnum = ANY(ix.indkey)
-    WHERE ns.nspname = current_schema()
-      AND tbl.relname = 'service_orders'
-      AND ix.indisunique = true
-      AND ix.indnkeyatts = 1
-      AND att.attname = 'project_id'
-    LIMIT 1
-  `, (err, rows) => {
-    if (err) {
-      console.error('Service orders unique index lookup error:', err);
-      return;
-    }
-    if (!rows || !rows.length) return;
-
-    const schemaName = String(rows[0].schema_name || '').trim();
-    const indexName = String(rows[0].index_name || '').trim();
-    if (!indexName) return;
-    const qualifiedIndexName = schemaName
-      ? `${quotePgIdentifier(schemaName)}.${quotePgIdentifier(indexName)}`
-      : quotePgIdentifier(indexName);
-
-  db.query(`DROP INDEX IF EXISTS ${qualifiedIndexName}`, (dropErr) => {
-      if (dropErr) {
-        console.error('Service orders project_id unique index drop error:', dropErr);
-      }
-    });
-  });
-  db.query(`ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS service_type VARCHAR(100) NOT NULL DEFAULT 'installation'`, (err) => {
-    if (err && !String(err.message || '').toLowerCase().includes('duplicate column name')) {
-      console.error('Service orders service_type migration error:', err);
-    }
-  });
-  db.query(`ALTER TABLE service_orders ADD COLUMN IF NOT EXISTS business_entity_id integer NULL`, (err) => {
-    if (err) console.error('Service orders business_entity_id migration error:', err);
-  });
-  db.query(`ALTER TABLE service_orders ALTER COLUMN vendor_id DROP NOT NULL`, (err) => {
-    if (err) console.error('Service orders vendor_id nullable migration error:', err);
-  });
-  db.query(`
-    ALTER TABLE service_orders
-    ALTER COLUMN service_type TYPE VARCHAR(100),
-    ALTER COLUMN service_type SET NOT NULL,
-    ALTER COLUMN service_type SET DEFAULT 'installation'
-  `, (err) => {
-    if (err && !String(err.message || '').toLowerCase().includes('duplicate column name')) {
-      console.error('Service orders service_type modify migration error:', err);
-    }
-  });
-  db.query(`UPDATE service_orders SET service_type = 'installation' WHERE COALESCE(service_type, '') = ''`, (err) => {
-    if (err) console.error('Service orders service_type backfill error:', err);
-  });
-  db.query(`
-    ALTER TABLE service_orders
-    ALTER COLUMN status TYPE text,
-    ALTER COLUMN status SET NOT NULL,
-    ALTER COLUMN status SET DEFAULT 'issued'
-  `, (err) => {
-    if (err) console.error('Service orders status default migration error:', err);
-  });
   db.query(`
     CREATE TABLE IF NOT EXISTS document_sequences (
       sequence_key VARCHAR(100) NOT NULL,
@@ -4129,6 +4067,21 @@ function initApp() {
   db.query(`ALTER TABLE purchase_requisitions ADD COLUMN IF NOT EXISTS submitted_by VARCHAR(255) NULL`, (err) => {
     if (err) console.error('Purchase requisitions submitted_by migration error:', err);
   });
+  db.query(`ALTER TABLE purchase_requisitions ADD COLUMN IF NOT EXISTS rfq_emailed_at TIMESTAMP NULL`, (err) => {
+    if (err) console.error('Purchase requisitions rfq_emailed_at migration error:', err);
+  });
+  db.query(`ALTER TABLE purchase_requisitions ADD COLUMN IF NOT EXISTS rfq_emailed_to TEXT NULL`, (err) => {
+    if (err) console.error('Purchase requisitions rfq_emailed_to migration error:', err);
+  });
+  db.query(`ALTER TABLE purchase_requisitions ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false`, (err) => {
+    if (err) console.error('Purchase requisitions archived migration error:', err);
+  });
+  db.query(`ALTER TABLE purchase_requisitions ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP NULL`, (err) => {
+    if (err) console.error('Purchase requisitions archived_at migration error:', err);
+  });
+  db.query(`ALTER TABLE purchase_requisitions ADD COLUMN IF NOT EXISTS rfq_email_count integer NOT NULL DEFAULT 0`, (err) => {
+    if (err) console.error('Purchase requisitions rfq_email_count migration error:', err);
+  });
   db.query(`ALTER TABLE purchase_requisitions ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMP NULL`, (err) => {
     if (err) console.error('Purchase requisitions submitted_at migration error:', err);
   });
@@ -4256,6 +4209,27 @@ function initApp() {
     if (err) console.error('Procurement quotations table error:', err);
     else     console.log('âœ… Table "procurement_quotations" ready');
   });
+  // Tokenized links for the public vendor RFQ portal (one stable link per PR+vendor).
+  db.query(`
+    CREATE TABLE IF NOT EXISTS rfq_vendor_links (
+      id                 integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+      token              VARCHAR(80) NOT NULL UNIQUE,
+      requisition_id     integer NOT NULL,
+      vendor_id          integer NOT NULL,
+      business_entity_id integer NULL,
+      deadline           DATE NULL,
+      quotation_id       integer NULL,
+      submission         TEXT NULL,
+      submitted_at       TIMESTAMP NULL,
+      created_at         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (requisition_id, vendor_id),
+      FOREIGN KEY (requisition_id) REFERENCES purchase_requisitions(id) ON DELETE CASCADE,
+      FOREIGN KEY (vendor_id) REFERENCES vendors(id)
+    )
+  `, (err) => {
+    if (err) console.error('RFQ vendor links table error:', err);
+    else     console.log('✅ Table "rfq_vendor_links" ready');
+  });
   db.query(`ALTER TABLE procurement_quotations ADD COLUMN IF NOT EXISTS payment_terms VARCHAR(100) NULL`, (err) => {
     if (err) console.error('Procurement quotations payment_terms migration error:', err);
   });
@@ -4267,6 +4241,15 @@ function initApp() {
   });
   db.query(`ALTER TABLE procurement_quotations ADD COLUMN IF NOT EXISTS draft_quote_number VARCHAR(50) NULL`, (err) => {
     if (err) console.error('Procurement quotations draft_quote_number migration error:', err);
+  });
+  db.query(`ALTER TABLE procurement_quotations ADD COLUMN IF NOT EXISTS vendor_pdf VARCHAR(255) NULL`, (err) => {
+    if (err) console.error('Procurement quotations vendor_pdf migration error:', err);
+  });
+  db.query(`ALTER TABLE procurement_quotations ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false`, (err) => {
+    if (err) console.error('Procurement quotations archived migration error:', err);
+  });
+  db.query(`ALTER TABLE procurement_quotations ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP NULL`, (err) => {
+    if (err) console.error('Procurement quotations archived_at migration error:', err);
   });
 
   db.query(`
@@ -4311,6 +4294,12 @@ function initApp() {
   db.query(`ALTER TABLE goods_receipt_items ADD COLUMN IF NOT EXISTS warehouse_id integer NULL`, (err) => {
     if (err) console.error('Goods receipt items warehouse_id migration error:', err);
   });
+  db.query(`ALTER TABLE goods_receipts ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false`, (err) => {
+    if (err) console.error('Goods receipts archived migration error:', err);
+  });
+  db.query(`ALTER TABLE goods_receipts ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP NULL`, (err) => {
+    if (err) console.error('Goods receipts archived_at migration error:', err);
+  });
 
   db.query(`
     CREATE TABLE IF NOT EXISTS inventory_requests (
@@ -4337,60 +4326,6 @@ function initApp() {
   });
 
   db.query(`
-    CREATE TABLE IF NOT EXISTS departments (
-      id            integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-      department_name VARCHAR(100) NOT NULL UNIQUE,
-      description   TEXT,
-      is_active     boolean NOT NULL DEFAULT true,
-      created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )
-  `, (err) => {
-    if (err) console.error('Departments table error:', err);
-    else     console.log('âœ… Table "departments" ready');
-  });
-
-  db.query(`
-    CREATE TABLE IF NOT EXISTS employees (
-      id            integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-      employee_code VARCHAR(50) NOT NULL UNIQUE,
-      full_name     VARCHAR(255) NOT NULL,
-      department_id integer NULL,
-      job_title     VARCHAR(150),
-      employment_type text NOT NULL DEFAULT 'regular',
-      pay_frequency  text NOT NULL DEFAULT 'monthly',
-      salary_rate   DECIMAL(12,2) NOT NULL DEFAULT 0,
-      email         VARCHAR(100),
-      phone         VARCHAR(30),
-      hire_date     DATE,
-      status        text NOT NULL DEFAULT 'active',
-      created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE SET NULL
-    )
-  `, (err) => {
-    if (err) console.error('Employees table error:', err);
-    else     console.log('âœ… Table "employees" ready');
-    employeesTableReady = !err;
-    initializePayrollTables();
-  });
-
-  db.query(`
-    CREATE TABLE IF NOT EXISTS payroll_periods (
-      id            integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-      period_name   VARCHAR(100) NOT NULL UNIQUE,
-      start_date    DATE NOT NULL,
-      end_date      DATE NOT NULL,
-      pay_date      DATE,
-      status        text NOT NULL DEFAULT 'open',
-      created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )
-  `, (err) => {
-    if (err) console.error('Payroll periods table error:', err);
-    else     console.log('âœ… Table "payroll_periods" ready');
-    payrollPeriodsTableReady = !err;
-    initializePayrollTables();
-  });
-
-  db.query(`
     INSERT INTO chart_of_accounts (account_code, account_name, account_type)
     VALUES
       ('1000', 'Cash and Cash Equivalents', 'asset'),
@@ -4402,18 +4337,6 @@ function initApp() {
     ON CONFLICT DO NOTHING
   `, (err) => {
     if (err) console.error('Seed chart of accounts error:', err);
-  });
-
-  db.query(`
-    INSERT INTO departments (department_name, description)
-    VALUES
-      ('Operations', 'Operational delivery team'),
-      ('Administration', 'Administrative and support team'),
-      ('Human Resources', 'People operations'),
-      ('Finance', 'Finance and accounting')
-    ON CONFLICT DO NOTHING
-  `, (err) => {
-    if (err) console.error('Seed departments error:', err);
   });
 
   addIndexIfMissing('CREATE INDEX IF NOT EXISTS idx_vendors_vendor_name ON vendors (vendor_name)', 'vendors.vendor_name');
@@ -4436,10 +4359,10 @@ function initApp() {
   addIndexIfMissing('CREATE INDEX IF NOT EXISTS idx_documents_module_record ON documents (module_name, record_id, uploaded_at DESC)', 'documents module record');
   addIndexIfMissing('CREATE INDEX IF NOT EXISTS idx_goods_receipts_received_date ON goods_receipts (received_date)', 'goods_receipts.received_date');
   addIndexIfMissing('CREATE INDEX IF NOT EXISTS idx_journal_entries_created_at ON journal_entries (created_at)', 'journal_entries.created_at');
-  addIndexIfMissing('CREATE INDEX IF NOT EXISTS idx_employees_full_name ON employees (full_name)', 'employees.full_name');
-  addIndexIfMissing('CREATE UNIQUE INDEX IF NOT EXISTS uniq_accounts_receivable_transaction_id ON accounts_receivable (transaction_id) WHERE transaction_id IS NOT NULL', 'accounts_receivable.transaction_id unique link');
   setTimeout(() => addRelationshipIntegrityConstraints(), 1500);
   setTimeout(() => backfillVendorNumbers(), 2000);
+  // Legacy cleanup: drop retired tables after schema init completes (idempotent).
+  setTimeout(() => { dropLegacyTables().catch((err) => console.error('Legacy table cleanup error:', err)); }, 3500);
   setTimeout(() => {
     syncPostgresIdentitySequences().catch((err) => {
       console.error('PostgreSQL identity sequence sync error:', err);
@@ -4450,49 +4373,6 @@ function initApp() {
       console.error('Document sequence sync error:', err);
     });
   }, 3000);
-}
-
-let payrollPeriodsTableReady = false;
-let employeesTableReady = false;
-let payrollTablesReady = false;
-
-function initializePayrollTables() {
-  if (payrollTablesReady || !payrollPeriodsTableReady || !employeesTableReady) return;
-  payrollTablesReady = true;
-
-  db.query(`
-    CREATE TABLE IF NOT EXISTS payroll_runs (
-      id            integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-      period_id     integer NOT NULL,
-      employee_id   integer NOT NULL,
-      gross_pay     DECIMAL(12,2) NOT NULL DEFAULT 0,
-      deductions    DECIMAL(12,2) NOT NULL DEFAULT 0,
-      net_pay       DECIMAL(12,2) NOT NULL DEFAULT 0,
-      status        text NOT NULL DEFAULT 'draft',
-      notes        TEXT,
-      created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (period_id) REFERENCES payroll_periods(id) ON DELETE CASCADE,
-      FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
-    )
-  `, (err) => {
-    if (err) console.error('Payroll runs table error:', err);
-    else     console.log('âœ… Table "payroll_runs" ready');
-    if (err) return;
-
-    db.query(`
-      CREATE TABLE IF NOT EXISTS payroll_run_lines (
-        id            integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-        payroll_run_id integer NOT NULL,
-        line_type     VARCHAR(100) NOT NULL,
-        amount        DECIMAL(12,2) NOT NULL DEFAULT 0,
-        created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (payroll_run_id) REFERENCES payroll_runs(id) ON DELETE CASCADE
-      )
-    `, (lineErr) => {
-      if (lineErr) console.error('Payroll run lines table error:', lineErr);
-      else     console.log('âœ… Table "payroll_run_lines" ready');
-    });
-  });
 }
 
 // âœ… Logging Helper
@@ -4606,14 +4486,7 @@ function generateInventoryDraftRequestNo() {
 
 
 
-function queryAsync(sql, params = []) {
-  return new Promise((resolve, reject) => {
-    db.query(sql, params, (err, rows) => {
-      if (err) return reject(err);
-      resolve(rows);
-    });
-  });
-}
+// queryAsync now lives in src/database (imported at top).
 
 function withDbTransaction(work) {
   return new Promise((resolve, reject) => {
@@ -4661,10 +4534,29 @@ function joinArchiveCenterText(...parts) {
     .join(' - ');
 }
 
+// Drops tables for features that were retired from the app (Transactions / "Project Records",
+// HR, Service Orders). Idempotent (IF EXISTS), runs once after schema init. The transaction_id /
+// service_order columns + their code were removed app-wide, so nothing references these tables.
+// KEEP: chart_of_accounts / journal_entries / journal_lines — AP/AR still auto-post journals there.
+async function dropLegacyTables() {
+  const drops = [
+    'DROP TABLE IF EXISTS payroll_run_lines CASCADE',
+    'DROP TABLE IF EXISTS payroll_runs CASCADE',
+    'DROP TABLE IF EXISTS payroll_periods CASCADE',
+    'DROP TABLE IF EXISTS employees CASCADE',
+    'DROP TABLE IF EXISTS departments CASCADE',
+    'DROP TABLE IF EXISTS service_orders CASCADE',
+    'DROP TABLE IF EXISTS transactions CASCADE'
+  ];
+  for (const sql of drops) {
+    try { await queryAsync(sql); } catch (err) { console.error('dropLegacyTables:', sql, '-', err.message); }
+  }
+  console.log('✅ Legacy tables dropped (transactions, service_orders, HR).');
+}
+
 async function syncPostgresIdentitySequences() {
   const tables = [
     'business_entities',
-    'transactions',
     'users',
     'vendors',
     'company_registry',
@@ -4675,7 +4567,6 @@ async function syncPostgresIdentitySequences() {
     'payments',
     'projects',
     'system_logs',
-    'service_orders',
     'tasks',
     'project_costs',
     'project_resources',
@@ -4686,12 +4577,7 @@ async function syncPostgresIdentitySequences() {
     'purchase_requisitions',
     'purchase_requisition_items',
     'goods_receipts',
-    'goods_receipt_items',
-    'departments',
-    'employees',
-    'payroll_periods',
-    'payroll_runs',
-    'payroll_run_lines'
+    'goods_receipt_items'
   ];
 
   for (const tableName of tables) {
@@ -4787,8 +4673,6 @@ async function generateNextEntityDocumentNo({
 }) {
   const safeTables = new Set([
     'projects',
-    'transactions',
-    'service_orders',
     'purchase_requisitions',
     'purchase_orders',
     'procurement_quotations',
@@ -4799,7 +4683,6 @@ async function generateNextEntityDocumentNo({
   const safeColumns = new Set([
     'project_docno',
     'docno',
-    'so_number',
     'pr_number',
     'po_number',
     'quote_number',
@@ -4842,22 +4725,23 @@ async function generateNextEntityDocumentNo({
         dbClient,
         `SELECT COALESCE(MAX(CAST(split_part(${columnName}, '-', array_length(string_to_array(${columnName}, '-'), 1)) AS integer)), 0) AS max_no
          FROM ${tableName}
-         WHERE business_entity_id ${resolvedEntityId ? '= ?' : 'IS NULL'}
-           AND ${columnName} LIKE ?`,
-        resolvedEntityId ? [resolvedEntityId, `${codePrefix}-%`] : [`${codePrefix}-%`]
+         WHERE ${columnName} LIKE ?`,
+        [`${codePrefix}-%`]
       );
   const initialValue = Number(existingRows?.[0]?.max_no || 0) + 1;
 
   try {
-    await queryDbAsync(
+    const sequenceRows = await queryDbAsync(
       dbClient,
       `INSERT INTO document_sequences (sequence_key, period_key, last_value)
        VALUES (?, ?, ?)
        ON CONFLICT (sequence_key, period_key)
-       DO UPDATE SET last_value = EXCLUDED.last_value
+       DO UPDATE SET last_value = GREATEST(document_sequences.last_value, EXCLUDED.last_value - 1) + 1
        RETURNING last_value`,
       [sequenceKey, period, initialValue]
     );
+    const sequenceValue = Number(sequenceRows?.[0]?.last_value || initialValue) || initialValue;
+    return `${codePrefix}-${String(sequenceValue).padStart(pad, '0')}`;
   } catch (err) {
     if (!isPostgresUndefinedTable(err)) throw err;
   }
@@ -4877,8 +4761,6 @@ async function peekNextEntityDocumentNo({
 }) {
   const safeTables = new Set([
     'projects',
-    'transactions',
-    'service_orders',
     'purchase_requisitions',
     'purchase_orders',
     'procurement_quotations',
@@ -4889,7 +4771,6 @@ async function peekNextEntityDocumentNo({
   const safeColumns = new Set([
     'project_docno',
     'docno',
-    'so_number',
     'pr_number',
     'po_number',
     'quote_number',
@@ -4932,11 +4813,20 @@ async function peekNextEntityDocumentNo({
         dbClient,
         `SELECT COALESCE(MAX(CAST(split_part(${columnName}, '-', array_length(string_to_array(${columnName}, '-'), 1)) AS integer)), 0) AS max_no
          FROM ${tableName}
-         WHERE business_entity_id ${resolvedEntityId ? '= ?' : 'IS NULL'}
-           AND ${columnName} LIKE ?`,
-        resolvedEntityId ? [resolvedEntityId, `${codePrefix}-%`] : [`${codePrefix}-%`]
+         WHERE ${columnName} LIKE ?`,
+        [`${codePrefix}-%`]
       );
-  const nextNum = Number(existingRows?.[0]?.max_no || 0) + 1;
+  const sequenceRows = await queryDbAsync(
+    dbClient,
+    'SELECT last_value FROM document_sequences WHERE sequence_key = ? AND period_key = ? LIMIT 1',
+    [sequenceKey, period]
+  ).catch((err) => {
+    if (!isPostgresUndefinedTable(err)) throw err;
+    return [];
+  });
+  const maxExisting = Number(existingRows?.[0]?.max_no || 0) || 0;
+  const maxClaimed = Number(sequenceRows?.[0]?.last_value || 0) || 0;
+  const nextNum = Math.max(maxExisting, maxClaimed) + 1;
   return `${codePrefix}-${String(nextNum).padStart(pad, '0')}`;
 }
 
@@ -4951,7 +4841,6 @@ async function generateNextDraftEntityDocumentNo({
   periodKey = getManilaYmd().slice(0, 4)
 }) {
   const safeTables = new Set([
-    'service_orders',
     'purchase_requisitions',
     'purchase_orders',
     'procurement_quotations',
@@ -4960,7 +4849,6 @@ async function generateNextDraftEntityDocumentNo({
     'sales_management_records'
   ]);
   const safeColumns = new Set([
-    'so_number',
     'pr_number',
     'po_number',
     'quote_number',
@@ -4992,9 +4880,8 @@ async function generateNextDraftEntityDocumentNo({
         dbClient,
         `SELECT COALESCE(MAX(CAST(split_part(${columnName}, '-', array_length(string_to_array(${columnName}, '-'), 1)) AS integer)), 0) AS max_no
          FROM ${tableName}
-         WHERE business_entity_id ${resolvedEntityId ? '= ?' : 'IS NULL'}
-           AND ${columnName} LIKE ?`,
-        resolvedEntityId ? [resolvedEntityId, `${codePrefix}-%`] : [`${codePrefix}-%`]
+         WHERE ${columnName} LIKE ?`,
+        [`${codePrefix}-%`]
       );
   let nextNo = Number(existingRows?.[0]?.max_no || 0) + 1;
   try {
@@ -5070,8 +4957,6 @@ async function claimEntityDocumentNo({
 
 async function syncDocumentSequencesToExistingRecords() {
   const targets = [
-    { documentType: 'transaction-docno', prefix: 'TRN', tableName: 'transactions', columnName: 'docno' },
-    { documentType: 'service-order', prefix: 'SO', tableName: 'service_orders', columnName: 'so_number' },
     { documentType: 'purchase-requisition', prefix: 'PR', tableName: 'purchase_requisitions', columnName: 'pr_number' },
     { documentType: 'purchase-order', prefix: 'PO', tableName: 'purchase_orders', columnName: 'po_number' },
     { documentType: 'procurement-quotation', prefix: 'RFQ', tableName: 'procurement_quotations', columnName: 'quote_number' },
@@ -5303,8 +5188,6 @@ async function backfillDefaultBusinessEntityLinks() {
     const targets = [
       'company_registry',
       'projects',
-      'service_orders',
-      'transactions',
       'purchase_requisitions',
       'purchase_orders',
       'accounts_payable',
@@ -5325,83 +5208,6 @@ setTimeout(() => {
     console.error('Business entity backfill init error:', err);
   });
 }, 2500);
-
-async function getNextProjectTransactionNo(projectId, excludeTransactionId = null, dbClient = null) {
-  const pid = Number(projectId || 0);
-  if (!pid) return null;
-
-  const excludeId = Number(excludeTransactionId || 0);
-  const sql = excludeId
-    ? 'SELECT COALESCE(MAX(project_tx_no), 0) + 1 AS next_no FROM transactions WHERE project_id = ? AND id <> ?'
-    : 'SELECT COALESCE(MAX(project_tx_no), 0) + 1 AS next_no FROM transactions WHERE project_id = ?';
-  const rows = await queryDbAsync(dbClient, sql, excludeId ? [pid, excludeId] : [pid]);
-  return Number(rows?.[0]?.next_no || 1) || 1;
-}
-
-async function resolveProjectTransactionNo(projectId, existingProjectId = null, existingProjectTxNo = null, excludeTransactionId = null, dbClient = null) {
-  const pid = Number(projectId || 0);
-  if (!pid) return null;
-
-  if (Number(existingProjectId || 0) === pid && Number(existingProjectTxNo || 0) > 0) {
-    return Number(existingProjectTxNo || 0) || null;
-  }
-
-  return getNextProjectTransactionNo(pid, excludeTransactionId, dbClient);
-}
-
-async function syncTransactionProjectLink(transactionId, projectId, dbClient = null) {
-  const tid = Number(transactionId || 0);
-  const pid = Number(projectId || 0);
-  if (!tid || !pid) return null;
-
-  const ownsConnection = !dbClient;
-  const connection = dbClient || await getConnectionAsync();
-
-  try {
-    if (ownsConnection) {
-      await beginTransactionAsync(connection);
-    }
-
-    const currentRows = await connectionQueryAsync(
-      connection,
-      'SELECT project_id, project_tx_no FROM transactions WHERE id = ? LIMIT 1 FOR UPDATE',
-      [tid]
-    );
-    const currentRow = currentRows?.[0] || null;
-    const projectTxNo = await resolveProjectTransactionNo(
-      pid,
-      currentRow?.project_id || null,
-      currentRow?.project_tx_no || null,
-      tid,
-      connection
-    );
-
-    await connectionQueryAsync(
-      connection,
-      'UPDATE transactions SET project_id = ?, project_tx_no = ? WHERE id = ?',
-      [pid, projectTxNo, tid]
-    );
-
-    if (ownsConnection) {
-      await commitTransactionAsync(connection);
-    }
-
-    return projectTxNo;
-  } catch (err) {
-    if (ownsConnection) {
-      try {
-        await rollbackTransactionAsync(connection);
-      } catch (rollbackErr) {
-        console.error('Project transaction sync rollback error:', rollbackErr);
-      }
-    }
-    throw err;
-  } finally {
-    if (ownsConnection && connection) {
-      connection.release();
-    }
-  }
-}
 
 function getConnectionAsync() {
   return new Promise((resolve, reject) => {
@@ -5435,10 +5241,6 @@ function normalizeInventorySaleFields(body = {}) {
   const quantity = Math.max(0, Number(body.qty || body.quantity || 0) || 0);
   const unitPrice = Number(body.unitprice || body.unit_price || body.price || 0) || 0;
   return { productId, warehouseId, quantity, unitPrice };
-}
-
-function isInventorySaleTransaction(type, productId) {
-  return String(type || '').trim().toLowerCase() === 'invoice' && Boolean(productId);
 }
 
 async function assertInventorySaleCanPost({ businessEntityId, productId, warehouseId, quantity }, dbClient = null) {
@@ -5529,12 +5331,6 @@ async function postSalesInventoryMovement({
   return { stock: stockRows[0], movement: movementRows[0] };
 }
 
-function syncReceivableForTransactionAsync(transaction) {
-  return new Promise((resolve, reject) => {
-    syncReceivableForTransaction(transaction, (err) => (err ? reject(err) : resolve()));
-  });
-}
-
 const AUTO_GL_ACCOUNTS = {
   cash: { code: '1000', name: 'Cash and Cash Equivalents', type: 'asset' },
   accountsReceivable: { code: '1100', name: 'Accounts Receivable', type: 'asset' },
@@ -5623,7 +5419,16 @@ async function postAutoJournalEntry({
   }
 
   const entryNumber = `AUTO-${getAutoJournalPrefix(refType)}-${refId}`.slice(0, 50);
-  const finalDate = String(entryDate || getManilaYmd()).slice(0, 10);
+  // entryDate may be a JS Date (DATE columns come back as Date objects) — String(date) would give
+  // "Mon Jun 22 ..." which Postgres can't parse. Normalize to YYYY-MM-DD using local components.
+  let entryDateValue = entryDate;
+  if (entryDateValue instanceof Date && !Number.isNaN(entryDateValue.getTime())) {
+    const y = entryDateValue.getFullYear();
+    const m = String(entryDateValue.getMonth() + 1).padStart(2, '0');
+    const d = String(entryDateValue.getDate()).padStart(2, '0');
+    entryDateValue = `${y}-${m}-${d}`;
+  }
+  const finalDate = String(entryDateValue || getManilaYmd()).slice(0, 10);
   const finalMemo = String(memo || '').trim() || `Auto-posted ${refType} ${refId}`;
   const entryResult = await queryDbAsync(
     dbClient,
@@ -5667,59 +5472,6 @@ function commitTransactionAsync(connection) {
 function rollbackTransactionAsync(connection) {
   return new Promise((resolve) => {
     connection.rollback(() => resolve());
-  });
-}
-
-function backfillTransactionProjectLinks(callback) {
-  const done = typeof callback === 'function' ? callback : () => {};
-  if (!db) return done(new Error('Database pool not ready.'));
-
-  db.query(`
-    UPDATE transactions t
-    SET project_id = p.id
-    FROM projects p
-    WHERE (
-      p.transaction_id = t.id
-      OR (
-        p.source_docno IS NOT NULL
-        AND p.source_docno <> ''
-        AND LOWER(TRIM(p.source_docno)) = LOWER(TRIM(t.docno))
-      )
-    )
-      AND t.project_id IS NULL
-  `, async (err) => {
-    if (err) {
-      console.error('Transaction project_id backfill error:', err);
-      return done(err);
-    }
-
-    try {
-      const rows = await queryAsync(`
-        SELECT id, project_id
-        FROM transactions
-        WHERE COALESCE(project_id, 0) > 0
-        ORDER BY project_id ASC, id ASC
-      `);
-
-      let currentProjectId = null;
-      let seq = 0;
-
-      for (const row of rows || []) {
-        const projectId = Number(row.project_id || 0);
-        if (!projectId) continue;
-        if (currentProjectId !== projectId) {
-          currentProjectId = projectId;
-          seq = 0;
-        }
-        seq += 1;
-        await queryAsync('UPDATE transactions SET project_tx_no = ? WHERE id = ?', [seq, row.id]);
-      }
-
-      done(null);
-    } catch (seqErr) {
-      console.error('Transaction project sequence backfill error:', seqErr);
-      done(seqErr);
-    }
   });
 }
 
@@ -6171,17 +5923,7 @@ function sendPdfTableResponse(res, filename, title, headers, rows, subtitle = ''
   res.send(pdf);
 }
 
-function formatPdfMoney(value) {
-  const amount = Number(value || 0) || 0;
-  return `PHP ${amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function formatPdfDate(value) {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value || '');
-  return date.toISOString().slice(0, 10);
-}
+// formatPdfMoney + formatPdfDate now live in src/shared/format (imported at top).
 
 function truncatePdfValue(value, maxLength = 56) {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
@@ -6432,6 +6174,11 @@ function buildProfessionalPurchaseRequisitionPdf(row, itemRows = [], total = 0) 
   text(404, 171, 'Grand Total', { bold: true, size: 8, color: '0.36 0.38 0.42' });
   text(404, 159, formatPdfMoney(total), { bold: true, size: 11, color: brand.accent, width: 114, align: 'right', maxWidth: 114, fitSize: true, minSize: 7 });
 
+  // Actual signatory names sit just above each line so the PDF shows who prepared/approved.
+  const prPreparedBy = String(row.requested_by || '').trim();
+  const prApprovedBy = String(row.approved_by || '').trim();
+  if (prPreparedBy) text(72, 110, prPreparedBy, { bold: true, size: 9, width: 148, align: 'center', maxWidth: 148, fitSize: true, minSize: 6.5 });
+  if (prApprovedBy) text(390, 110, prApprovedBy, { bold: true, size: 9, width: 148, align: 'center', maxWidth: 148, fitSize: true, minSize: 6.5 });
   line(72, 105, 220, 105);
   line(390, 105, 538, 105);
   text(96, 90, 'Prepared / Submitted By', { size: 8, color: '0.36 0.38 0.42' });
@@ -6475,9 +6222,15 @@ function buildProfessionalSummaryPdf({
   tableRows = [],
   notes = '',
   totalLabel = '',
-  totalValue = null
+  totalValue = null,
+  brand: brandOverride = null,
+  hideBrandHeader = false,
+  preparedByName = '',
+  approvedByName = ''
 } = {}) {
-  const brand = getPurchaseRequisitionPdfBrand(brandSource);
+  // brandOverride lets a caller supply its own letterhead (e.g. a vendor quotation that
+  // must carry the vendor's identity, not our operating company's).
+  const brand = brandOverride || getPurchaseRequisitionPdfBrand(brandSource);
   const statusTone = getPdfStatusTone(status);
   const objects = [
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
@@ -6520,17 +6273,24 @@ function buildProfessionalSummaryPdf({
   }
 
   rect(32, 42, 548, 724, { stroke: '0.86 0.88 0.90' });
-  rect(50, 718, 512, 42, { fill: '1 1 1', stroke: '0.82 0.84 0.87' });
-  rect(50, 756, 512, 4, { fill: brand.accent });
-  text(64, 741, brand.name, { bold: true, size: 14, color: brand.accent, maxWidth: 320 });
-  text(64, 727, brand.subtitle, { size: 8, color: '0.25 0.25 0.25', maxWidth: 320 });
+  // Letterhead band (company/vendor identity). Suppressed for documents that should not
+  // carry any letterhead — e.g. a vendor quotation, which is the vendor's own document.
+  if (!hideBrandHeader) {
+    rect(50, 718, 512, 42, { fill: '1 1 1', stroke: '0.82 0.84 0.87' });
+    rect(50, 756, 512, 4, { fill: brand.accent });
+    text(64, 741, brand.name, { bold: true, size: 14, color: brand.accent, maxWidth: 320 });
+    text(64, 727, brand.subtitle, { size: 8, color: '0.25 0.25 0.25', maxWidth: 320 });
+  }
 
-  rect(50, 666, 512, 46, { fill: '0.96 0.97 0.98', stroke: '0.80 0.83 0.86' });
-  text(64, 688, title, { bold: true, size: 16, color: '0.08 0.08 0.08', maxWidth: 300 });
-  rect(398, 673, 140, 28, { fill: '1 1 1', stroke: '0.80 0.83 0.86' });
-  text(408, 689, documentNo || '-', { bold: true, size: 10, color: brand.accent, width: 120, align: 'center', maxWidth: 120, fitSize: true });
-  rect(408, 676, 120, 10, { fill: statusTone.fill, stroke: statusTone.stroke });
-  text(408, 679, formatPdfStatusLabel(status || '-'), { bold: true, size: 6, color: statusTone.text, width: 120, align: 'center', maxWidth: 112, fitSize: true, minSize: 5 });
+  // With no letterhead, pull the title band to the top (a thin accent strip replaces it).
+  const titleBandTop = hideBrandHeader ? 714 : 666;
+  if (hideBrandHeader) rect(50, 760, 512, 4, { fill: brand.accent });
+  rect(50, titleBandTop, 512, 46, { fill: '0.96 0.97 0.98', stroke: '0.80 0.83 0.86' });
+  text(64, titleBandTop + 22, title, { bold: true, size: 16, color: '0.08 0.08 0.08', maxWidth: 300 });
+  rect(398, titleBandTop + 7, 140, 28, { fill: '1 1 1', stroke: '0.80 0.83 0.86' });
+  text(408, titleBandTop + 23, documentNo || '-', { bold: true, size: 10, color: brand.accent, width: 120, align: 'center', maxWidth: 120, fitSize: true });
+  rect(408, titleBandTop + 10, 120, 10, { fill: statusTone.fill, stroke: statusTone.stroke });
+  text(408, titleBandTop + 13, formatPdfStatusLabel(status || '-'), { bold: true, size: 6, color: statusTone.text, width: 120, align: 'center', maxWidth: 112, fitSize: true, minSize: 5 });
 
   rect(50, 512, 248, 139, { stroke: '0.82 0.84 0.87' });
   rect(50, 631, 248, 20, { fill: '0.94 0.95 0.96' });
@@ -6589,6 +6349,9 @@ function buildProfessionalSummaryPdf({
     noteText(62, 174, notes || '-', { size: 8, color: '0.24 0.25 0.28', width: 468, maxLines: 3, lineHeight: 10 });
   }
 
+  // Actual signatory names sit just above each line so the PDF shows who prepared/approved.
+  if (preparedByName) text(72, 110, preparedByName, { bold: true, size: 9, width: 148, align: 'center', maxWidth: 148, fitSize: true, minSize: 6.5 });
+  if (approvedByName) text(390, 110, approvedByName, { bold: true, size: 9, width: 148, align: 'center', maxWidth: 148, fitSize: true, minSize: 6.5 });
   line(72, 105, 220, 105);
   line(390, 105, 538, 105);
   text(96, 90, 'Prepared / Submitted By', { size: 8, color: '0.36 0.38 0.42' });
@@ -6670,6 +6433,191 @@ async function buildPurchaseRequisitionEmailAttachment(requisitionId) {
   };
 }
 
+// Request-for-Quotation PDF sent to a vendor: lists the PR items with BLANK price
+// columns for the vendor to fill in, plus the requesting company's contact details
+// and the quote deadline. Returns an in-memory buffer attachment (no file saved).
+async function buildRfqRequestPdfAttachment(requisitionId, options = {}) {
+  const rows = await queryAsync(`
+    SELECT pr.*,
+           be.company_name AS business_entity_name, be.entity_code AS business_entity_code,
+           be.address AS business_entity_address, be.phone AS business_entity_phone,
+           be.email AS business_entity_email,
+           c.company_name, c.company_no, p.project_docno, p.project_name
+    FROM purchase_requisitions pr
+    LEFT JOIN business_entities be ON be.id = pr.business_entity_id
+    LEFT JOIN company_registry c ON c.id = pr.company_id
+    LEFT JOIN projects p ON p.id = pr.project_id
+    WHERE pr.id = ?
+    LIMIT 1
+  `, [requisitionId]);
+  const row = rows?.[0];
+  if (!row) throw new Error('Purchase requisition not found.');
+
+  const itemRows = await queryAsync(`
+    SELECT item_name, description, quantity, unit
+    FROM purchase_requisition_items
+    WHERE pr_id = ?
+    ORDER BY id ASC
+  `, [requisitionId]);
+
+  const vendorName = String(options.vendorName || '').trim();
+  const deadlineText = options.deadline ? formatPdfDate(options.deadline) : 'As soon as possible';
+
+  const pdf = buildProfessionalSummaryPdf({
+    title: 'REQUEST FOR QUOTATION',
+    documentNo: `RFQ • ${row.pr_number || `PR-${row.id}`}`,
+    status: '',
+    brandSource: row,
+    leftTitle: 'RFQ DETAILS',
+    leftRows: [
+      ['RFQ Date', formatPdfDate(new Date())],
+      ['Quote Deadline', deadlineText],
+      ['Reference PR', row.pr_number || `PR-${row.id}`],
+      ['To Vendor', vendorName || '—']
+    ],
+    rightTitle: 'REQUESTING COMPANY',
+    rightRows: [
+      ['Company', row.business_entity_name || ''],
+      ['Address', row.business_entity_address || ''],
+      ['Phone', row.business_entity_phone || ''],
+      ['Email', row.business_entity_email || '']
+    ],
+    tableTitle: 'ITEMS TO QUOTE',
+    tableHeaders: ['Item', 'Qty', 'Unit', 'Unit Price', 'Amount'],
+    tableRows: (Array.isArray(itemRows) ? itemRows : []).map((item) => ({
+      Item: String(item.item_name || item.description || '-'),
+      Qty: Number(item.quantity || 0),
+      Unit: String(item.unit || 'pcs'),
+      'Unit Price': '',
+      Amount: ''
+    })),
+    notes: [
+      options.portalUrl ? `Submit your quotation online: ${options.portalUrl}` : '',
+      String(options.message || '').trim()
+        || 'Please provide your best quotation (unit price, delivery lead time, payment terms, and warranty) for the items above on or before the quote deadline. You may submit online using the link above, reply to this email, or reach us using the contact details provided.'
+    ].filter(Boolean).join('  •  '),
+    totalLabel: '',
+    totalValue: null
+  });
+
+  return {
+    filename: `${toSafeAttachmentFilename(`RFQ-${row.pr_number || requisitionId}`)}.pdf`,
+    content: pdf,
+    contentType: 'application/pdf',
+    prNumber: row.pr_number || `PR-${row.id}`,
+    businessEntityName: row.business_entity_name || ''
+  };
+}
+
+// Upserts a stable tokenized portal link for (PR, vendor). Re-sending refreshes the
+// deadline but keeps the same token so any earlier email still works.
+async function ensureRfqVendorLink(requisitionId, vendorId, businessEntityId, deadline) {
+  const existing = await queryAsync(
+    'SELECT id, token FROM rfq_vendor_links WHERE requisition_id = ? AND vendor_id = ? LIMIT 1',
+    [requisitionId, vendorId]
+  );
+  if (existing.length) {
+    await queryAsync(
+      'UPDATE rfq_vendor_links SET deadline = ?, business_entity_id = ? WHERE id = ?',
+      [deadline || null, businessEntityId || null, existing[0].id]
+    );
+    return existing[0].token;
+  }
+  const token = crypto.randomBytes(24).toString('hex');
+  await queryAsync(
+    'INSERT INTO rfq_vendor_links (token, requisition_id, vendor_id, business_entity_id, deadline) VALUES (?, ?, ?, ?, ?)',
+    [token, requisitionId, vendorId, businessEntityId || null, deadline || null]
+  );
+  return token;
+}
+
+// Professional PDF of a vendor's quotation (PR items + the vendor's quoted unit prices,
+// pulled from the portal submission when available, plus delivery/terms/total).
+async function buildQuotationPdfAttachment(quotationId) {
+  const rows = await queryAsync(`
+    SELECT q.*, r.pr_number, r.business_entity_id, v.vendor_name,
+           c.company_name, c.company_no, p.project_docno, p.project_name
+    FROM procurement_quotations q
+    JOIN purchase_requisitions r ON r.id = q.requisition_id
+    LEFT JOIN business_entities be ON be.id = r.business_entity_id
+    LEFT JOIN vendors v ON v.id = q.vendor_id
+    LEFT JOIN company_registry c ON c.id = r.company_id
+    LEFT JOIN projects p ON p.id = r.project_id
+    WHERE q.id = ?
+    LIMIT 1
+  `, [quotationId]);
+  const row = rows?.[0];
+  if (!row) throw new Error('Quotation not found.');
+
+  const itemRows = await queryAsync('SELECT id, item_name, description, quantity, unit FROM purchase_requisition_items WHERE pr_id = ? ORDER BY id ASC', [row.requisition_id]);
+
+  // Per-line prices come from the vendor portal submission (if the vendor used it).
+  const lineByItem = new Map();
+  const linkRows = await queryAsync('SELECT submission FROM rfq_vendor_links WHERE requisition_id = ? AND vendor_id = ? LIMIT 1', [row.requisition_id, row.vendor_id]);
+  if (linkRows.length && linkRows[0].submission) {
+    try {
+      const sub = JSON.parse(linkRows[0].submission);
+      (Array.isArray(sub.lines) ? sub.lines : []).forEach((l) => lineByItem.set(Number(l.item_id), Number(l.unit_price) || 0));
+    } catch (_) {}
+  }
+  const hasLinePrices = lineByItem.size > 0;
+
+  const tableRows = (Array.isArray(itemRows) ? itemRows : []).map((it) => {
+    const qty = Number(it.quantity || 0);
+    const up = hasLinePrices ? (lineByItem.get(Number(it.id)) || 0) : null;
+    return {
+      Item: String(it.item_name || it.description || 'Item'),
+      Qty: qty,
+      Unit: String(it.unit || 'pcs'),
+      'Unit Price': up != null ? formatPdfMoney(up) : '—',
+      Amount: up != null ? formatPdfMoney(qty * up) : '—'
+    };
+  });
+
+  // This is the VENDOR's own offer, so it carries NO letterhead at all (not ours, and
+  // not the vendor's). Only the "VENDOR QUOTATION" title band shows; the PR/company/
+  // project stay in REFERENCE. A neutral accent is used for the title/total.
+  const pdf = buildProfessionalSummaryPdf({
+    title: 'VENDOR QUOTATION',
+    documentNo: row.quote_number || `RFQ-${row.id}`,
+    status: row.status || 'submitted',
+    brand: { accent: '0.20 0.23 0.28' },
+    hideBrandHeader: true,
+    leftTitle: 'QUOTATION DETAILS',
+    leftRows: [
+      ['Vendor', row.vendor_name],
+      ['Quote Date', formatPdfDate(row.quote_date)],
+      ['Delivery Days', Number(row.delivery_days || 0) ? `${Number(row.delivery_days)} days` : '—'],
+      ['Payment Terms', row.payment_terms || '—'],
+      ['Warranty', row.warranty_terms || '—']
+    ],
+    rightTitle: 'REFERENCE',
+    rightRows: [
+      ['PR No.', row.pr_number],
+      ['Company', [row.company_no, row.company_name].filter(Boolean).join(' - ')],
+      ['Project', [row.project_docno, row.project_name].filter(Boolean).join(' - ')],
+      ['Status', row.status || 'submitted']
+    ],
+    tableTitle: 'QUOTED ITEMS',
+    tableHeaders: ['Item', 'Qty', 'Unit', 'Unit Price', 'Amount'],
+    tableRows,
+    notes: row.remarks || '',
+    totalLabel: 'QUOTED TOTAL',
+    // buildProfessionalSummaryPdf formats this with formatPdfMoney itself; pass the
+    // raw number, not a pre-formatted string (double-formatting yields NaN -> PHP 0.00).
+    totalValue: Number(row.quoted_total || 0) || 0
+  });
+
+  return {
+    filename: `${toSafeAttachmentFilename(`Quotation-${row.quote_number || quotationId}`)}.pdf`,
+    content: pdf,
+    contentType: 'application/pdf',
+    quoteNumber: row.quote_number || `RFQ-${row.id}`,
+    prNumber: row.pr_number,
+    vendorName: row.vendor_name
+  };
+}
+
 async function buildPurchaseOrderPdfAttachment(poId, options = {}) {
   const rows = await queryAsync(`
     SELECT
@@ -6735,7 +6683,9 @@ async function buildPurchaseOrderPdfAttachment(poId, options = {}) {
     })),
     notes: row.notes || row.approval_comment || '',
     totalLabel: 'Total Amount',
-    totalValue: total
+    totalValue: total,
+    preparedByName: row.prepared_by || '',
+    approvedByName: row.approved_by || ''
   });
 
   return {
@@ -6876,85 +6826,6 @@ async function generateProjectPdfFile(projectId) {
   return { filename, filePath };
 }
 
-function buildTransactionSummaryPdf(row = {}) {
-  const paid = Number(row.downpayment || row.receivable_paid_amount || 0) || 0;
-  const total = Number(row.amount || 0) || 0;
-  const balance = Math.max(0, total - paid);
-  return buildProfessionalSummaryPdf({
-    title: String(row.type || '').toLowerCase() === 'receipt' ? 'PAYMENT RECEIPT' : 'SALES INVOICE',
-    documentNo: row.docno || `TX-${row.id || ''}`,
-    status: row.status || row.receivable_status || '',
-    brandSource: row,
-    leftTitle: 'TRANSACTION DETAILS',
-    leftRows: [
-      ['Date', formatPdfDate(row.date)],
-      ['Customer', row.company_name || row.client],
-      ['Description', row.description],
-      ['Qty', row.qty],
-      ['Unit Price', formatPdfMoney(row.unitprice)],
-      ['Check No.', row.checkno],
-      ['Customer PO Ref.', row.pono]
-    ],
-    rightTitle: 'PROJECT / COMPANY',
-    rightRows: [
-      ['Operating Company', [row.business_entity_code, row.business_entity_name].filter(Boolean).join(' - ')],
-      ['Company No.', row.company_no],
-      ['Project', [row.project_docno, row.project_name].filter(Boolean).join(' - ')],
-      ['Service Order', [row.so_number, row.service_title].filter(Boolean).join(' - ')],
-      ['Start Date', formatPdfDate(row.project_start_date)],
-      ['End Date', formatPdfDate(row.project_end_date)],
-      ['Balance', formatPdfMoney(balance)]
-    ],
-    tableTitle: 'AMOUNT SUMMARY',
-    tableHeaders: ['Item', 'Value', 'Amount'],
-    tableRows: [
-      { Item: 'Subtotal', Value: `${Number(row.qty || 0) || 0} x ${formatPdfMoney(row.unitprice)}`, Amount: formatPdfMoney(total) },
-      { Item: 'Paid', Value: 'Payment received', Amount: formatPdfMoney(paid) },
-      { Item: 'Balance', Value: 'Remaining balance', Amount: formatPdfMoney(balance) }
-    ],
-    notes: row.description || '',
-    totalLabel: 'Total Amount',
-    totalValue: total
-  });
-}
-
-async function generateTransactionPdfFile(transactionId) {
-  const rows = await queryAsync(`
-    SELECT
-      t.*,
-      be.company_name AS business_entity_name,
-      be.entity_code AS business_entity_code,
-      be.address AS business_entity_address,
-      be.phone AS business_entity_phone,
-      be.email AS business_entity_email,
-      c.company_no,
-      c.company_name,
-      p.project_docno,
-      p.project_name,
-      so.so_number,
-      so.service_title,
-      ar.paid_amount AS receivable_paid_amount,
-      ar.status AS receivable_status
-    FROM transactions t
-    LEFT JOIN business_entities be ON be.id = t.business_entity_id
-    LEFT JOIN company_registry c ON c.id = t.company_id
-    LEFT JOIN projects p ON p.id = t.project_id
-    LEFT JOIN service_orders so ON so.id = t.service_order_id
-    LEFT JOIN accounts_receivable ar ON ar.transaction_id = t.id
-    WHERE t.id = ?
-    LIMIT 1
-  `, [transactionId]);
-  const row = rows?.[0];
-  if (!row) throw new Error('Transaction not found.');
-
-  const pdf = buildTransactionSummaryPdf(row);
-  const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}-transaction-${Number(transactionId)}.pdf`;
-  const filePath = path.join(UPLOAD_DIR, filename);
-  await fs.promises.writeFile(filePath, pdf);
-  await queryAsync('UPDATE transactions SET pdfFilename = ? WHERE id = ?', [filename, transactionId]);
-  return { filename, filePath };
-}
-
 function buildBillSummaryPdf(row = {}) {
   return buildProfessionalSummaryPdf({
     title: 'ACCOUNTS PAYABLE BILL',
@@ -7028,67 +6899,6 @@ async function buildBillSummaryEmailAttachment(billId) {
   };
 }
 
-function buildServiceOrderSummaryPdf(row = {}) {
-  return buildProfessionalSummaryPdf({
-    title: 'SERVICE ORDER',
-    documentNo: row.so_number || `SO-${row.id || ''}`,
-    status: row.status || 'draft',
-    brandSource: row,
-    leftTitle: 'SERVICE DETAILS',
-    leftRows: [
-      ['Service Date', formatPdfDate(row.service_date)],
-      ['Service Type', row.service_type],
-      ['Service Title', row.service_title],
-      ['Vendor', row.vendor_name],
-      ['Total Amount', formatPdfMoney(row.total_amount)],
-      ['Project', [row.project_docno, row.project_name].filter(Boolean).join(' - ')],
-      ['Company', [row.company_no, row.company_name].filter(Boolean).join(' - ')]
-    ],
-    rightTitle: 'OPERATING COMPANY',
-    rightRows: [
-      ['Entity', [row.business_entity_code, row.business_entity_name].filter(Boolean).join(' - ')],
-      ['Created', formatPdfDate(row.created_at)],
-      ['Archived', row.is_archived ? 'Yes' : 'No']
-    ],
-    notes: row.description || row.notes || '',
-    totalLabel: 'Total Amount',
-    totalValue: row.total_amount
-  });
-}
-
-async function generateServiceOrderPdfFile(serviceOrderId) {
-  const rows = await queryAsync(`
-    SELECT
-      so.*,
-      be.company_name AS business_entity_name,
-      be.entity_code AS business_entity_code,
-      be.address AS business_entity_address,
-      be.phone AS business_entity_phone,
-      be.email AS business_entity_email,
-      v.vendor_name,
-      c.company_no,
-      c.company_name,
-      p.project_docno,
-      p.project_name
-    FROM service_orders so
-    LEFT JOIN business_entities be ON be.id = so.business_entity_id
-    LEFT JOIN vendors v ON v.id = so.vendor_id
-    LEFT JOIN company_registry c ON c.id = so.company_id
-    LEFT JOIN projects p ON p.id = so.project_id
-    WHERE so.id = ?
-    LIMIT 1
-  `, [serviceOrderId]);
-  const row = rows?.[0];
-  if (!row) throw new Error('Service order not found.');
-
-  const pdf = buildServiceOrderSummaryPdf(row);
-  const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}-service-order-${Number(serviceOrderId)}.pdf`;
-  const filePath = path.join(UPLOAD_DIR, filename);
-  await fs.promises.writeFile(filePath, pdf);
-  await queryAsync('UPDATE service_orders SET pdfFilename = ? WHERE id = ?', [filename, serviceOrderId]);
-  return { filename, filePath };
-}
-
 function isGeneratedErpPdfFilename(filename = '', documentType = '') {
   const safeFilename = path.basename(String(filename || '').trim()).toLowerCase();
   const safeType = String(documentType || '').trim().toLowerCase();
@@ -7103,100 +6913,8 @@ function shouldRegenerateErpPdfFile(filename = '', filePath = '', documentType =
 }
 
 // ==================== AUTH MIDDLEWARE ====================
-function isApiRequest(req) {
-  return req.path.startsWith('/api/');
-}
-
-function rejectUnauthorized(req, res) {
-  if (isApiRequest(req)) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
-  return res.redirect('/');
-}
-
-function protectAuthenticated(req, res, next) {
-  if (getAuthenticatedUser(req)) {
-    return next();
-  }
-  return rejectUnauthorized(req, res);
-}
-
-function protectAdmin(req, res, next) {
-  const user = getAuthenticatedUser(req);
-  if (user && isPrivilegedRole(user.role)) {
-    return next();
-  }
-  return rejectUnauthorized(req, res);
-}
-
-function protectAdminOnly(req, res, next) {
-  const user = getAuthenticatedUser(req);
-  if (user && isAdminRole(user.role)) {
-    return next();
-  }
-
-  if (isApiRequest(req)) {
-    return res.status(403).json({ error: 'Access denied' });
-  }
-  return rejectUnauthorized(req, res);
-}
-
-function protectStaffOnly(req, res, next) {
-  const user = getAuthenticatedUser(req);
-  if (user && isStaffRole(user.role)) {
-    return next();
-  }
-
-  if (isApiRequest(req)) {
-    return res.status(403).json({ error: 'Staff access required' });
-  }
-  return rejectUnauthorized(req, res);
-}
-
-function protectSuperAdmin(req, res, next) {
-  const user = getAuthenticatedUser(req);
-  if (user && isSuperAdminRole(user.role)) {
-    return next();
-  }
-
-  if (isApiRequest(req)) {
-    return res.status(403).json({ error: 'Super admin access required' });
-  }
-  return rejectUnauthorized(req, res);
-}
-
-async function sendTransactionPdf(req, res, whereClause, params) {
-  try {
-    const rows = await queryAsync(
-      `SELECT id, docno, pdfFilename FROM transactions WHERE ${whereClause} LIMIT 1`,
-      params
-    );
-    if (!rows.length) {
-      return res.status(404).json({ error: 'Transaction not found' });
-    }
-
-    const record = rows[0];
-    let safeFilename = record.pdfFilename ? path.basename(record.pdfFilename) : '';
-    let filePath = safeFilename ? path.join(UPLOAD_DIR, safeFilename) : '';
-
-    if (shouldRegenerateErpPdfFile(safeFilename, filePath, 'transaction')) {
-      const generated = await generateTransactionPdfFile(record.id);
-      safeFilename = generated.filename;
-      filePath = generated.filePath;
-    }
-
-    noCache(res);
-    res.type('application/pdf');
-    if (req.query.download === '1') {
-      return res.download(filePath, safeFilename);
-    }
-
-    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(safeFilename)}"`);
-    return res.sendFile(filePath);
-  } catch (err) {
-    return res.status(500).json({ error: err.message || 'Unable to generate transaction PDF.' });
-  }
-}
+// isApiRequest, rejectUnauthorized, and the protect* guards now live in
+// src/middleware/auth (imported at top).
 
 async function sendBillPdf(req, res, billId) {
   try {
@@ -7264,155 +6982,6 @@ async function sendProjectPdf(req, res, projectId) {
   }
 }
 
-async function sendServiceOrderPdf(req, res, serviceOrderId) {
-  try {
-    const rows = await queryAsync(
-      'SELECT id, so_number, pdfFilename FROM service_orders WHERE id = ? LIMIT 1',
-      [serviceOrderId]
-    );
-    if (!rows.length) {
-      return res.status(404).json({ error: 'Service order not found' });
-    }
-
-    const record = rows[0];
-    let safeFilename = record.pdfFilename ? path.basename(record.pdfFilename) : '';
-    let filePath = safeFilename ? path.join(UPLOAD_DIR, safeFilename) : '';
-
-    if (shouldRegenerateErpPdfFile(safeFilename, filePath, 'service-order')) {
-      const generated = await generateServiceOrderPdfFile(record.id);
-      safeFilename = generated.filename;
-      filePath = generated.filePath;
-    }
-
-    noCache(res);
-    res.type('application/pdf');
-    if (req.query.download === '1') {
-      return res.download(filePath, safeFilename);
-    }
-
-    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(safeFilename)}"`);
-    return res.sendFile(filePath);
-  } catch (err) {
-    return res.status(500).json({ error: err.message || 'Unable to generate service order PDF.' });
-  }
-}
-
-function normalizeServiceOrderStatusValue(status) {
-  const normalized = String(status || 'draft').trim().toLowerCase().replace(/[\s-]+/g, '_');
-  if (normalized === 'inprogress') return 'in_progress';
-  if (normalized === 'canceled') return 'cancelled';
-  const allowed = new Set(['draft', 'issued', 'accepted', 'in_progress', 'completed', 'cancelled']);
-  return allowed.has(normalized) ? normalized : 'draft';
-}
-
-async function resolveServiceOrderCompanyRecord(input, projectRow = null, dbClient = null) {
-  const explicitCompanyId = Number(input?.company_id || 0);
-  if (explicitCompanyId) {
-    const explicitRows = await queryDbAsync(
-      dbClient,
-      'SELECT id, company_no, company_name, address, contact_person, phone, email, tin, industry FROM company_registry WHERE id = ? LIMIT 1',
-      [explicitCompanyId]
-    );
-    if (explicitRows.length) {
-      const projectCompanyId = Number(projectRow?.company_id || 0);
-      if (projectCompanyId && Number(explicitRows[0].id || 0) !== projectCompanyId) {
-        throw new Error('Selected company must match the project company.');
-      }
-      return explicitRows[0];
-    }
-  }
-
-  const projectCompanyId = Number(projectRow?.company_id || 0);
-  if (projectCompanyId) {
-    const projectCompanyRows = await queryDbAsync(
-      dbClient,
-      'SELECT id, company_no, company_name, address, contact_person, phone, email, tin, industry FROM company_registry WHERE id = ? LIMIT 1',
-      [projectCompanyId]
-    );
-    if (projectCompanyRows.length) {
-      return projectCompanyRows[0];
-    }
-  }
-
-  throw new Error('Company selection is required. Please select a company from the search results.');
-}
-
-async function resolveServiceOrderVendorRecord(input, companyId, dbClient = null) {
-  const explicitVendorId = Number(input?.vendor_id || 0);
-  if (!explicitVendorId) {
-    return null;
-  }
-
-  const explicitRows = await queryDbAsync(
-    dbClient,
-    'SELECT id, vendor_name, company_id FROM vendors WHERE id = ? LIMIT 1',
-    [explicitVendorId]
-  );
-  if (!explicitRows.length) {
-    return null;
-  }
-
-  const vendorRecord = explicitRows[0];
-  const vendorCompanyId = Number(vendorRecord.company_id || 0);
-  const normalizedCompanyId = Number(companyId || 0) || 0;
-
-  if (normalizedCompanyId && vendorCompanyId && vendorCompanyId !== normalizedCompanyId) {
-    throw new Error('Selected vendor must match the company.');
-  }
-
-  return vendorRecord;
-}
-
-async function resolveTransactionServiceOrderContext(projectId, serviceOrderId) {
-  let normalizedProjectId = Number(projectId || 0) || null;
-  let normalizedServiceOrderId = Number(serviceOrderId || 0) || null;
-  let serviceOrderRow = null;
-
-  if (normalizedServiceOrderId) {
-    const rows = await queryAsync(
-      'SELECT id, so_number, service_title, project_id, company_id FROM service_orders WHERE id = ? LIMIT 1',
-      [normalizedServiceOrderId]
-    );
-    if (!rows.length) {
-      throw new Error('Selected service order was not found.');
-    }
-
-    serviceOrderRow = rows[0];
-    const linkedProjectId = Number(serviceOrderRow.project_id || 0) || null;
-    if (normalizedProjectId && linkedProjectId && normalizedProjectId !== linkedProjectId) {
-      throw new Error('Selected service order must belong to the selected project.');
-    }
-
-    if (!normalizedProjectId) {
-      normalizedProjectId = linkedProjectId || null;
-    }
-  }
-
-  return {
-    projectId: normalizedProjectId,
-    serviceOrderId: normalizedServiceOrderId,
-    serviceOrderRow
-  };
-}
-
-async function resolveTransactionCompanyId(projectId, serviceOrderRow = null) {
-  const serviceOrderCompanyId = Number(serviceOrderRow?.company_id || 0) || null;
-  if (serviceOrderCompanyId) {
-    return serviceOrderCompanyId;
-  }
-
-  const normalizedProjectId = Number(projectId || 0) || null;
-  if (!normalizedProjectId) {
-    return null;
-  }
-
-  const rows = await queryAsync(
-    'SELECT company_id FROM projects WHERE id = ? LIMIT 1',
-    [normalizedProjectId]
-  );
-  return Number(rows[0]?.company_id || 0) || null;
-}
-
 async function assertProjectAcceptsNewActivity(projectId, dbClient = null) {
   const normalizedProjectId = Number(projectId || 0) || 0;
   if (!normalizedProjectId) return;
@@ -7433,375 +7002,6 @@ async function assertProjectAcceptsNewActivity(projectId, dbClient = null) {
   }
 }
 
-async function createLinkedTransactionForServiceOrder({
-  serviceOrderId,
-  soNumber,
-  projectId = null,
-  projectRow = null,
-  companyRecord = null,
-  businessEntityId = null,
-  serviceType = null,
-  serviceDate,
-  serviceTitle,
-  description,
-  totalAmount = 0,
-  dbClient = null
-}) {
-  const normalizedProjectId = Number(projectId || 0) || null;
-  const resolvedBusinessEntityId = normalizeBusinessEntityId(businessEntityId) || normalizeBusinessEntityId(projectRow?.business_entity_id) || await getDefaultBusinessEntityId();
-  const companyId = Number(companyRecord?.id || 0) || null;
-  const clientName = String(companyRecord?.company_name || '').trim() || 'Unknown Customer';
-  const clientAddress = String(companyRecord?.address || '').trim() || null;
-  const clientTin = formatTin(normalizeTin(companyRecord?.tin || '')) || null;
-  const clientPhone = normalizePhone(companyRecord?.phone || '');
-  const clientBizstyle = String(companyRecord?.industry || '').trim() || null;
-  const txDate = String(serviceDate || getManilaYmd()).trim() || getManilaYmd();
-  const finalAmount = Number(totalAmount || 0);
-  const txServiceType = capitalizeProjectStatus(serviceType || 'installation');
-  const txDescription = [txServiceType, String(description || serviceTitle || '').trim() || `Service Order ${soNumber}`]
-    .filter(Boolean)
-    .join(' - ');
-  const projectTxNo = normalizedProjectId ? await getNextProjectTransactionNo(normalizedProjectId, null, dbClient) : null;
-  const docno = await generateNextTransactionDocnoAsync(dbClient, resolvedBusinessEntityId);
-
-  const insertResult = await queryDbAsync(
-    dbClient,
-    `INSERT INTO transactions
-      (docno, type, client, address, tin, bizstyle, phone,
-       description, archived, archived_auto, qty, unitprice, amount, downpayment, checkno, pono, date,
-       project_start_date, project_end_date, status, pdfFilename, business_entity_id, project_id, company_id, service_order_id, project_tx_no,
-       project_members, member_role, member_phone,
-       project_members_2, member_role_2, member_phone_2,
-       project_members_3, member_role_3, member_phone_3)
-     VALUES (${Array(35).fill('?').join(', ')})`,
-    [
-      docno,
-      'invoice',
-      clientName,
-      clientAddress,
-      clientTin,
-      clientBizstyle,
-      clientPhone || null,
-      txDescription,
-      0,
-      0,
-      1,
-      finalAmount || null,
-      finalAmount,
-      0,
-      null,
-      null,
-      txDate,
-      String(projectRow?.start_date || projectRow?.planned_start_date || projectRow?.actual_start_date || '').trim() || null,
-      String(projectRow?.end_date || projectRow?.planned_end_date || projectRow?.actual_end_date || '').trim() || null,
-      'unpaid',
-      null,
-      resolvedBusinessEntityId,
-      normalizedProjectId,
-      companyId,
-      Number(serviceOrderId || 0) || null,
-      projectTxNo,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null
-    ]
-  );
-
-  const transactionId = Number(insertResult?.insertId || 0) || null;
-  if (!transactionId) {
-    throw new Error('Unable to create linked transaction.');
-  }
-
-  const linkedTransaction = {
-    id: transactionId,
-    docno,
-    type: 'invoice',
-    client: clientName,
-    address: clientAddress,
-    tin: clientTin,
-    bizstyle: clientBizstyle,
-    phone: clientPhone || null,
-    description: txDescription,
-    archived: 0,
-    qty: 1,
-    unitprice: finalAmount || null,
-    amount: finalAmount,
-    downpayment: 0,
-    checkno: null,
-    pono: null,
-    date: txDate,
-    project_start_date: String(projectRow?.start_date || projectRow?.planned_start_date || projectRow?.actual_start_date || '').trim() || null,
-    project_end_date: String(projectRow?.end_date || projectRow?.planned_end_date || projectRow?.actual_end_date || '').trim() || null,
-    status: 'unpaid',
-    pdfFilename: null,
-    business_entity_id: resolvedBusinessEntityId,
-    project_id: normalizedProjectId,
-    company_id: companyId,
-    service_order_id: Number(serviceOrderId || 0) || null,
-    service_order_no: soNumber,
-    project_tx_no: projectTxNo
-  };
-
-  await new Promise((resolve, reject) => {
-    syncReceivableForTransaction(linkedTransaction, (syncErr) => {
-      if (syncErr) return reject(syncErr);
-      return resolve(null);
-    }, dbClient);
-  });
-
-  return {
-    id: transactionId,
-    docno,
-    company_id: companyId,
-    project_tx_no: projectTxNo
-  };
-}
-
-async function syncLinkedTransactionForServiceOrder({
-  serviceOrderId,
-  soNumber,
-  projectId = null,
-  projectRow = null,
-  companyRecord = null,
-  businessEntityId = null,
-  serviceType = null,
-  serviceDate,
-  serviceTitle,
-  description,
-  totalAmount = 0,
-  dbClient = null
-}) {
-  const normalizedServiceOrderId = Number(serviceOrderId || 0) || 0;
-  if (!normalizedServiceOrderId) {
-    throw new Error('Invalid service order id.');
-  }
-
-  const linkedRows = await queryDbAsync(
-    dbClient,
-    `SELECT id, docno, status, downpayment, checkno, pono, pdfFilename, project_id, project_tx_no
-     FROM transactions
-    WHERE service_order_id = ? AND COALESCE(archived, FALSE) = FALSE
-     ORDER BY id DESC
-     LIMIT 1 FOR UPDATE`,
-    [normalizedServiceOrderId]
-  );
-
-  if (!linkedRows.length) {
-    return createLinkedTransactionForServiceOrder({
-      serviceOrderId: normalizedServiceOrderId,
-      soNumber,
-      projectId,
-      projectRow,
-      companyRecord,
-      businessEntityId,
-      serviceType,
-      serviceDate,
-      serviceTitle,
-      description,
-      totalAmount,
-      dbClient
-    });
-  }
-
-  const linkedRow = linkedRows[0];
-  const normalizedProjectId = Number(projectId || 0) || null;
-  const resolvedBusinessEntityId = normalizeBusinessEntityId(businessEntityId) || normalizeBusinessEntityId(projectRow?.business_entity_id) || await getDefaultBusinessEntityId();
-  const companyId = Number(companyRecord?.id || 0) || null;
-  const clientName = String(companyRecord?.company_name || '').trim() || 'Unknown Customer';
-  const clientAddress = String(companyRecord?.address || '').trim() || null;
-  const clientTin = formatTin(normalizeTin(companyRecord?.tin || '')) || null;
-  const clientPhone = normalizePhone(companyRecord?.phone || '');
-  const clientBizstyle = String(companyRecord?.industry || '').trim() || null;
-  const txDate = String(serviceDate || getManilaYmd()).trim() || getManilaYmd();
-  const finalAmount = Number(totalAmount || 0);
-  const txServiceType = capitalizeProjectStatus(serviceType || 'installation');
-  const txDescription = [txServiceType, String(description || serviceTitle || '').trim() || `Service Order ${soNumber}`]
-    .filter(Boolean)
-    .join(' - ');
-  const projectTxNo = normalizedProjectId
-    ? await resolveProjectTransactionNo(
-        normalizedProjectId,
-        Number(linkedRow.project_id || 0) || null,
-        Number(linkedRow.project_tx_no || 0) || null,
-        Number(linkedRow.id || 0) || null,
-        dbClient
-      )
-    : null;
-
-  await queryDbAsync(
-    dbClient,
-    `UPDATE transactions SET
-      type = ?, client = ?, address = ?, tin = ?, bizstyle = ?, phone = ?,
-      description = ?, qty = ?, unitprice = ?, amount = ?, business_entity_id = ?, project_id = ?, company_id = ?,
-      service_order_id = ?, project_tx_no = ?, project_start_date = ?, project_end_date = ?, date = ?, status = ?
-     WHERE id = ?`,
-    [
-      'invoice',
-      clientName,
-      clientAddress,
-      clientTin,
-      clientBizstyle,
-      clientPhone || null,
-      txDescription,
-      1,
-      finalAmount || null,
-      finalAmount,
-      resolvedBusinessEntityId,
-      normalizedProjectId,
-      companyId,
-      normalizedServiceOrderId,
-      projectTxNo,
-      String(projectRow?.start_date || projectRow?.planned_start_date || projectRow?.actual_start_date || '').trim() || null,
-      String(projectRow?.end_date || projectRow?.planned_end_date || projectRow?.actual_end_date || '').trim() || null,
-      txDate,
-      normalizeTransactionStatusValue(linkedRow.status || 'unpaid') || 'unpaid',
-      Number(linkedRow.id || 0) || 0
-    ]
-  );
-
-  const updatedTransaction = {
-    id: Number(linkedRow.id || 0) || null,
-    docno: String(linkedRow.docno || '').trim() || null,
-    type: 'invoice',
-    client: clientName,
-    address: clientAddress,
-    tin: clientTin,
-    bizstyle: clientBizstyle,
-    phone: clientPhone || null,
-    description: txDescription,
-    archived: 0,
-    qty: 1,
-    unitprice: finalAmount || null,
-    amount: finalAmount,
-    downpayment: Number(linkedRow.downpayment || 0),
-    checkno: linkedRow.checkno || null,
-    pono: linkedRow.pono || null,
-    date: txDate,
-    project_start_date: String(projectRow?.start_date || projectRow?.planned_start_date || projectRow?.actual_start_date || '').trim() || null,
-    project_end_date: String(projectRow?.end_date || projectRow?.planned_end_date || projectRow?.actual_end_date || '').trim() || null,
-    status: normalizeTransactionStatusValue(linkedRow.status || 'unpaid') || 'unpaid',
-    pdfFilename: linkedRow.pdfFilename || null,
-    business_entity_id: resolvedBusinessEntityId,
-    project_id: normalizedProjectId,
-    company_id: companyId,
-    service_order_id: normalizedServiceOrderId,
-    service_order_no: soNumber,
-    project_tx_no: projectTxNo
-  };
-
-  await new Promise((resolve, reject) => {
-    syncReceivableForTransaction(updatedTransaction, (syncErr) => {
-      if (syncErr) return reject(syncErr);
-      return resolve(null);
-    }, dbClient);
-  });
-
-  return {
-    id: Number(linkedRow.id || 0) || null,
-    docno: String(linkedRow.docno || '').trim() || null,
-    company_id: companyId,
-    project_tx_no: projectTxNo
-  };
-}
-
-async function syncReceivableForTransactionAsync(transaction, dbClient = null) {
-  return new Promise((resolve, reject) => {
-    syncReceivableForTransaction(transaction, (syncErr) => {
-      if (syncErr) return reject(syncErr);
-      return resolve(null);
-    }, dbClient);
-  });
-}
-
-async function postSalesInvoiceJournal(transaction, dbClient = null) {
-  const transactionId = Number(transaction?.id || 0) || 0;
-  if (!transactionId) return null;
-  const amount = Number(transaction?.amount || 0);
-  return postAutoJournalEntry({
-    referenceType: 'transaction_invoice',
-    referenceId: transactionId,
-    entryDate: transaction?.date || getManilaYmd(),
-    memo: `Sales invoice ${transaction?.docno || transactionId} - ${transaction?.client || 'Customer'}`,
-    debitAccount: AUTO_GL_ACCOUNTS.accountsReceivable,
-    creditAccount: AUTO_GL_ACCOUNTS.serviceRevenue,
-    amount,
-    dbClient
-  });
-}
-
-async function setServiceOrderArchiveState(serviceOrderId, archived, dbClient = null) {
-  const id = Number(serviceOrderId || 0) || 0;
-  if (!id) {
-    throw new Error('Invalid service order id.');
-  }
-
-  const serviceRows = await queryDbAsync(
-    dbClient,
-    'SELECT id, so_number FROM service_orders WHERE id = ? LIMIT 1 FOR UPDATE',
-    [id]
-  );
-  if (!serviceRows.length) {
-    const err = new Error('Service order not found.');
-    err.statusCode = 404;
-    throw err;
-  }
-
-  if (archived) {
-    await queryDbAsync(
-      dbClient,
-      'UPDATE service_orders SET is_archived = TRUE, archived_at = NOW() WHERE id = ?',
-      [id]
-    );
-  } else {
-    await queryDbAsync(
-      dbClient,
-      'UPDATE service_orders SET is_archived = FALSE, archived_at = NULL WHERE id = ?',
-      [id]
-    );
-  }
-
-  const transactionWhere = archived
-    ? 'service_order_id = ? AND COALESCE(archived, FALSE) = FALSE'
-    : 'service_order_id = ? AND COALESCE(archived, FALSE) = TRUE AND COALESCE(archived_auto, FALSE) = TRUE';
-  const transactionRows = await queryDbAsync(
-    dbClient,
-    `SELECT id, type, client, docno, date, amount, downpayment, status, description,
-            business_entity_id, project_id, company_id, service_order_id, project_tx_no,
-            pdfFilename, archived
-       FROM transactions
-      WHERE ${transactionWhere}
-      ORDER BY id ASC
-      FOR UPDATE`,
-    [id]
-  );
-
-  for (const transaction of transactionRows) {
-    await queryDbAsync(
-      dbClient,
-      archived
-        ? 'UPDATE transactions SET archived = TRUE, archived_at = CURRENT_TIMESTAMP, archived_auto = TRUE WHERE id = ?'
-        : 'UPDATE transactions SET archived = FALSE, archived_at = NULL, archived_auto = FALSE WHERE id = ?',
-      [transaction.id]
-    );
-    await syncReceivableForTransactionAsync({
-      ...transaction,
-      archived: archived ? 1 : 0,
-      service_order_no: serviceRows[0].so_number || null
-    }, dbClient);
-  }
-
-  return {
-    serviceOrder: serviceRows[0],
-    affectedTransactions: transactionRows.length
-  };
-}
-
 function getManilaYmd(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Manila',
@@ -7813,36 +7013,7 @@ function getManilaYmd(date = new Date()) {
   return `${map.year}-${map.month}-${map.day}`;
 }
 
-const PHONE_MIN_DIGITS = 7;
-const PHONE_MAX_DIGITS = 15;
-
-function normalizePhone(value) {
-  return String(value || '').replace(/\D/g, '');
-}
-
-function normalizeTin(value) {
-  return String(value || '').replace(/\D/g, '').slice(0, 12);
-}
-
-function formatTin(value) {
-  const digits = normalizeTin(value);
-  if (!digits) return '';
-  return digits.match(/.{1,3}/g)?.join('-') || digits;
-}
-
-function isValidPhone(value) {
-  const phone = String(value || '').trim();
-  return /^\d+$/.test(phone) && phone.length >= PHONE_MIN_DIGITS && phone.length <= PHONE_MAX_DIGITS;
-}
-
-function isValidCompanyRegistryPhone(value) {
-  return /^\d{11}$/.test(String(value || '').trim());
-}
-
-function isValidEmail(value) {
-  const email = String(value || '').trim();
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-}
+// Phone/TIN/email validation helpers now live in src/shared/validation (imported at top).
 
 function buildResetLink(token) {
   return `${APP_BASE_URL}/reset-password/index.html?token=${token}`;
@@ -7907,14 +7078,11 @@ const DOCUMENT_MODULE_ALIASES = new Map([
   ['quotations', 'quotation'],
   ['goods-receipt', 'goods_receipt'],
   ['goods_receipt', 'goods_receipt'],
-  ['service-order', 'service_order'],
-  ['service_order', 'service_order'],
   ['project', 'project'],
   ['bill', 'bill'],
   ['ap-bill', 'bill'],
   ['receivable', 'receivable'],
-  ['invoice', 'receivable'],
-  ['transaction', 'transaction']
+  ['invoice', 'receivable']
 ]);
 
 const DOCUMENT_MODULE_TABLES = {
@@ -7922,11 +7090,9 @@ const DOCUMENT_MODULE_TABLES = {
   purchase_requisition: 'purchase_requisitions',
   quotation: 'procurement_quotations',
   goods_receipt: 'goods_receipts',
-  service_order: 'service_orders',
   project: 'projects',
   bill: 'accounts_payable',
-  receivable: 'accounts_receivable',
-  transaction: 'transactions'
+  receivable: 'accounts_receivable'
 };
 
 function normalizeDocumentModule(value) {
@@ -8093,131 +7259,6 @@ app.get('/healthz', (req, res) => {
   });
 });
 
-async function syncReceivableForTransaction(transaction, callback, dbClient = null) {
-  const done = typeof callback === 'function' ? callback : () => {};
-
-  try {
-    if (!transaction || !transaction.id) {
-      return done(new Error('Missing transaction for AR sync'));
-    }
-
-    if (transaction.type !== 'invoice' || transaction.archived) {
-      await queryDbAsync(dbClient, 'DELETE FROM accounts_receivable WHERE transaction_id = ?', [transaction.id]);
-      await deleteAutoJournalEntries('transaction_invoice', transaction.id, dbClient);
-      return done(null);
-    }
-
-    const amount = Number(transaction.amount || 0);
-    const downpayment = Number(transaction.downpayment || 0);
-    const status = normalizeTransactionStatusValue(transaction.status);
-    const businessEntityId = normalizeBusinessEntityId(transaction.business_entity_id) || await getDefaultBusinessEntityId();
-    const projectId = Number(transaction.project_id || 0) || null;
-    let projectDocno = String(transaction.project_docno || '').trim();
-    const serviceOrderId = Number(transaction.service_order_id || 0) || null;
-    let serviceOrderNo = String(transaction.service_order_no || '').trim();
-
-    if (!projectDocno && projectId) {
-      const projectRows = await queryDbAsync(
-        dbClient,
-        'SELECT project_docno FROM projects WHERE id = ? LIMIT 1',
-        [projectId]
-      );
-      projectDocno = String(projectRows[0]?.project_docno || '').trim();
-    }
-
-    if (!serviceOrderNo && serviceOrderId) {
-      const serviceOrderRows = await queryDbAsync(
-        dbClient,
-        'SELECT so_number FROM service_orders WHERE id = ? LIMIT 1',
-        [serviceOrderId]
-      );
-      serviceOrderNo = String(serviceOrderRows[0]?.so_number || '').trim();
-    }
-
-    const existingRows = await queryDbAsync(dbClient, 'SELECT id, paid_amount FROM accounts_receivable WHERE transaction_id = ? LIMIT 1', [transaction.id]);
-    const existingReceivableId = existingRows.length > 0 ? Number(existingRows[0].id || 0) : 0;
-    const existingPaidAmount = existingRows.length > 0 ? Number(existingRows[0].paid_amount || 0) : 0;
-    const paidFromTransaction = amount > 0 && downpayment >= amount
-      ? amount
-      : (downpayment > 0 ? Math.min(amount, downpayment) : 0);
-
-    let paidAmount = 0;
-    if (existingReceivableId) {
-      const paidRows = await queryDbAsync(
-        dbClient,
-        "SELECT COALESCE(SUM(amount), 0) AS paid_amount FROM payments WHERE payment_type = 'ar' AND ar_id = ? AND COALESCE(approval_status, 'approved') = 'approved'",
-        [existingReceivableId]
-      );
-      paidAmount = Number(paidRows[0]?.paid_amount || 0);
-      if (paidAmount <= 0 && existingPaidAmount > 0) {
-        paidAmount = existingPaidAmount;
-      }
-    }
-
-    if (paidAmount <= 0) {
-      paidAmount = paidFromTransaction > 0
-        ? paidFromTransaction
-        : (status === 'paid'
-          ? amount
-          : (status === 'partial' ? Math.min(amount, downpayment) : 0));
-    }
-
-    const invoiceNumber = String(transaction.docno || serviceOrderNo || transaction.service_order_no || '').trim();
-    if (!invoiceNumber) {
-      throw new Error('Unable to sync receivable because invoice number is missing.');
-    }
-
-    const receivableStatus = mapTransactionToReceivableStatus(transaction.type, amount, paidAmount, transaction.archived, status);
-    const payload = [
-      transaction.client || 'Unknown Customer',
-      invoiceNumber,
-      transaction.date,
-      transaction.date,
-      'Due on Receipt',
-      amount,
-      paidAmount,
-      receivableStatus,
-      businessEntityId,
-      transaction.id,
-      transaction.description || null,
-      projectId,
-      projectDocno || null,
-      serviceOrderNo || null
-    ];
-
-    if (existingReceivableId) {
-      await queryDbAsync(
-        dbClient,
-        `UPDATE accounts_receivable
-         SET customer_name = ?, invoice_number = ?, invoice_date = ?, due_date = ?,
-             payment_terms = ?, total_amount = ?, paid_amount = ?, status = ?, notes = ?,
-             business_entity_id = ?, project_id = ?, project_docno = ?, service_order_no = ?
-         WHERE transaction_id = ?`,
-        [
-          payload[0], payload[1], payload[2], payload[3],
-          payload[4], payload[5], payload[6], payload[7], payload[10],
-          payload[8], payload[11], payload[12], payload[13],
-          payload[9]
-        ]
-      );
-    } else {
-      await queryDbAsync(
-        dbClient,
-        `INSERT INTO accounts_receivable
-          (customer_name, invoice_number, invoice_date, due_date, payment_terms, total_amount, paid_amount, status, business_entity_id, transaction_id, notes, project_id, project_docno, service_order_no)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        payload
-      );
-    }
-
-    await queryDbAsync(dbClient, 'UPDATE transactions SET status = ? WHERE id = ?', [mapReceivableToTransactionStatus(amount, paidAmount), transaction.id]);
-    await postSalesInvoiceJournal(transaction, dbClient);
-    return done(null);
-  } catch (err) {
-    return done(err);
-  }
-}
-
 function mapProjectReceivableStatus(totalAmount, paidAmount, dueDate) {
   const total = Number(totalAmount || 0);
   const paid = Number(paidAmount || 0);
@@ -8285,7 +7326,6 @@ function syncReceivableForProject(project, callback) {
     paidAmount,
     status,
     businessEntityId,
-    Number(project.transaction_id || 0) || null,
     notes,
     Number(project.id),
     invoiceNumber
@@ -8301,13 +7341,13 @@ function syncReceivableForProject(project, callback) {
         return db.query(
           `UPDATE accounts_receivable
            SET customer_name = ?, invoice_number = ?, invoice_date = ?, due_date = ?,
-               payment_terms = ?, total_amount = ?, paid_amount = ?, status = ?, transaction_id = ?, notes = ?,
+               payment_terms = ?, total_amount = ?, paid_amount = ?, status = ?, notes = ?,
                business_entity_id = ?, project_id = ?, project_docno = ?
            WHERE id = ?`,
           [
             payload[0], payload[1], payload[2], payload[3],
             payload[4], payload[5], payload[6], payload[7],
-            payload[9], payload[10], payload[8], payload[11], payload[12],
+            payload[9], payload[8], payload[10], payload[11],
             rows[0].id
           ],
           (updateErr) => done(updateErr || null)
@@ -8316,8 +7356,8 @@ function syncReceivableForProject(project, callback) {
 
       db.query(
         `INSERT INTO accounts_receivable
-          (customer_name, invoice_number, invoice_date, due_date, payment_terms, total_amount, paid_amount, status, business_entity_id, transaction_id, notes, project_id, project_docno)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (customer_name, invoice_number, invoice_date, due_date, payment_terms, total_amount, paid_amount, status, business_entity_id, notes, project_id, project_docno)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         payload,
         (insertErr) => done(insertErr || null)
       );
@@ -8448,20 +7488,6 @@ function setProjectArchiveStateByClient(clientName, isArchived, callback) {
   );
 }
 
-function syncProjectArchiveStateForTransaction(transactionId, isArchived, callback) {
-  const done = typeof callback === 'function' ? callback : () => {};
-  const normalizedId = Number(transactionId || 0);
-  if (!normalizedId) return done(null);
-
-  db.query(
-    `UPDATE projects
-     SET is_archived = ?, archived_auto = FALSE
-     WHERE transaction_id = ?`,
-    [isArchived ? 1 : 0, normalizedId],
-    (err) => done(err || null)
-  );
-}
-
 function autoArchiveExpiredProjects(callback) {
   const done = typeof callback === 'function' ? callback : () => {};
   // Overdue projects stay visible in Total Projects; we no longer auto-hide them.
@@ -8480,61 +7506,13 @@ function autoRestoreActiveProjects(callback) {
   );
 }
 
-function autoArchiveExpiredTransactions(callback) {
-  const done = typeof callback === 'function' ? callback : () => {};
-  // Keep completed/overdue records in the main list; archive only when users do it manually.
-  done(null);
-}
-
-function autoRestoreEligibleTransactions(callback) {
-  const done = typeof callback === 'function' ? callback : () => {};
-  db.query(
-    `UPDATE transactions
-     SET archived = FALSE,
-         archived_at = NULL,
-         archived_auto = FALSE
-     WHERE COALESCE(archived_auto, FALSE) = TRUE`,
-    (err) => done(err || null)
-  );
-}
-
-function backfillProjectTransactionLinks(callback) {
-  const done = typeof callback === 'function' ? callback : () => {};
-  db.query(
-    `UPDATE projects p
-     SET transaction_id = t.id,
-         source_docno = t.docno,
-         project_name = CONCAT(t.client, ' - ', t.docno)
-     FROM transactions t
-     WHERE LOWER(TRIM(p.project_name)) = LOWER(TRIM(t.client))
-       AND p.transaction_id IS NULL
-       AND (p.source_docno IS NULL OR p.source_docno = '')
-       AND NOT EXISTS (
-         SELECT 1
-         FROM projects linked
-         WHERE linked.transaction_id = t.id
-       )`,
-    (err) => done(err || null)
-  );
-}
-
 function runArchiveMaintenance(callback) {
   const done = typeof callback === 'function' ? callback : () => {};
-  backfillProjectTransactionLinks((linkErr) => {
-    if (linkErr) return done(linkErr);
-    backfillTransactionProjectLinks((transactionLinkErr) => {
-      if (transactionLinkErr) return done(transactionLinkErr);
-      autoRestoreActiveProjects((projectRestoreErr) => {
-        if (projectRestoreErr) return done(projectRestoreErr);
-        autoArchiveExpiredProjects((projectArchiveErr) => {
-          if (projectArchiveErr) return done(projectArchiveErr);
-          autoRestoreEligibleTransactions((restoreErr) => {
-            if (restoreErr) return done(restoreErr);
-            autoArchiveExpiredTransactions((archiveErr) => done(archiveErr || null));
-          });
-        });
-      });
-    });
+  // Project auto-restore/archive only. (The legacy transaction backfill + auto
+  // archive/restore steps were removed with the retired Transactions feature.)
+  autoRestoreActiveProjects((projectRestoreErr) => {
+    if (projectRestoreErr) return done(projectRestoreErr);
+    autoArchiveExpiredProjects((projectArchiveErr) => done(projectArchiveErr || null));
   });
 }
 
@@ -8639,12 +7617,25 @@ app.get('/accounts-payable', protectAdmin, handleAccountsPayablePage);
 
 app.get('/accounts-receivable', protectAdmin, (req, res) => {
   noCache(res);
-  res.sendFile(path.join(__dirname, 'public', 'accounts-receivable', 'index.html'));
+  // Migrated to React (Invoices / Collections / Customer Balances / AR Aging / Documents +
+  // Add Invoice + Record Collection). Serve the React build when present; fall back to the
+  // classic page (backed up in _legacy_pages/) if the bundle is missing. Revert this branch +
+  // move the dir back to roll back. See [[react-migration]].
+  const reactIndex = path.join(__dirname, 'public', 'react', 'index.html');
+  const target = fs.existsSync(reactIndex)
+    ? reactIndex
+    : path.join(__dirname, '_legacy_pages', 'accounts-receivable', 'index.html');
+  res.sendFile(target);
 });
 
 app.get('/inventory', protectAdmin, (req, res) => {
   noCache(res);
   res.sendFile(path.join(__dirname, 'public', 'inventory', 'index.html'));
+});
+
+app.get(['/crm', '/crm/'], protectAdmin, (req, res) => {
+  noCache(res);
+  res.sendFile(path.join(__dirname, 'public', 'crm', 'index.html'));
 });
 
 app.get('/reports', protectAdminOnly, (req, res) => {
@@ -8659,12 +7650,20 @@ app.get('/gantt-chart', protectAdminOnly, (req, res) => {
 
 app.get('/user-management', protectAdminOnly, (req, res) => {
   noCache(res);
-  res.sendFile(path.join(__dirname, 'public', 'user-management', 'index.html'));
+  // Migrated to React. The classic page is backed up at _legacy_pages/user-management/
+  // (moved OUT of public/ so express.static doesn't intercept the route). Built by:
+  // cd client && npm run build
+  const reactIndex = path.join(__dirname, 'public', 'react', 'index.html');
+  const target = fs.existsSync(reactIndex) ? reactIndex : path.join(__dirname, '_legacy_pages', 'user-management', 'index.html');
+  res.sendFile(target);
 });
 
 app.get('/business-entities', protectSuperAdmin, (req, res) => {
   noCache(res);
-  res.sendFile(path.join(__dirname, 'public', 'business-entities', 'index.html'));
+  // Migrated to React (classic backup at _legacy_pages/business-entities/).
+  const reactIndex = path.join(__dirname, 'public', 'react', 'index.html');
+  const target = fs.existsSync(reactIndex) ? reactIndex : path.join(__dirname, '_legacy_pages', 'business-entities', 'index.html');
+  res.sendFile(target);
 });
 
 app.get(['/system-overview', '/system-overview/'], (req, res) => {
@@ -9194,163 +8193,23 @@ app.post('/logout', (req, res) => {
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // PUBLIC API
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-app.get('/api/public/transactions', protectAuthenticated, (req, res) => {
-  runArchiveMaintenance((maintenanceErr) => {
-    if (maintenanceErr) {
-      console.error('Public archive maintenance error:', maintenanceErr);
-      return res.status(500).json({ error: maintenanceErr.message });
-    }
-
-    db.query(`
-      SELECT t.id, t.docno, t.type, t.client, t.phone, t.project_id, t.service_order_id, t.project_tx_no, t.checkno, t.pono,
-             so.so_number AS service_order_no,
-             so.service_title AS service_order_title,
-             t.description AS description, t.project_members, t.member_role, t.member_phone,
-             t.project_members_2, t.member_role_2, t.member_phone_2,
-             t.project_members_3, t.member_role_3, t.member_phone_3,
-             t.qty, t.unitprice,
-             t.amount, t.downpayment,
-             to_char(t.date, 'YYYY-MM-DD') AS date,
-             to_char(t.project_start_date, 'YYYY-MM-DD') AS project_start_date,
-             to_char(t.project_end_date, 'YYYY-MM-DD') AS project_end_date,
-             t.status AS status, t.pdfFilename
-      FROM transactions t
-      LEFT JOIN service_orders so ON so.id = t.service_order_id
-      LEFT JOIN accounts_receivable ar ON ar.transaction_id = t.id
-      WHERE t.archived = FALSE
-      ORDER BY t.id ASC
-    `, (err, rows) => {
-      if (err) {
-        console.error('Public transaction query error:', err);
-        return res.status(500).json({ error: err.message });
-      }
-      res.json(rows);
-    });
-  });
-});
-
-app.get('/api/public/transactions/:id/pdf', protectAuthenticated, (req, res) => {
-  sendTransactionPdf(req, res, 'id = ? AND archived = FALSE', [req.params.id]);
-});
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // PROTECTED API
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-app.get('/api/transactions', protectAdmin, (req, res) => {
-  runArchiveMaintenance((maintenanceErr) => {
-    if (maintenanceErr) {
-      console.error('Transaction archive maintenance error:', maintenanceErr);
-      return res.status(500).json({ error: maintenanceErr.message });
-    }
-
-    db.query(`
-      SELECT t.id, t.docno, t.type, t.client, t.address, t.tin, t.bizstyle, t.phone, t.service_order_id, t.business_entity_id, t.company_id, t.project_tx_no,
-             be.company_name AS business_entity_name,
-             c.company_no,
-             c.company_name,
-             proj.project_docno,
-             proj.project_name,
-             so.so_number AS service_order_no,
-             so.service_title AS service_order_title,
-             t.description AS description, t.project_members, t.member_role, t.member_phone,
-             t.project_members_2, t.member_role_2, t.member_phone_2,
-             t.project_members_3, t.member_role_3, t.member_phone_3,
-             t.qty, t.unitprice, t.product_id, t.warehouse_id,
-             p.sku AS product_sku, p.product_name AS inventory_product_name, p.selling_price AS inventory_selling_price,
-             w.warehouse_code, w.warehouse_name,
-             t.amount, t.downpayment, t.project_id AS project_id, t.checkno, t.pono,
-             COALESCE(ar.paid_amount, 0) AS receivable_paid_amount,
-             ar.status AS receivable_status,
-             to_char(t.date, 'YYYY-MM-DD') AS date,
-             to_char(t.project_start_date, 'YYYY-MM-DD') AS project_start_date,
-             to_char(t.project_end_date, 'YYYY-MM-DD') AS project_end_date,
-             t.status AS status, t.pdfFilename
-      FROM transactions t
-      LEFT JOIN business_entities be ON be.id = t.business_entity_id
-      LEFT JOIN company_registry c ON c.id = t.company_id
-      LEFT JOIN projects proj ON proj.id = t.project_id
-      LEFT JOIN service_orders so ON so.id = t.service_order_id
-      LEFT JOIN accounts_receivable ar ON ar.transaction_id = t.id
-      LEFT JOIN products p ON p.id = t.product_id
-      LEFT JOIN warehouses w ON w.id = t.warehouse_id
-      WHERE t.archived = FALSE
-      ORDER BY t.id DESC
-    `, (err, rows) => {
-      if (err) {
-        console.error('Transaction query error:', err);
-        return res.status(500).json({ error: err.message });
-      }
-      res.json(rows);
-    });
-  });
+// ── Transactions feature RETIRED (legacy) ─────────────────────────────────────
+// The current flows are Project → Procurement (PR→RFQ→PO→AP/GRN→Inventory) and
+// Project → Sales Management (Inquiry→SO→AR/DR→Inventory). "Transactions" / the old
+// "Project Records" view is no longer part of the UI, so its endpoints are disabled
+// here to remove the unused (legacy) request surface. The old route handlers have been
+// DELETED (~580 lines); this single guard now answers any lingering /api/transactions* call
+// with 410 Gone (e.g. the Reports page degrades gracefully to an empty transactions list).
+// The `transactions` TABLE is dropped by dropLegacyTables() and the legacy sync helpers were
+// deleted. (createReceivableFromDeliveryRecord — the Sales Order → AR invoice builder — stays;
+// it is NOT transaction-related.) This guard stays until the frontend stops calling /api/transactions.
+app.use('/api/transactions', (req, res) => {
+  res.status(410).json({ error: 'The Transactions feature has been retired. Use Projects → Procurement (AP) or Sales Management (AR).' });
 });
 
-app.get('/api/transactions/:id/pdf', protectAdmin, (req, res) => {
-  sendTransactionPdf(req, res, 'id = ?', [req.params.id]);
-});
-
-app.get('/api/transactions/by-docno/:docno', protectAdmin, (req, res) => {
-  const docno = String(req.params.docno || '').trim();
-  if (!docno) {
-    return res.status(400).json({ error: 'Document number is required.' });
-  }
-
-  db.query(
-    `SELECT t.id, t.docno, t.type, t.client, t.description AS description, t.amount, t.downpayment, t.checkno, t.pono,
-            t.qty, t.unitprice, t.product_id, t.warehouse_id,
-            p.sku AS product_sku, p.product_name AS inventory_product_name,
-            w.warehouse_code, w.warehouse_name,
-            t.project_id, t.service_order_id, t.project_tx_no,
-            so.so_number AS service_order_no,
-            so.service_title AS service_order_title,
-            COALESCE(ar.paid_amount, 0) AS receivable_paid_amount,
-            ar.status AS receivable_status,
-            t.project_members, t.member_role, t.member_phone,
-            t.project_members_2, t.member_role_2, t.member_phone_2,
-            t.project_members_3, t.member_role_3, t.member_phone_3,
-            to_char(date, 'YYYY-MM-DD') AS date
-     FROM transactions t
-     LEFT JOIN service_orders so ON so.id = t.service_order_id
-     LEFT JOIN accounts_receivable ar ON ar.transaction_id = t.id
-     LEFT JOIN products p ON p.id = t.product_id
-     LEFT JOIN warehouses w ON w.id = t.warehouse_id
-     WHERE t.docno = ?
-     LIMIT 1`,
-    [docno],
-    (err, rows) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (!rows || !rows.length) {
-        return res.status(404).json({ error: 'Transaction not found.' });
-      }
-      res.json(rows[0]);
-    }
-  );
-});
-
-async function generateNextTransactionDocnoAsync(dbClient = null, businessEntityId = null) {
-  const resolvedBusinessEntityId = normalizeBusinessEntityId(businessEntityId) || await getDefaultBusinessEntityId();
-  const ownsConnection = !dbClient;
-  const connection = dbClient || await getConnectionAsync();
-  try {
-    return await generateNextEntityDocumentNo({
-      businessEntityId: resolvedBusinessEntityId,
-      documentType: 'transaction-docno',
-      prefix: 'TRN',
-      tableName: 'transactions',
-      columnName: 'docno',
-      dbClient: connection
-    });
-  } finally {
-    if (ownsConnection && connection) {
-      connection.release();
-    }
-  }
-}
-
-function generateNextTransactionDocno(callback, businessEntityId = null) {
-  generateNextTransactionDocnoAsync(null, businessEntityId)
-    .then((docno) => callback(null, docno))
-    .catch((err) => callback(err));
-}
 
 function generateNextProjectDocno(callback, businessEntityId = null) {
   generateNextProjectDocnoAsync(businessEntityId)
@@ -9844,394 +8703,13 @@ async function migrateExistingProjectDocnos({ attempt = 0 } = {}) {
   }
 }
 
-app.get('/api/transactions/next-docno', protectAdmin, async (req, res) => {
-  try {
-    const docno = await peekNextEntityDocumentNo({
-      businessEntityId: req.query.business_entity_id,
-      documentType: 'transaction-docno',
-      prefix: 'TRN',
-      tableName: 'transactions',
-      columnName: 'docno'
-    });
-    res.json({ docno });
-  } catch (err) {
-    res.status(500).json({ error: err.message || 'Unable to generate transaction number.' });
-  }
-});
-
-app.get('/api/projects/next-docno', protectAdmin, (req, res) => {
-  const actor = getAuthenticatedUser(req) || {};
-  const nextNumberPromise = isStaffRole(actor.role)
-    ? peekNextDraftProjectDocnoAsync(req.query.business_entity_id)
-    : peekNextProjectDocnoAsync(req.query.business_entity_id);
-  nextNumberPromise
-    .then((projectDocno) => {
-      res.json(isStaffRole(actor.role)
-        ? { project_docno: projectDocno, draft_docno: projectDocno, number_type: 'draft' }
-        : { project_docno: projectDocno, number_type: 'official' });
-    })
-    .catch((err) => res.status(500).json({ error: err.message }));
-});
-
-app.get('/api/procurement/requisitions/next-number', protectAdmin, async (req, res) => {
-  try {
-    const businessEntityId = await resolveBusinessEntityId(req.query.business_entity_id);
-    // Admins create official PRs directly, so preview the official number; staff
-    // file draft requests, so preview the DFT- draft number.
-    const actor = getAuthenticatedUser(req) || {};
-    const pr_number = isStaffRole(actor.role)
-      ? await peekNextDraftEntityDocumentNo({
-          businessEntityId,
-          documentType: 'purchase-requisition',
-          prefix: 'PR',
-          tableName: 'purchase_requisitions',
-          columnName: 'pr_number'
-        })
-      : await peekNextEntityDocumentNo({
-          businessEntityId,
-          documentType: 'purchase-requisition',
-          prefix: 'PR',
-          tableName: 'purchase_requisitions',
-          columnName: 'pr_number'
-        });
-    res.json({ pr_number });
-  } catch (err) {
-    res.status(500).json({ error: err.message || 'Unable to generate PR number.' });
-  }
-});
-
-app.get('/api/procurement/purchase-orders/next-number', protectAdmin, async (req, res) => {
-  try {
-    const businessEntityId = await resolveBusinessEntityId(req.query.business_entity_id);
-    // Admins create approved POs with an official number; staff see the DFT- draft.
-    const actor = getAuthenticatedUser(req) || {};
-    const po_number = isStaffRole(actor.role)
-      ? await peekNextDraftEntityDocumentNo({
-          businessEntityId,
-          documentType: 'purchase-order',
-          prefix: 'PO',
-          tableName: 'purchase_orders',
-          columnName: 'po_number'
-        })
-      : await peekNextEntityDocumentNo({
-          businessEntityId,
-          documentType: 'purchase-order',
-          prefix: 'PO',
-          tableName: 'purchase_orders',
-          columnName: 'po_number'
-        });
-    res.json({ po_number });
-  } catch (err) {
-    res.status(500).json({ error: err.message || 'Unable to generate PO number.' });
-  }
-});
-
-app.get('/api/procurement/goods-receipts/next-number', protectAdmin, async (req, res) => {
-  try {
-    const businessEntityId = await resolveBusinessEntityId(req.query.business_entity_id);
-    const grn_number = await peekNextEntityDocumentNo({
-      businessEntityId,
-      documentType: 'goods-receipt',
-      prefix: 'GRN',
-      tableName: 'goods_receipts',
-      columnName: 'grn_number'
-    });
-    res.json({ grn_number });
-  } catch (err) {
-    res.status(500).json({ error: err.message || 'Unable to generate GRN number.' });
-  }
-});
-
-app.get('/api/procurement/quotations/next-number', protectAdmin, async (req, res) => {
-  try {
-    const businessEntityId = await resolveBusinessEntityId(req.query.business_entity_id);
-    const quote_number = await peekNextDraftEntityDocumentNo({
-      businessEntityId,
-      documentType: 'procurement-quotation',
-      prefix: 'RFQ',
-      tableName: 'procurement_quotations',
-      columnName: 'quote_number'
-    });
-    res.json({ quote_number });
-  } catch (err) {
-    res.status(500).json({ error: err.message || 'Unable to generate quotation number.' });
-  }
-});
-
-app.get('/api/bills/next-number', protectAdmin, async (req, res) => {
-  try {
-    const businessEntityId = await resolveBusinessEntityId(req.query.business_entity_id);
-    // Admin bills get an official BILL- number; staff drafts preview the DFT- number.
-    const actor = getAuthenticatedUser(req) || {};
-    const bill_number = isStaffRole(actor.role)
-      ? await peekNextDraftEntityDocumentNo({
-          businessEntityId,
-          documentType: 'ap-bill',
-          prefix: 'BILL',
-          tableName: 'accounts_payable',
-          columnName: 'bill_number'
-        })
-      : await peekNextEntityDocumentNo({
-          businessEntityId,
-          documentType: 'ap-bill',
-          prefix: 'BILL',
-          tableName: 'accounts_payable',
-          columnName: 'bill_number'
-        });
-    res.json({ bill_number });
-  } catch (err) {
-    res.status(500).json({ error: err.message || 'Unable to generate bill number.' });
-  }
-});
-app.post('/api/transactions', [
-  protectAdmin,
-  upload.single('pdf_file')
-], async (req, res) => {
-  const d = req.body;
-  const tin = normalizeTin(d.tin);
-  const phone = normalizePhone(d.phone);
-  let projectId = Number(d.project_id || 0) || null;
-  const serviceOrderInputId = Number(d.service_order_id || 0) || null;
-  const saleFields = normalizeInventorySaleFields(d);
-  const qty = saleFields.quantity || 1;
-  const amount = Number(d.amount || 0);
-  const downpayment = Number(d.downpayment || 0);
-  let unitPrice = saleFields.unitPrice;
-  let description = String(d.description || '').trim();
-  const requestedStatus = normalizeTransactionStatusValue(d.status);
-  let status = requestedStatus || ((amount - downpayment) <= 0 ? 'paid' : (downpayment > 0 ? 'partial' : 'unpaid'));
-
-  if (phone && !isValidPhone(phone)) {
-    return res.status(400).json({ error: 'Phone number must be digits only, 7 to 15 digits.' });
-  }
-
-  const pdfFilename = req.file ? req.file.filename : null;
-  const insertTransaction = async (docno) => {
-    try {
-      const serviceOrderContext = await resolveTransactionServiceOrderContext(projectId, serviceOrderInputId);
-      projectId = serviceOrderContext.projectId;
-      const serviceOrderId = serviceOrderContext.serviceOrderId;
-      const serviceOrderRow = serviceOrderContext.serviceOrderRow;
-      await assertProjectAcceptsNewActivity(projectId);
-      const businessEntityId = await resolveBusinessEntityId(d.business_entity_id);
-      const companyId = await resolveTransactionCompanyId(projectId, serviceOrderRow);
-      const projectTxNo = projectId ? await getNextProjectTransactionNo(projectId) : null;
-      const finalAmount = Number(amount || 0);
-      status = requestedStatus || ((finalAmount - downpayment) <= 0 ? 'paid' : (downpayment > 0 ? 'partial' : 'unpaid'));
-      const postsInventory = isInventorySaleTransaction(d.type, saleFields.productId);
-      const createdBy = req.session?.user?.fullname || req.session?.user?.username || null;
-
-      const insertedRows = await withDbTransaction(async (connection) => {
-        if (postsInventory) {
-          await assertInventorySaleCanPost({
-            businessEntityId,
-            productId: saleFields.productId,
-            warehouseId: saleFields.warehouseId,
-            quantity: qty
-          }, connection);
-        }
-
-        const rows = await queryDbAsync(connection, `
-          INSERT INTO transactions
-            (docno, type, client, address, tin, bizstyle, phone,
-             description, archived, archived_auto, qty, unitprice, product_id, warehouse_id, amount, downpayment, checkno, pono, date,
-             project_start_date, project_end_date, status, pdfFilename, business_entity_id, project_id, company_id, service_order_id, project_tx_no,
-             project_members, member_role, member_phone,
-             project_members_2, member_role_2, member_phone_2,
-             project_members_3, member_role_3, member_phone_3)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                  ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          RETURNING *
-        `, [
-          docno, d.type, d.client,
-          d.address || null, tin || null,
-          d.bizstyle || null, phone || null,
-          description || null,
-          0, 0,
-          qty, unitPrice || null, saleFields.productId, saleFields.warehouseId,
-          finalAmount, downpayment || 0,
-          d.checkno || null, d.pono || null,
-          d.date, d.project_start_date || null, d.project_end_date || null, status, pdfFilename,
-          businessEntityId, projectId, companyId, serviceOrderId, projectTxNo,
-          null, null, null,
-          null, null, null,
-          null, null, null
-        ]);
-
-        if (postsInventory) {
-          await postSalesInventoryMovement({
-            businessEntityId,
-            productId: saleFields.productId,
-            warehouseId: saleFields.warehouseId,
-            quantity: qty,
-            docno,
-            movementDate: d.date,
-            createdBy,
-            projectId
-          }, connection);
-        }
-        return rows;
-      });
-
-      const insertedRow = Array.isArray(insertedRows) ? insertedRows[0] : null;
-      try {
-        await claimEntityDocumentNo({
-          businessEntityId,
-          documentType: 'transaction-docno',
-          prefix: 'TRN',
-          documentNo: docno
-        });
-      } catch (claimErr) {
-        console.error('Transaction document sequence claim error:', claimErr);
-      }
-      const newTransaction = {
-        id: insertedRow?.id,
-        type: d.type,
-        client: d.client,
-        docno,
-        date: d.date,
-        amount: finalAmount,
-        downpayment,
-        status,
-        business_entity_id: businessEntityId,
-        project_id: projectId,
-        company_id: companyId,
-        service_order_id: serviceOrderId,
-        service_order_no: serviceOrderRow?.so_number || null,
-        project_tx_no: projectTxNo,
-        archived: 0,
-        description: description || null
-      };
-
-      try {
-        await syncReceivableForTransactionAsync(newTransaction);
-        logAction(req, 'CREATE_TRANSACTION', `Added ${d.type}: ${docno} for ${d.client}`);
-        res.json({ id: insertedRow?.id, docno, project_tx_no: projectTxNo });
-      } catch (syncErr) {
-        logAction(req, 'CREATE_TRANSACTION', `Added ${d.type}: ${docno} for ${d.client} (with AR sync warning)`);
-        res.json({
-          id: insertedRow?.id,
-          docno,
-          project_tx_no: projectTxNo,
-          warning: 'Transaction saved, pero may Accounts Receivable sync warning.'
-        });
-      }
-    } catch (err) {
-      console.error('Create transaction project sequence error:', err);
-      const message = String(err?.message || '');
-      const statusCode = err?.statusCode || (message.toLowerCase().includes('archived') ? 400 : (isPostgresUniqueViolation(err) ? 409 : 500));
-      res.status(statusCode).json({ error: isPostgresUniqueViolation(err) ? 'Doc No. ay ginagamit na.' : (message || 'Unable to save transaction.') });
-    }
-  };
-
-  if (String(d.docno || '').trim()) {
-    return insertTransaction(String(d.docno).trim());
-  }
-
-  try {
-    const docno = await generateNextTransactionDocnoAsync(null, d.business_entity_id);
-    return insertTransaction(docno);
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-app.put('/api/transactions/:id/archive', protectAdminOnly, (req, res) => {
-  db.query('SELECT id, type, client, docno, date, amount, downpayment, status, description, project_id, service_order_id, project_tx_no FROM transactions WHERE id = ?', [req.params.id], (findErr, rows) => {
-    if (findErr) return res.status(500).json({ error: findErr.message });
-    if (!rows.length) return res.status(404).json({ error: 'Record not found' });
-
-      db.query('UPDATE transactions SET archived = TRUE, archived_at = CURRENT_TIMESTAMP, archived_auto = FALSE WHERE id = ?', [req.params.id], (err, result) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (result.affectedRows === 0)
-        return res.status(404).json({ error: 'Record not found' });
-
-      const currentRow = rows[0];
-      syncReceivableForTransaction({ ...currentRow, archived: 1 }, (syncErr) => {
-        if (syncErr) {
-          console.error('AR sync archive error:', syncErr);
-          return res.status(500).json({ error: 'Archived record but failed to sync accounts receivable.' });
-        }
-        logAction(req, 'ARCHIVE_TRANSACTION', `Archived record ID: ${req.params.id}`);
-        res.json({ success: true });
-      });
-    });
-  });
-});
-
-app.put('/api/transactions/:id/restore', protectAdminOnly, (req, res) => {
-  db.query('UPDATE transactions SET archived = FALSE, archived_at = NULL, archived_auto = FALSE WHERE id = ?', [req.params.id], (err, result) => {
-    if (err) return res.status(500).json({ error: err.message });
-    if (result.affectedRows === 0)
-      return res.status(404).json({ error: 'Record not found' });
-
-    db.query('SELECT id, type, client, docno, date, amount, downpayment, status, description, archived, project_id, service_order_id FROM transactions WHERE id = ?', [req.params.id], (findErr, rows) => {
-      if (findErr) return res.status(500).json({ error: findErr.message });
-      if (!rows.length) return res.status(404).json({ error: 'Record not found' });
-
-      const restoredRow = rows[0];
-      syncReceivableForTransaction(restoredRow, (syncErr) => {
-        if (syncErr) {
-          console.error('AR sync restore error:', syncErr);
-          return res.status(500).json({ error: 'Restored record but failed to sync accounts receivable.' });
-        }
-        logAction(req, 'RESTORE_TRANSACTION', `Restored record ID: ${req.params.id}`);
-        res.json({ success: true });
-      });
-    });
-  });
-});
-
-app.delete('/api/transactions/:id', protectAdminOnly, (req, res) => {
-  logAction(req, 'BLOCKED_HARD_DELETE', `Blocked permanent delete attempt for transaction ID: ${req.params.id}`, 'audit');
-  return res.status(409).json({
-    error: 'Permanent delete is disabled. Please archive and restore records instead.'
-  });
-});
-
-app.get('/api/transactions/archived', protectAdminOnly, (req, res) => {
-  runArchiveMaintenance((maintenanceErr) => {
-    if (maintenanceErr) {
-      console.error('Archived archive maintenance error:', maintenanceErr);
-      return res.status(500).json({ error: maintenanceErr.message });
-    }
-
-    db.query(`
-      SELECT t.id, t.docno, t.type, t.client, t.address, t.tin, t.bizstyle, t.phone, t.service_order_id, t.project_tx_no,
-             so.so_number AS service_order_no,
-             so.service_title AS service_order_title,
-             t.description AS description, t.project_members, t.member_role, t.member_phone,
-             t.project_members_2, t.member_role_2, t.member_phone_2,
-             t.project_members_3, t.member_role_3, t.member_phone_3,
-             t.qty, t.unitprice, t.amount, t.downpayment, t.project_id AS project_id, t.checkno, t.pono,
-             to_char(t.date, 'YYYY-MM-DD') AS date,
-             to_char(t.archived_at, 'YYYY-MM-DD') AS archived_at,
-             to_char(t.project_start_date, 'YYYY-MM-DD') AS project_start_date,
-             to_char(t.project_end_date, 'YYYY-MM-DD') AS project_end_date,
-             t.status, t.pdfFilename
-      FROM transactions t
-      LEFT JOIN service_orders so ON so.id = t.service_order_id
-      LEFT JOIN accounts_receivable ar ON ar.transaction_id = t.id
-      WHERE t.archived = TRUE
-      ORDER BY t.id DESC
-    `, (err, rows) => {
-      if (err) {
-        console.error('Archived transaction query error:', err);
-        return res.status(500).json({ error: err.message });
-      }
-      res.json(rows);
-    });
-  });
-});
 
 app.get('/api/archive-center', protectAdmin, async (req, res) => {
   try {
     const [
       projectRows,
-      transactionRows,
       companyRows,
-      receivableRows,
-      serviceOrderRows
+      receivableRows
     ] = await Promise.all([
       queryAsync(`
         SELECT
@@ -10252,12 +8730,6 @@ app.get('/api/archive-center', protectAdmin, async (req, res) => {
         ORDER BY COALESCE(p.archived_at, p.created_at) DESC, p.id DESC
       `),
       queryAsync(`
-        SELECT id, docno, type, client, description, status, archived_at, date, created_at
-        FROM transactions
-        WHERE COALESCE(archived, FALSE) = TRUE
-        ORDER BY COALESCE(archived_at, date::timestamp, created_at) DESC, id DESC
-      `),
-      queryAsync(`
         SELECT id, company_no, company_name, contact_person, phone, email, status, archived_at, created_at
         FROM company_registry
         WHERE COALESCE(archived, FALSE) = TRUE
@@ -10268,23 +8740,6 @@ app.get('/api/archive-center', protectAdmin, async (req, res) => {
         FROM accounts_receivable
         WHERE COALESCE(archived, FALSE) = TRUE
         ORDER BY COALESCE(archived_at, invoice_date::timestamp, created_at) DESC, id DESC
-      `),
-      queryAsync(`
-        SELECT
-          so.id,
-          so.so_number,
-          so.service_title,
-          so.status,
-          so.archived_at,
-          so.service_date,
-          so.created_at,
-          c.company_name,
-          p.project_docno
-        FROM service_orders so
-        LEFT JOIN company_registry c ON c.id = so.company_id
-        LEFT JOIN projects p ON p.id = so.project_id
-        WHERE COALESCE(so.is_archived, FALSE) = TRUE
-        ORDER BY COALESCE(so.archived_at, so.service_date::timestamp, so.created_at) DESC, so.id DESC
       `)
     ]);
 
@@ -10303,21 +8758,6 @@ app.get('/api/archive-center', protectAdmin, async (req, res) => {
           status: row.status || 'archived',
           date: formatArchiveCenterDate(row.archived_at, row.created_at, row.start_date),
           search: joinArchiveCenterText(row.project_docno, row.project_name, party, row.status)
-        };
-      }),
-      ...(transactionRows || []).map((row) => {
-        const title = joinArchiveCenterText(row.docno, row.description || row.type) || `Transaction #${row.id}`;
-        return {
-          type: 'Transaction',
-          type_key: 'transaction',
-          key: `transaction:${row.id}`,
-          id: Number(row.id || 0),
-          restore_url: `/api/transactions/${Number(row.id || 0)}/restore`,
-          title,
-          party: row.client || '-',
-          status: row.status || row.type || 'archived',
-          date: formatArchiveCenterDate(row.archived_at, row.date, row.created_at),
-          search: joinArchiveCenterText(row.docno, row.client, row.description, row.type, row.status)
         };
       }),
       ...(companyRows || []).map((row) => {
@@ -10350,32 +8790,14 @@ app.get('/api/archive-center', protectAdmin, async (req, res) => {
           date: formatArchiveCenterDate(row.archived_at, row.invoice_date, row.created_at),
           search: joinArchiveCenterText(row.invoice_number, row.project_docno, row.customer_name, row.status)
         };
-      }),
-      ...(serviceOrderRows || []).map((row) => {
-        const title = joinArchiveCenterText(row.so_number, row.service_title) || `Service Order #${row.id}`;
-        const party = row.company_name || row.project_docno || '-';
-        return {
-          type: 'Service Order',
-          type_key: 'service-order',
-          key: `service-order:${row.id}`,
-          id: Number(row.id || 0),
-          restore_url: `/api/service-orders/${Number(row.id || 0)}/restore`,
-          title,
-          party,
-          status: row.status || 'archived',
-          date: formatArchiveCenterDate(row.archived_at, row.service_date, row.created_at),
-          search: joinArchiveCenterText(row.so_number, row.service_title, party, row.status)
-        };
       })
     ].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || String(a.type || '').localeCompare(String(b.type || '')));
 
     res.json({
       counts: {
         projects: projectRows.length,
-        transactions: transactionRows.length,
         companies: companyRows.length,
-        receivables: receivableRows.length,
-        service_orders: serviceOrderRows.length
+        receivables: receivableRows.length
       },
       rows
     });
@@ -10386,396 +8808,16 @@ app.get('/api/archive-center', protectAdmin, async (req, res) => {
 });
 
 // ==================== EDIT TRANSACTION (PUT) ====================
-app.put('/api/transactions/:id', [
-  protectAdmin,
-  upload.single('pdf_file')
-], (req, res) => {
-  const d = req.body;
-  const tin = normalizeTin(d.tin);
-  const phone = normalizePhone(d.phone);
-  const memberPhone = normalizePhone(d.member_phone);
-  const memberPhone2 = normalizePhone(d.member_phone_2);
-  const memberPhone3 = normalizePhone(d.member_phone_3);
-  let projectId = Number(d.project_id || 0) || null;
-  const serviceOrderInputId = Number(d.service_order_id || 0) || null;
-  const qty = Number(d.qty || 1) || 1;
-  let unitPrice = Number(d.unitprice || 0);
-  let description = String(d.description || '').trim();
-  const amount = Number(d.amount || 0);
-  const downpayment = Number(d.downpayment || 0);
-  const requestedStatus = normalizeTransactionStatusValue(d.status);
-  let status = requestedStatus || ((amount - downpayment) <= 0 ? 'paid' : (downpayment > 0 ? 'partial' : 'unpaid'));
-
-  if (phone && !isValidPhone(phone)) {
-    return res.status(400).json({ error: 'Phone number must be digits only, 7 to 15 digits.' });
-  }
-
-  if (memberPhone && !isValidPhone(memberPhone)) {
-    return res.status(400).json({ error: 'Member phone number must be digits only, 7 to 15 digits.' });
-  }
-
-  if (memberPhone2 && !isValidPhone(memberPhone2)) {
-    return res.status(400).json({ error: 'Member 2 phone number must be digits only, 7 to 15 digits.' });
-  }
-
-  if (memberPhone3 && !isValidPhone(memberPhone3)) {
-    return res.status(400).json({ error: 'Member 3 phone number must be digits only, 7 to 15 digits.' });
-  }
-
-  db.query(
-    'SELECT pdfFilename, project_id, service_order_id, project_tx_no, type, qty, docno, description, business_entity_id, product_id, warehouse_id FROM transactions WHERE id = ?',
-    [req.params.id],
-    async (err, rows) => {
-      if (err) return res.status(500).json({ error: err.message });
-
-      const currentRow = (rows && rows.length > 0) ? rows[0] : null;
-      const currentFile = currentRow ? currentRow.pdfFilename : null;
-      let finalPdf = d.pdfFilename || null;
-
-      if (req.file) {
-        if (currentFile) {
-          const oldPath = path.join(UPLOAD_DIR, path.basename(currentFile));
-          if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-        }
-        finalPdf = req.file.filename;
-      } else if (!d.pdfFilename && currentFile) {
-        const oldPath = path.join(UPLOAD_DIR, path.basename(currentFile));
-        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
-        finalPdf = null;
-      } else {
-        finalPdf = d.pdfFilename || currentFile;
-      }
-
-      const serviceOrderContext = await resolveTransactionServiceOrderContext(projectId, serviceOrderInputId || currentRow?.service_order_id || null);
-      projectId = serviceOrderContext.projectId;
-      const finalServiceOrderId = serviceOrderContext.serviceOrderId;
-      const serviceOrderRow = serviceOrderContext.serviceOrderRow;
-      const businessEntityId = await resolveBusinessEntityId(d.business_entity_id);
-      const companyId = await resolveTransactionCompanyId(projectId, serviceOrderRow);
-
-      let finalProjectTxNo = null;
-      if (projectId) {
-        finalProjectTxNo = await getNextProjectTransactionNo(projectId, req.params.id);
-      }
-
-      const finalAmount = Number(amount || 0);
-      status = requestedStatus || ((finalAmount - downpayment) <= 0 ? 'paid' : (downpayment > 0 ? 'partial' : 'unpaid'));
-      const saleFields = normalizeInventorySaleFields(d);
-      const finalQty = saleFields.quantity || 1;
-      const finalUnitPrice = saleFields.unitPrice;
-      const postsInventory = isInventorySaleTransaction(d.type, saleFields.productId);
-      const previousPostedInventory = isInventorySaleTransaction(currentRow?.type, currentRow?.product_id)
-        && Number(currentRow?.warehouse_id || 0)
-        && Number(currentRow?.qty || 0) > 0;
-      const createdBy = req.session?.user?.fullname || req.session?.user?.username || null;
-
-      try {
-        const updateRows = await withDbTransaction(async (connection) => {
-          if (previousPostedInventory) {
-            await postSalesInventoryMovement({
-              businessEntityId: Number(currentRow.business_entity_id || businessEntityId),
-              productId: Number(currentRow.product_id || 0),
-              warehouseId: Number(currentRow.warehouse_id || 0),
-              quantity: Number(currentRow.qty || 0),
-              docno: currentRow.docno,
-              movementDate: d.date,
-              createdBy,
-              projectId: currentRow.project_id,
-              reverse: true
-            }, connection);
-          }
-
-          if (postsInventory) {
-            await assertInventorySaleCanPost({
-              businessEntityId,
-              productId: saleFields.productId,
-              warehouseId: saleFields.warehouseId,
-              quantity: finalQty
-            }, connection);
-          }
-
-          const rows = await queryDbAsync(connection, `
-            UPDATE transactions SET
-              docno = ?, type = ?, client = ?, address = ?, tin = ?,
-              bizstyle = ?, phone = ?, description = ?, qty = ?,
-              unitprice = ?, product_id = ?, warehouse_id = ?, amount = ?, downpayment = ?, business_entity_id = ?, project_id = ?, company_id = ?, service_order_id = ?, project_tx_no = ?, checkno = ?, pono = ?, date = ?,
-              project_start_date = ?, project_end_date = ?,
-              status = ?, pdfFilename = ?,
-              project_members = ?, member_role = ?, member_phone = ?,
-              project_members_2 = ?, member_role_2 = ?, member_phone_2 = ?,
-              project_members_3 = ?, member_role_3 = ?, member_phone_3 = ?
-            WHERE id = ?
-            RETURNING *
-          `, [
-            d.docno, d.type, d.client,
-            d.address || null, tin || null,
-            d.bizstyle || null, phone || null,
-            d.description || null,
-            finalQty, finalUnitPrice || null, saleFields.productId, saleFields.warehouseId,
-            finalAmount, downpayment || 0, businessEntityId, projectId, companyId, finalServiceOrderId, finalProjectTxNo,
-            d.checkno || null, d.pono || null,
-            d.date, d.project_start_date || null, d.project_end_date || null, status, finalPdf,
-            d.project_members || null, d.member_role || null, memberPhone || null,
-            d.project_members_2 || null, d.member_role_2 || null, memberPhone2 || null,
-            d.project_members_3 || null, d.member_role_3 || null, memberPhone3 || null,
-            req.params.id
-          ]);
-
-          if (!rows.length) {
-            const notFound = new Error('Record not found');
-            notFound.statusCode = 404;
-            throw notFound;
-          }
-
-          if (postsInventory) {
-            await postSalesInventoryMovement({
-              businessEntityId,
-              productId: saleFields.productId,
-              warehouseId: saleFields.warehouseId,
-              quantity: finalQty,
-              docno: d.docno,
-              movementDate: d.date,
-              createdBy,
-              projectId
-            }, connection);
-          }
-          return rows;
-        });
-
-        try {
-          await syncReceivableForTransactionAsync({
-          id: Number(req.params.id),
-          type: d.type,
-          client: d.client,
-          docno: d.docno,
-          date: d.date,
-          amount: finalAmount,
-          downpayment,
-          status,
-          business_entity_id: businessEntityId,
-          archived: 0,
-          description: d.description || null,
-          project_id: projectId,
-          company_id: companyId,
-          service_order_id: finalServiceOrderId,
-          service_order_no: serviceOrderRow?.so_number || null
-          });
-        } catch (syncErr) {
-          console.error('AR sync update error:', syncErr);
-          logAction(req, 'UPDATE_TRANSACTION', `Modified Doc No: ${d.docno} (with AR sync warning)`);
-          return res.json({
-            success: true,
-            warning: 'Transaction updated, pero may issue sa Accounts Receivable sync.'
-          });
-        }
-        void updateRows;
-        logAction(req, 'UPDATE_TRANSACTION', `Modified Doc No: ${d.docno}`);
-        res.json({ success: true });
-      } catch (updateErr) {
-        if (isPostgresUniqueViolation(updateErr)) {
-          return res.status(409).json({ error: 'Doc No. ay ginagamit na.' });
-        }
-        return res.status(updateErr?.statusCode || 500).json({ error: updateErr.message || 'Unable to update transaction.' });
-      }
-    }
-  );
-});
 
 // ==================== ACCOUNTS PAYABLE API ====================
 
-app.get('/api/vendors', protectAdmin, (req, res) => {
-  const includeInactive = String(req.query.include_inactive || '0') === '1';
-  const whereClause = includeInactive ? '' : 'WHERE COALESCE(v.is_active, TRUE) = TRUE';
-  db.query(`
-    SELECT
-      v.*,
-      COALESCE(c.company_no, be.entity_code) AS company_no,
-      COALESCE(c.company_name, be.company_name) AS company_name
-    FROM vendors v
-    LEFT JOIN company_registry c ON c.id = v.company_id
-    LEFT JOIN business_entities be ON be.id = v.business_entity_id
-    ${whereClause}
-    ORDER BY COALESCE(v.vendor_no, '') ASC, v.vendor_name ASC
-  `, (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
-  });
-});
+// Vendors routes (master-data) — extracted to src/modules/master-data/vendors (step 5).
+app.use(require('./src/modules/master-data/vendors/vendors.routes')({ generateNextVendorNo, findVendorDuplicate, logAction }));
 
-app.get('/api/vendors/next-no', protectAdmin, (req, res) => {
-  generateNextVendorNo((err, vendorNo) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ vendor_no: vendorNo });
-  });
-});
+// company-registry/next-no — moved to module (mount below).
 
-app.get('/api/company-registry/next-no', protectAdmin, (req, res) => {
-  generateNextCompanyNo((err, companyNo) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ company_no: companyNo });
-  });
-});
-
-app.get('/api/company-registry-requests/next-draft-no', protectAdmin, async (req, res) => {
-  try {
-    const draftNo = await generateDraftRequestNo('CMP');
-    res.json({ draft_no: draftNo });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/company-registry-requests', protectAdmin, async (req, res) => {
-  try {
-    const actor = getAuthenticatedUser(req);
-    const admin = isAdminRole(actor?.role);
-    const rows = await queryAsync(`
-      SELECT *
-      FROM company_registry_requests
-      ${admin ? '' : 'WHERE requested_by_email = ? OR requested_by = ?'}
-      ORDER BY COALESCE(submitted_at, created_at) DESC, id DESC
-    `, admin ? [] : [actor?.email || '', actor?.fullname || actor?.username || '']);
-    res.json((Array.isArray(rows) ? rows : []).map((row) => {
-      let payload = {};
-      try { payload = JSON.parse(row.payload || '{}'); } catch (_) {}
-      return Object.assign({}, row, { payload });
-    }));
-  } catch (err) {
-    res.status(500).json({ error: err.message || 'Unable to load company registry requests.' });
-  }
-});
-
-app.post('/api/company-registry-requests', protectAdmin, async (req, res) => {
-  try {
-    const actor = getAuthenticatedUser(req);
-    const isStaff = isStaffRole(actor?.role || '');
-    const payload = sanitizeCompanyRegistryPayload(req.body || {});
-    validateCompanyRegistryPayload(payload);
-    if (isStaff) {
-      const requestNo = await generateDraftRequestNo('CMP');
-      await queryAsync(`
-        INSERT INTO company_registry_requests
-          (request_no, payload, status, requested_by, requested_by_email, submitted_at)
-        VALUES (?, ?, 'draft', ?, ?, NULL)
-      `, [requestNo, JSON.stringify(payload), actor?.fullname || actor?.username || null, actor?.email || null]);
-      logAction(req, 'CREATE_COMPANY_REGISTRY_DRAFT', `Draft: ${requestNo} | Company Name: ${payload.company_name}`);
-      return res.status(201).json({ success: true, request_no: requestNo, status: 'draft' });
-    }
-    // Admin creates the company directly (official number, approved, no queue).
-    await assertCompanyRegistryPayloadUnique(payload);
-    const companyNo = await insertApprovedCompanyRegistryFromRequest(payload);
-    const requestNo = stripDraftRequestNoPrefix(await generateDraftRequestNo('CMP'));
-    const approvedBy = getApprovalActorName(req);
-    await queryAsync(`
-      INSERT INTO company_registry_requests
-        (request_no, payload, status, requested_by, requested_by_email, submitted_at, approved_by, approved_at)
-      VALUES (?, ?, 'approved', ?, ?, NOW(), ?, NOW())
-    `, [requestNo, JSON.stringify(payload), actor?.fullname || actor?.username || null, actor?.email || null, approvedBy]);
-    logAction(req, 'CREATE_COMPANY_REGISTRY_OFFICIAL', `Official: ${requestNo} | Company No: ${companyNo} | Company Name: ${payload.company_name}`);
-    res.status(201).json({ success: true, request_no: requestNo, status: 'approved', company_no: companyNo });
-  } catch (err) {
-    res.status(400).json({ error: err.message || 'Unable to create company registry request.', field: err.field || null });
-  }
-});
-
-app.post('/api/company-registry-requests/:id/submit', protectAdmin, async (req, res) => {
-  try {
-    const requestId = Number(req.params.id || 0);
-    if (!requestId) return res.status(400).json({ error: 'Invalid request ID.' });
-    const rows = await queryAsync('SELECT * FROM company_registry_requests WHERE id = ? LIMIT 1', [requestId]);
-    const requestRow = rows?.[0];
-    if (!requestRow) return res.status(404).json({ error: 'Company registry request not found.' });
-    const currentStatus = String(requestRow.status || '').toLowerCase();
-    if (currentStatus === 'submitted') return res.json({ success: true, status: 'submitted', alreadySubmitted: true });
-    if (currentStatus !== 'draft') return res.status(400).json({ error: 'Only draft company requests can be submitted.' });
-
-    await queryAsync(
-      "UPDATE company_registry_requests SET status = 'submitted', submitted_at = NOW() WHERE id = ?",
-      [requestId]
-    );
-    logAction(req, 'SUBMIT_COMPANY_REGISTRY_REQUEST', `Request No: ${requestRow.request_no || requestId}`);
-    res.json({ success: true, status: 'submitted' });
-  } catch (err) {
-    res.status(500).json({ error: err.message || 'Unable to submit company registry request.' });
-  }
-});
-
-app.put('/api/company-registry-requests/:id', protectAdmin, async (req, res) => {
-  try {
-    const actor = getAuthenticatedUser(req);
-    const requestId = Number(req.params.id || 0);
-    if (!requestId) return res.status(400).json({ error: 'Invalid request ID.' });
-    const rows = await queryAsync('SELECT * FROM company_registry_requests WHERE id = ? LIMIT 1', [requestId]);
-    const requestRow = rows?.[0];
-    if (!requestRow) return res.status(404).json({ error: 'Company registry request not found.' });
-    if (String(requestRow.status || '').toLowerCase() !== 'draft') {
-      return res.status(400).json({ error: 'Only draft company requests can be edited.' });
-    }
-    if (isStaffRole(actor?.role) && String(requestRow.requested_by_email || '') !== String(actor?.email || '')) {
-      return res.status(403).json({ error: 'You can edit your own draft requests only.' });
-    }
-    const payload = sanitizeCompanyRegistryPayload(req.body || {});
-    validateCompanyRegistryPayload(payload);
-    await queryAsync('UPDATE company_registry_requests SET payload = ? WHERE id = ?', [JSON.stringify(payload), requestId]);
-    logAction(req, 'UPDATE_COMPANY_REGISTRY_DRAFT', `Draft No: ${requestRow.request_no || requestId} | Company Name: ${payload.company_name}`);
-    res.json({ success: true, status: 'draft', request_no: requestRow.request_no });
-  } catch (err) {
-    res.status(400).json({ error: err.message || 'Unable to update company request.', field: err.field || null });
-  }
-});
-
-app.post('/api/company-registry-requests/:id/approve', protectAdminOnly, async (req, res) => {
-  try {
-    const requestId = Number(req.params.id || 0);
-    if (!requestId) return res.status(400).json({ error: 'Invalid request ID.' });
-    const rows = await queryAsync('SELECT * FROM company_registry_requests WHERE id = ? LIMIT 1', [requestId]);
-    const requestRow = rows?.[0];
-    if (!requestRow) return res.status(404).json({ error: 'Company registry request not found.' });
-    const currentStatus = String(requestRow.status || '').toLowerCase();
-    if (currentStatus === 'approved') return res.json({ success: true, status: 'approved', alreadyApproved: true });
-    if (currentStatus !== 'submitted') return res.status(400).json({ error: 'Only submitted company requests can be approved.' });
-
-    let payload = {};
-    try { payload = JSON.parse(requestRow.payload || '{}'); } catch (_) {}
-    payload = sanitizeCompanyRegistryPayload(payload);
-    validateCompanyRegistryPayload(payload);
-    await assertCompanyRegistryPayloadUnique(payload);
-    const companyNo = await insertApprovedCompanyRegistryFromRequest(payload);
-    const approvedBy = getApprovalActorName(req);
-    const comment = getApprovalComment(req);
-    // On approval the draft request number becomes official (strip the DRAFT- prefix).
-    const officialRequestNo = stripDraftRequestNoPrefix(requestRow.request_no);
-    await queryAsync(
-      "UPDATE company_registry_requests SET request_no = ?, status = 'approved', approved_by = ?, approved_at = NOW(), reject_reason = NULL, approval_comment = ? WHERE id = ?",
-      [officialRequestNo, approvedBy, comment || null, requestId]
-    );
-    logAction(req, 'APPROVE_COMPANY_REGISTRY_REQUEST', appendApprovalComment(`Draft No: ${requestRow.request_no || requestId} | Request No: ${officialRequestNo} | Company No: ${companyNo} | Company Name: ${payload.company_name}`, comment));
-    res.json({ success: true, status: 'approved', company_no: companyNo, request_no: officialRequestNo, approved_by: approvedBy, approval_comment: comment });
-  } catch (err) {
-    res.status(400).json({ error: err.message || 'Unable to approve company registry request.', field: err.field || null });
-  }
-});
-
-app.post('/api/company-registry-requests/:id/reject', protectAdminOnly, async (req, res) => {
-  try {
-    const requestId = Number(req.params.id || 0);
-    const reason = String(req.body?.reason || '').trim() || 'Rejected by admin.';
-    if (!requestId) return res.status(400).json({ error: 'Invalid request ID.' });
-    const rows = await queryAsync('SELECT request_no, status FROM company_registry_requests WHERE id = ? LIMIT 1', [requestId]);
-    if (!rows?.[0]) return res.status(404).json({ error: 'Company registry request not found.' });
-    if (String(rows[0].status || '').toLowerCase() !== 'submitted') {
-      return res.status(400).json({ error: 'Only submitted company requests can be rejected.' });
-    }
-    await queryAsync(
-      "UPDATE company_registry_requests SET status = 'rejected', approved_by = ?, approved_at = NOW(), reject_reason = ?, approval_comment = ? WHERE id = ?",
-      [getApprovalActorName(req), reason, reason, requestId]
-    );
-    logAction(req, 'REJECT_COMPANY_REGISTRY_REQUEST', `Request No: ${rows[0].request_no || requestId} | Reason: ${reason}`);
-    res.json({ success: true, status: 'rejected', reason });
-  } catch (err) {
-    res.status(400).json({ error: err.message || 'Unable to reject company registry request.' });
-  }
-});
+// Company Registry requests (staff draft/approval workflow) — extracted to src/modules/master-data/company-registry (step 6c).
+app.use(require('./src/modules/master-data/company-registry/company-registry-requests.routes')({ generateDraftRequestNo, sanitizeCompanyRegistryPayload, validateCompanyRegistryPayload, assertCompanyRegistryPayloadUnique, insertApprovedCompanyRegistryFromRequest, stripDraftRequestNoPrefix, getApprovalActorName, getApprovalComment, appendApprovalComment, logAction }));
 
 function sanitizeVendorRegistryPayload(body = {}) {
   const vendorTinDigits = normalizeTin(body.tin);
@@ -10888,1101 +8930,24 @@ async function insertApprovedVendorRegistryFromRequest(payload = {}) {
   throw lastErr || new Error('Unable to assign a vendor number.');
 }
 
-app.get('/api/vendor-registry-requests', protectAdmin, async (req, res) => {
-  try {
-    const actor = getAuthenticatedUser(req);
-    const admin = isAdminRole(actor?.role);
-    const rows = await queryAsync(`
-      SELECT *
-      FROM vendor_registry_requests
-      ${admin ? '' : 'WHERE requested_by_email = ? OR requested_by = ?'}
-      ORDER BY COALESCE(submitted_at, created_at) DESC, id DESC
-    `, admin ? [] : [actor?.email || '', actor?.fullname || actor?.username || '']);
-    res.json((Array.isArray(rows) ? rows : []).map((row) => {
-      let payload = {};
-      try { payload = JSON.parse(row.payload || '{}'); } catch (_) {}
-      return Object.assign({}, row, { payload });
-    }));
-  } catch (err) {
-    res.status(500).json({ error: err.message || 'Unable to load vendor registry requests.' });
-  }
-});
+// Vendor registry requests (staff draft/approval workflow) — extracted to src/modules/master-data/vendors (step 10).
+app.use(require('./src/modules/master-data/vendors/vendor-registry-requests.routes')({ generateDraftRequestNo, sanitizeVendorRegistryPayload, validateVendorRegistryPayload, assertVendorRegistryPayloadUnique, insertApprovedVendorRegistryFromRequest, stripDraftRequestNoPrefix, getApprovalActorName, getApprovalComment, appendApprovalComment, logAction }));
 
-app.get('/api/vendor-registry-requests/next-draft-no', protectAdmin, async (req, res) => {
-  try {
-    const draftNo = await generateDraftRequestNo('VND');
-    res.json({ draft_no: draftNo });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+// Company Registry routes (master-data: CRUD + next-no + history/overview/vendor-profile) — extracted to src/modules/master-data/company-registry (step 6).
+app.use(require('./src/modules/master-data/company-registry/company-registry.routes')({ findCompanyRegistryDuplicate, generateNextCompanyNo, findVendorDuplicate, generateNextVendorNo, logAction }));
 
-app.post('/api/vendor-registry-requests', protectAdmin, async (req, res) => {
-  try {
-    const actor = getAuthenticatedUser(req);
-    const isStaff = isStaffRole(actor?.role || '');
-    const payload = sanitizeVendorRegistryPayload(req.body || {});
-    validateVendorRegistryPayload(payload);
-    await assertVendorRegistryPayloadUnique(payload);
-    if (isStaff) {
-      const requestNo = await generateDraftRequestNo('VND');
-      await queryAsync(`
-        INSERT INTO vendor_registry_requests
-          (request_no, payload, status, requested_by, requested_by_email, submitted_at)
-        VALUES (?, ?, 'draft', ?, ?, NULL)
-      `, [requestNo, JSON.stringify(payload), actor?.fullname || actor?.username || null, actor?.email || null]);
-      logAction(req, 'CREATE_VENDOR_REGISTRY_DRAFT', `Draft: ${requestNo} | Vendor Name: ${payload.vendor_name}`);
-      return res.status(201).json({ success: true, request_no: requestNo, status: 'draft' });
-    }
-    // Admin creates the vendor directly (official number, approved, no queue).
-    const vendorNo = await insertApprovedVendorRegistryFromRequest(payload);
-    const requestNo = stripDraftRequestNoPrefix(await generateDraftRequestNo('VND'));
-    const approvedBy = getApprovalActorName(req);
-    await queryAsync(`
-      INSERT INTO vendor_registry_requests
-        (request_no, payload, status, requested_by, requested_by_email, submitted_at, approved_by, approved_at)
-      VALUES (?, ?, 'approved', ?, ?, NOW(), ?, NOW())
-    `, [requestNo, JSON.stringify(payload), actor?.fullname || actor?.username || null, actor?.email || null, approvedBy]);
-    logAction(req, 'CREATE_VENDOR_REGISTRY_OFFICIAL', `Official: ${requestNo} | Vendor No: ${vendorNo} | Vendor Name: ${payload.vendor_name}`);
-    res.status(201).json({ success: true, request_no: requestNo, status: 'approved', vendor_no: vendorNo });
-  } catch (err) {
-    res.status(400).json({ error: err.message || 'Unable to create vendor request.', field: err.field || null });
-  }
-});
+// Business Entities routes — extracted to src/modules/business-entities (step 4 of modularization).
+app.use(require('./src/modules/business-entities/business-entities.routes')({ generateCode, generateNextVendorNo, findVendorDuplicate, logoUpload, LOGO_UPLOAD_DIR, logAction }));
 
-app.post('/api/vendor-registry-requests/:id/submit', protectAdmin, async (req, res) => {
-  try {
-    const requestId = Number(req.params.id || 0);
-    if (!requestId) return res.status(400).json({ error: 'Invalid request ID.' });
-    const rows = await queryAsync('SELECT * FROM vendor_registry_requests WHERE id = ? LIMIT 1', [requestId]);
-    const requestRow = rows?.[0];
-    if (!requestRow) return res.status(404).json({ error: 'Vendor registry request not found.' });
-    const currentStatus = String(requestRow.status || '').toLowerCase();
-    if (currentStatus === 'submitted') return res.json({ success: true, status: 'submitted', alreadySubmitted: true });
-    if (currentStatus !== 'draft') return res.status(400).json({ error: 'Only draft vendor requests can be submitted.' });
 
-    await queryAsync(
-      "UPDATE vendor_registry_requests SET status = 'submitted', submitted_at = NOW() WHERE id = ?",
-      [requestId]
-    );
-    logAction(req, 'SUBMIT_VENDOR_REGISTRY_REQUEST', `Request No: ${requestRow.request_no || requestId}`);
-    res.json({ success: true, status: 'submitted' });
-  } catch (err) {
-    res.status(500).json({ error: err.message || 'Unable to submit vendor registry request.' });
-  }
-});
+// company-registry detail routes (history/overview/vendor-profile) — moved to module (mount above).
 
-app.put('/api/vendor-registry-requests/:id', protectAdmin, async (req, res) => {
-  try {
-    const actor = getAuthenticatedUser(req);
-    const requestId = Number(req.params.id || 0);
-    if (!requestId) return res.status(400).json({ error: 'Invalid request ID.' });
-    const rows = await queryAsync('SELECT * FROM vendor_registry_requests WHERE id = ? LIMIT 1', [requestId]);
-    const requestRow = rows?.[0];
-    if (!requestRow) return res.status(404).json({ error: 'Vendor registry request not found.' });
-    if (String(requestRow.status || '').toLowerCase() !== 'draft') {
-      return res.status(400).json({ error: 'Only draft vendor requests can be edited.' });
-    }
-    if (isStaffRole(actor?.role) && String(requestRow.requested_by_email || '') !== String(actor?.email || '')) {
-      return res.status(403).json({ error: 'You can edit your own draft requests only.' });
-    }
-    const payload = sanitizeVendorRegistryPayload(req.body || {});
-    validateVendorRegistryPayload(payload);
-    await queryAsync('UPDATE vendor_registry_requests SET payload = ? WHERE id = ?', [JSON.stringify(payload), requestId]);
-    logAction(req, 'UPDATE_VENDOR_REGISTRY_DRAFT', `Draft No: ${requestRow.request_no || requestId} | Vendor Name: ${payload.vendor_name}`);
-    res.json({ success: true, status: 'draft', request_no: requestRow.request_no });
-  } catch (err) {
-    res.status(400).json({ error: err.message || 'Unable to update vendor request.', field: err.field || null });
-  }
-});
 
-app.post('/api/vendor-registry-requests/:id/approve', protectAdminOnly, async (req, res) => {
-  try {
-    const requestId = Number(req.params.id || 0);
-    if (!requestId) return res.status(400).json({ error: 'Invalid request ID.' });
-    const rows = await queryAsync('SELECT * FROM vendor_registry_requests WHERE id = ? LIMIT 1', [requestId]);
-    const requestRow = rows?.[0];
-    if (!requestRow) return res.status(404).json({ error: 'Vendor request not found.' });
-    const currentStatus = String(requestRow.status || '').toLowerCase();
-    if (currentStatus === 'approved') return res.json({ success: true, status: 'approved', alreadyApproved: true });
-    if (currentStatus !== 'submitted') return res.status(400).json({ error: 'Only submitted vendor requests can be approved.' });
-
-    let payload = {};
-    try { payload = JSON.parse(requestRow.payload || '{}'); } catch (_) {}
-    payload = sanitizeVendorRegistryPayload(payload);
-    validateVendorRegistryPayload(payload);
-    await assertVendorRegistryPayloadUnique(payload);
-    const vendorNo = await insertApprovedVendorRegistryFromRequest(payload);
-    const approvedBy = getApprovalActorName(req);
-    const comment = getApprovalComment(req);
-    // On approval the draft request number becomes official (strip the DRAFT- prefix).
-    const officialRequestNo = stripDraftRequestNoPrefix(requestRow.request_no);
-    await queryAsync(
-      "UPDATE vendor_registry_requests SET request_no = ?, status = 'approved', approved_by = ?, approved_at = NOW(), reject_reason = NULL, approval_comment = ? WHERE id = ?",
-      [officialRequestNo, approvedBy, comment || null, requestId]
-    );
-    logAction(req, 'APPROVE_VENDOR_REGISTRY_REQUEST', appendApprovalComment(`Draft No: ${requestRow.request_no || requestId} | Request No: ${officialRequestNo} | Vendor No: ${vendorNo} | Vendor Name: ${payload.vendor_name}`, comment));
-    res.json({ success: true, status: 'approved', vendor_no: vendorNo, request_no: officialRequestNo, approved_by: approvedBy, approval_comment: comment });
-  } catch (err) {
-    res.status(400).json({ error: err.message || 'Unable to approve vendor request.', field: err.field || null });
-  }
-});
-
-app.post('/api/vendor-registry-requests/:id/reject', protectAdminOnly, async (req, res) => {
-  try {
-    const requestId = Number(req.params.id || 0);
-    const reason = String(req.body?.reason || '').trim() || 'Rejected by admin.';
-    if (!requestId) return res.status(400).json({ error: 'Invalid request ID.' });
-    const rows = await queryAsync('SELECT request_no, status FROM vendor_registry_requests WHERE id = ? LIMIT 1', [requestId]);
-    if (!rows?.[0]) return res.status(404).json({ error: 'Vendor request not found.' });
-    if (String(rows[0].status || '').toLowerCase() !== 'submitted') {
-      return res.status(400).json({ error: 'Only submitted vendor requests can be rejected.' });
-    }
-    await queryAsync(
-      "UPDATE vendor_registry_requests SET status = 'rejected', approved_by = ?, approved_at = NOW(), reject_reason = ?, approval_comment = ? WHERE id = ?",
-      [getApprovalActorName(req), reason, reason, requestId]
-    );
-    logAction(req, 'REJECT_VENDOR_REGISTRY_REQUEST', `Request No: ${rows[0].request_no || requestId} | Reason: ${reason}`);
-    res.json({ success: true, status: 'rejected', reason });
-  } catch (err) {
-    res.status(400).json({ error: err.message || 'Unable to reject vendor request.' });
-  }
-});
-
-app.get('/api/company-registry', protectAdmin, async (req, res) => {
-  try {
-    const includeArchived = String(req.query.include_archived || '0') === '1';
-    const clauses = [];
-    const params = [];
-    if (!includeArchived) clauses.push('COALESCE(c.archived, FALSE) = FALSE');
-    const whereClause = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-    const rows = await queryAsync(`
-      SELECT
-        c.*,
-        v.id AS vendor_profile_id,
-        v.vendor_no AS vendor_profile_no,
-        v.vendor_name AS vendor_profile_name,
-        COALESCE(v.is_active, TRUE) AS vendor_profile_active
-      FROM company_registry c
-      LEFT JOIN vendors v ON v.id = (
-        SELECT v2.id
-        FROM vendors v2
-        WHERE v2.company_id = c.id
-        ORDER BY v2.id ASC
-        LIMIT 1
-      )
-      ${whereClause}
-      ORDER BY c.company_name ASC
-    `, params);
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get('/api/business-entities', protectAdmin, async (req, res) => {
-  try {
-    const includeInactive = String(req.query.include_inactive || '0') === '1';
-    const whereClause = includeInactive ? '' : "WHERE status = 'active'";
-    const rows = await queryAsync(`
-      SELECT *
-      FROM business_entities
-      ${whereClause}
-      ORDER BY is_default DESC, company_name ASC
-    `);
-    res.json(rows);
-  } catch (err) {
-    console.error('Business entities load error:', err);
-    res.status(500).json({ error: err.message || 'Unable to load operating companies.' });
-  }
-});
-
-app.get('/api/public-business-entities', async (req, res) => {
-  try {
-    const rows = await queryAsync(`
-      SELECT id, entity_code, company_name, is_default
-      FROM business_entities
-      WHERE status = 'active'
-      ORDER BY is_default DESC, company_name ASC
-    `);
-    res.json(rows);
-  } catch (err) {
-    console.error('Public business entities load error:', err);
-    res.status(500).json({ error: 'Unable to load workspaces.' });
-  }
-});
-
-app.post('/api/business-entities/:id/vendor-profile', protectSuperAdmin, async (req, res) => {
-  const businessEntityId = Number(req.params.id || 0);
-  if (!businessEntityId) return res.status(400).json({ error: 'Invalid business entity id.' });
-
-  try {
-    const entityRows = await queryAsync(
-      `SELECT id, entity_code, company_name, address, contact_person, phone, email, tin, status
-       FROM business_entities
-       WHERE id = ?
-       LIMIT 1`,
-      [businessEntityId]
-    );
-
-    if (!entityRows.length) {
-      return res.status(404).json({ error: 'Business entity not found.' });
-    }
-
-    const entity = entityRows[0];
-    if (String(entity.status || 'active').toLowerCase() === 'inactive') {
-      return res.status(400).json({ error: 'Activate the business entity before creating its vendor profile.' });
-    }
-
-    const existingRows = await queryAsync(
-      'SELECT id, vendor_no, vendor_name, COALESCE(is_active, TRUE) AS is_active FROM vendors WHERE business_entity_id = ? LIMIT 1',
-      [businessEntityId]
-    );
-
-    if (existingRows.length) {
-      return res.json({
-        id: existingRows[0].id,
-        vendor_no: existingRows[0].vendor_no,
-        vendor_name: existingRows[0].vendor_name,
-        business_entity_id: businessEntityId,
-        already_exists: true,
-        is_active: Number(existingRows[0].is_active || 0) ? 1 : 0
-      });
-    }
-
-    const vendorName = String(entity.company_name || '').trim();
-    const vendorContact = String(entity.contact_person || '').trim() || null;
-    const vendorEmail = String(entity.email || '').trim() || null;
-    const vendorPhone = normalizePhone(entity.phone) || null;
-    const vendorAddress = String(entity.address || '').trim() || null;
-    const vendorTinDigits = normalizeTin(entity.tin);
-    const vendorTinFormatted = vendorTinDigits ? formatTin(vendorTinDigits) : null;
-
-    if (!vendorName) return res.status(400).json({ error: 'Business title is required before creating a vendor profile.' });
-    if (vendorEmail && !isValidEmail(vendorEmail)) {
-      return res.status(400).json({ error: 'Business entity email must be valid before creating a vendor profile.' });
-    }
-    if (vendorPhone && !isValidPhone(vendorPhone)) {
-      return res.status(400).json({ error: 'Business entity phone number must be digits only, 7 to 15 digits.' });
-    }
-    if (vendorTinDigits && vendorTinDigits.length !== 12) {
-      return res.status(400).json({ error: 'Business entity TIN must follow 000-000-000-000 format.' });
-    }
-
-    const duplicate = await new Promise((resolve, reject) => {
-      findVendorDuplicate(vendorPhone, vendorTinFormatted, vendorEmail, 0, (dupErr, row) => {
-        if (dupErr) reject(dupErr);
-        else resolve(row || null);
-      });
-    });
-
-    if (duplicate) {
-      return res.status(409).json({
-        error: duplicate.field === 'tin'
-          ? 'TIN already exists in Vendor Directory.'
-          : (duplicate.field === 'vendor_email'
-            ? 'Email already exists in Vendor Directory.'
-            : 'Vendor phone already exists in Vendor Directory.'),
-        field: duplicate.field
-      });
-    }
-
-    const vendorNo = await new Promise((resolve, reject) => {
-      generateNextVendorNo((noErr, nextNo) => {
-        if (noErr) reject(noErr);
-        else resolve(nextNo);
-      });
-    });
-
-    const result = await queryAsync(
-      'INSERT INTO vendors (business_entity_id, vendor_no, vendor_name, contact_person, email, phone, address, tin, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE)',
-      [businessEntityId, vendorNo, vendorName, vendorContact, vendorEmail, vendorPhone, vendorAddress, vendorTinFormatted]
-    );
-
-    logAction(req, 'CREATE_VENDOR', `Vendor No: ${vendorNo} | Business Entity ID: ${businessEntityId} | Entity Code: ${entity.entity_code || ''} | Business Title: ${vendorName} | Created vendor profile from business entity.`);
-
-    res.json({
-      id: result.insertId,
-      business_entity_id: businessEntityId,
-      vendor_no: vendorNo,
-      vendor_name: vendorName,
-      already_exists: false,
-      is_active: 1
-    });
-  } catch (err) {
-    console.error('Create vendor from business entity error:', err);
-    return res.status(500).json({ error: err.message || 'Unable to create vendor profile.' });
-  }
-});
-
-app.post('/api/business-entities', protectSuperAdmin, async (req, res) => {
-  try {
-    const entityCode = String(req.body.entity_code || '').trim() || generateCode('ENT');
-    const companyName = String(req.body.company_name || '').trim();
-    const isDefault = Number(req.body.is_default || 0) ? 1 : 0;
-    if (!companyName) return res.status(400).json({ error: 'Company name is required.' });
-
-    if (isDefault) {
-      await queryAsync('UPDATE business_entities SET is_default = FALSE');
-    }
-
-    const result = await queryAsync(
-      `INSERT INTO business_entities
-        (entity_code, company_name, address, contact_person, phone, email, tin, status, is_default)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        entityCode,
-        companyName,
-        req.body.address || null,
-        req.body.contact_person || null,
-        normalizePhone(req.body.phone) || null,
-        req.body.email || null,
-        normalizeTin(req.body.tin) || null,
-        String(req.body.status || 'active').trim().toLowerCase() === 'inactive' ? 'inactive' : 'active',
-        isDefault
-      ]
-    );
-    res.json({ id: result.insertId, entity_code: entityCode });
-  } catch (err) {
-    if (isPostgresUniqueViolation(err)) {
-      return res.status(409).json({ error: 'Operating company already exists.' });
-    }
-    console.error('Create business entity error:', err);
-    res.status(500).json({ error: err.message || 'Unable to save operating company.' });
-  }
-});
-
-app.put('/api/business-entities/:id', protectSuperAdmin, async (req, res) => {
-  const businessEntityId = Number(req.params.id || 0);
-  if (!businessEntityId) return res.status(400).json({ error: 'Invalid business entity id.' });
-
-  try {
-    const entityCode = String(req.body.entity_code || '').trim() || generateCode('ENT');
-    const companyName = String(req.body.company_name || '').trim();
-    const isDefault = Number(req.body.is_default || 0) ? 1 : 0;
-    if (!companyName) return res.status(400).json({ error: 'Company name is required.' });
-
-    if (isDefault) {
-      await queryAsync('UPDATE business_entities SET is_default = FALSE WHERE id <> ?', [businessEntityId]);
-    }
-
-    const result = await queryAsync(
-      `UPDATE business_entities
-       SET entity_code = ?, company_name = ?, address = ?, contact_person = ?, phone = ?, email = ?, tin = ?, status = ?, is_default = ?
-       WHERE id = ?`,
-      [
-        entityCode,
-        companyName,
-        req.body.address || null,
-        req.body.contact_person || null,
-        normalizePhone(req.body.phone) || null,
-        req.body.email || null,
-        normalizeTin(req.body.tin) || null,
-        String(req.body.status || 'active').trim().toLowerCase() === 'inactive' ? 'inactive' : 'active',
-        isDefault,
-        businessEntityId
-      ]
-    );
-
-    if (!result.affectedRows) {
-      return res.status(404).json({ error: 'Business entity not found.' });
-    }
-
-    await queryAsync(
-      `UPDATE vendors
-       SET vendor_name = ?, contact_person = ?, email = ?, phone = ?, address = ?, tin = ?
-       WHERE business_entity_id = ?`,
-      [
-        companyName,
-        req.body.contact_person || null,
-        req.body.email || null,
-        normalizePhone(req.body.phone) || null,
-        req.body.address || null,
-        normalizeTin(req.body.tin) ? formatTin(req.body.tin) : null,
-        businessEntityId
-      ]
-    );
-
-    res.json({ success: true, id: businessEntityId, entity_code: entityCode });
-  } catch (err) {
-    if (isPostgresUniqueViolation(err)) {
-      return res.status(409).json({ error: 'Operating company already exists.' });
-    }
-    console.error('Update business entity error:', err);
-    res.status(500).json({ error: err.message || 'Unable to update operating company.' });
-  }
-});
-
-app.post('/api/company-registry', protectAdmin, async (req, res) => {
-  try {
-    const {
-      company_name,
-      branch_code,
-      address,
-      contact_person,
-      phone,
-      email,
-      tin,
-      industry,
-      status,
-      notes
-    } = req.body;
-    const companyName = String(company_name || '').trim();
-    let companyNo = String(req.body.company_no || '').trim();
-    const companyBranchCode = String(branch_code || '').trim().slice(0, 10);
-    const companyTin = String(tin || '').trim();
-    const companyPhone = normalizePhone(phone);
-    const companyTinDigits = normalizeTin(companyTin);
-    const companyTinFormatted = formatTin(companyTinDigits);
-    const companyBranchValue = companyBranchCode || '000';
-    const businessEntityId = null;
-
-    if (!companyName) return res.status(400).json({ error: 'Company name is required' });
-    if (!isValidCompanyRegistryPhone(companyPhone)) {
-      return res.status(400).json({ error: 'Company phone number must be exactly 11 digits and numbers only.', field: 'phone' });
-    }
-    if (companyTinDigits.length !== 12) {
-      return res.status(400).json({ error: 'TIN must follow 000-000-000-000 format.', field: 'tin' });
-    }
-
-    findCompanyRegistryDuplicate(companyName, companyPhone, companyTin, 0, businessEntityId, (dupErr, duplicate) => {
-      if (dupErr) return res.status(500).json({ error: dupErr.message });
-      if (duplicate) {
-        return res.status(409).json({
-          error: duplicate.field === 'tin'
-            ? 'TIN already exists in Company Registry.'
-            : duplicate.field === 'phone'
-              ? 'Company phone already exists in Company Registry.'
-            : 'Company name already exists in Company Registry.',
-          field: duplicate.field
-        });
-      }
-
-      const insertCompany = (resolvedCompanyNo) => {
-        companyNo = resolvedCompanyNo;
-
-        db.query(
-          `INSERT INTO company_registry
-            (company_no, business_entity_id, branch_code, company_name, address, contact_person, phone, email, tin, industry, status, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            companyNo,
-            businessEntityId,
-            companyBranchValue,
-            companyName,
-            address || null,
-            contact_person || null,
-            companyPhone || null,
-            email || null,
-            companyTinFormatted || null,
-            industry || null,
-            status || 'active',
-            notes || null
-          ],
-          (err, result) => {
-            if (err) {
-              if (isPostgresUniqueViolation(err)) {
-                return res.status(409).json({ error: 'Company name already exists in Company Registry.', field: 'company_name' });
-              }
-              return res.status(500).json({ error: err.message });
-            }
-            logAction(req, 'CREATE_COMPANY', `Company ID: ${result.insertId} | Company No: ${companyNo} | Company Name: ${companyName} | Created company record.`);
-            res.json({ id: result.insertId, company_no: companyNo, business_entity_id: businessEntityId });
-          });
-      };
-
-      if (companyNo) {
-        insertCompany(companyNo);
-        return;
-      }
-
-      generateNextCompanyNo((noErr, nextCompanyNo) => {
-        if (noErr) return res.status(500).json({ error: noErr.message });
-        insertCompany(nextCompanyNo);
-      });
-    });
-  } catch (err) {
-    res.status(400).json({ error: err.message || 'Unable to save company.' });
-  }
-});
-
-app.put('/api/company-registry/:id', protectAdmin, async (req, res) => {
-  try {
-    const companyId = Number(req.params.id);
-    const {
-      company_name,
-      branch_code,
-      address,
-      status,
-      contact_person,
-      phone,
-      email,
-      tin,
-      industry,
-      notes
-    } = req.body;
-    const companyName = String(company_name || '').trim();
-    const companyBranchCode = String(branch_code || '').trim().slice(0, 10);
-    const companyTin = String(tin || '').trim();
-    const companyPhone = normalizePhone(phone);
-    const companyTinDigits = normalizeTin(companyTin);
-    const companyTinFormatted = formatTin(companyTinDigits);
-    const companyBranchValue = companyBranchCode || '000';
-    const businessEntityId = null;
-
-    if (!companyId) {
-      return res.status(400).json({ error: 'Invalid company id' });
-    }
-
-    if (!companyName) {
-      return res.status(400).json({ error: 'Company name is required' });
-    }
-
-    if (!isValidCompanyRegistryPhone(companyPhone)) {
-      return res.status(400).json({ error: 'Company phone number must be exactly 11 digits and numbers only.', field: 'phone' });
-    }
-    if (companyTinDigits.length !== 12) {
-      return res.status(400).json({ error: 'TIN must follow 000-000-000-000 format.', field: 'tin' });
-    }
-
-    findCompanyRegistryDuplicate(companyName, companyPhone, companyTin, companyId, businessEntityId, (dupErr, duplicate) => {
-      if (dupErr) return res.status(500).json({ error: dupErr.message });
-      if (duplicate) {
-        return res.status(409).json({
-          error: duplicate.field === 'tin'
-            ? 'TIN already exists in Company Registry.'
-            : duplicate.field === 'phone'
-              ? 'Company phone already exists in Company Registry.'
-            : 'Company name already exists in Company Registry.',
-          field: duplicate.field
-        });
-      }
-
-      db.query(
-        `UPDATE company_registry
-         SET business_entity_id = ?, branch_code = ?, company_name = ?, address = ?, status = COALESCE(?, status), contact_person = ?, phone = ?, email = ?, tin = ?, industry = ?, notes = ?
-         WHERE id = ?`,
-        [
-          businessEntityId,
-          companyBranchValue,
-          companyName,
-          address || null,
-          status || null,
-          contact_person || null,
-          companyPhone || null,
-          email || null,
-          companyTinFormatted || null,
-          industry || null,
-          notes || null,
-          companyId
-        ],
-        (err, result) => {
-          if (err) {
-            if (isPostgresUniqueViolation(err)) {
-              return res.status(409).json({ error: 'Company name already exists in Company Registry.', field: 'company_name' });
-            }
-            return res.status(500).json({ error: err.message });
-          }
-          if (result.affectedRows === 0) return res.status(404).json({ error: 'Company not found' });
-          logAction(req, 'UPDATE_COMPANY', `Company ID: ${companyId} | Company Name: ${companyName} | Updated company record.`);
-          res.json({ success: true, business_entity_id: businessEntityId });
-        }
-      );
-    });
-  } catch (err) {
-    res.status(400).json({ error: err.message || 'Unable to update company.' });
-  }
-});
-
-app.put('/api/company-registry/:id/archive', protectAdminOnly, (req, res) => {
-  const companyId = Number(req.params.id);
-  if (!companyId) return res.status(400).json({ error: 'Invalid company id' });
-
-  db.query(
-    'UPDATE company_registry SET archived = TRUE, archived_at = CURRENT_TIMESTAMP WHERE id = ?',
-    [companyId],
-    (err, result) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (result.affectedRows === 0) return res.status(404).json({ error: 'Company not found' });
-      logAction(req, 'ARCHIVE_COMPANY', `Company ID: ${companyId} | Archived company record.`);
-      res.json({ success: true });
-    }
-  );
-});
-
-app.put('/api/company-registry/:id/restore', protectAdminOnly, (req, res) => {
-  const companyId = Number(req.params.id);
-  if (!companyId) return res.status(400).json({ error: 'Invalid company id' });
-
-  db.query(
-    'UPDATE company_registry SET archived = FALSE, archived_at = NULL WHERE id = ?',
-    [companyId],
-    (err, result) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (result.affectedRows === 0) return res.status(404).json({ error: 'Company not found' });
-      logAction(req, 'RESTORE_COMPANY', `Company ID: ${companyId} | Restored company record.`);
-      res.json({ success: true });
-    }
-  );
-});
-
-app.get('/api/company-registry/:id/history', protectAdmin, (req, res) => {
-  const companyId = Number(req.params.id || 0);
-  if (!companyId) return res.status(400).json({ error: 'Invalid company id' });
-
-  db.query(
-    'SELECT company_no, company_name FROM company_registry WHERE id = ? LIMIT 1',
-    [companyId],
-    (lookupErr, rows) => {
-      if (lookupErr) return res.status(500).json({ error: lookupErr.message });
-      if (!rows || !rows.length) return res.status(404).json({ error: 'Company not found' });
-
-      const companyNo = String(rows[0].company_no || '').trim();
-      const companyName = String(rows[0].company_name || '').trim();
-      const patterns = [`%Company ID: ${companyId}%`];
-      if (companyNo) patterns.push(`%Company No: ${companyNo}%`);
-      if (companyName) patterns.push(`%Company Name: ${companyName}%`);
-
-      db.query(
-        `SELECT l.id, l.action, l.details, l.created_at, u.fullname, u.username
-         FROM system_logs l
-         LEFT JOIN users u ON u.id = l.user_id
-         WHERE ${patterns.map(() => 'l.details LIKE ?').join(' OR ')}
-         ORDER BY l.created_at DESC, l.id DESC
-         LIMIT 20`,
-        patterns,
-        (err, logRows) => {
-          if (err) return res.status(500).json({ error: err.message });
-          res.json(Array.isArray(logRows) ? logRows : []);
-        }
-      );
-    }
-  );
-});
-
-app.get('/api/company-registry/:id/overview', protectAdmin, async (req, res) => {
-  const companyId = Number(req.params.id || 0);
-  if (!companyId) return res.status(400).json({ error: 'Invalid company id' });
-
-  try {
-    const actor = getAuthenticatedUser(req) || {};
-    const hideDraftRecords = isAdminRole(actor.role);
-    const projectVisibleCondition = hideDraftRecords ? " AND LOWER(COALESCE(status, '')) NOT IN ('draft', 'needs_revision')" : '';
-    const projectVisibleConditionWithAlias = hideDraftRecords ? " AND LOWER(COALESCE(p.status, '')) NOT IN ('draft', 'needs_revision')" : '';
-    const purchaseOrderVisibleCondition = hideDraftRecords ? " AND LOWER(COALESCE(status, 'draft')) <> 'draft'" : '';
-    const [companyRows, countRows, recentProjects, recentServiceOrders, vendorRows] = await Promise.all([
-      queryAsync(
-        'SELECT id, company_no, company_name, status, archived, contact_person, phone, email, tin, industry FROM company_registry WHERE id = ? LIMIT 1',
-        [companyId]
-      ),
-      queryAsync(`
-        SELECT
-          (SELECT COUNT(*) FROM projects WHERE company_id = ?${projectVisibleCondition}) AS project_count,
-          (SELECT COUNT(*) FROM projects WHERE company_id = ? AND COALESCE(is_archived, FALSE) = FALSE AND status NOT IN ('completed', 'cancelled')${projectVisibleCondition}) AS active_project_count,
-          (SELECT COUNT(*) FROM projects WHERE company_id = ? AND status = 'completed'${projectVisibleCondition}) AS completed_project_count,
-          (SELECT COUNT(*) FROM service_orders WHERE company_id = ?) AS service_order_count,
-          (SELECT COUNT(*) FROM purchase_orders WHERE company_id = ?${purchaseOrderVisibleCondition}) AS purchase_order_count,
-          (SELECT COUNT(*) FROM transactions WHERE company_id = ?) AS transaction_count,
-          (SELECT COUNT(*) FROM vendors WHERE company_id = ?) AS vendor_count,
-          (SELECT COUNT(*) FROM accounts_receivable ar JOIN transactions t ON t.id = ar.transaction_id WHERE t.company_id = ?) AS receivable_count
-      `, [companyId, companyId, companyId, companyId, companyId, companyId, companyId, companyId]),
-      queryAsync(`
-        SELECT
-          id,
-          project_docno,
-          project_name,
-          status,
-          planned_start_date,
-          planned_end_date,
-          actual_start_date,
-          actual_end_date,
-          created_at
-        FROM projects
-        WHERE company_id = ?${projectVisibleCondition}
-        ORDER BY COALESCE(actual_start_date, planned_start_date, start_date, created_at) DESC, id DESC
-        LIMIT 5
-      `, [companyId]),
-      queryAsync(`
-        SELECT
-          so.id,
-          so.so_number,
-          so.service_title,
-          so.status,
-          so.service_date,
-          so.total_amount,
-          p.project_docno,
-          p.project_name
-        FROM service_orders so
-        LEFT JOIN projects p ON p.id = so.project_id
-        WHERE so.company_id = ?${projectVisibleConditionWithAlias}
-        ORDER BY so.created_at DESC, so.id DESC
-        LIMIT 5
-      `, [companyId]),
-      queryAsync(
-        'SELECT id, vendor_no, vendor_name, COALESCE(is_active, TRUE) AS is_active FROM vendors WHERE company_id = ? ORDER BY id ASC LIMIT 1',
-        [companyId]
-      )
-    ]);
-
-    if (!companyRows.length) {
-      return res.status(404).json({ error: 'Company not found' });
-    }
-
-    const counts = countRows[0] || {};
-    res.json({
-      company: companyRows[0],
-      counts: {
-        project_count: Number(counts.project_count || 0),
-        active_project_count: Number(counts.active_project_count || 0),
-        completed_project_count: Number(counts.completed_project_count || 0),
-        service_order_count: Number(counts.service_order_count || 0),
-        purchase_order_count: Number(counts.purchase_order_count || 0),
-        transaction_count: Number(counts.transaction_count || 0),
-        vendor_count: Number(counts.vendor_count || 0),
-        receivable_count: Number(counts.receivable_count || 0)
-      },
-      vendor_profile: vendorRows[0] || null,
-      recent_projects: Array.isArray(recentProjects) ? recentProjects : [],
-      recent_service_orders: Array.isArray(recentServiceOrders) ? recentServiceOrders : []
-    });
-  } catch (err) {
-    return res.status(500).json({ error: err.message || 'Unable to load company overview.' });
-  }
-});
-
-app.post('/api/company-registry/:id/vendor-profile', protectAdmin, async (req, res) => {
-  const companyId = Number(req.params.id || 0);
-  if (!companyId) return res.status(400).json({ error: 'Invalid company id.' });
-
-  try {
-    const companyRows = await queryAsync(
-      `SELECT id, company_no, company_name, contact_person, email, phone, address, tin, archived
-       FROM company_registry
-       WHERE id = ?
-       LIMIT 1`,
-      [companyId]
-    );
-
-    if (!companyRows.length) {
-      return res.status(404).json({ error: 'Company not found.' });
-    }
-
-    const company = companyRows[0];
-    if (Number(company.archived || 0) === 1) {
-      return res.status(400).json({ error: 'Restore the company before creating its vendor profile.' });
-    }
-
-    const existingRows = await queryAsync(
-      'SELECT id, vendor_no, vendor_name, COALESCE(is_active, TRUE) AS is_active FROM vendors WHERE company_id = ? LIMIT 1',
-      [companyId]
-    );
-
-    if (existingRows.length) {
-      return res.json({
-        id: existingRows[0].id,
-        vendor_no: existingRows[0].vendor_no,
-        vendor_name: existingRows[0].vendor_name,
-        company_id: companyId,
-        already_exists: true,
-        is_active: Number(existingRows[0].is_active || 0) ? 1 : 0
-      });
-    }
-
-    const vendorName = String(company.company_name || '').trim();
-    const vendorContact = String(company.contact_person || '').trim();
-    const vendorEmail = String(company.email || '').trim();
-    const vendorPhone = normalizePhone(company.phone);
-    const vendorAddress = String(company.address || '').trim();
-    const vendorTinFormatted = formatTin(normalizeTin(company.tin));
-
-    if (!vendorName) return res.status(400).json({ error: 'Company name is required before creating a vendor profile.' });
-    if (!vendorContact) return res.status(400).json({ error: 'Contact person is required before creating a vendor profile.' });
-    if (!vendorEmail || !isValidEmail(vendorEmail)) {
-      return res.status(400).json({ error: 'Valid company email is required before creating a vendor profile.' });
-    }
-    if (!vendorPhone || !isValidPhone(vendorPhone)) {
-      return res.status(400).json({ error: 'Valid company phone is required before creating a vendor profile.' });
-    }
-    if (!normalizeTin(vendorTinFormatted) || normalizeTin(vendorTinFormatted).length !== 12) {
-      return res.status(400).json({ error: 'Valid company TIN is required before creating a vendor profile.' });
-    }
-    if (!vendorAddress) return res.status(400).json({ error: 'Company address is required before creating a vendor profile.' });
-
-    const duplicate = await new Promise((resolve, reject) => {
-      findVendorDuplicate(vendorPhone, vendorTinFormatted, vendorEmail, 0, (dupErr, row) => {
-        if (dupErr) reject(dupErr);
-        else resolve(row || null);
-      });
-    });
-
-    if (duplicate) {
-      const duplicateRows = await queryAsync(
-        'SELECT id, company_id, vendor_no, vendor_name, COALESCE(is_active, TRUE) AS is_active FROM vendors WHERE id = ? LIMIT 1',
-        [Number(duplicate.row?.id || 0)]
-      );
-      const duplicateVendor = duplicateRows[0] || null;
-      const duplicateCompanyId = Number(duplicateVendor?.company_id || 0) || 0;
-
-      if (duplicateVendor && (!duplicateCompanyId || duplicateCompanyId === companyId)) {
-        if (!duplicateCompanyId) {
-          await queryAsync('UPDATE vendors SET company_id = ? WHERE id = ?', [companyId, duplicateVendor.id]);
-          logAction(req, 'LINK_VENDOR', `Vendor No: ${duplicateVendor.vendor_no || ''} | Company ID: ${companyId} | Company No: ${company.company_no || ''} | Linked existing vendor profile from company registry.`);
-        }
-
-        return res.json({
-          id: duplicateVendor.id,
-          company_id: companyId,
-          vendor_no: duplicateVendor.vendor_no,
-          vendor_name: duplicateVendor.vendor_name || vendorName,
-          already_exists: true,
-          linked_existing: !duplicateCompanyId,
-          is_active: Number(duplicateVendor.is_active || 0) ? 1 : 0
-        });
-      }
-
-      return res.status(409).json({
-        error: duplicate.field === 'tin'
-          ? 'TIN already exists in Vendor Directory.'
-          : (duplicate.field === 'vendor_email'
-            ? 'Email already exists in Vendor Directory.'
-            : 'Vendor phone already exists in Vendor Directory.'),
-        field: duplicate.field
-      });
-    }
-
-    const vendorNo = await new Promise((resolve, reject) => {
-      generateNextVendorNo((noErr, nextNo) => {
-        if (noErr) reject(noErr);
-        else resolve(nextNo);
-      });
-    });
-
-    const result = await queryAsync(
-      'INSERT INTO vendors (company_id, vendor_no, vendor_name, contact_person, email, phone, address, tin, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE)',
-      [companyId, vendorNo, vendorName, vendorContact, vendorEmail, vendorPhone, vendorAddress, vendorTinFormatted]
-    );
-
-    logAction(req, 'CREATE_VENDOR', `Vendor No: ${vendorNo} | Company ID: ${companyId} | Company No: ${company.company_no || ''} | Company Name: ${vendorName} | Created vendor profile from company registry.`);
-
-    res.json({
-      id: result.insertId,
-      company_id: companyId,
-      vendor_no: vendorNo,
-      vendor_name: vendorName,
-      already_exists: false,
-      is_active: 1
-    });
-  } catch (err) {
-    return res.status(500).json({ error: err.message || 'Unable to create vendor profile.' });
-  }
-});
-
-app.post('/api/vendors', protectAdmin, (req, res) => {
-  const { vendor_name, contact_person, email, phone, address, tin } = req.body;
-  const companyId = null;
-  const vendorName = String(vendor_name || '').trim();
-  const vendorContact = String(contact_person || '').trim();
-  const vendorEmail = String(email || '').trim();
-  const vendorPhone = normalizePhone(phone);
-  const vendorAddress = String(address || '').trim();
-  const vendorTinDigits = normalizeTin(tin);
-  const vendorTinFormatted = formatTin(vendorTinDigits);
-  if (!vendorName) return res.status(400).json({ error: 'Vendor name is required', field: 'vendor_name' });
-  if (!vendorContact) return res.status(400).json({ error: 'Contact person is required', field: 'vendor_contact' });
-  if (!vendorEmail) return res.status(400).json({ error: 'Email is required', field: 'vendor_email' });
-  if (!isValidEmail(vendorEmail)) {
-    return res.status(400).json({ error: 'Please enter a valid email address.', field: 'vendor_email' });
-  }
-  if (!vendorPhone) return res.status(400).json({ error: 'Vendor phone is required', field: 'vendor_phone' });
-  if (!isValidPhone(vendorPhone)) {
-    return res.status(400).json({ error: 'Vendor phone number must be digits only, 7 to 15 digits.' });
-  }
-  if (!vendorTinDigits) return res.status(400).json({ error: 'TIN is required', field: 'vendor_tin' });
-  if (vendorTinDigits.length !== 12) {
-    return res.status(400).json({ error: 'TIN must follow 000-000-000-000 format.', field: 'tin' });
-  }
-  if (!vendorAddress) return res.status(400).json({ error: 'Address is required', field: 'vendor_address' });
-
-  const createVendor = () => {
-  findVendorDuplicate(vendorPhone, vendorTinFormatted, vendorEmail, 0, (dupErr, duplicate) => {
-    if (dupErr) return res.status(500).json({ error: dupErr.message });
-    if (duplicate) {
-      return res.status(409).json({
-        error: duplicate.field === 'tin'
-          ? 'TIN already exists in Vendor Directory.'
-          : (duplicate.field === 'vendor_email'
-            ? 'Email already exists in Vendor Directory.'
-            : 'Vendor phone already exists in Vendor Directory.'),
-        field: duplicate.field
-      });
-    }
-
-    generateNextVendorNo((noErr, vendorNo) => {
-      if (noErr) return res.status(500).json({ error: noErr.message });
-
-      db.query(
-        'INSERT INTO vendors (company_id, vendor_no, vendor_name, contact_person, email, phone, address, tin, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE)',
-        [companyId, vendorNo, vendorName, vendorContact, vendorEmail, vendorPhone || null, vendorAddress, vendorTinFormatted || null],
-        (err, result) => {
-          if (err) return res.status(500).json({ error: err.message });
-          res.json({ id: result.insertId, company_id: null, vendor_no: vendorNo, is_active: 1 });
-        }
-      );
-    });
-  });
-  };
-
-  createVendor();
-});
-
-app.put('/api/vendors/:id', protectAdmin, async (req, res) => {
-  const vendorId = Number(req.params.id || 0);
-  if (!vendorId) return res.status(400).json({ error: 'Invalid vendor id.' });
-
-  const { vendor_name, contact_person, email, phone, address, tin } = req.body;
-  const vendorName = String(vendor_name || '').trim();
-  const vendorContact = String(contact_person || '').trim();
-  const vendorEmail = String(email || '').trim();
-  const vendorPhone = normalizePhone(phone);
-  const vendorAddress = String(address || '').trim();
-  const vendorTinDigits = normalizeTin(tin);
-  const vendorTinFormatted = formatTin(vendorTinDigits);
-
-  if (!vendorName) return res.status(400).json({ error: 'Vendor name is required', field: 'vendor_name' });
-  if (!vendorContact) return res.status(400).json({ error: 'Contact person is required', field: 'vendor_contact' });
-  if (!vendorEmail) return res.status(400).json({ error: 'Email is required', field: 'vendor_email' });
-  if (!isValidEmail(vendorEmail)) {
-    return res.status(400).json({ error: 'Please enter a valid email address.', field: 'vendor_email' });
-  }
-  if (!vendorPhone) return res.status(400).json({ error: 'Vendor phone is required', field: 'vendor_phone' });
-  if (!isValidPhone(vendorPhone)) {
-    return res.status(400).json({ error: 'Vendor phone number must be digits only, 7 to 15 digits.', field: 'vendor_phone' });
-  }
-  if (!vendorTinDigits) return res.status(400).json({ error: 'TIN is required', field: 'vendor_tin' });
-  if (vendorTinDigits.length !== 12) {
-    return res.status(400).json({ error: 'TIN must follow 000-000-000-000 format.', field: 'tin' });
-  }
-  if (!vendorAddress) return res.status(400).json({ error: 'Address is required', field: 'vendor_address' });
-
-  try {
-    const existingRows = await queryAsync(
-      'SELECT id, vendor_no, company_id, COALESCE(is_active, TRUE) AS is_active FROM vendors WHERE id = ? LIMIT 1',
-      [vendorId]
-    );
-    if (!existingRows.length) return res.status(404).json({ error: 'Vendor not found.' });
-
-    const duplicate = await new Promise((resolve, reject) => {
-      findVendorDuplicate(vendorPhone, vendorTinFormatted, vendorEmail, vendorId, (dupErr, duplicateRow) => {
-        if (dupErr) reject(dupErr);
-        else resolve(duplicateRow);
-      });
-    });
-    if (duplicate) {
-      return res.status(409).json({
-        error: duplicate.field === 'tin'
-          ? 'TIN already exists in Vendor Directory.'
-          : (duplicate.field === 'vendor_email'
-            ? 'Email already exists in Vendor Directory.'
-            : 'Vendor phone already exists in Vendor Directory.'),
-        field: duplicate.field
-      });
-    }
-
-    await queryAsync(
-      `UPDATE vendors
-       SET vendor_name = ?, contact_person = ?, email = ?, phone = ?, address = ?, tin = ?
-       WHERE id = ?`,
-      [vendorName, vendorContact, vendorEmail, vendorPhone || null, vendorAddress, vendorTinFormatted || null, vendorId]
-    );
-
-    const rows = await queryAsync(
-      `SELECT v.id, v.company_id, v.vendor_no, v.vendor_name, v.contact_person, v.email, v.phone, v.address, v.tin,
-              COALESCE(v.is_active, TRUE) AS is_active,
-              c.company_no, c.company_name
-       FROM vendors v
-       LEFT JOIN company_registry c ON c.id = v.company_id
-       WHERE v.id = ?
-       LIMIT 1`,
-      [vendorId]
-    );
-    const vendor = rows[0] || existingRows[0];
-    logAction(req, 'UPDATE_VENDOR', `Updated vendor ${vendor.vendor_no || `ID ${vendorId}`} | ${vendorName}`);
-    res.json({
-      id: vendorId,
-      company_id: Number(vendor.company_id || 0) || null,
-      company_no: vendor.company_no || '',
-      company_name: vendor.company_name || '',
-      vendor_no: vendor.vendor_no || '',
-      is_active: Number(vendor.is_active || 0) ? 1 : 0
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message || 'Unable to update vendor.' });
-  }
-});
-
-app.patch('/api/vendors/:id/status', protectAdmin, (req, res) => {
-  const vendorId = Number(req.params.id || 0);
-  if (!vendorId) return res.status(400).json({ error: 'Invalid vendor id.' });
-
-  const nextActive = String(req.body?.is_active ?? req.body?.active ?? '').trim().toLowerCase();
-  const isActive = ['1', 'true', 'yes', 'on', 'active'].includes(nextActive);
-
-  db.query(
-    'SELECT id, vendor_no, vendor_name, COALESCE(is_active, TRUE) AS is_active FROM vendors WHERE id = ? LIMIT 1',
-    [vendorId],
-    (findErr, rows) => {
-      if (findErr) return res.status(500).json({ error: findErr.message });
-      if (!rows || !rows.length) return res.status(404).json({ error: 'Vendor not found.' });
-
-      const vendor = rows[0];
-      db.query(
-        'UPDATE vendors SET is_active = ? WHERE id = ?',
-        [isActive ? 1 : 0, vendorId],
-        (updateErr) => {
-          if (updateErr) return res.status(500).json({ error: updateErr.message });
-          logAction(
-            req,
-            'TOGGLE_VENDOR_STATUS',
-            `Vendor status changed: ${vendor.vendor_no || `ID ${vendor.id}`} | ${vendor.vendor_name || 'Unnamed'} => ${isActive ? 'Active' : 'Inactive'}`
-          );
-          res.json({
-            success: true,
-            id: vendorId,
-            is_active: isActive ? 1 : 0,
-            message: `Vendor ${isActive ? 'activated' : 'deactivated'} successfully.`
-          });
-        }
-      );
-    }
-  );
-});
-
-app.get('/api/bills', protectAdmin, (req, res) => {
-  db.query(`
-    SELECT ap.*, p.project_docno, p.project_name, COALESCE(p.is_archived, FALSE) AS project_is_archived, v.vendor_name, po.po_number,
-           be.company_name AS business_entity_name, be.entity_code AS business_entity_code
-    FROM accounts_payable ap
-    LEFT JOIN projects p ON p.id = ap.project_id
-    LEFT JOIN vendors v ON v.id = ap.vendor_id
-    LEFT JOIN purchase_orders po ON po.id = ap.po_id
-    LEFT JOIN business_entities be ON be.id = ap.business_entity_id
-    ORDER BY COALESCE(ap.bill_date, ap.created_at) DESC, ap.created_at DESC
-  `, (err, rows) => {
-    if (err) {
-      console.error('Load bills error:', err);
-      if ((isPostgresUndefinedTable(err) || isPostgresUndefinedColumn(err))) {
-        return res.json([]);
-      }
-      return res.status(500).json({ error: err.message || 'Unable to load bills.' });
-    }
-    res.json(Array.isArray(rows) ? rows : []);
-  });
-});
 
 async function syncReceivableBalance(receivableId) {
   const id = Number(receivableId || 0);
   if (!id) return;
-  const rows = await queryAsync('SELECT id, total_amount, due_date, archived, transaction_id FROM accounts_receivable WHERE id = ? LIMIT 1', [id]);
+  const rows = await queryAsync('SELECT id, total_amount, due_date, archived FROM accounts_receivable WHERE id = ? LIMIT 1', [id]);
   if (!rows.length) return;
   const paidRows = await queryAsync(
     "SELECT COALESCE(SUM(amount), 0) AS paid_amount FROM payments WHERE payment_type = 'ar' AND ar_id = ? AND COALESCE(approval_status, 'approved') = 'approved'",
@@ -11994,35 +8959,6 @@ async function syncReceivableBalance(receivableId) {
     'UPDATE accounts_receivable SET paid_amount = ?, status = ? WHERE id = ?',
     [paidAmount, status, id]
   );
-
-  const transactionId = Number(rows[0].transaction_id || 0);
-  if (transactionId && Number(rows[0].archived || 0) !== 1) {
-    const transactionStatus = mapReceivableToTransactionStatus(rows[0].total_amount, paidAmount);
-    await queryAsync('UPDATE transactions SET status = ? WHERE id = ?', [transactionStatus, transactionId]);
-  }
-}
-
-async function syncTransactionFromReceivable(receivableId) {
-  const id = Number(receivableId || 0);
-  if (!id) return;
-
-  const rows = await queryAsync(
-    `SELECT id, transaction_id, total_amount, paid_amount, status, archived
-     FROM accounts_receivable
-     WHERE id = ? LIMIT 1`,
-    [id]
-  );
-  if (!rows.length) return;
-
-  const row = rows[0];
-  const transactionId = Number(row.transaction_id || 0);
-  if (!transactionId || Number(row.archived || 0) === 1) return;
-
-  const totalAmount = Number(row.total_amount || 0);
-  const paidAmount = Number(row.paid_amount || 0);
-  const transactionStatus = mapReceivableToTransactionStatus(totalAmount, paidAmount);
-
-  await queryAsync('UPDATE transactions SET status = ? WHERE id = ?', [transactionStatus, transactionId]);
 }
 
 async function syncPayableBalance(payableId) {
@@ -12161,7 +9097,6 @@ async function postApprovedPaymentJournal(paymentId, dbClient = null) {
 // by migration (see soft-archive migration below).
 const SALES_RECORD_TYPES = Object.freeze({
   'sales-request': { label: 'Sales Inquiry', prefix: 'SR' },
-  'sales-quotation': { label: 'Quotation', prefix: 'SQ' },
   'sales-order': { label: 'SO', prefix: 'SO' },
   'project-delivery': { label: 'Delivery Receipt', prefix: 'DR' }
 });
@@ -12240,7 +9175,6 @@ const SALES_FLOW_NEXT = Object.freeze({
 });
 const SALES_FLOW_ADVANCE_STATUS = Object.freeze({
   'sales-request': ['approved', 'won'],
-  'sales-quotation': ['approved', 'won', 'sent'],
   'sales-order': ['approved', 'won'],
   'project-delivery': ['delivered', 'completed']
 });
@@ -12260,6 +9194,26 @@ async function loadSalesRecordWithContext(connection, recordId) {
 // Creates an AR invoice from a delivered/completed Delivery Receipt row.
 // Reused by the manual generate-invoice endpoint AND the auto-sync chain.
 // Idempotent — returns the existing invoice if this DR already has one.
+// Derive an AR due date from the invoice date + payment terms (e.g. "Net 30",
+// "30 days", "COD"/"Due on receipt"). Falls back to Net 30 when no number is found
+// so aging/overdue reporting always has a concrete due date to work with.
+function deriveReceivableDueDate(invoiceYmd, paymentTerms) {
+  const base = String(invoiceYmd || '').slice(0, 10);
+  if (!base) return null;
+  const terms = String(paymentTerms || '').trim().toLowerCase();
+  let days = 30;
+  if (/\b(cod|cash|due on receipt|on receipt|upon receipt)\b/.test(terms)) {
+    days = 0;
+  } else {
+    const match = terms.match(/(\d+)/);
+    if (match) days = Math.max(0, parseInt(match[1], 10) || 0);
+  }
+  const d = new Date(`${base}T00:00:00Z`);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 async function createReceivableFromDeliveryRecord(connection, record, req) {
   const recordId = Number(record.id || 0) || 0;
   if (!recordId) return null;
@@ -12277,16 +9231,18 @@ async function createReceivableFromDeliveryRecord(connection, record, req) {
   const invoiceNumber = generateCode('INV');
   const invoiceDate = String(record.target_date || record.requested_date || '').slice(0, 10) || getManilaYmd();
   const paymentTerms = String(record.payment_terms || 'Net 30').trim();
+  const dueDate = deriveReceivableDueDate(invoiceDate, paymentTerms);
   const result = await queryDbAsync(connection, `
     INSERT INTO accounts_receivable
-      (customer_name, invoice_number, invoice_date, payment_terms, total_amount, paid_amount,
+      (customer_name, invoice_number, invoice_date, due_date, payment_terms, total_amount, paid_amount,
        status, business_entity_id, notes, project_id, project_docno,
        sales_record_id, sales_document_no, archived, archived_at)
-    VALUES (?, ?, ?, ?, ?, 0, 'draft', ?, ?, ?, ?, ?, ?, FALSE, NULL)
+    VALUES (?, ?, ?, ?, ?, ?, 0, 'draft', ?, ?, ?, ?, ?, ?, FALSE, NULL)
   `, [
     customerName,
     invoiceNumber,
     invoiceDate,
+    dueDate,
     paymentTerms,
     totalAmount,
     businessEntityId,
@@ -12296,7 +9252,32 @@ async function createReceivableFromDeliveryRecord(connection, record, req) {
     recordId,
     String(record.document_no || '').trim() || null
   ]);
-  return { id: result.insertId, invoice_number: invoiceNumber, created: true };
+  const arId = result.insertId;
+
+  // Apply the agreed downpayment (captured at the SO stage; it is NOT copied onto the
+  // DR row, so read it from the source Sales Order). We post a real approved payments
+  // row AND set the AR balance/status in the SAME transaction so (a) the balance due is
+  // correct immediately and (b) later collections add on top instead of wiping it
+  // (paid_amount is otherwise recomputed from the payments ledger by syncReceivableBalance).
+  let downpayment = Math.max(0, Number(record.downpayment || 0) || 0);
+  if (!(downpayment > 0) && Number(record.source_record_id || 0)) {
+    const soRows = await queryDbAsync(connection,
+      'SELECT downpayment FROM sales_management_records WHERE id = ? LIMIT 1',
+      [Number(record.source_record_id)]);
+    downpayment = Math.max(0, Number(soRows[0]?.downpayment || 0) || 0);
+  }
+  downpayment = Math.min(downpayment, totalAmount);
+  if (downpayment > 0) {
+    await queryDbAsync(connection,
+      'INSERT INTO payments (payment_type, ap_id, ar_id, payment_date, amount, payment_method, reference_number, approval_status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      ['ar', null, arId, invoiceDate, downpayment, 'downpayment', String(record.document_no || '').trim() || null, 'approved', 'Downpayment carried from Sales Order']);
+    const arStatus = calculateReceivableStatus(totalAmount, downpayment, dueDate, 0);
+    await queryDbAsync(connection,
+      'UPDATE accounts_receivable SET paid_amount = ?, status = ? WHERE id = ?',
+      [downpayment, arStatus, arId]);
+  }
+
+  return { id: arId, invoice_number: invoiceNumber, created: true };
 }
 
 // Auto-advances the flow after a record is created/updated:
@@ -12406,13 +9387,6 @@ function validateSalesRecordStageRequirements(payload = {}) {
       ['projectId', 'Linked Project is required for Sales Inquiry.'],
       ['title', 'Title is required for Sales Inquiry.'],
       ['requestedDate', 'Inquiry date is required for Sales Inquiry.']
-    ],
-    'sales-quotation': [
-      ['companyId', 'Customer / Company is required for Quotation.'],
-      ['projectId', 'Linked Project is required for Quotation.'],
-      ['title', 'Title is required for Quotation.'],
-      ['requestedDate', 'Issue date is required for Quotation.'],
-      ['amount', 'Amount is required for Quotation.', 'number']
     ],
     'sales-order': [
       ['companyId', 'Customer / Company is required for SO.'],
@@ -12740,947 +9714,12 @@ async function syncDeliverySerialUnits(connection, recordId, serialUnitIds, req)
   }
 }
 
-app.get('/api/sales-management/records', protectAdmin, async (req, res) => {
-  const recordType = normalizeSalesRecordType(req.query.type);
-  const where = recordType ? 'WHERE smr.record_type = ?' : '';
-  const params = recordType ? [recordType] : [];
+// Sales Management routes (records CRUD + next-number + generate-invoice + approve/reject) — extracted to src/modules/sales (step 12).
+app.use(require('./src/modules/sales/sales-management.routes')({ SALES_RECORD_TYPES, normalizeSalesRecordType, normalizeSalesRecordPayload, normalizeSalesRecordStatus, getSalesDocumentSequenceMeta, validateSalesRecordStageRequirements, validateSalesDeliveryReceiptInventory, resolveBusinessEntityId, peekNextDraftEntityDocumentNo, peekNextEntityDocumentNo, generateNextDraftEntityDocumentNo, generateNextEntityDocumentNo, claimEntityDocumentNo, isDraftDocumentNo, withDbTransaction, queryDbAsync, saveSalesRecordItems, syncSalesRecordInventory, syncDeliverySerialUnits, advanceSalesRecordFlow, createReceivableFromDeliveryRecord, getApprovalComment, getApprovalActorName, appendApprovalComment, logAction }));
 
-  try {
-    const rows = await queryAsync(`
-      SELECT
-        smr.*,
-        c.company_name,
-        c.company_no,
-        p.project_name,
-        p.project_docno,
-        prod.product_name,
-        prod.sku,
-        wh.warehouse_name,
-        wh.warehouse_code,
-        src.document_no AS source_document_no,
-        src.title AS source_title,
-        po.po_number AS source_po_number,
-        COALESCE((
-          SELECT json_agg(json_build_object(
-            'id', i.id, 'product_id', i.product_id, 'warehouse_id', i.warehouse_id,
-            'description', i.description, 'item_name', i.description,
-            'quantity', i.quantity, 'unit_price', i.unit_price, 'line_total', i.line_total
-          ) ORDER BY i.id)
-          FROM sales_record_items i WHERE i.sales_record_id = smr.id
-        ), '[]') AS line_items,
-        ar_inv.id AS ar_invoice_id,
-        ar_inv.invoice_number AS ar_invoice_number,
-        ar_inv.status AS ar_invoice_status
-      FROM sales_management_records smr
-      LEFT JOIN company_registry c ON c.id = smr.company_id
-      LEFT JOIN projects p ON p.id = smr.project_id
-      LEFT JOIN products prod ON prod.id = smr.product_id
-      LEFT JOIN warehouses wh ON wh.id = smr.warehouse_id
-      LEFT JOIN sales_management_records src ON src.id = smr.source_record_id
-      LEFT JOIN purchase_orders po ON po.id = smr.source_po_id
-      LEFT JOIN accounts_receivable ar_inv ON ar_inv.sales_record_id = smr.id AND COALESCE(ar_inv.archived, FALSE) = FALSE
-      ${where}
-      ORDER BY smr.created_at DESC, smr.id DESC
-    `, params);
-    res.json(rows);
-  } catch (err) {
-    console.error('Sales records list error:', err);
-    res.status(500).json({ error: err.message || 'Unable to load sales records.' });
-  }
-});
+// Receivables (Accounts Receivable) routes — extracted to src/modules/accounts-receivable (step 7).
+app.use(require('./src/modules/accounts-receivable/receivables.routes')({ syncReceivableBalance }));
 
-app.get('/api/sales-management/records/next-number', protectAdmin, async (req, res) => {
-  try {
-    const recordType = normalizeSalesRecordType(req.query.record_type) || 'sales-request';
-    const seqMeta = getSalesDocumentSequenceMeta(recordType);
-    const businessEntityId = await resolveBusinessEntityId(req.query.business_entity_id);
-    // Staff see a DFT- draft preview (their record is created as a draft awaiting
-    // approval); admins see the official next number they will claim on save.
-    const actor = getAuthenticatedUser(req) || {};
-    const document_no = isStaffRole(actor.role)
-      ? await peekNextDraftEntityDocumentNo({
-          businessEntityId,
-          documentType: seqMeta.documentType,
-          prefix: seqMeta.prefix,
-          tableName: 'sales_management_records',
-          columnName: 'document_no'
-        })
-      : await peekNextEntityDocumentNo({
-          businessEntityId,
-          documentType: seqMeta.documentType,
-          prefix: seqMeta.prefix,
-          tableName: 'sales_management_records',
-          columnName: 'document_no'
-        });
-    res.json({ document_no, record_type: recordType });
-  } catch (err) {
-    res.status(500).json({ error: err.message || 'Unable to generate sales document number.' });
-  }
-});
-
-app.post('/api/sales-management/records', protectAdmin, async (req, res) => {
-  try {
-    const payload = normalizeSalesRecordPayload(req.body);
-    validateSalesRecordStageRequirements(payload);
-    validateSalesDeliveryReceiptInventory(payload, req.body.items);
-    // Staff create "requests" awaiting approval: they get a DFT- draft number and
-    // are limited to draft/submitted. Admins create official, ready records directly.
-    const actor = getAuthenticatedUser(req) || {};
-    const actorIsStaff = isStaffRole(actor.role);
-    if (actorIsStaff && !['draft', 'submitted'].includes(payload.status)) {
-      payload.status = 'draft';
-    }
-    const created = await withDbTransaction(async (connection) => {
-      const seqMeta = getSalesDocumentSequenceMeta(payload.recordType);
-      const businessEntityId = await resolveBusinessEntityId(payload.businessEntityId);
-      const documentNo = actorIsStaff
-        ? await generateNextDraftEntityDocumentNo({
-            businessEntityId,
-            documentType: seqMeta.documentType,
-            prefix: seqMeta.prefix,
-            tableName: 'sales_management_records',
-            columnName: 'document_no',
-            dbClient: connection
-          })
-        : await peekNextEntityDocumentNo({
-            businessEntityId,
-            documentType: seqMeta.documentType,
-            prefix: seqMeta.prefix,
-            tableName: 'sales_management_records',
-            columnName: 'document_no',
-            dbClient: connection
-          });
-      const insertResult = await queryDbAsync(connection, `
-        INSERT INTO sales_management_records (
-          record_type, document_no, business_entity_id, company_id, project_id, source_record_id,
-          product_id, warehouse_id, quantity, unit_price,
-          title, description, requested_date, target_date, amount, status, contact_person,
-          payment_terms, notes, created_by,
-          quote_validity, downpayment, customer_po_ref, received_by, delivery_address, source_po_id
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [
-        payload.recordType,
-        documentNo,
-        businessEntityId,
-        payload.companyId,
-        payload.projectId,
-        payload.sourceRecordId,
-        payload.productId,
-        payload.warehouseId,
-        payload.quantity,
-        payload.unitPrice,
-        payload.title,
-        payload.description,
-        payload.requestedDate,
-        payload.targetDate,
-        payload.amount,
-        payload.status,
-        payload.contactPerson,
-        payload.paymentTerms,
-        payload.notes,
-        getAuthenticatedUser(req)?.id || null,
-        payload.quoteValidity,
-        payload.downpayment,
-        payload.customerPoRef,
-        payload.receivedBy,
-        payload.deliveryAddress,
-        payload.sourcePoId
-      ]);
-      // Only official (admin) numbers consume the official sequence; staff DFT-
-      // drafts reserved their own draft sequence in generateNextDraftEntityDocumentNo.
-      if (!actorIsStaff) {
-        await claimEntityDocumentNo({
-          businessEntityId,
-          documentType: seqMeta.documentType,
-          prefix: seqMeta.prefix,
-          documentNo,
-          dbClient: connection
-        });
-      }
-      await saveSalesRecordItems(connection, insertResult.insertId, req.body.items);
-      await syncSalesRecordInventory(insertResult.insertId, req, connection);
-      await syncDeliverySerialUnits(connection, insertResult.insertId, req.body.serial_unit_ids, req);
-      // Auto-advance the project-centric sales flow (SI -> SQ -> SO -> DR -> AR).
-      await advanceSalesRecordFlow(connection, Number(insertResult?.insertId || 0) || 0, req);
-      const rows = await queryDbAsync(connection, 'SELECT * FROM sales_management_records WHERE id = ? OR document_no = ? ORDER BY id DESC LIMIT 1', [
-        Number(insertResult?.insertId || 0) || 0,
-        documentNo
-      ]);
-      return rows[0] || { success: true, document_no: documentNo };
-    });
-    logAction(req, 'CREATE_SALES_RECORD', `Created ${SALES_RECORD_TYPES[payload.recordType].label}: ${created.document_no || 'sales record'}`, 'sales');
-    res.status(201).json(created);
-  } catch (err) {
-    console.error('Create sales record error:', err);
-    res.status(err.statusCode || 500).json({ error: err.message || 'Unable to create sales record.' });
-  }
-});
-
-app.put('/api/sales-management/records/:id', protectAdmin, async (req, res) => {
-  const recordId = Number(req.params.id || 0);
-  if (!recordId) return res.status(400).json({ error: 'Invalid sales record ID.' });
-
-  try {
-    const existing = await queryAsync('SELECT id, record_type, document_no FROM sales_management_records WHERE id = ? LIMIT 1', [recordId]);
-    if (!existing.length) return res.status(404).json({ error: 'Sales record not found.' });
-    const payload = normalizeSalesRecordPayload(req.body, existing[0].record_type);
-    validateSalesRecordStageRequirements(payload);
-    validateSalesDeliveryReceiptInventory(payload, req.body.items);
-    // Staff may only keep a record as draft or submit it for approval — never self-approve.
-    const actor = getAuthenticatedUser(req) || {};
-    if (isStaffRole(actor.role) && !['draft', 'submitted'].includes(payload.status)) {
-      payload.status = 'draft';
-    }
-    const updated = await withDbTransaction(async (connection) => {
-      const rows = await queryDbAsync(connection, `
-        UPDATE sales_management_records
-        SET record_type = ?,
-            business_entity_id = ?,
-            company_id = ?,
-            project_id = ?,
-            source_record_id = ?,
-            product_id = ?,
-            warehouse_id = ?,
-            quantity = ?,
-            unit_price = ?,
-            title = ?,
-            description = ?,
-            requested_date = ?,
-            target_date = ?,
-            amount = ?,
-            status = ?,
-            contact_person = ?,
-            payment_terms = ?,
-            notes = ?,
-            quote_validity = ?,
-            downpayment = ?,
-            customer_po_ref = ?,
-            received_by = ?,
-            delivery_address = ?,
-            source_po_id = ?,
-            updated_at = NOW()
-        WHERE id = ?
-        RETURNING *
-      `, [
-        payload.recordType,
-        payload.businessEntityId,
-        payload.companyId,
-        payload.projectId,
-        payload.sourceRecordId,
-        payload.productId,
-        payload.warehouseId,
-        payload.quantity,
-        payload.unitPrice,
-        payload.title,
-        payload.description,
-        payload.requestedDate,
-        payload.targetDate,
-        payload.amount,
-        payload.status,
-        payload.contactPerson,
-        payload.paymentTerms,
-        payload.notes,
-        payload.quoteValidity,
-        payload.downpayment,
-        payload.customerPoRef,
-        payload.receivedBy,
-        payload.deliveryAddress,
-        payload.sourcePoId,
-        recordId
-      ]);
-      await saveSalesRecordItems(connection, recordId, req.body.items);
-      await syncSalesRecordInventory(recordId, req, connection);
-      await syncDeliverySerialUnits(connection, recordId, req.body.serial_unit_ids, req);
-      // Auto-advance the project-centric sales flow (SI -> SQ -> SO -> DR -> AR).
-      await advanceSalesRecordFlow(connection, recordId, req);
-      return rows[0] || { success: true };
-    });
-    logAction(req, 'UPDATE_SALES_RECORD', `Updated sales record ${existing[0].document_no}`, 'sales');
-    res.json(updated);
-  } catch (err) {
-    console.error('Update sales record error:', err);
-    res.status(err.statusCode || 500).json({ error: err.message || 'Unable to update sales record.' });
-  }
-});
-
-app.post('/api/sales-management/records/:id/generate-invoice', protectAdmin, async (req, res) => {
-  const recordId = Number(req.params.id || 0);
-  if (!recordId) return res.status(400).json({ error: 'Invalid sales record ID.' });
-
-  try {
-    const rows = await queryAsync(`
-      SELECT smr.*, c.company_name, p.project_docno, p.project_name
-      FROM sales_management_records smr
-      LEFT JOIN company_registry c ON c.id = smr.company_id
-      LEFT JOIN projects p ON p.id = smr.project_id
-      WHERE smr.id = ? LIMIT 1
-    `, [recordId]);
-
-    if (!rows.length) return res.status(404).json({ error: 'Sales record not found.' });
-    const record = rows[0];
-
-    if (String(record.record_type || '') !== 'project-delivery') {
-      return res.status(400).json({ error: 'Invoice generation is only available for Delivery Receipts.' });
-    }
-    const status = normalizeSalesRecordStatus(record.status);
-    if (!['delivered', 'completed'].includes(status)) {
-      return res.status(400).json({ error: 'Set the Delivery Receipt status to Delivered or Completed first.' });
-    }
-    if (!(Number(record.amount || 0) > 0)) {
-      return res.status(400).json({ error: 'Delivery Receipt has no amount. Please set the amount before generating an invoice.' });
-    }
-    if (!String(record.company_name || '').trim()) {
-      return res.status(400).json({ error: 'Delivery Receipt has no linked customer. Please link a company first.' });
-    }
-
-    // Reuse the shared, idempotent AR builder (also used by the auto-sync chain).
-    const result = await withDbTransaction((connection) => createReceivableFromDeliveryRecord(connection, record, req));
-    if (!result) {
-      return res.status(400).json({ error: 'Unable to generate invoice from this Delivery Receipt.' });
-    }
-    if (result.existing) {
-      return res.status(409).json({
-        error: `Invoice already generated: ${result.invoice_number}`,
-        invoice_id: result.id,
-        invoice_number: result.invoice_number
-      });
-    }
-
-    logAction(req, 'GENERATE_INVOICE', `Generated invoice ${result.invoice_number} from delivery ${record.document_no}`, 'finance');
-    res.status(201).json({
-      id: result.id,
-      invoice_number: result.invoice_number,
-      total_amount: Number(record.amount || 0),
-      customer_name: String(record.company_name || '').trim()
-    });
-  } catch (err) {
-    if (isPostgresUniqueViolation(err)) {
-      return res.status(409).json({ error: 'Invoice number conflict, please try again.' });
-    }
-    console.error('Generate invoice from delivery error:', err);
-    res.status(500).json({ error: err.message || 'Unable to generate invoice.' });
-  }
-});
-
-// Approve a staff-submitted sales request: convert its DFT- draft number into the
-// official sequence number, mark it approved, then advance the SI->SQ->SO->DR->AR flow.
-app.post('/api/sales-management/records/:id/approve', protectAdminOnly, async (req, res) => {
-  const recordId = Number(req.params.id || 0);
-  if (!recordId) return res.status(400).json({ error: 'Invalid sales record ID.' });
-
-  try {
-    const rows = await queryAsync('SELECT id, record_type, document_no, business_entity_id, status FROM sales_management_records WHERE id = ? LIMIT 1', [recordId]);
-    if (!rows.length) return res.status(404).json({ error: 'Sales record not found.' });
-    const record = rows[0];
-    const currentStatus = normalizeSalesRecordStatus(record.status);
-    if (currentStatus === 'approved') {
-      return res.json({ success: true, status: 'approved', document_no: record.document_no, alreadyApproved: true });
-    }
-    if (!['draft', 'submitted', 'in_review'].includes(currentStatus)) {
-      return res.status(400).json({ error: 'Only submitted sales requests can be approved.' });
-    }
-
-    const comment = getApprovalComment(req);
-    const approvedBy = getApprovalActorName(req);
-    const updated = await withDbTransaction(async (connection) => {
-      const seqMeta = getSalesDocumentSequenceMeta(record.record_type);
-      const businessEntityId = await resolveBusinessEntityId(record.business_entity_id);
-      let officialNo = record.document_no;
-      if (isDraftDocumentNo(record.document_no)) {
-        officialNo = await generateNextEntityDocumentNo({
-          businessEntityId,
-          documentType: seqMeta.documentType,
-          prefix: seqMeta.prefix,
-          tableName: 'sales_management_records',
-          columnName: 'document_no',
-          dbClient: connection
-        });
-        await claimEntityDocumentNo({
-          businessEntityId,
-          documentType: seqMeta.documentType,
-          prefix: seqMeta.prefix,
-          documentNo: officialNo,
-          dbClient: connection
-        });
-      }
-      await queryDbAsync(connection,
-        "UPDATE sales_management_records SET document_no = ?, status = 'approved', updated_at = NOW() WHERE id = ?",
-        [officialNo, recordId]);
-      // Now that it is approved, advance the project-centric flow (auto-creates the next-stage draft).
-      await advanceSalesRecordFlow(connection, recordId, req);
-      const result = await queryDbAsync(connection, 'SELECT * FROM sales_management_records WHERE id = ? LIMIT 1', [recordId]);
-      return result[0] || { success: true, status: 'approved', document_no: officialNo };
-    });
-    logAction(req, 'APPROVE_SALES_RECORD', appendApprovalComment(`Approved ${SALES_RECORD_TYPES[record.record_type]?.label || 'sales record'} ${updated.document_no || recordId} (Draft ${record.document_no || '-'}) | Approved by ${approvedBy}`, comment), 'sales');
-    res.json({ success: true, status: 'approved', document_no: updated.document_no, approved_by: approvedBy });
-  } catch (err) {
-    console.error('Approve sales record error:', err);
-    res.status(500).json({ error: err.message || 'Unable to approve sales record.' });
-  }
-});
-
-// Reject a sales request back to an editable draft so staff can revise & resubmit.
-app.post('/api/sales-management/records/:id/reject', protectAdminOnly, async (req, res) => {
-  const recordId = Number(req.params.id || 0);
-  const reason = String(req.body?.reason || req.body?.comment || '').trim();
-  if (!recordId) return res.status(400).json({ error: 'Invalid sales record ID.' });
-  if (!reason) return res.status(400).json({ error: 'Rejection reason is required.' });
-
-  try {
-    const rows = await queryAsync('SELECT id, document_no, status, notes FROM sales_management_records WHERE id = ? LIMIT 1', [recordId]);
-    if (!rows.length) return res.status(404).json({ error: 'Sales record not found.' });
-    const currentStatus = normalizeSalesRecordStatus(rows[0].status);
-    if (!['draft', 'submitted', 'in_review'].includes(currentStatus)) {
-      return res.status(400).json({ error: 'Only submitted sales requests can be rejected.' });
-    }
-    const revisedNotes = [`Rejected: ${reason}`, String(rows[0].notes || '').trim()].filter(Boolean).join('\n');
-    await queryAsync("UPDATE sales_management_records SET status = 'draft', notes = ?, updated_at = NOW() WHERE id = ?", [revisedNotes, recordId]);
-    logAction(req, 'REJECT_SALES_RECORD', `Rejected sales record ${rows[0].document_no} | Reason: ${reason}`, 'sales');
-    res.json({ success: true, status: 'draft', reason });
-  } catch (err) {
-    console.error('Reject sales record error:', err);
-    res.status(500).json({ error: err.message || 'Unable to reject sales record.' });
-  }
-});
-
-app.delete('/api/sales-management/records/:id', protectAdminOnly, async (req, res) => {
-  const recordId = Number(req.params.id || 0);
-  if (!recordId) return res.status(400).json({ error: 'Invalid sales record ID.' });
-
-  try {
-    const rows = await queryAsync('SELECT * FROM sales_management_records WHERE id = ? LIMIT 1', [recordId]);
-    const result = await withDbTransaction(async (connection) => {
-      if (rows[0]?.inventory_movement_id) {
-        await queryDbAsync(connection, "UPDATE sales_management_records SET status = 'cancelled' WHERE id = ?", [recordId]);
-        await syncSalesRecordInventory(recordId, req, connection);
-      }
-      return queryDbAsync(connection, 'DELETE FROM sales_management_records WHERE id = ?', [recordId]);
-    });
-    logAction(req, 'DELETE_SALES_RECORD', `Deleted sales record ${rows[0]?.document_no || recordId}`, 'sales');
-    res.json({ success: true, affectedRows: result.affectedRows || 0 });
-  } catch (err) {
-    console.error('Delete sales record error:', err);
-    res.status(500).json({ error: err.message || 'Unable to delete sales record.' });
-  }
-});
-
-app.get('/api/receivables', protectAdmin, (req, res) => {
-  const includeArchived = String(req.query.include_archived || '0') === '1';
-  const whereClause = includeArchived ? '' : 'WHERE COALESCE(ar.archived, FALSE) = FALSE';
-  db.query(`
-    SELECT ar.*, p.project_name, p.project_docno AS linked_project_docno, COALESCE(p.is_archived, FALSE) AS project_is_archived,
-           smr.document_no AS source_delivery_no, smr.title AS source_delivery_title
-    FROM accounts_receivable ar
-    LEFT JOIN projects p ON p.id = ar.project_id
-    LEFT JOIN sales_management_records smr ON smr.id = ar.sales_record_id
-    ${whereClause}
-    ORDER BY ar.invoice_date DESC, ar.created_at DESC
-  `, (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
-  });
-});
-
-app.post('/api/receivables', protectAdmin, async (req, res) => {
-  try {
-    const {
-      customer_name,
-      invoice_number,
-      invoice_date,
-      due_date,
-      payment_terms,
-      total_amount,
-      status,
-      transaction_id,
-      notes,
-      project_id,
-      project_docno,
-      service_order_no
-    } = req.body;
-
-    const resolvedTransactionId = Number(transaction_id || 0);
-    if (!resolvedTransactionId) {
-      return res.status(400).json({ error: 'Linked transaction is required.' });
-    }
-
-    const transactionRows = await queryAsync(
-      `SELECT t.id, t.client, t.docno, t.date, t.amount, t.downpayment, t.business_entity_id,
-              t.company_id, c.company_no, c.company_name,
-              t.project_id, t.service_order_id,
-              p.project_docno,
-              so.so_number AS service_order_no
-       FROM transactions t
-       LEFT JOIN company_registry c ON c.id = t.company_id
-       LEFT JOIN projects p ON p.id = t.project_id
-       LEFT JOIN service_orders so ON so.id = t.service_order_id
-       WHERE t.id = ? LIMIT 1`,
-      [resolvedTransactionId]
-    );
-
-    if (!transactionRows.length) {
-      return res.status(404).json({ error: 'Linked transaction not found.' });
-    }
-
-    const transaction = transactionRows[0];
-    const resolvedCustomerName = String(transaction.company_name || transaction.client || customer_name || '').trim();
-    const resolvedInvoiceNumber = String(transaction.docno || invoice_number || '').trim();
-    const resolvedInvoiceDate = String(invoice_date || transaction.date || '').trim();
-    const resolvedPaymentTerms = String(payment_terms || '').trim() || null;
-    const resolvedTotalAmount = Number(transaction.amount || total_amount || 0);
-    const resolvedStatus = normalizeReceivableStatusValue(status);
-    const resolvedPaidAmount = resolvedStatus === 'paid'
-      ? resolvedTotalAmount
-      : (resolvedStatus === 'partial'
-        ? Math.min(resolvedTotalAmount, Math.max(0, Number(transaction.downpayment || 0)))
-        : 0);
-    const resolvedProjectId = Number(transaction.project_id || project_id || 0) || null;
-    const resolvedBusinessEntityId = await resolveBusinessEntityId(transaction.business_entity_id || req.body.business_entity_id || null);
-    const resolvedProjectDocno = String(project_docno || transaction.project_docno || '').trim() || null;
-    const resolvedServiceOrderNo = String(service_order_no || transaction.service_order_no || '').trim() || null;
-
-    if (!resolvedCustomerName || !resolvedInvoiceNumber || !resolvedInvoiceDate || resolvedTotalAmount <= 0) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
-
-    const result = await queryAsync(
-      `INSERT INTO accounts_receivable
-        (customer_name, invoice_number, invoice_date, due_date, payment_terms, total_amount, paid_amount, status, business_entity_id, transaction_id, notes, project_id, project_docno, service_order_no, archived, archived_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, NULL)`,
-      [
-        resolvedCustomerName,
-        resolvedInvoiceNumber,
-        resolvedInvoiceDate,
-        due_date || null,
-        resolvedPaymentTerms,
-        resolvedTotalAmount,
-        resolvedPaidAmount,
-        resolvedStatus,
-        resolvedBusinessEntityId,
-        resolvedTransactionId,
-        notes || null,
-        resolvedProjectId,
-        resolvedProjectDocno,
-        resolvedServiceOrderNo
-      ]
-    );
-
-    let syncWarning = null;
-    try {
-      await syncTransactionFromReceivable(result.insertId);
-    } catch (syncErr) {
-      syncWarning = syncErr;
-      console.error('Receivable-to-transaction sync warning:', syncErr);
-    }
-
-    const responsePayload = { id: result.insertId, transaction_id: resolvedTransactionId };
-    if (syncWarning) {
-      responsePayload.warning = 'Receivable saved, but transaction sync needs a retry.';
-    }
-    res.json(responsePayload);
-  } catch (err) {
-    if (isPostgresUniqueViolation(err)) {
-      return res.status(409).json({ error: 'Invoice number already exists' });
-    }
-    console.error('Create receivable error:', err);
-    res.status(500).json({ error: err.message || 'Unable to save receivable.' });
-  }
-});
-
-app.put('/api/receivables/:id', protectAdmin, async (req, res) => {
-  const receivableId = Number(req.params.id || 0);
-  if (!receivableId) return res.status(400).json({ error: 'Invalid receivable id' });
-
-  try {
-    const existingRows = await queryAsync(
-      'SELECT id, customer_name, invoice_number, invoice_date, due_date, payment_terms, total_amount, paid_amount, status, business_entity_id, transaction_id, notes, project_id, project_docno, service_order_no, archived FROM accounts_receivable WHERE id = ? LIMIT 1',
-      [receivableId]
-    );
-
-    if (!existingRows.length) {
-      return res.status(404).json({ error: 'Receivable not found.' });
-    }
-
-    const existing = existingRows[0];
-    const {
-      customer_name,
-      invoice_number,
-      invoice_date,
-      due_date,
-      payment_terms,
-      total_amount,
-      status,
-      transaction_id,
-      notes,
-      project_id,
-      project_docno,
-      service_order_no
-    } = req.body;
-
-    const resolvedTransactionId = Number(transaction_id || existing.transaction_id || 0);
-    if (!resolvedTransactionId) {
-      return res.status(400).json({ error: 'Linked transaction is required.' });
-    }
-
-    const transactionRows = await queryAsync(
-      `SELECT t.id, t.client, t.docno, t.date, t.amount, t.downpayment, t.business_entity_id,
-              t.company_id, c.company_no, c.company_name,
-              t.project_id, t.service_order_id,
-              p.project_docno,
-              so.so_number AS service_order_no
-       FROM transactions t
-       LEFT JOIN company_registry c ON c.id = t.company_id
-       LEFT JOIN projects p ON p.id = t.project_id
-       LEFT JOIN service_orders so ON so.id = t.service_order_id
-       WHERE t.id = ? LIMIT 1`,
-      [resolvedTransactionId]
-    );
-
-    if (!transactionRows.length) {
-      return res.status(404).json({ error: 'Linked transaction not found.' });
-    }
-
-    const transaction = transactionRows[0];
-    const resolvedCustomerName = String(transaction.company_name || transaction.client || customer_name || existing.customer_name || '').trim();
-    const resolvedInvoiceNumber = String(transaction.docno || invoice_number || existing.invoice_number || '').trim();
-    const resolvedInvoiceDate = String(invoice_date || transaction.date || existing.invoice_date || '').trim();
-    const resolvedPaymentTerms = String(payment_terms || existing.payment_terms || '').trim() || null;
-    const resolvedTotalAmount = Number(transaction.amount || total_amount || existing.total_amount || 0);
-    const resolvedPaidAmount = Number(existing.paid_amount || 0);
-    const resolvedStatus = calculateReceivableStatus(
-      resolvedTotalAmount,
-      resolvedPaidAmount,
-      due_date || existing.due_date || null,
-      existing.archived
-    );
-    const resolvedProjectId = Number(transaction.project_id || project_id || existing.project_id || 0) || null;
-    const resolvedBusinessEntityId = await resolveBusinessEntityId(transaction.business_entity_id || req.body.business_entity_id || existing.business_entity_id || null);
-    const resolvedProjectDocno = String(project_docno || transaction.project_docno || existing.project_docno || '').trim() || null;
-    const resolvedServiceOrderNo = String(service_order_no || transaction.service_order_no || existing.service_order_no || '').trim() || null;
-
-    if (!resolvedCustomerName || !resolvedInvoiceNumber || !resolvedInvoiceDate || resolvedTotalAmount <= 0) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
-
-    await queryAsync(
-      `UPDATE accounts_receivable
-          SET customer_name = ?, invoice_number = ?, invoice_date = ?, due_date = ?, payment_terms = ?, total_amount = ?,
-              paid_amount = ?, status = ?, business_entity_id = ?, transaction_id = ?, notes = ?, project_id = ?, project_docno = ?,
-              service_order_no = ?
-        WHERE id = ?`,
-      [
-        resolvedCustomerName,
-        resolvedInvoiceNumber,
-        resolvedInvoiceDate,
-        due_date || null,
-        resolvedPaymentTerms,
-        resolvedTotalAmount,
-        resolvedPaidAmount,
-        resolvedStatus,
-        resolvedBusinessEntityId,
-        resolvedTransactionId,
-        notes || null,
-        resolvedProjectId,
-        resolvedProjectDocno,
-        resolvedServiceOrderNo,
-        receivableId
-      ]
-    );
-
-    let syncWarning = null;
-    try {
-      await syncTransactionFromReceivable(receivableId);
-    } catch (syncErr) {
-      syncWarning = syncErr;
-      console.error('Receivable update sync warning:', syncErr);
-    }
-
-    const responsePayload = { id: receivableId, transaction_id: resolvedTransactionId };
-    if (syncWarning) {
-      responsePayload.warning = 'Receivable updated, but transaction sync needs a retry.';
-    }
-    res.json(responsePayload);
-  } catch (err) {
-    if (isPostgresUniqueViolation(err)) {
-      return res.status(409).json({ error: 'Invoice number already exists' });
-    }
-    console.error('Update receivable error:', err);
-    res.status(500).json({ error: err.message || 'Unable to update receivable.' });
-  }
-});
-
-app.put('/api/receivables/:id/archive', protectAdminOnly, async (req, res) => {
-  const receivableId = Number(req.params.id || 0);
-  if (!receivableId) return res.status(400).json({ error: 'Invalid receivable id' });
-  try {
-    const result = await queryAsync(
-      "UPDATE accounts_receivable SET archived = TRUE, archived_at = CURRENT_TIMESTAMP, status = 'cancelled' WHERE id = ?",
-      [receivableId]
-    );
-    await syncReceivableBalance(receivableId);
-    res.json({ success: true, affectedRows: result.affectedRows || 0 });
-  } catch (err) {
-    console.error('Archive receivable error:', err);
-    res.status(500).json({ error: err.message || 'Unable to archive receivable.' });
-  }
-});
-
-app.put('/api/receivables/:id/restore', protectAdminOnly, async (req, res) => {
-  const receivableId = Number(req.params.id || 0);
-  if (!receivableId) return res.status(400).json({ error: 'Invalid receivable id' });
-  try {
-    const result = await queryAsync(
-      'UPDATE accounts_receivable SET archived = FALSE, archived_at = NULL WHERE id = ?',
-      [receivableId]
-    );
-    await syncReceivableBalance(receivableId);
-    res.json({ success: true, affectedRows: result.affectedRows || 0 });
-  } catch (err) {
-    console.error('Restore receivable error:', err);
-    res.status(500).json({ error: err.message || 'Unable to restore receivable.' });
-  }
-});
-
-app.post('/api/bills', protectAdmin, upload.single('pdf_file'), async (req, res) => {
-  const { bill_date, due_date, notes } = req.body;
-  let billNumber = String(req.body.bill_number || '').trim();
-  const poId = Number(req.body.po_id || 0) || null;
-  let vendorId = Number(req.body.vendor_id || 0) || null;
-  let businessEntityId = Number(req.body.business_entity_id || 0) || null;
-  let projectId = Number(req.body.project_id || 0) || null;
-  let totalAmount = Number(req.body.total_amount || 0) || 0;
-  const pdfFilename = req.file ? req.file.filename : null;
-
-  try {
-    if (poId) {
-      const poRows = await queryAsync('SELECT id, business_entity_id, vendor_id, project_id, total_amount FROM purchase_orders WHERE id = ? LIMIT 1', [poId]);
-      if (!poRows.length) return res.status(400).json({ error: 'Selected purchase order was not found.' });
-      businessEntityId = businessEntityId || Number(poRows[0].business_entity_id || 0) || null;
-      vendorId = vendorId || Number(poRows[0].vendor_id || 0) || null;
-      projectId = projectId || Number(poRows[0].project_id || 0) || null;
-      totalAmount = totalAmount || Number(poRows[0].total_amount || 0) || 0;
-    }
-
-    if (!vendorId || !bill_date || !totalAmount) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
-    businessEntityId = await resolveBusinessEntityId(businessEntityId);
-    // Admins create bills with an official BILL- number directly; staff file a
-    // DFT- draft that becomes official when approved (see /bills/:id/approve).
-    const billActor = getAuthenticatedUser(req) || {};
-    if (isStaffRole(billActor.role)) {
-      if (!billNumber || !isDraftDocumentNo(billNumber)) {
-        billNumber = await generateNextDraftEntityDocumentNo({
-          businessEntityId,
-          documentType: 'ap-bill',
-          prefix: 'BILL',
-          tableName: 'accounts_payable',
-          columnName: 'bill_number'
-        });
-      }
-    } else {
-      billNumber = await generateNextEntityDocumentNo({
-        businessEntityId,
-        documentType: 'ap-bill',
-        prefix: 'BILL',
-        tableName: 'accounts_payable',
-        columnName: 'bill_number'
-      });
-    }
-
-    if (projectId) {
-      const projectRows = await queryAsync('SELECT id FROM projects WHERE id = ? LIMIT 1', [projectId]);
-      if (!projectRows.length) return res.status(400).json({ error: 'Selected project was not found.' });
-    }
-
-    const result = await queryAsync(
-      'INSERT INTO accounts_payable (business_entity_id, vendor_id, bill_number, bill_date, due_date, project_id, po_id, total_amount, approval_status, notes, pdfFilename) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [businessEntityId, vendorId, billNumber, bill_date, due_date || null, projectId, poId, totalAmount, 'pending', notes || null, pdfFilename]
-    );
-    await claimEntityDocumentNo({
-      businessEntityId,
-      documentType: 'ap-bill',
-      prefix: 'BILL',
-      documentNo: billNumber
-    });
-    sendBackgroundNotification(() => notifyBillApprovalRequest(req, result.insertId), 'ap bill approval request email');
-    res.json({ id: result.insertId, project_id: projectId, po_id: poId });
-  } catch (err) {
-    if (isPostgresUniqueViolation(err)) {
-      return res.status(409).json({ error: 'Bill number already exists' });
-    }
-    console.error('Create bill error:', err);
-    res.status(500).json({ error: err.message || 'Unable to save bill.' });
-  }
-});
-
-app.put('/api/bills/:id', protectAdmin, upload.single('pdf_file'), async (req, res) => {
-  const billId = Number(req.params.id || 0);
-  const { bill_number, bill_date, due_date, notes } = req.body;
-  const poId = Number(req.body.po_id || 0) || null;
-  let vendorId = Number(req.body.vendor_id || 0) || null;
-  let businessEntityId = Number(req.body.business_entity_id || 0) || null;
-  let projectId = Number(req.body.project_id || 0) || null;
-  let totalAmount = Number(req.body.total_amount || 0) || 0;
-  const removePdf = String(req.body.remove_pdf || '') === '1';
-  const uploadedPdf = req.file ? req.file.filename : null;
-
-  const cleanupUploadedPdf = () => {
-    if (!uploadedPdf) return;
-    const filePath = path.join(UPLOAD_DIR, path.basename(uploadedPdf));
-    fs.unlink(filePath, () => {});
-  };
-
-  try {
-    if (!billId) {
-      cleanupUploadedPdf();
-      return res.status(400).json({ error: 'Invalid bill id' });
-    }
-    if (poId) {
-      const poRows = await queryAsync('SELECT id, business_entity_id, vendor_id, project_id, total_amount FROM purchase_orders WHERE id = ? LIMIT 1', [poId]);
-      if (!poRows.length) {
-        cleanupUploadedPdf();
-        return res.status(400).json({ error: 'Selected purchase order was not found.' });
-      }
-      businessEntityId = businessEntityId || Number(poRows[0].business_entity_id || 0) || null;
-      vendorId = vendorId || Number(poRows[0].vendor_id || 0) || null;
-      projectId = projectId || Number(poRows[0].project_id || 0) || null;
-      totalAmount = totalAmount || Number(poRows[0].total_amount || 0) || 0;
-    }
-
-    if (!vendorId || !bill_number || !bill_date || !totalAmount) {
-      cleanupUploadedPdf();
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
-    businessEntityId = await resolveBusinessEntityId(businessEntityId);
-
-    const existingRows = await queryAsync(
-      'SELECT id, pdfFilename FROM accounts_payable WHERE id = ? LIMIT 1',
-      [billId]
-    );
-    if (!existingRows.length) {
-      cleanupUploadedPdf();
-      return res.status(404).json({ error: 'Bill not found.' });
-    }
-
-    if (projectId) {
-      const projectRows = await queryAsync('SELECT id FROM projects WHERE id = ? LIMIT 1', [projectId]);
-      if (!projectRows.length) {
-        cleanupUploadedPdf();
-        return res.status(400).json({ error: 'Selected project was not found.' });
-      }
-    }
-
-    const currentPdf = String(existingRows[0].pdfFilename || '').trim() || null;
-    const nextPdf = uploadedPdf || (removePdf ? null : currentPdf);
-    await queryAsync(
-      `UPDATE accounts_payable
-       SET business_entity_id = ?, vendor_id = ?, bill_number = ?, bill_date = ?, due_date = ?, project_id = ?, po_id = ?,
-           total_amount = ?, approval_status = 'pending', approved_by = NULL, approved_at = NULL, notes = ?, pdfFilename = ?
-       WHERE id = ?`,
-      [businessEntityId, vendorId, bill_number, bill_date, due_date || null, projectId, poId, totalAmount, notes || null, nextPdf, billId]
-    );
-    await syncPayableBalance(billId);
-    await postApprovedBillJournal(billId);
-
-    if (currentPdf && currentPdf !== nextPdf && (uploadedPdf || removePdf)) {
-      const oldPath = path.join(UPLOAD_DIR, path.basename(currentPdf));
-      fs.unlink(oldPath, () => {});
-    }
-
-    sendBackgroundNotification(() => notifyBillApprovalRequest(req, billId), 'ap bill approval request email');
-    res.json({ id: billId, project_id: projectId, po_id: poId });
-  } catch (err) {
-    cleanupUploadedPdf();
-    if (isPostgresUniqueViolation(err)) {
-      return res.status(409).json({ error: 'Bill number already exists' });
-    }
-    console.error('Update bill error:', err);
-    res.status(500).json({ error: err.message || 'Unable to update bill.' });
-  }
-});
-
-app.get('/api/bills/:id/pdf', protectAdmin, (req, res) => {
-  sendBillPdf(req, res, req.params.id);
-});
-
-app.post('/api/bills/:id/approve', protectAdminOnly, async (req, res) => {
-  const billId = Number(req.params.id || 0);
-  if (!billId) return res.status(400).json({ error: 'Invalid bill id' });
-
-  try {
-    const rows = await queryAsync(
-      'SELECT id, bill_number, business_entity_id, approval_status FROM accounts_payable WHERE id = ? LIMIT 1',
-      [billId]
-    );
-    if (!rows.length) {
-      return res.status(404).json({ error: 'Bill not found.' });
-    }
-
-    const approvedBy = getApprovalActorName(req);
-    const comment = getApprovalComment(req);
-    // Convert the DFT- draft bill number into the official BILL- number on approval.
-    const officialBillNo = isDraftDocumentNo(rows[0].bill_number)
-      ? await generateNextEntityDocumentNo({
-          businessEntityId: rows[0].business_entity_id,
-          documentType: 'ap-bill',
-          prefix: 'BILL',
-          tableName: 'accounts_payable',
-          columnName: 'bill_number'
-        })
-      : rows[0].bill_number;
-    if (officialBillNo !== rows[0].bill_number) {
-      await claimEntityDocumentNo({
-        businessEntityId: rows[0].business_entity_id,
-        documentType: 'ap-bill',
-        prefix: 'BILL',
-        documentNo: officialBillNo
-      });
-    }
-    await queryAsync(
-      "UPDATE accounts_payable SET bill_number = ?, approval_status = 'approved', approved_by = ?, approved_at = COALESCE(approved_at, NOW()), approval_comment = ? WHERE id = ?",
-      [officialBillNo, approvedBy, comment || null, billId]
-    );
-    await syncPayableBalance(billId);
-    await postApprovedBillJournal(billId);
-    logAction(req, 'APPROVE_AP_BILL', appendApprovalComment(`Approved AP bill ${officialBillNo || billId} (Draft ${rows[0].bill_number || '-'})`, comment));
-    sendBackgroundNotification(() => notifyFinanceApproval(req, 'bill', billId, {
-      approvedBy: getApprovalActorLabel(req)
-    }), 'ap bill approved email');
-    res.json({ success: true, approval_status: 'approved', bill_number: officialBillNo, approved_by: approvedBy, approval_comment: comment });
-  } catch (err) {
-    console.error('Approve AP bill error:', err);
-    res.status(500).json({ error: err.message || 'Unable to approve AP bill.' });
-  }
-});
-
-app.post('/api/bills/:id/reject', protectAdminOnly, async (req, res) => {
-  const billId = Number(req.params.id || 0);
-  const reason = String(req.body?.reason || '').trim();
-  if (!billId) return res.status(400).json({ error: 'Invalid bill id' });
-  if (!reason) return res.status(400).json({ error: 'Rejection reason is required.' });
-
-  try {
-    const rows = await queryAsync(
-      'SELECT id, bill_number, notes FROM accounts_payable WHERE id = ? LIMIT 1',
-      [billId]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Bill not found.' });
-
-    const actor = getApprovalActorName(req);
-    const notes = [rows[0].notes, `Rejected by ${actor}: ${reason}`].filter(Boolean).join('\n');
-    await queryAsync(
-      "UPDATE accounts_payable SET approval_status = 'rejected', approved_by = ?, approved_at = COALESCE(approved_at, NOW()), notes = ?, approval_comment = ? WHERE id = ?",
-      [actor, notes, reason, billId]
-    );
-    await syncPayableBalance(billId);
-    logAction(req, 'REJECT_AP_BILL', `Rejected AP bill ${rows[0].bill_number || billId} | Reason: ${reason}`);
-    res.json({ success: true, approval_status: 'rejected', reason });
-  } catch (err) {
-    console.error('Reject AP bill error:', err);
-    res.status(500).json({ error: err.message || 'Unable to reject AP bill.' });
-  }
-});
 
 // ==================== ERP FOUNDATION API ====================
 
@@ -13696,20 +9735,14 @@ app.get('/api/erp/summary', protectAdmin, async (req, res) => {
       requisitions,
       purchaseOrders,
       bills,
-      companies,
-      departments,
-      employees,
-      payrollRuns
+      companies
     ] = await Promise.all([
       queryAsync('SELECT COUNT(*) AS total FROM chart_of_accounts'),
       queryAsync('SELECT COUNT(*) AS total FROM journal_entries'),
       queryAsync(`SELECT COUNT(*) AS total FROM purchase_requisitions ${requisitionWhere}`),
       queryAsync(`SELECT COUNT(*) AS total FROM purchase_orders ${purchaseOrderWhere}`),
       queryAsync('SELECT COUNT(*) AS total FROM accounts_payable'),
-      queryAsync('SELECT COUNT(*) AS total FROM company_registry'),
-      queryAsync('SELECT COUNT(*) AS total FROM departments'),
-      queryAsync('SELECT COUNT(*) AS total FROM employees'),
-      queryAsync('SELECT COUNT(*) AS total FROM payroll_runs')
+      queryAsync('SELECT COUNT(*) AS total FROM company_registry')
     ]);
 
     const balanceRows = await queryAsync(`
@@ -13717,14 +9750,6 @@ app.get('/api/erp/summary', protectAdmin, async (req, res) => {
         COALESCE(SUM(debit), 0) AS total_debit,
         COALESCE(SUM(credit), 0) AS total_credit
       FROM journal_lines
-    `);
-
-    const payrollTotalRows = await queryAsync(`
-      SELECT
-        COALESCE(SUM(gross_pay), 0) AS gross_pay,
-        COALESCE(SUM(deductions), 0) AS deductions,
-        COALESCE(SUM(net_pay), 0) AS net_pay
-      FROM payroll_runs
     `);
 
     res.json({
@@ -13739,15 +9764,7 @@ app.get('/api/erp/summary', protectAdmin, async (req, res) => {
         purchase_orders: Number(purchaseOrders[0]?.total || 0),
         bills: Number(bills[0]?.total || 0)
       },
-      companies: Number(companies[0]?.total || 0),
-      hr: {
-        departments: Number(departments[0]?.total || 0),
-        employees: Number(employees[0]?.total || 0),
-        payroll_runs: Number(payrollRuns[0]?.total || 0),
-        gross_pay: Number(payrollTotalRows[0]?.gross_pay || 0),
-        deductions: Number(payrollTotalRows[0]?.deductions || 0),
-        net_pay: Number(payrollTotalRows[0]?.net_pay || 0)
-      }
+      companies: Number(companies[0]?.total || 0)
     });
   } catch (err) {
     console.error('ERP summary error:', err);
@@ -13755,59 +9772,6 @@ app.get('/api/erp/summary', protectAdmin, async (req, res) => {
   }
 });
 
-app.get('/api/inventory/summary', protectAdmin, async (req, res) => {
-  try {
-    const allEntities = String(req.query.business_entity_id || '').trim().toLowerCase() === 'all';
-    const businessEntityId = allEntities ? null : (normalizeBusinessEntityId(req.query.business_entity_id) || await getDefaultBusinessEntityId());
-    const params = businessEntityId ? [businessEntityId] : [];
-    const entityWhere = businessEntityId ? 'WHERE business_entity_id = ?' : '';
-    const [productRows, warehouseRows, stockRows, lowStockRows] = await Promise.all([
-      queryAsync(`SELECT COUNT(*) AS total FROM products ${entityWhere}`, params),
-      queryAsync(`SELECT COUNT(*) AS total FROM warehouses ${entityWhere}`, params),
-      queryAsync(`
-        SELECT COALESCE(SUM(quantity_on_hand), 0) AS total
-        FROM stock
-        ${entityWhere}
-      `, params),
-      queryAsync(`
-        SELECT COUNT(*) AS total
-        FROM stock s
-        JOIN products p ON p.id = s.product_id
-        WHERE ${businessEntityId ? 's.business_entity_id = ? AND ' : ''}s.quantity_on_hand <= COALESCE(p.reorder_level, 0)
-      `, params)
-    ]);
-    res.json({
-      products: Number(productRows[0]?.total || 0),
-      warehouses: Number(warehouseRows[0]?.total || 0),
-      on_hand: Number(stockRows[0]?.total || 0),
-      low_stock: Number(lowStockRows[0]?.total || 0)
-    });
-  } catch (err) {
-    console.error('Inventory summary error:', err);
-    res.status(500).json({ error: err.message || 'Unable to load inventory summary.' });
-  }
-});
-
-app.get('/api/inventory/products', protectAdmin, async (req, res) => {
-  try {
-    const allEntities = String(req.query.business_entity_id || '').trim().toLowerCase() === 'all';
-    const businessEntityId = allEntities ? null : (normalizeBusinessEntityId(req.query.business_entity_id) || await getDefaultBusinessEntityId());
-    const rows = await queryAsync(
-      `SELECT p.*,
-              COALESCE(SUM(s.quantity_on_hand), 0) AS quantity_on_hand
-       FROM products p
-       LEFT JOIN stock s ON s.product_id = p.id
-       WHERE ${allEntities ? 'p.is_active = TRUE' : 'p.business_entity_id = ? AND p.is_active = TRUE'}
-       GROUP BY p.id
-       ORDER BY p.product_name ASC`,
-      allEntities ? [] : [businessEntityId]
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error('Inventory products error:', err);
-    res.status(500).json({ error: err.message || 'Unable to load products.' });
-  }
-});
 
 function isDuplicateError(err) {
   return String(err?.message || '').toLowerCase().includes('duplicate') || String(err?.code || '') === '23505';
@@ -13819,7 +9783,7 @@ function categorySkuPrefix(category) {
   return letters.slice(0, 3) || 'GEN';
 }
 
-// Next running SKU for a category within an operating company, e.g. CCT-001, CCT-002.
+// Next running SKU for a category within an operating company, e.g. CCT-00001, CCT-00002.
 async function generateProductSku(businessEntityId, category) {
   const prefix = categorySkuPrefix(category);
   const rows = await queryAsync(
@@ -13832,7 +9796,7 @@ async function generateProductSku(businessEntityId, category) {
     const match = String(row.sku || '').trim().toUpperCase().match(re);
     if (match) max = Math.max(max, parseInt(match[1], 10));
   });
-  return `${prefix}-${String(max + 1).padStart(3, '0')}`;
+  return `${prefix}-${String(max + 1).padStart(5, '0')}`;
 }
 
 // Inserts a product, auto-assigning a per-category SKU when none is supplied and
@@ -13872,203 +9836,50 @@ async function insertProductWithSku(businessEntityId, fields) {
   throw lastErr || new Error('Unable to assign a unique SKU.');
 }
 
-app.post('/api/inventory/products', protectAdmin, async (req, res) => {
-  try {
-    if (isStaffRole(getAuthenticatedUser(req)?.role)) {
-      return res.status(403).json({ error: 'Staff must save product requests as drafts and submit them for approval.' });
+// Next running warehouse code within an operating company: fixed WARE- prefix
+// + 5-digit sequence, e.g. WARE-00001, WARE-00002.
+async function generateWarehouseCode(businessEntityId) {
+  const prefix = 'WARE';
+  const rows = await queryAsync(
+    `SELECT warehouse_code FROM warehouses WHERE business_entity_id = ? AND warehouse_code LIKE ?`,
+    [businessEntityId, `${prefix}-%`]
+  );
+  const re = new RegExp(`^${prefix}-(\\d+)$`);
+  let max = 0;
+  rows.forEach((row) => {
+    const match = String(row.warehouse_code || '').trim().toUpperCase().match(re);
+    if (match) max = Math.max(max, parseInt(match[1], 10));
+  });
+  return `${prefix}-${String(max + 1).padStart(5, '0')}`;
+}
+
+// Inserts a warehouse, auto-assigning a per-name code when none is supplied and
+// retrying on collisions so concurrent creates still get a unique sequence.
+async function insertWarehouseWithCode(businessEntityId, fields) {
+  const providedCode = String(fields.warehouse_code || '').trim();
+  let lastErr = null;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const code = (providedCode && attempt === 0)
+      ? providedCode
+      : await generateWarehouseCode(businessEntityId);
+    try {
+      const rows = await queryAsync(
+        `INSERT INTO warehouses (business_entity_id, warehouse_code, warehouse_name, location)
+         VALUES (?, ?, ?, ?)
+         RETURNING *`,
+        [businessEntityId, code, fields.warehouse_name, fields.location || null]
+      );
+      return rows[0];
+    } catch (err) {
+      lastErr = err;
+      // Only retry collisions when auto-generating; a user-supplied duplicate surfaces as an error.
+      if (isDuplicateError(err) && !(providedCode && attempt === 0)) continue;
+      throw err;
     }
-    const businessEntityId = await resolveBusinessEntityId(req.body.business_entity_id);
-    const productName = String(req.body.product_name || '').trim();
-    if (!productName) return res.status(400).json({ error: 'Product name is required.' });
-
-    const product = await insertProductWithSku(businessEntityId, {
-      sku: req.body.sku,
-      product_name: productName,
-      category: String(req.body.category || '').trim() || null,
-      unit: String(req.body.unit || 'pcs').trim() || 'pcs',
-      reorder_level: Number(req.body.reorder_level || 0) || 0,
-      unit_cost: Number(req.body.unit_cost || 0) || 0,
-      selling_price: Number(req.body.selling_price || req.body.unit_price || 0) || 0
-    });
-    res.status(201).json(product);
-  } catch (err) {
-    console.error('Inventory product save error:', err);
-    const isDuplicate = isDuplicateError(err);
-    res.status(isDuplicate ? 409 : 500).json({ error: isDuplicate ? 'SKU already exists for this operating company.' : (err.message || 'Unable to save product.') });
   }
-});
+  throw lastErr || new Error('Unable to assign a unique warehouse code.');
+}
 
-app.put('/api/inventory/products/:id', protectAdmin, async (req, res) => {
-  try {
-    if (isStaffRole(getAuthenticatedUser(req)?.role)) {
-      return res.status(403).json({ error: 'Staff must submit product changes as drafts for approval.' });
-    }
-    const id = Number(req.params.id || 0) || 0;
-    if (!id) return res.status(400).json({ error: 'Invalid product id.' });
-    const productName = String(req.body.product_name || '').trim();
-    if (!productName) return res.status(400).json({ error: 'Product name is required.' });
-    const rows = await queryAsync(
-      `UPDATE products SET
-         product_name = ?, category = ?, unit = ?, reorder_level = ?, unit_cost = ?, selling_price = ?
-       WHERE id = ? AND is_active = TRUE
-       RETURNING *`,
-      [
-        productName,
-        String(req.body.category || '').trim() || null,
-        String(req.body.unit || 'pcs').trim() || 'pcs',
-        Number(req.body.reorder_level || 0) || 0,
-        Number(req.body.unit_cost || 0) || 0,
-        Number(req.body.selling_price || req.body.unit_price || 0) || 0,
-        id
-      ]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Product not found.' });
-    res.json(rows[0]);
-  } catch (err) {
-    console.error('Inventory product update error:', err);
-    res.status(500).json({ error: err.message || 'Unable to update product.' });
-  }
-});
-
-app.post('/api/inventory/products/:id/archive', protectAdminOnly, async (req, res) => {
-  try {
-    const id = Number(req.params.id || 0) || 0;
-    if (!id) return res.status(400).json({ error: 'Invalid product id.' });
-    const rows = await queryAsync('UPDATE products SET is_active = FALSE WHERE id = ? RETURNING id', [id]);
-    if (!rows.length) return res.status(404).json({ error: 'Product not found.' });
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Inventory product archive error:', err);
-    res.status(500).json({ error: err.message || 'Unable to archive product.' });
-  }
-});
-
-app.get('/api/inventory/warehouses', protectAdmin, async (req, res) => {
-  try {
-    const allEntities = String(req.query.business_entity_id || '').trim().toLowerCase() === 'all';
-    const businessEntityId = allEntities ? null : (normalizeBusinessEntityId(req.query.business_entity_id) || await getDefaultBusinessEntityId());
-    const rows = await queryAsync(
-      `SELECT *
-       FROM warehouses
-       WHERE ${allEntities ? 'is_active = TRUE' : 'business_entity_id = ? AND is_active = TRUE'}
-       ORDER BY warehouse_name ASC`,
-      allEntities ? [] : [businessEntityId]
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error('Inventory warehouses error:', err);
-    res.status(500).json({ error: err.message || 'Unable to load warehouses.' });
-  }
-});
-
-app.post('/api/inventory/warehouses', protectAdmin, async (req, res) => {
-  try {
-    if (isStaffRole(getAuthenticatedUser(req)?.role)) {
-      return res.status(403).json({ error: 'Staff must save warehouse requests as drafts and submit them for approval.' });
-    }
-    const businessEntityId = await resolveBusinessEntityId(req.body.business_entity_id);
-    const warehouseCode = String(req.body.warehouse_code || '').trim();
-    const warehouseName = String(req.body.warehouse_name || '').trim();
-    if (!warehouseCode) return res.status(400).json({ error: 'Warehouse code is required.' });
-    if (!warehouseName) return res.status(400).json({ error: 'Warehouse name is required.' });
-
-    const rows = await queryAsync(
-      `INSERT INTO warehouses (business_entity_id, warehouse_code, warehouse_name, location)
-       VALUES (?, ?, ?, ?)
-       RETURNING *`,
-      [businessEntityId, warehouseCode, warehouseName, String(req.body.location || '').trim() || null]
-    );
-    res.status(201).json(rows[0]);
-  } catch (err) {
-    console.error('Inventory warehouse save error:', err);
-    const isDuplicate = String(err.message || '').toLowerCase().includes('duplicate') || String(err.code || '') === '23505';
-    res.status(isDuplicate ? 409 : 500).json({ error: isDuplicate ? 'Warehouse code already exists for this operating company.' : (err.message || 'Unable to save warehouse.') });
-  }
-});
-
-app.put('/api/inventory/warehouses/:id', protectAdmin, async (req, res) => {
-  try {
-    if (isStaffRole(getAuthenticatedUser(req)?.role)) {
-      return res.status(403).json({ error: 'Staff must submit warehouse changes as drafts for approval.' });
-    }
-    const id = Number(req.params.id || 0) || 0;
-    if (!id) return res.status(400).json({ error: 'Invalid warehouse id.' });
-    const warehouseCode = String(req.body.warehouse_code || '').trim();
-    const warehouseName = String(req.body.warehouse_name || '').trim();
-    if (!warehouseCode) return res.status(400).json({ error: 'Warehouse code is required.' });
-    if (!warehouseName) return res.status(400).json({ error: 'Warehouse name is required.' });
-    const rows = await queryAsync(
-      `UPDATE warehouses SET warehouse_code = ?, warehouse_name = ?, location = ?
-       WHERE id = ? AND is_active = TRUE
-       RETURNING *`,
-      [warehouseCode, warehouseName, String(req.body.location || '').trim() || null, id]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Warehouse not found.' });
-    res.json(rows[0]);
-  } catch (err) {
-    console.error('Inventory warehouse update error:', err);
-    const isDuplicate = String(err.message || '').toLowerCase().includes('duplicate') || String(err.code || '') === '23505';
-    res.status(isDuplicate ? 409 : 500).json({ error: isDuplicate ? 'Warehouse code already exists for this operating company.' : (err.message || 'Unable to update warehouse.') });
-  }
-});
-
-app.post('/api/inventory/warehouses/:id/archive', protectAdminOnly, async (req, res) => {
-  try {
-    const id = Number(req.params.id || 0) || 0;
-    if (!id) return res.status(400).json({ error: 'Invalid warehouse id.' });
-    const rows = await queryAsync('UPDATE warehouses SET is_active = FALSE WHERE id = ? RETURNING id', [id]);
-    if (!rows.length) return res.status(404).json({ error: 'Warehouse not found.' });
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Inventory warehouse archive error:', err);
-    res.status(500).json({ error: err.message || 'Unable to archive warehouse.' });
-  }
-});
-
-app.get('/api/inventory/stock', protectAdmin, async (req, res) => {
-  try {
-    const allEntities = String(req.query.business_entity_id || '').trim().toLowerCase() === 'all';
-    const businessEntityId = allEntities ? null : (normalizeBusinessEntityId(req.query.business_entity_id) || await getDefaultBusinessEntityId());
-    const rows = await queryAsync(
-      `SELECT s.*, p.sku, p.product_name, p.category, p.unit, p.reorder_level, w.warehouse_code, w.warehouse_name
-       FROM stock s
-       JOIN products p ON p.id = s.product_id
-       JOIN warehouses w ON w.id = s.warehouse_id
-       ${allEntities ? '' : 'WHERE s.business_entity_id = ?'}
-       ORDER BY p.product_name ASC, w.warehouse_name ASC`,
-      allEntities ? [] : [businessEntityId]
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error('Inventory stock error:', err);
-    res.status(500).json({ error: err.message || 'Unable to load stock.' });
-  }
-});
-
-app.get('/api/inventory/movements', protectAdmin, async (req, res) => {
-  try {
-    const includeAll = String(req.query.include_all || '0') === '1'
-      || String(req.query.business_entity_id || '').trim().toLowerCase() === 'all';
-    const businessEntityId = includeAll ? null : (normalizeBusinessEntityId(req.query.business_entity_id) || await getDefaultBusinessEntityId());
-    const whereClause = businessEntityId ? 'WHERE m.business_entity_id = ?' : '';
-    const rows = await queryAsync(
-      `SELECT m.*, p.sku, p.product_name, p.unit_cost, w.warehouse_code, w.warehouse_name,
-              proj.project_docno, proj.project_name
-       FROM stock_movements m
-       JOIN products p ON p.id = m.product_id
-       JOIN warehouses w ON w.id = m.warehouse_id
-       LEFT JOIN projects proj ON proj.id = m.project_id
-       ${whereClause}
-       ORDER BY m.movement_date DESC, m.id DESC
-       LIMIT ${includeAll ? 500 : 100}`,
-      businessEntityId ? [businessEntityId] : []
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error('Inventory movements error:', err);
-    res.status(500).json({ error: err.message || 'Unable to load stock movements.' });
-  }
-});
 
 // --- Serial unit (per-unit) tracking for warranty / RMA ---------------------
 const PRODUCT_UNIT_STATUSES = ['in_stock', 'sold', 'installed', 'returned', 'rma', 'defective'];
@@ -14083,134 +9894,6 @@ function normalizeDateOrNull(value) {
   return v ? v.slice(0, 10) : null;
 }
 
-app.get('/api/inventory/units', protectAdmin, async (req, res) => {
-  try {
-    const allEntities = String(req.query.business_entity_id || '').trim().toLowerCase() === 'all';
-    const businessEntityId = allEntities ? null : (normalizeBusinessEntityId(req.query.business_entity_id) || await getDefaultBusinessEntityId());
-    const params = allEntities ? [] : [businessEntityId];
-    let extra = '';
-    const status = String(req.query.status || '').trim().toLowerCase();
-    if (PRODUCT_UNIT_STATUSES.includes(status)) {
-      extra += ' AND u.status = ?';
-      params.push(status);
-    }
-    const productId = Number(req.query.product_id || 0) || 0;
-    if (productId) {
-      extra += ' AND u.product_id = ?';
-      params.push(productId);
-    }
-    const rows = await queryAsync(
-      `SELECT u.*, p.sku, p.product_name, p.category, w.warehouse_code, w.warehouse_name,
-              proj.project_docno, proj.project_name, po.po_number AS source_po_number
-       FROM product_units u
-       JOIN products p ON p.id = u.product_id
-       LEFT JOIN warehouses w ON w.id = u.warehouse_id
-       LEFT JOIN projects proj ON proj.id = u.project_id
-       LEFT JOIN purchase_orders po ON po.id = u.source_po_id
-       WHERE ${allEntities ? '1=1' : 'u.business_entity_id = ?'}${extra}
-       ORDER BY u.created_at DESC, u.id DESC`,
-      params
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error('Inventory units load error:', err);
-    res.status(500).json({ error: err.message || 'Unable to load serial units.' });
-  }
-});
-
-app.post('/api/inventory/units', protectAdmin, async (req, res) => {
-  try {
-    if (isStaffRole(getAuthenticatedUser(req)?.role)) {
-      return res.status(403).json({ error: 'Staff cannot add serial units directly.' });
-    }
-    const businessEntityId = await resolveBusinessEntityId(req.body.business_entity_id);
-    const productId = Number(req.body.product_id || 0) || 0;
-    const serial = String(req.body.serial_number || '').trim();
-    if (!productId) return res.status(400).json({ error: 'Product is required.' });
-    if (!serial) return res.status(400).json({ error: 'Serial number is required.' });
-
-    const productRows = await queryAsync('SELECT id FROM products WHERE id = ? AND business_entity_id = ? LIMIT 1', [productId, businessEntityId]);
-    if (!productRows.length) return res.status(400).json({ error: 'Selected product was not found.' });
-
-    const rows = await queryAsync(
-      `INSERT INTO product_units
-         (business_entity_id, product_id, warehouse_id, serial_number, status, customer_name, project_id, source_po_id, warranty_start, warranty_end, notes, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       RETURNING *`,
-      [
-        businessEntityId,
-        productId,
-        Number(req.body.warehouse_id || 0) || null,
-        serial,
-        normalizeUnitStatus(req.body.status),
-        String(req.body.customer_name || '').trim() || null,
-        Number(req.body.project_id || 0) || null,
-        Number(req.body.source_po_id || 0) || null,
-        normalizeDateOrNull(req.body.warranty_start),
-        normalizeDateOrNull(req.body.warranty_end),
-        String(req.body.notes || '').trim() || null,
-        req?.session?.user?.fullname || req?.session?.user?.username || null
-      ]
-    );
-    res.status(201).json(rows[0]);
-  } catch (err) {
-    console.error('Inventory unit save error:', err);
-    const isDuplicate = isDuplicateError(err);
-    res.status(isDuplicate ? 409 : 500).json({ error: isDuplicate ? 'Serial number already exists for this operating company.' : (err.message || 'Unable to save serial unit.') });
-  }
-});
-
-app.put('/api/inventory/units/:id', protectAdmin, async (req, res) => {
-  try {
-    if (isStaffRole(getAuthenticatedUser(req)?.role)) {
-      return res.status(403).json({ error: 'Staff cannot edit serial units.' });
-    }
-    const id = Number(req.params.id || 0) || 0;
-    if (!id) return res.status(400).json({ error: 'Invalid unit id.' });
-    const serial = String(req.body.serial_number || '').trim();
-    if (!serial) return res.status(400).json({ error: 'Serial number is required.' });
-
-    const rows = await queryAsync(
-      `UPDATE product_units SET
-         warehouse_id = ?, serial_number = ?, status = ?, customer_name = ?,
-         project_id = ?, source_po_id = ?, warranty_start = ?, warranty_end = ?, notes = ?,
-         updated_at = CURRENT_TIMESTAMP
-       WHERE id = ?
-       RETURNING *`,
-      [
-        Number(req.body.warehouse_id || 0) || null,
-        serial,
-        normalizeUnitStatus(req.body.status),
-        String(req.body.customer_name || '').trim() || null,
-        Number(req.body.project_id || 0) || null,
-        Number(req.body.source_po_id || 0) || null,
-        normalizeDateOrNull(req.body.warranty_start),
-        normalizeDateOrNull(req.body.warranty_end),
-        String(req.body.notes || '').trim() || null,
-        id
-      ]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Serial unit not found.' });
-    res.json(rows[0]);
-  } catch (err) {
-    console.error('Inventory unit update error:', err);
-    const isDuplicate = isDuplicateError(err);
-    res.status(isDuplicate ? 409 : 500).json({ error: isDuplicate ? 'Serial number already exists for this operating company.' : (err.message || 'Unable to update serial unit.') });
-  }
-});
-
-app.delete('/api/inventory/units/:id', protectAdminOnly, async (req, res) => {
-  try {
-    const id = Number(req.params.id || 0) || 0;
-    if (!id) return res.status(400).json({ error: 'Invalid unit id.' });
-    const rows = await queryAsync('DELETE FROM product_units WHERE id = ? RETURNING id', [id]);
-    if (!rows.length) return res.status(404).json({ error: 'Serial unit not found.' });
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Inventory unit delete error:', err);
-    res.status(500).json({ error: err.message || 'Unable to delete serial unit.' });
-  }
-});
 
 function normalizeInventoryRequestType(value = '') {
   const type = String(value || '').trim().toLowerCase();
@@ -14237,17 +9920,14 @@ async function applyInventoryRequestPayload(requestType, payload = {}, req = nul
   }
 
   if (type === 'warehouse') {
-    const warehouseCode = String(payload.warehouse_code || '').trim();
     const warehouseName = String(payload.warehouse_name || '').trim();
-    if (!warehouseCode) throw new Error('Warehouse code is required.');
     if (!warehouseName) throw new Error('Warehouse name is required.');
-    const rows = await queryAsync(
-      `INSERT INTO warehouses (business_entity_id, warehouse_code, warehouse_name, location)
-       VALUES (?, ?, ?, ?)
-       RETURNING *`,
-      [businessEntityId, warehouseCode, warehouseName, String(payload.location || '').trim() || null]
-    );
-    return rows[0];
+    // Blank code → auto-generate from the name, same as the direct admin create.
+    return await insertWarehouseWithCode(businessEntityId, {
+      warehouse_code: payload.warehouse_code,
+      warehouse_name: warehouseName,
+      location: String(payload.location || '').trim() || null
+    });
   }
 
   if (type === 'movement') {
@@ -14316,485 +9996,12 @@ async function applyInventoryRequestPayload(requestType, payload = {}, req = nul
   throw new Error('Invalid inventory request type.');
 }
 
-app.get('/api/inventory/requests', protectAdmin, async (req, res) => {
-  try {
-    const actor = getAuthenticatedUser(req);
-    const admin = isAdminRole(actor?.role);
-    const rows = await queryAsync(`
-      SELECT *
-      FROM inventory_requests
-      ${admin ? '' : 'WHERE requested_by_email = ? OR requested_by = ?'}
-      ORDER BY COALESCE(submitted_at, created_at) DESC, id DESC
-    `, admin ? [] : [actor?.email || '', actor?.fullname || actor?.username || '']);
-    res.json((Array.isArray(rows) ? rows : []).map((row) => {
-      let payload = {};
-      try { payload = JSON.parse(row.payload || '{}'); } catch (_) {}
-      return { ...row, payload };
-    }));
-  } catch (err) {
-    res.status(500).json({ error: err.message || 'Unable to load inventory requests.' });
-  }
-});
+// Inventory routes (products, warehouses, stock, movements, serial units, requests) — extracted to src/modules/inventory (step 13). Inventory-specific helpers stay in server.js (shared w/ procurement) and are injected.
+app.use(require('./src/modules/inventory/inventory.routes')({ normalizeBusinessEntityId, getDefaultBusinessEntityId, resolveBusinessEntityId, assertProjectAcceptsNewActivity, generateInventoryDraftRequestNo, stripDraftRequestNoPrefix, getApprovalActorName, getApprovalComment, appendApprovalComment, logAction, isDuplicateError, insertProductWithSku, insertWarehouseWithCode, PRODUCT_UNIT_STATUSES, normalizeUnitStatus, normalizeDateOrNull, normalizeInventoryRequestType, applyInventoryRequestPayload }));
 
-app.post('/api/inventory/requests', protectAdmin, async (req, res) => {
-  try {
-    const actor = getAuthenticatedUser(req);
-    const isStaff = isStaffRole(actor?.role || '');
-    const requestType = normalizeInventoryRequestType(req.body?.request_type);
-    if (!requestType) return res.status(400).json({ error: 'Invalid inventory request type.' });
-    const payload = { ...(req.body?.payload || {}) };
-    if (isStaff) {
-      const requestNo = await generateInventoryDraftRequestNo();
-      await queryAsync(
-        `INSERT INTO inventory_requests
-          (request_no, request_type, payload, status, requested_by, requested_by_email, submitted_at)
-         VALUES (?, ?, ?, 'draft', ?, ?, NULL)`,
-        [requestNo, requestType, JSON.stringify(payload), actor?.fullname || actor?.username || null, actor?.email || null]
-      );
-      logAction(req, 'CREATE_INVENTORY_DRAFT', `Draft: ${requestNo} | Type: ${requestType}`);
-      return res.status(201).json({ success: true, request_no: requestNo, status: 'draft' });
-    }
-    // Admin applies the inventory change directly (creates the product/warehouse/movement).
-    const applied = await applyInventoryRequestPayload(requestType, payload, req);
-    const requestNo = stripDraftRequestNoPrefix(await generateInventoryDraftRequestNo());
-    const approvedBy = getApprovalActorName(req);
-    await queryAsync(
-      `INSERT INTO inventory_requests
-        (request_no, request_type, payload, status, requested_by, requested_by_email, submitted_at, approved_by, approved_at)
-       VALUES (?, ?, ?, 'approved', ?, ?, NOW(), ?, NOW())`,
-      [requestNo, requestType, JSON.stringify(payload), actor?.fullname || actor?.username || null, actor?.email || null, approvedBy]
-    );
-    logAction(req, 'CREATE_INVENTORY_OFFICIAL', `Official: ${requestNo} | Type: ${requestType}`);
-    res.status(201).json({ success: true, request_no: requestNo, status: 'approved', applied });
-  } catch (err) {
-    res.status(400).json({ error: err.message || 'Unable to create inventory request.' });
-  }
-});
+// Accounting GL routes removed (legacy — no UI). NOTE: the journal_entries/journal_lines/
+// chart_of_accounts TABLES are intentionally KEPT — AP/AR auto-post journals into them.
 
-app.post('/api/inventory/requests/:id/submit', protectAdmin, async (req, res) => {
-  try {
-    const requestId = Number(req.params.id || 0);
-    if (!requestId) return res.status(400).json({ error: 'Invalid request ID.' });
-    const rows = await queryAsync('SELECT * FROM inventory_requests WHERE id = ? LIMIT 1', [requestId]);
-    const requestRow = rows?.[0];
-    if (!requestRow) return res.status(404).json({ error: 'Inventory request not found.' });
-    const currentStatus = String(requestRow.status || '').toLowerCase();
-    if (currentStatus === 'submitted') return res.json({ success: true, status: 'submitted', alreadySubmitted: true });
-    if (currentStatus !== 'draft') return res.status(400).json({ error: 'Only draft inventory requests can be submitted.' });
-    await queryAsync("UPDATE inventory_requests SET status = 'submitted', submitted_at = NOW() WHERE id = ?", [requestId]);
-    logAction(req, 'SUBMIT_INVENTORY_REQUEST', `Request No: ${requestRow.request_no || requestId}`);
-    res.json({ success: true, status: 'submitted' });
-  } catch (err) {
-    res.status(500).json({ error: err.message || 'Unable to submit inventory request.' });
-  }
-});
-
-app.put('/api/inventory/requests/:id', protectAdmin, async (req, res) => {
-  try {
-    const actor = getAuthenticatedUser(req);
-    const requestId = Number(req.params.id || 0);
-    if (!requestId) return res.status(400).json({ error: 'Invalid request ID.' });
-    const rows = await queryAsync('SELECT * FROM inventory_requests WHERE id = ? LIMIT 1', [requestId]);
-    const requestRow = rows?.[0];
-    if (!requestRow) return res.status(404).json({ error: 'Inventory request not found.' });
-    if (String(requestRow.status || '').toLowerCase() !== 'draft') {
-      return res.status(400).json({ error: 'Only draft inventory requests can be edited.' });
-    }
-    if (isStaffRole(actor?.role) && String(requestRow.requested_by_email || '') !== String(actor?.email || '')) {
-      return res.status(403).json({ error: 'You can edit your own draft requests only.' });
-    }
-    const requestType = normalizeInventoryRequestType(req.body?.request_type || requestRow.request_type);
-    if (!requestType) return res.status(400).json({ error: 'Invalid inventory request type.' });
-    const payload = { ...(req.body?.payload || {}) };
-    await queryAsync(
-      'UPDATE inventory_requests SET request_type = ?, payload = ? WHERE id = ?',
-      [requestType, JSON.stringify(payload), requestId]
-    );
-    logAction(req, 'UPDATE_INVENTORY_DRAFT', `Draft No: ${requestRow.request_no || requestId} | Type: ${requestType}`);
-    res.json({ success: true, status: 'draft', request_no: requestRow.request_no });
-  } catch (err) {
-    res.status(400).json({ error: err.message || 'Unable to update inventory request.' });
-  }
-});
-
-app.post('/api/inventory/requests/:id/approve', protectAdminOnly, async (req, res) => {
-  try {
-    const requestId = Number(req.params.id || 0);
-    if (!requestId) return res.status(400).json({ error: 'Invalid request ID.' });
-    const rows = await queryAsync('SELECT * FROM inventory_requests WHERE id = ? LIMIT 1', [requestId]);
-    const requestRow = rows?.[0];
-    if (!requestRow) return res.status(404).json({ error: 'Inventory request not found.' });
-    const currentStatus = String(requestRow.status || '').toLowerCase();
-    if (currentStatus === 'approved') return res.json({ success: true, status: 'approved', alreadyApproved: true });
-    if (currentStatus !== 'submitted') return res.status(400).json({ error: 'Only submitted inventory requests can be approved.' });
-    let payload = {};
-    try { payload = JSON.parse(requestRow.payload || '{}'); } catch (_) {}
-    const applied = await applyInventoryRequestPayload(requestRow.request_type, payload, req);
-    const approvedBy = getApprovalActorName(req);
-    const comment = getApprovalComment(req);
-    // On approval the draft request number becomes official (strip the DRAFT- prefix).
-    const officialRequestNo = stripDraftRequestNoPrefix(requestRow.request_no);
-    await queryAsync(
-      "UPDATE inventory_requests SET request_no = ?, status = 'approved', approved_by = ?, approved_at = NOW(), reject_reason = NULL, approval_comment = ? WHERE id = ?",
-      [officialRequestNo, approvedBy, comment || null, requestId]
-    );
-    logAction(req, 'APPROVE_INVENTORY_REQUEST', appendApprovalComment(`Draft No: ${requestRow.request_no || requestId} | Request No: ${officialRequestNo} | Type: ${requestRow.request_type}`, comment));
-    res.json({ success: true, status: 'approved', request_no: officialRequestNo, approved_by: approvedBy, approval_comment: comment, applied });
-  } catch (err) {
-    const isDuplicate = String(err.message || '').toLowerCase().includes('duplicate') || String(err.code || '') === '23505';
-    res.status(isDuplicate ? 409 : 400).json({ error: isDuplicate ? 'Inventory record already exists.' : (err.message || 'Unable to approve inventory request.') });
-  }
-});
-
-app.post('/api/inventory/requests/:id/reject', protectAdminOnly, async (req, res) => {
-  try {
-    const requestId = Number(req.params.id || 0);
-    const reason = String(req.body?.reason || '').trim() || 'Rejected by admin.';
-    if (!requestId) return res.status(400).json({ error: 'Invalid request ID.' });
-    const rows = await queryAsync('SELECT request_no, status FROM inventory_requests WHERE id = ? LIMIT 1', [requestId]);
-    if (!rows?.[0]) return res.status(404).json({ error: 'Inventory request not found.' });
-    if (String(rows[0].status || '').toLowerCase() !== 'submitted') {
-      return res.status(400).json({ error: 'Only submitted inventory requests can be rejected.' });
-    }
-    await queryAsync(
-      "UPDATE inventory_requests SET status = 'rejected', approved_by = ?, approved_at = NOW(), reject_reason = ?, approval_comment = ? WHERE id = ?",
-      [getApprovalActorName(req), reason, reason, requestId]
-    );
-    logAction(req, 'REJECT_INVENTORY_REQUEST', `Request No: ${rows[0].request_no || requestId} | Reason: ${reason}`);
-    res.json({ success: true, status: 'rejected', reason });
-  } catch (err) {
-    res.status(400).json({ error: err.message || 'Unable to reject inventory request.' });
-  }
-});
-
-app.post('/api/inventory/movements', protectAdmin, async (req, res) => {
-  try {
-    if (isStaffRole(getAuthenticatedUser(req)?.role)) {
-      return res.status(403).json({ error: 'Staff must save stock movement requests as drafts and submit them for approval.' });
-    }
-    const businessEntityId = await resolveBusinessEntityId(req.body.business_entity_id);
-    const productId = Number(req.body.product_id || 0) || 0;
-    const warehouseId = Number(req.body.warehouse_id || 0) || 0;
-    const projectId = Number(req.body.project_id || 0) || null;
-    const movementType = String(req.body.movement_type || '').trim().toLowerCase();
-    const quantity = Number(req.body.quantity || 0) || 0;
-    if (!productId) return res.status(400).json({ error: 'Product is required.' });
-    if (!warehouseId) return res.status(400).json({ error: 'Warehouse is required.' });
-    if (!['in', 'out', 'adjustment'].includes(movementType)) return res.status(400).json({ error: 'Movement type is required.' });
-    if (quantity <= 0) return res.status(400).json({ error: 'Quantity must be greater than zero.' });
-
-    const [productRows, warehouseRows] = await Promise.all([
-      queryAsync('SELECT id FROM products WHERE id = ? AND business_entity_id = ? LIMIT 1', [productId, businessEntityId]),
-      queryAsync('SELECT id FROM warehouses WHERE id = ? AND business_entity_id = ? LIMIT 1', [warehouseId, businessEntityId])
-    ]);
-    if (!productRows.length) return res.status(404).json({ error: 'Selected product was not found.' });
-    if (!warehouseRows.length) return res.status(404).json({ error: 'Selected warehouse was not found.' });
-    if (projectId) {
-      await assertProjectAcceptsNewActivity(projectId);
-      const projectRows = await queryAsync('SELECT id FROM projects WHERE id = ? AND business_entity_id = ? LIMIT 1', [projectId, businessEntityId]);
-      if (!projectRows.length) return res.status(404).json({ error: 'Selected project was not found.' });
-    }
-
-    const signedQty = movementType === 'out' ? -quantity : quantity;
-    const stockRows = await queryAsync(
-      `INSERT INTO stock (business_entity_id, product_id, warehouse_id, quantity_on_hand, updated_at)
-       VALUES (?, ?, ?, ?, NOW())
-       ON CONFLICT (product_id, warehouse_id)
-       DO UPDATE SET quantity_on_hand = stock.quantity_on_hand + EXCLUDED.quantity_on_hand, updated_at = NOW()
-       RETURNING *`,
-      [businessEntityId, productId, warehouseId, signedQty]
-    );
-    if (Number(stockRows[0]?.quantity_on_hand || 0) < 0) {
-      await queryAsync(
-        `UPDATE stock
-         SET quantity_on_hand = quantity_on_hand - ?, updated_at = NOW()
-         WHERE product_id = ? AND warehouse_id = ?`,
-        [signedQty, productId, warehouseId]
-      );
-      return res.status(400).json({ error: 'Stock cannot go below zero.' });
-    }
-
-    const rows = await queryAsync(
-      `INSERT INTO stock_movements (business_entity_id, product_id, warehouse_id, movement_type, quantity, reference_type, reference_no, project_id, notes, movement_date, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       RETURNING *`,
-      [
-        businessEntityId,
-        productId,
-        warehouseId,
-        movementType,
-        quantity,
-        String(req.body.reference_type || '').trim() || (projectId ? 'project_issue' : null),
-        String(req.body.reference_no || '').trim() || null,
-        projectId,
-        String(req.body.notes || '').trim() || null,
-        req.body.movement_date || new Date().toISOString().slice(0, 10),
-        req.session?.user?.fullname || req.session?.user?.username || null
-      ]
-    );
-    res.status(201).json({ movement: rows[0], stock: stockRows[0] });
-  } catch (err) {
-    console.error('Inventory movement save error:', err);
-    res.status(500).json({ error: err.message || 'Unable to save stock movement.' });
-  }
-});
-
-app.get('/api/accounting/accounts', protectAdmin, async (req, res) => {
-  try {
-    const rows = await queryAsync(`
-      SELECT a.*, p.account_code AS parent_account_code, p.account_name AS parent_account_name
-      FROM chart_of_accounts a
-      LEFT JOIN chart_of_accounts p ON p.id = a.parent_account_id
-      ORDER BY a.account_code ASC, a.account_name ASC
-    `);
-    res.json(rows);
-  } catch (err) {
-    console.error('Accounting accounts error:', err);
-    res.status(500).json({ error: err.message || 'Unable to load accounts.' });
-  }
-});
-
-app.post('/api/accounting/accounts', protectAdmin, async (req, res) => {
-  try {
-    const accountCode = String(req.body.account_code || '').trim() || generateCode('ACCT');
-    const accountName = String(req.body.account_name || '').trim();
-    const accountType = String(req.body.account_type || '').trim().toLowerCase();
-    const parentAccountId = req.body.parent_account_id ? Number(req.body.parent_account_id) : null;
-
-    if (!accountName || !['asset', 'liability', 'equity', 'revenue', 'expense'].includes(accountType)) {
-      return res.status(400).json({ error: 'Account name and a valid account type are required.' });
-    }
-
-    const duplicateRows = await queryAsync(
-      'SELECT id FROM chart_of_accounts WHERE account_code = ? LIMIT 1',
-      [accountCode]
-    );
-    if (duplicateRows.length) {
-      return res.status(409).json({ error: 'Account code already exists.', field: 'account_code' });
-    }
-
-    const result = await queryAsync(
-      'INSERT INTO chart_of_accounts (account_code, account_name, account_type, parent_account_id) VALUES (?, ?, ?, ?)',
-      [accountCode, accountName, accountType, parentAccountId]
-    );
-    res.json({ id: result.insertId, account_code: accountCode });
-  } catch (err) {
-    if (isPostgresUniqueViolation(err)) {
-      return res.status(409).json({ error: 'Account code already exists.' });
-    }
-    console.error('Create account error:', err);
-    res.status(500).json({ error: err.message || 'Unable to create account.' });
-  }
-});
-
-app.get('/api/accounting/periods', protectAdmin, async (req, res) => {
-  try {
-    const rows = await queryAsync('SELECT * FROM accounting_periods ORDER BY start_date DESC, id DESC');
-    res.json(rows);
-  } catch (err) {
-    console.error('Accounting periods error:', err);
-    res.status(500).json({ error: err.message || 'Unable to load accounting periods.' });
-  }
-});
-
-app.post('/api/accounting/periods', protectAdmin, async (req, res) => {
-  try {
-    const periodName = String(req.body.period_name || '').trim() || generateCode('PERIOD');
-    const startDate = req.body.start_date;
-    const endDate = req.body.end_date;
-    const isClosed = Number(req.body.is_closed || 0) ? 1 : 0;
-
-    if (!startDate || !endDate) {
-      return res.status(400).json({ error: 'Start and end dates are required.' });
-    }
-
-    const duplicateRows = await queryAsync(
-      'SELECT id FROM accounting_periods WHERE period_name = ? LIMIT 1',
-      [periodName]
-    );
-    if (duplicateRows.length) {
-      return res.status(409).json({ error: 'Period name already exists.', field: 'period_name' });
-    }
-
-    const result = await queryAsync(
-      'INSERT INTO accounting_periods (period_name, start_date, end_date, is_closed) VALUES (?, ?, ?, ?)',
-      [periodName, startDate, endDate, isClosed]
-    );
-    res.json({ id: result.insertId, period_name: periodName });
-  } catch (err) {
-    if (isPostgresUniqueViolation(err)) {
-      return res.status(409).json({ error: 'Period name already exists.' });
-    }
-    console.error('Create accounting period error:', err);
-    res.status(500).json({ error: err.message || 'Unable to create accounting period.' });
-  }
-});
-
-app.get('/api/accounting/journal-entries', protectAdmin, async (req, res) => {
-  try {
-    const rows = await queryAsync(`
-      SELECT
-        e.*,
-        COALESCE(SUM(l.debit), 0) AS total_debit,
-        COALESCE(SUM(l.credit), 0) AS total_credit,
-        COUNT(l.id) AS line_count
-      FROM journal_entries e
-      LEFT JOIN journal_lines l ON l.journal_entry_id = e.id
-      GROUP BY e.id
-      ORDER BY e.entry_date DESC, e.id DESC
-    `);
-    res.json(rows);
-  } catch (err) {
-    console.error('Journal entries error:', err);
-    res.status(500).json({ error: err.message || 'Unable to load journal entries.' });
-  }
-});
-
-app.post('/api/accounting/journal-entries', protectAdmin, async (req, res) => {
-  const entryDate = req.body.entry_date;
-  const memo = String(req.body.memo || '').trim();
-  const referenceType = String(req.body.reference_type || '').trim() || null;
-  const referenceId = String(req.body.reference_id || '').trim() || null;
-  const debitAccountId = Number(req.body.debit_account_id || 0);
-  const creditAccountId = Number(req.body.credit_account_id || 0);
-  const amount = toNumber(req.body.amount, 0);
-
-  if (!entryDate || !debitAccountId || !creditAccountId || amount <= 0) {
-    return res.status(400).json({ error: 'Entry date, debit account, credit account, and amount are required.' });
-  }
-
-  if (debitAccountId === creditAccountId) {
-    return res.status(400).json({ error: 'Debit and credit accounts must be different.' });
-  }
-
-  const entryNumber = String(req.body.entry_number || '').trim() || generateCode('JE');
-
-  try {
-    const entryResult = await queryAsync(
-      'INSERT INTO journal_entries (entry_number, entry_date, reference_type, reference_id, memo, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [entryNumber, entryDate, referenceType, referenceId, memo || null, 'posted', req.session.user?.id || null]
-    );
-
-    await queryAsync(
-      'INSERT INTO journal_lines (journal_entry_id, account_id, line_memo, debit, credit) VALUES (?, ?, ?, ?, ?)',
-      [entryResult.insertId, debitAccountId, memo || null, amount, 0]
-    );
-    await queryAsync(
-      'INSERT INTO journal_lines (journal_entry_id, account_id, line_memo, debit, credit) VALUES (?, ?, ?, ?, ?)',
-      [entryResult.insertId, creditAccountId, memo || null, 0, amount]
-    );
-
-    logAction(req, 'CREATE_JOURNAL_ENTRY', `Created journal entry ${entryNumber}`);
-    res.json({ id: entryResult.insertId, entry_number: entryNumber });
-  } catch (err) {
-    if (isPostgresUniqueViolation(err)) {
-      return res.status(409).json({ error: 'Journal entry number already exists.' });
-    }
-    console.error('Create journal entry error:', err);
-    res.status(500).json({ error: err.message || 'Unable to create journal entry.' });
-  }
-});
-
-app.get('/api/procurement/requisitions', protectAdmin, async (req, res) => {
-  try {
-    const actor = getAuthenticatedUser(req) || {};
-    const conditions = [];
-    const params = [];
-    if (isStaffRole(actor.role)) {
-      const staffTerms = [actor.fullname, actor.username, actor.email]
-        .map(value => String(value || '').trim().toLowerCase())
-        .filter(value => value.length >= 3);
-      const staffClauses = [];
-      staffTerms.forEach((term) => {
-        const like = `%${term}%`;
-        staffClauses.push(`(
-          LOWER(COALESCE(r.requested_by, '')) LIKE ?
-          OR LOWER(COALESCE(r.requested_by_email, '')) LIKE ?
-          OR LOWER(COALESCE(r.submitted_by, '')) LIKE ?
-          OR LOWER(COALESCE(p.project_manager, '')) LIKE ?
-          OR LOWER(COALESCE(p.members, '')) LIKE ?
-          OR LOWER(COALESCE(p.project_members, '')) LIKE ?
-          OR LOWER(COALESCE(p.project_members_2, '')) LIKE ?
-          OR LOWER(COALESCE(p.project_members_3, '')) LIKE ?
-        )`);
-        params.push(like, like, like, like, like, like, like, like);
-      });
-      const actorId = Number(actor.id || 0) || 0;
-      if (actorId) {
-        staffClauses.push('p.created_by = ?');
-        params.push(actorId);
-        staffClauses.push('p.assigned_to = ?');
-        params.push(actorId);
-      }
-      conditions.push(staffClauses.length ? `(${staffClauses.join(' OR ')})` : '1=0');
-    }
-    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-    const [requisitions, items] = await Promise.all([
-      queryAsync(`
-        SELECT
-          r.*,
-          r.pdfFilename AS "pdfFilename",
-          r.company_id AS company_id,
-          be.company_name AS business_entity_name,
-          be.entity_code AS business_entity_code,
-          c.company_name,
-          c.company_no,
-          p.project_docno,
-          p.project_name,
-          COALESCE(p.is_archived, FALSE) AS project_is_archived
-        FROM purchase_requisitions r
-        LEFT JOIN business_entities be ON be.id = r.business_entity_id
-        LEFT JOIN company_registry c ON c.id = r.company_id
-        LEFT JOIN projects p ON p.id = r.project_id
-        ${where}
-        ORDER BY r.request_date DESC, r.id DESC
-      `, params),
-      queryAsync(`
-        SELECT *
-        FROM purchase_requisition_items
-        ORDER BY pr_id ASC, id ASC
-      `)
-    ]);
-
-    const itemsByPr = new Map();
-    (Array.isArray(items) ? items : []).forEach((item) => {
-      const prId = Number(item.pr_id || 0);
-      if (!prId) return;
-      const bucket = itemsByPr.get(prId) || [];
-      bucket.push({
-        ...item,
-        quantity: Number(item.quantity || 0),
-        estimated_unit_price: Number(item.estimated_unit_price || 0),
-        unit_price: Number(item.estimated_unit_price || 0),
-        line_total: Number(item.line_total || 0)
-      });
-      itemsByPr.set(prId, bucket);
-    });
-
-    const rows = (Array.isArray(requisitions) ? requisitions : []).map((row) => {
-      const lineItems = itemsByPr.get(Number(row.id || 0)) || [];
-      const totalAmount = lineItems.reduce((sum, item) => sum + Number(item.line_total || 0), 0);
-      const firstItem = lineItems[0] || {};
-      return {
-        ...row,
-        line_items: lineItems,
-        item_count: lineItems.length,
-        total_amount: totalAmount,
-        item_summary: lineItems.map((item) => String(item.item_name || '').trim()).filter(Boolean).join(' | '),
-        item_name: firstItem.item_name || null,
-        item_description: firstItem.description || null,
-        quantity: firstItem.quantity || null,
-        unit: firstItem.unit || null,
-        unit_price: firstItem.estimated_unit_price || null,
-        line_total: firstItem.line_total || null
-      };
-    });
-    res.json(rows);
-  } catch (err) {
-    console.error('Requisitions error:', err);
-    res.status(500).json({ error: err.message || 'Unable to load requisitions.' });
-  }
-});
 
 function normalizePurchaseRequisitionLineItems(body = {}) {
   const rawItems = Array.isArray(body.items) ? body.items : [];
@@ -14837,123 +10044,6 @@ function normalizePurchaseRequisitionLineItems(body = {}) {
   return [];
 }
 
-app.post('/api/procurement/requisitions', protectAdmin, async (req, res) => {
-  let prNumber = String(req.body.pr_number || '').trim();
-  let companyId = Number(req.body.company_id || 0) || 0;
-  const projectId = Number(req.body.project_id || 0) || null;
-  // PR type: 'project' (raised from a project) vs 'stock' (direct stock request, no
-  // project/company). Defaults from context: a project id means a project PR.
-  const prType = String(req.body.pr_type || (projectId ? 'project' : 'stock')).trim().toLowerCase() === 'stock' ? 'stock' : 'project';
-  const requestDate = req.body.request_date || new Date().toISOString().slice(0, 10);
-  const department = String(req.body.department || '').trim() || null;
-  const requestedBy = String(req.body.requested_by || '').trim() || null;
-  const neededBy = req.body.needed_by || null;
-  // Staff file PR "requests" (draft + DFT- number) that need approval; admins
-  // create an official, approved PR that lands directly in the requisitions table.
-  const actor = getAuthenticatedUser(req) || {};
-  const actorIsStaff = isStaffRole(actor.role);
-  const status = actorIsStaff ? 'draft' : 'approved';
-  const notes = String(req.body.notes || '').trim() || null;
-  const lineItems = normalizePurchaseRequisitionLineItems(req.body);
-
-  if (!lineItems.length) {
-    return res.status(400).json({ error: 'At least one item name and quantity are required.' });
-  }
-  if (prType === 'project' && !projectId) {
-    return res.status(400).json({ error: 'Project is required for a project purchase requisition.' });
-  }
-  if (!requestDate) {
-    return res.status(400).json({ error: 'Request date is required.' });
-  }
-  if (!requestedBy) {
-    return res.status(400).json({ error: 'Requested by is required.' });
-  }
-  if (!neededBy) {
-    return res.status(400).json({ error: 'Needed by date is required.' });
-  }
-
-  try {
-    let projectRecord = null;
-    let companyRecord = null;
-    let businessEntityId;
-    if (prType === 'project') {
-      projectRecord = await resolvePurchaseOrderProjectContext(projectId, companyId);
-      companyId = Number(projectRecord?.company_id || 0) || 0;
-      businessEntityId = await resolveBusinessEntityId(projectRecord?.business_entity_id || req.body.business_entity_id);
-      ({ companyRecord } = await resolvePurchaseRequisitionContext(companyId));
-      await resolvePurchaseOrderProjectContext(projectRecord.id, companyRecord.id);
-    } else {
-      // Stock PR: no project, no customer/company — just the operating business entity.
-      businessEntityId = await resolveBusinessEntityId(req.body.business_entity_id);
-    }
-    if (actorIsStaff) {
-      if (!prNumber || !isDraftDocumentNo(prNumber)) {
-        prNumber = await generateNextDraftEntityDocumentNo({
-          businessEntityId,
-          documentType: 'purchase-requisition',
-          prefix: 'PR',
-          tableName: 'purchase_requisitions',
-          columnName: 'pr_number'
-        });
-      }
-    } else {
-      prNumber = await generateNextEntityDocumentNo({
-        businessEntityId,
-        documentType: 'purchase-requisition',
-        prefix: 'PR',
-        tableName: 'purchase_requisitions',
-        columnName: 'pr_number'
-      });
-    }
-    const requestedByEmail = await getAuthenticatedUserEmail(req);
-    const reqResult = await queryAsync(
-      'INSERT INTO purchase_requisitions (pr_number, business_entity_id, company_id, project_id, pr_type, request_date, department, requested_by, requested_by_email, needed_by, status, notes, approved_by, approved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [
-        prNumber,
-        businessEntityId,
-        companyRecord?.id || null,
-        projectRecord?.id || null,
-        prType,
-        requestDate,
-        department,
-        requestedBy,
-        requestedByEmail || null,
-        neededBy,
-        status,
-        notes,
-        actorIsStaff ? null : getApprovalActorName(req),
-        actorIsStaff ? null : new Date()
-      ]
-    );
-    await claimEntityDocumentNo({
-      businessEntityId,
-      documentType: 'purchase-requisition',
-      prefix: 'PR',
-      documentNo: prNumber
-    });
-
-    for (const item of lineItems) {
-      const lineTotal = Number(item.quantity || 0) * Number(item.estimated_unit_price || 0);
-      await queryAsync(
-        'INSERT INTO purchase_requisition_items (pr_id, product_id, category, warehouse_id, item_name, description, quantity, unit, estimated_unit_price, line_total) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [reqResult.insertId, item.product_id || null, item.category || null, item.warehouse_id || null, item.item_name, item.description, item.quantity, item.unit, item.estimated_unit_price, lineTotal]
-      );
-    }
-
-    logAction(req, 'CREATE_PURCHASE_REQUISITION', `Created requisition ${prNumber}`);
-    res.json({ id: reqResult.insertId, pr_number: prNumber });
-  } catch (err) {
-    if (isPostgresUniqueViolation(err)) {
-      return res.status(409).json({ error: 'PR number already exists.' });
-    }
-    const validationMessage = String(err?.message || '').toLowerCase();
-    if (validationMessage.includes('required') || validationMessage.includes('same company') || validationMessage.includes('not found') || validationMessage.includes('archived')) {
-      return res.status(400).json({ error: err.message || 'Unable to create requisition.' });
-    }
-    console.error('Create requisition error:', err);
-    res.status(500).json({ error: err.message || 'Unable to create requisition.' });
-  }
-});
 
 function normalizePurchaseOrderLineItems(body = {}) {
   const rawItems = Array.isArray(body.items) ? body.items : [];
@@ -15011,6 +10101,82 @@ async function validatePurchaseOrderLineProducts(lineItems = [], businessEntityI
   }
 }
 
+async function sanitizePurchaseOrderLineProducts(lineItems = [], businessEntityId = null) {
+  const items = Array.isArray(lineItems) ? lineItems : [];
+  const productIds = [...new Set(items
+    .map((item) => Number(item.product_id || 0) || 0)
+    .filter(Boolean))];
+  if (!productIds.length) return items;
+
+  const placeholders = productIds.map(() => '?').join(', ');
+  const rows = await queryAsync(
+    `SELECT id FROM products WHERE id IN (${placeholders}) AND business_entity_id = ?`,
+    [...productIds, businessEntityId]
+  );
+  const valid = new Set((Array.isArray(rows) ? rows : []).map((row) => Number(row.id || 0)));
+  return items.map((item) => ({
+    ...item,
+    product_id: valid.has(Number(item.product_id || 0) || 0) ? item.product_id : null
+  }));
+}
+
+function normalizeGoodsReceiptProductMappings(body = {}) {
+  const rows = Array.isArray(body.product_mappings) ? body.product_mappings : [];
+  return rows.map((row) => ({
+    po_line_item_id: Number(row?.po_line_item_id || row?.line_item_id || 0) || 0,
+    product_id: Number(row?.product_id || 0) || null,
+    create_product: row?.create_product !== false && !Number(row?.product_id || 0),
+    product_name: String(row?.product_name || row?.name || '').trim(),
+    category: String(row?.category || '').trim() || null,
+    unit: String(row?.unit || 'pcs').trim() || 'pcs',
+    unit_cost: Number(row?.unit_cost || row?.unit_price || 0) || 0
+  })).filter((row) => row.po_line_item_id);
+}
+
+async function applyGoodsReceiptProductMappings({ poId, businessEntityId, mappings = [] } = {}) {
+  const safePoId = Number(poId || 0) || 0;
+  const safeBusinessEntityId = Number(businessEntityId || 0) || 0;
+  if (!safePoId || !safeBusinessEntityId || !Array.isArray(mappings) || !mappings.length) return;
+
+  const lineItems = await queryAsync(
+    'SELECT id, product_id, description, unit_price FROM po_line_items WHERE po_id = ? ORDER BY id ASC',
+    [safePoId]
+  );
+  const lineById = new Map((Array.isArray(lineItems) ? lineItems : []).map((line) => [Number(line.id || 0), line]));
+
+  for (const mapping of mappings) {
+    const lineId = Number(mapping.po_line_item_id || 0) || 0;
+    const line = lineById.get(lineId);
+    if (!line) throw new Error('Selected PO line item was not found.');
+    if (Number(line.product_id || 0)) continue;
+
+    let productId = Number(mapping.product_id || 0) || 0;
+    if (productId) {
+      const productRows = await queryAsync(
+        'SELECT id FROM products WHERE id = ? AND business_entity_id = ? AND is_active = TRUE LIMIT 1',
+        [productId, safeBusinessEntityId]
+      );
+      if (!productRows.length) throw new Error('Selected inventory product was not found for this operating company.');
+    } else if (mapping.create_product) {
+      const productName = String(mapping.product_name || line.description || '').trim();
+      if (!productName) throw new Error('Product name is required before receiving goods.');
+      const product = await insertProductWithSku(safeBusinessEntityId, {
+        sku: mapping.sku || '',
+        product_name: productName,
+        category: mapping.category || 'Procurement',
+        unit: mapping.unit || 'pcs',
+        reorder_level: 0,
+        unit_cost: Number(mapping.unit_cost || line.unit_price || 0) || 0,
+        selling_price: 0
+      });
+      productId = Number(product?.id || 0) || 0;
+    }
+
+    if (!productId) throw new Error('Map all PO line items to inventory products before receiving.');
+    await queryAsync('UPDATE po_line_items SET product_id = ? WHERE id = ? AND po_id = ?', [productId, lineId, safePoId]);
+  }
+}
+
 async function postInventoryReceiptForPurchaseOrder({
   poId,
   receiptId,
@@ -15019,7 +10185,8 @@ async function postInventoryReceiptForPurchaseOrder({
   warehouseId,
   receivedDate,
   receivedBy,
-  notes
+  notes,
+  lineReceipts = null // optional Map(po_line_item_id -> qty to receive now); null = receive all remaining
 } = {}) {
   const safePoId = Number(poId || 0) || 0;
   const safeReceiptId = Number(receiptId || 0) || 0;
@@ -15053,7 +10220,14 @@ async function postInventoryReceiptForPurchaseOrder({
     const productId = Number(item.product_id || 0);
     const orderedQty = Number(item.quantity || 0);
     const alreadyReceived = Number(item.received_qty || 0);
-    const receiveQty = Math.max(0, orderedQty - alreadyReceived);
+    const remaining = Math.max(0, orderedQty - alreadyReceived);
+    // Partial receiving: take the requested qty (capped at remaining); fall back to the
+    // full remaining when no per-line quantities were supplied (legacy "receive all").
+    let receiveQty = remaining;
+    if (lineReceipts) {
+      const requested = Number(lineReceipts.get(Number(item.id)));
+      receiveQty = Math.max(0, Math.min(Number.isFinite(requested) ? requested : 0, remaining));
+    }
     if (receiveQty <= 0) continue;
 
     await queryAsync(
@@ -15099,7 +10273,13 @@ async function createSerialUnitsFromReceipt({ poId, warehouseId, businessEntityI
   if (!Array.isArray(serialGroups) || !serialGroups.length) return 0;
   let created = 0;
   for (const group of serialGroups) {
-    const productId = Number(group?.product_id || 0) || 0;
+    let productId = Number(group?.product_id || 0) || 0;
+    // Free-text PO lines have no product at capture time; the GRN's inventory mapping (applied
+    // earlier in this request) has since set the line's product_id, so resolve it from the line.
+    if (!productId && Number(group?.po_line_item_id || 0)) {
+      const lineRows = await queryAsync('SELECT product_id FROM po_line_items WHERE id = ? LIMIT 1', [Number(group.po_line_item_id)]);
+      productId = Number(lineRows?.[0]?.product_id || 0) || 0;
+    }
     if (!productId) continue;
     const raw = Array.isArray(group?.serials) ? group.serials : String(group?.serials || '').split(/[\r\n,]+/);
     const serials = [...new Set(raw.map((s) => String(s || '').trim()).filter(Boolean))];
@@ -15237,6 +10417,15 @@ async function markPurchaseOrderReceived(poId) {
   );
 }
 
+// True only when every PO line has been fully received (received_qty >= ordered qty).
+async function isPurchaseOrderFullyReceived(poId) {
+  const id = Number(poId || 0) || 0;
+  if (!id) return false;
+  const rows = await queryAsync('SELECT quantity, COALESCE(received_qty, 0) AS received_qty FROM po_line_items WHERE po_id = ?', [id]);
+  if (!Array.isArray(rows) || !rows.length) return false;
+  return rows.every((r) => Number(r.received_qty || 0) >= Number(r.quantity || 0));
+}
+
 function parsePurchaseOrderPaymentTerms(paymentTerms, totalAmount) {
   const terms = String(paymentTerms || '').trim();
   const total = Number(totalAmount || 0);
@@ -15357,102 +10546,6 @@ async function resolvePurchaseOrderProjectContext(projectId = 0, companyId = 0) 
   return project;
 }
 
-app.get('/api/procurement/purchase-orders', protectAdmin, async (req, res) => {
-  try {
-    const conditions = [];
-    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-    const [purchaseOrders, lineItems, bills] = await Promise.all([
-      queryAsync(`
-      SELECT
-        po.*,
-        be.company_name AS business_entity_name,
-        be.entity_code AS business_entity_code,
-        r.pr_number AS requisition_number,
-        v.vendor_name,
-        COALESCE(po.company_id, r.company_id) AS company_id,
-        c.company_name,
-        c.company_no,
-        p.project_docno,
-        p.project_name,
-        COALESCE(p.is_archived, FALSE) AS project_is_archived,
-        q.quote_number AS source_quote_number,
-        (SELECT COUNT(*) FROM accounts_payable ap WHERE ap.po_id = po.id) AS bill_count,
-        (SELECT COUNT(*) FROM documents d WHERE d.module_name = 'purchase_order' AND d.record_id = po.id) AS document_count
-      FROM purchase_orders po
-      LEFT JOIN business_entities be ON be.id = po.business_entity_id
-      LEFT JOIN purchase_requisitions r ON r.id = po.requisition_id
-      LEFT JOIN vendors v ON v.id = po.vendor_id
-      LEFT JOIN company_registry c ON c.id = COALESCE(po.company_id, r.company_id)
-      LEFT JOIN projects p ON p.id = po.project_id
-      LEFT JOIN procurement_quotations q ON q.id = po.quotation_id
-      ${where}
-        ORDER BY po.po_date DESC, po.id DESC
-      `),
-      queryAsync(`
-        SELECT
-          li.*
-        FROM po_line_items li
-        ORDER BY li.po_id ASC, li.id ASC
-      `),
-      queryAsync(`
-        SELECT id, po_id, bill_number, bill_date, due_date, total_amount, paid_amount, status
-        FROM accounts_payable
-        WHERE po_id IS NOT NULL
-        ORDER BY po_id ASC, due_date ASC, id ASC
-      `)
-    ]);
-
-    const itemsByPo = new Map();
-    (Array.isArray(lineItems) ? lineItems : []).forEach((item) => {
-      const poId = Number(item.po_id || 0);
-      if (!poId) return;
-
-      const bucket = itemsByPo.get(poId) || [];
-      bucket.push({
-        ...item,
-        quantity: Number(item.quantity || 0),
-        unit_price: Number(item.unit_price || 0),
-        line_total: Number(item.line_total || 0),
-        description: String(item.description || '').trim(),
-        display_label: String(item.description || '').trim()
-      });
-      itemsByPo.set(poId, bucket);
-    });
-
-    const billsByPo = new Map();
-    (Array.isArray(bills) ? bills : []).forEach((bill) => {
-      const poId = Number(bill.po_id || 0);
-      if (!poId) return;
-      const bucket = billsByPo.get(poId) || [];
-      bucket.push({
-        ...bill,
-        total_amount: Number(bill.total_amount || 0),
-        paid_amount: Number(bill.paid_amount || 0)
-      });
-      billsByPo.set(poId, bucket);
-    });
-
-    const rows = (Array.isArray(purchaseOrders) ? purchaseOrders : []).map((po) => {
-      const items = itemsByPo.get(Number(po.id || 0)) || [];
-      const poBills = billsByPo.get(Number(po.id || 0)) || [];
-      const computedTotal = items.reduce((sum, item) => sum + Number(item.line_total || 0), 0);
-      return {
-        ...po,
-        line_items: items,
-        bill_details: poBills,
-        line_count: items.length,
-        bill_count: poBills.length || Number(po.bill_count || 0),
-        computed_total: computedTotal || Number(po.total_amount || 0),
-        item_summary: buildPurchaseOrderItemSummary(items)
-      };
-    });
-
-    res.json(rows);
-  } catch (err) {
-    console.error('Purchase orders error:', err);
-    res.status(500).json({ error: err.message || 'Unable to load purchase orders.' });
-  }
-});
 
 async function resolvePurchaseOrderQuotationContext(quotationId = 0, requisitionId = 0, vendorId = 0) {
   const normalizedQuotationId = Number(quotationId || 0) || 0;
@@ -15477,1541 +10570,323 @@ async function resolvePurchaseOrderQuotationContext(quotationId = 0, requisition
   if (vendorId && quoteVendorId && Number(vendorId) !== quoteVendorId) {
     throw new Error('Selected quotation must match the selected vendor.');
   }
-  if (String(quote.status || '').trim().toLowerCase() !== 'selected') {
+  if (!isFinalAwardedQuotationStatus(quote.status)) {
     throw new Error('Select the winning quotation before converting it to a purchase order.');
   }
 
   return quote;
 }
 
-app.post('/api/procurement/purchase-orders', protectAdmin, async (req, res) => {
-  let poNumber = String(req.body.po_number || '').trim();
-  const vendorId = Number(req.body.vendor_id || 0);
-  const requisitionId = Number(req.body.requisition_id || 0) || null;
-  const quotationId = Number(req.body.quotation_id || 0) || null;
-  const explicitBusinessEntityId = Number(req.body.business_entity_id || 0) || null;
-  const explicitCompanyId = Number(req.body.company_id || 0) || 0;
-  const projectId = Number(req.body.project_id || 0) || null;
-  const poDate = req.body.po_date || new Date().toISOString().slice(0, 10);
-  const deliveryDate = req.body.delivery_date || null;
-  const paymentTerms = String(req.body.payment_terms || '').trim() || null;
-  const preparedBy = String(req.body.prepared_by || '').trim() || null;
-  const approvedBy = String(req.body.approved_by || '').trim() || null;
-  const notes = String(req.body.notes || '').trim() || null;
-  const lineItems = normalizePurchaseOrderLineItems(req.body);
 
-  if (!vendorId || !lineItems.length) {
-    return res.status(400).json({ error: 'Vendor and at least one line item description are required.' });
-  }
-  if (!requisitionId) {
-    return res.status(400).json({ error: 'Approved purchase requisition is required before creating a purchase order.' });
-  }
-  if (!quotationId) {
-    return res.status(400).json({ error: 'Approved RFQ is required before creating a purchase order.' });
-  }
 
-  const totalAmount = lineItems.reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.unit_price || 0)), 0);
 
-  try {
-    const actor = getAuthenticatedUser(req) || {};
-    const adminCreatesApprovedPo = isAdminRole(actor.role);
-    const status = adminCreatesApprovedPo ? 'approved' : 'draft';
-    const approvedByName = adminCreatesApprovedPo ? getApprovalActorName(req) : approvedBy;
-    let draftPoNumber = null;
-
-    const vendorRows = await queryAsync(
-      'SELECT id, vendor_no, vendor_name, business_entity_id, COALESCE(is_active, TRUE) AS is_active FROM vendors WHERE id = ? LIMIT 1',
-      [vendorId]
-    );
-    if (!Array.isArray(vendorRows) || !vendorRows.length) {
-      return res.status(404).json({ error: 'Vendor not found.' });
-    }
-    if (Number(vendorRows[0].is_active || 0) !== 1) {
-      return res.status(400).json({ error: 'Vendor is inactive. Activate the vendor before using it in a purchase order.' });
-    }
-
-    const { companyRecord, requisitionRow } = await resolvePurchaseOrderRequisitionContext(
-      requisitionId,
-      explicitCompanyId,
-      { requireApproved: true, allowOrdered: false }
-    );
-    if (requisitionRow?.id) {
-      const existingPoRows = await queryAsync(
-        'SELECT id, po_number FROM purchase_orders WHERE requisition_id = ? LIMIT 1',
-        [requisitionRow.id]
-      );
-      if (existingPoRows.length) {
-        return res.status(409).json({ error: `Selected requisition already has PO ${existingPoRows[0].po_number || existingPoRows[0].id}.` });
-      }
-    }
-    const businessEntityId = await resolveBusinessEntityId(explicitBusinessEntityId || requisitionRow?.business_entity_id || null);
-    if (Number(vendorRows[0].business_entity_id || 0) && Number(vendorRows[0].business_entity_id || 0) === Number(businessEntityId || 0)) {
-      return res.status(400).json({ error: 'Select another vendor. The issuing company cannot be its own supplier on this PO.' });
-    }
-    if (adminCreatesApprovedPo) {
-      if (!poNumber || isDraftDocumentNo(poNumber)) {
-        draftPoNumber = poNumber || null;
-        poNumber = await generateNextEntityDocumentNo({
-          businessEntityId,
-          documentType: 'purchase-order',
-          prefix: 'PO',
-          tableName: 'purchase_orders',
-          columnName: 'po_number'
-        });
-      }
-    } else if (!poNumber || !isDraftDocumentNo(poNumber)) {
-      poNumber = await generateNextDraftEntityDocumentNo({
-        businessEntityId,
-        documentType: 'purchase-order',
-        prefix: 'PO',
-        tableName: 'purchase_orders',
-        columnName: 'po_number'
-      });
-    }
-    const projectRecord = await resolvePurchaseOrderProjectContext(projectId || requisitionRow?.project_id || null, companyRecord?.id || explicitCompanyId || 0);
-    const quotationRow = await resolvePurchaseOrderQuotationContext(quotationId, requisitionRow?.id || requisitionId || 0, vendorId);
-    const resolvedCompanyId = Number(companyRecord?.id || projectRecord?.company_id || 0) || null;
-    await validatePurchaseOrderLineProducts(lineItems, businessEntityId);
-    const poResult = await queryAsync(
-      'INSERT INTO purchase_orders (po_number, requisition_id, quotation_id, business_entity_id, vendor_id, company_id, project_id, po_date, delivery_date, payment_terms, prepared_by, approved_by, total_amount, status, notes, draft_po_number, approved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? THEN NOW() ELSE NULL END)',
-      [poNumber, requisitionRow?.id || null, quotationRow?.id || null, businessEntityId, vendorId, resolvedCompanyId, projectRecord?.id || null, poDate, deliveryDate, paymentTerms, preparedBy, approvedByName || null, totalAmount, status, notes, draftPoNumber, adminCreatesApprovedPo]
-    );
-    await claimEntityDocumentNo({
-      businessEntityId,
-      documentType: 'purchase-order',
-      prefix: 'PO',
-      documentNo: poNumber
-    });
-
-    for (const item of lineItems) {
-      const lineTotal = Number(item.quantity || 0) * Number(item.unit_price || 0);
-      await queryAsync(
-        'INSERT INTO po_line_items (po_id, product_id, description, quantity, unit_price, line_total) VALUES (?, ?, ?, ?, ?, ?)',
-        [poResult.insertId, item.product_id || null, item.description, item.quantity, item.unit_price, lineTotal]
-      );
-    }
-    if (requisitionRow?.id) {
-      await markRequisitionOrdered(requisitionRow.id);
-    }
-
-    logAction(req, 'CREATE_PURCHASE_ORDER', `Created purchase order ${poNumber}`);
-
-    if (adminCreatesApprovedPo) {
-      logAction(req, 'APPROVE_PURCHASE_ORDER', `Auto-approved purchase order ${poNumber}${draftPoNumber ? ` (Draft ${draftPoNumber})` : ''}`);
-      return res.json({ id: poResult.insertId, po_number: poNumber, status, approved_by: approvedByName });
-    }
-
-    res.json({ id: poResult.insertId, po_number: poNumber, status });
-  } catch (err) {
-    if (isPostgresUniqueViolation(err)) {
-      return res.status(409).json({ error: 'PO number already exists.' });
-    }
-    const validationMessage = String(err?.message || '').toLowerCase();
-    if (validationMessage.includes('required') || validationMessage.includes('must match') || validationMessage.includes('same company') || validationMessage.includes('not found') || validationMessage.includes('approved') || validationMessage.includes('archived') || validationMessage.includes('quotation')) {
-      return res.status(400).json({ error: err.message || 'Unable to create purchase order.' });
-    }
-    console.error('Create purchase order error:', err);
-    res.status(500).json({ error: err.message || 'Unable to create purchase order.' });
-  }
-});
-
-app.post('/api/procurement/purchase-orders/:id/generate-bills', protectAdmin, async (req, res) => {
-  const poId = Number(req.params.id || 0);
-  if (!poId) {
-    return res.status(400).json({ error: 'Purchase order ID is required.' });
-  }
-
-  try {
-    const { po, createdBills } = await withDbTransaction(async (connection) => {
-      const poRows = await connectionQueryAsync(
-        connection,
-        `SELECT id, po_number, business_entity_id, vendor_id, project_id, po_date, delivery_date,
-                total_amount, payment_terms, status
-         FROM purchase_orders
-         WHERE id = ? LIMIT 1
-         FOR UPDATE`,
-        [poId]
-      );
-      if (!Array.isArray(poRows) || !poRows.length) {
-        const err = new Error('Purchase order not found.');
-        err.statusCode = 404;
-        throw err;
-      }
-
-      const existingBills = await connectionQueryAsync(connection, 'SELECT id FROM accounts_payable WHERE po_id = ? LIMIT 1', [poId]);
-      if (existingBills.length) {
-        const err = new Error('This PO already has AP bill(s).');
-        err.statusCode = 409;
-        throw err;
-      }
-
-      const po = poRows[0];
-      if (normalizeProcurementWorkflowStatus(po.status) !== 'approved') {
-        const err = new Error('Approve this purchase order before generating AP bills.');
-        err.statusCode = 400;
-        throw err;
-      }
-
-      const schedule = parsePurchaseOrderPaymentTerms(po.payment_terms, po.total_amount);
-      if (!schedule.length) {
-        const err = new Error('Payment terms must include percentage terms like "30% downpayment, 70% upon delivery".');
-        err.statusCode = 400;
-        throw err;
-      }
-      const percentTotal = schedule.reduce((sum, term) => sum + Number(term.percent || 0), 0);
-      if (Math.abs(percentTotal - 100) > 0.05) {
-        const err = new Error(`Payment terms must total 100%. Current total is ${Number(percentTotal.toFixed(2))}%.`);
-        err.statusCode = 400;
-        throw err;
-      }
-
-      const businessEntityId = await resolveBusinessEntityId(po.business_entity_id);
-      const createdBills = [];
-      for (const term of schedule) {
-        const billNumber = await generateNextEntityDocumentNo({
-          businessEntityId,
-          documentType: 'ap-bill',
-          prefix: 'BILL',
-          tableName: 'accounts_payable',
-          columnName: 'bill_number'
-        });
-        const dueDate = resolveTermDueDate(term, po.po_date, po.delivery_date);
-        const notes = `Generated from ${po.po_number}: ${term.percent}% ${term.label}`;
-        const result = await connectionQueryAsync(
-          connection,
-          'INSERT INTO accounts_payable (business_entity_id, vendor_id, bill_number, bill_date, due_date, project_id, po_id, total_amount, approval_status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          [businessEntityId, po.vendor_id, billNumber, po.po_date || getManilaYmd(), dueDate, po.project_id || null, poId, term.amount, 'pending', notes]
-        );
-        createdBills.push({
-          id: result.insertId,
-          bill_number: billNumber,
-          amount: term.amount,
-          percent: term.percent,
-          label: term.label
-        });
-      }
-      return { po, createdBills };
-    });
-
-    logAction(req, 'GENERATE_PO_BILLS', `Generated ${createdBills.length} AP bill(s) from PO ${po.po_number}`);
-    res.json({ success: true, bills: createdBills });
-  } catch (err) {
-    if (err?.statusCode) {
-      return res.status(err.statusCode).json({ error: err.message || 'Unable to generate AP bills from PO.' });
-    }
-    if (isPostgresUniqueViolation(err)) {
-      return res.status(409).json({ error: 'A generated bill number already exists.' });
-    }
-    console.error('Generate PO bills error:', err);
-    res.status(500).json({ error: err.message || 'Unable to generate AP bills from PO.' });
-  }
-});
-
-app.get('/api/procurement/goods-receipts', protectAdmin, async (req, res) => {
-  try {
-    const rows = await queryAsync(`
-      SELECT
-        gr.*,
-        po.po_number,
-        po.business_entity_id,
-        v.vendor_name,
-        MIN(gri.warehouse_id) AS warehouse_id,
-        MIN(w.warehouse_name) AS warehouse_name
-      FROM goods_receipts gr
-      JOIN purchase_orders po ON po.id = gr.po_id
-      LEFT JOIN vendors v ON v.id = po.vendor_id
-      LEFT JOIN goods_receipt_items gri ON gri.receipt_id = gr.id
-      LEFT JOIN warehouses w ON w.id = gri.warehouse_id
-      GROUP BY gr.id, po.po_number, po.business_entity_id, v.vendor_name
-      ORDER BY gr.received_date DESC, gr.id DESC
-    `);
-    res.json(rows);
-  } catch (err) {
-    console.error('Goods receipts error:', err);
-    res.status(500).json({ error: err.message || 'Unable to load goods receipts.' });
-  }
-});
-
-app.post('/api/procurement/goods-receipts', protectAdmin, async (req, res) => {
-  let grnNumber = String(req.body.grn_number || '').trim();
-  const poId = Number(req.body.po_id || 0);
-  const warehouseId = Number(req.body.warehouse_id || req.body.receiving_warehouse_id || 0) || 0;
-  const receivedDate = req.body.received_date || new Date().toISOString().slice(0, 10);
-  const receivedBy = String(req.body.received_by || '').trim() || null;
-  const notes = String(req.body.notes || '').trim() || null;
-
-  if (!poId) {
-    return res.status(400).json({ error: 'Purchase order is required.' });
-  }
-  if (!warehouseId) {
-    return res.status(400).json({ error: 'Receiving warehouse is required.' });
-  }
-
-  try {
-    const poRows = await queryAsync('SELECT id, business_entity_id, status FROM purchase_orders WHERE id = ? LIMIT 1', [poId]);
-    if (!Array.isArray(poRows) || !poRows.length) {
-      return res.status(404).json({ error: 'Purchase order not found.' });
-    }
-    if (normalizeProcurementWorkflowStatus(poRows[0].status) !== 'approved') {
-      return res.status(400).json({ error: 'Approve this purchase order before receiving goods.' });
-    }
-    const businessEntityId = await resolveBusinessEntityId(poRows[0].business_entity_id || req.body.business_entity_id || null);
-    if (!grnNumber) {
-      grnNumber = await generateNextEntityDocumentNo({
-        businessEntityId,
-        documentType: 'goods-receipt',
-        prefix: 'GRN',
-        tableName: 'goods_receipts',
-        columnName: 'grn_number'
-      });
-    }
-
-    const result = await queryAsync(
-      'INSERT INTO goods_receipts (grn_number, po_id, received_date, received_by, status, notes) VALUES (?, ?, ?, ?, ?, ?)',
-      [grnNumber, poId, receivedDate, receivedBy, 'received', notes]
-    );
-    await postInventoryReceiptForPurchaseOrder({
-      poId,
-      receiptId: result.insertId,
-      grnNumber,
-      businessEntityId,
-      warehouseId,
-      receivedDate,
-      receivedBy,
-      notes
-    });
-    await claimEntityDocumentNo({
-      businessEntityId,
-      documentType: 'goods-receipt',
-      prefix: 'GRN',
-      documentNo: grnNumber
-    });
-    await markPurchaseOrderReceived(poId);
-    const serialsCreated = await createSerialUnitsFromReceipt({
-      poId,
-      warehouseId,
-      businessEntityId,
-      serialGroups: req.body.serials,
-      receivedBy
-    });
-
-    logAction(req, 'CREATE_GOODS_RECEIPT', `Created goods receipt ${grnNumber}`);
-    res.json({ id: result.insertId, grn_number: grnNumber, inventory_synced: true, serials_created: serialsCreated });
-  } catch (err) {
-    if (isPostgresUniqueViolation(err)) {
-      return res.status(409).json({ error: 'GRN number already exists.' });
-    }
-    console.error('Create goods receipt error:', err);
-    res.status(500).json({ error: err.message || 'Unable to create goods receipt.' });
-  }
-});
-
-app.put('/api/procurement/requisitions/:id', protectAdmin, async (req, res) => {
-  const requisitionId = Number(req.params.id || 0);
-  let prNumber = String(req.body.pr_number || '').trim();
-  let companyId = Number(req.body.company_id || 0) || 0;
-  const projectId = Number(req.body.project_id || 0) || null;
-  const requestDate = req.body.request_date || new Date().toISOString().slice(0, 10);
-  const department = String(req.body.department || '').trim() || null;
-  const requestedBy = String(req.body.requested_by || '').trim() || null;
-  const neededBy = req.body.needed_by || null;
-  let status = 'draft';
-  const notes = String(req.body.notes || '').trim() || null;
-  const lineItems = normalizePurchaseRequisitionLineItems(req.body);
-
-  if (!requisitionId) {
-    return res.status(400).json({ error: 'Requisition ID is required.' });
-  }
-  if (!lineItems.length) {
-    return res.status(400).json({ error: 'At least one item name and quantity are required.' });
-  }
-  if (!projectId) {
-    return res.status(400).json({ error: 'Project is required for purchase requisitions.' });
-  }
-  if (!requestDate) {
-    return res.status(400).json({ error: 'Request date is required.' });
-  }
-  if (!requestedBy) {
-    return res.status(400).json({ error: 'Requested by is required.' });
-  }
-  if (!neededBy) {
-    return res.status(400).json({ error: 'Needed by date is required.' });
-  }
-
-  try {
-    const requisitionRows = await queryAsync(`
-      SELECT r.id, r.status, r.requested_by, r.requested_by_email, r.submitted_by, r.department,
-             p.created_by, p.assigned_to, p.project_manager, p.members,
-             p.project_members, p.project_members_2, p.project_members_3
-      FROM purchase_requisitions r
-      LEFT JOIN projects p ON p.id = r.project_id
-      WHERE r.id = ?
-      LIMIT 1
-    `, [requisitionId]);
-    if (!Array.isArray(requisitionRows) || !requisitionRows.length) {
-      return res.status(404).json({ error: 'Requisition not found.' });
-    }
-    const actor = getAuthenticatedUser(req) || {};
-    if (isStaffRole(actor.role) && !requisitionRowMatchesStaffActor(requisitionRows[0], actor)) {
-      return sendStaffRecordAccessDenied(res, 'Requisition');
-    }
-    status = normalizeProcurementWorkflowStatus(requisitionRows[0].status) || 'draft';
-    if (procurementRequisitionIsLocked(status)) {
-      return res.status(409).json({ error: `Purchase requisition is already ${status} and can no longer be edited.` });
-    }
-
-    const projectRecord = await resolvePurchaseOrderProjectContext(projectId, companyId);
-    if (isStaffRole(actor.role) && !projectRowMatchesStaffActor(projectRecord || {}, actor)) {
-      return sendStaffRecordAccessDenied(res, 'Project');
-    }
-    companyId = Number(projectRecord?.company_id || 0) || 0;
-    const businessEntityId = await resolveBusinessEntityId(projectRecord?.business_entity_id || req.body.business_entity_id);
-    if (!prNumber) {
-      prNumber = await generateNextEntityDocumentNo({
-        businessEntityId,
-        documentType: 'purchase-requisition',
-        prefix: 'PR',
-        tableName: 'purchase_requisitions',
-        columnName: 'pr_number'
-      });
-    }
-    const { companyRecord } = await resolvePurchaseRequisitionContext(companyId);
-    await resolvePurchaseOrderProjectContext(projectRecord.id, companyRecord.id);
-
-    const existingRequesterEmail = String(requisitionRows[0].requested_by_email || '').trim();
-    const requestedByEmail = existingRequesterEmail || await getAuthenticatedUserEmail(req);
-    await queryAsync(
-      `UPDATE purchase_requisitions
-       SET pr_number = ?, business_entity_id = ?, company_id = ?, project_id = ?, request_date = ?, department = ?, requested_by = ?, requested_by_email = ?, needed_by = ?, status = ?, notes = ?
-       WHERE id = ?`,
-      [
-        prNumber,
-        businessEntityId,
-        companyRecord.id,
-        projectRecord.id,
-        requestDate,
-        department,
-        requestedBy,
-        requestedByEmail || null,
-        neededBy,
-        status,
-        notes,
-        requisitionId
-      ]
-    );
-
-    await queryAsync('DELETE FROM purchase_requisition_items WHERE pr_id = ?', [requisitionId]);
-    await claimEntityDocumentNo({
-      businessEntityId,
-      documentType: 'purchase-requisition',
-      prefix: 'PR',
-      documentNo: prNumber
-    });
-
-    for (const item of lineItems) {
-      const lineTotal = Number(item.quantity || 0) * Number(item.estimated_unit_price || 0);
-      await queryAsync(
-        'INSERT INTO purchase_requisition_items (pr_id, product_id, category, warehouse_id, item_name, description, quantity, unit, estimated_unit_price, line_total) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [requisitionId, item.product_id || null, item.category || null, item.warehouse_id || null, item.item_name, item.description, item.quantity, item.unit, item.estimated_unit_price, lineTotal]
-      );
-    }
-
-    logAction(req, 'UPDATE_PURCHASE_REQUISITION', `Updated requisition ${prNumber}`);
-    res.json({ success: true, pr_number: prNumber });
-  } catch (err) {
-    if (isPostgresUniqueViolation(err)) {
-      return res.status(409).json({ error: 'PR number already exists.' });
-    }
-    const validationMessage = String(err?.message || '').toLowerCase();
-    if (validationMessage.includes('required') || validationMessage.includes('same company') || validationMessage.includes('not found') || validationMessage.includes('archived')) {
-      return res.status(400).json({ error: err.message || 'Unable to update requisition.' });
-    }
-    console.error('Update requisition error:', err);
-    res.status(500).json({ error: err.message || 'Unable to update requisition.' });
-  }
-});
 
 function normalizeQuotationStatus(status) {
   const safeStatus = String(status || 'draft').trim().toLowerCase();
+  if (['selected', 'awarded', 'approved'].includes(safeStatus)) return 'selected';
   return ['draft', 'submitted', 'selected', 'rejected'].includes(safeStatus) ? safeStatus : 'draft';
 }
 
-app.get('/api/procurement/quotations', protectAdmin, async (req, res) => {
+
+// Email a Request for Quotation (with a PDF of the PR items) to one or more vendors.
+
+// ===================== Public Vendor RFQ Portal (token, no login) =====================
+function rfqLinkIsExpired(deadline) {
+  if (!deadline) return false;
+  const d = new Date(deadline);
+  if (Number.isNaN(d.getTime())) return false;
+  // Deadline is inclusive — valid through the end of that calendar day.
+  const end = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+  return Date.now() > end.getTime();
+}
+
+function isFinalAwardedQuotationStatus(status) {
+  return ['selected', 'awarded', 'approved'].includes(normalizeQuotationStatus(status));
+}
+
+async function loadRfqPortalContext(token) {
+  const linkRows = await queryAsync('SELECT * FROM rfq_vendor_links WHERE token = ? LIMIT 1', [String(token || '').trim()]);
+  if (!linkRows.length) return null;
+  const link = linkRows[0];
+  const [prRows, vendorRows, itemRows, quotationRows, selectedRows, poRows] = await Promise.all([
+    queryAsync(`
+      SELECT pr.id, pr.pr_number, pr.status, be.company_name AS business_entity_name
+      FROM purchase_requisitions pr
+      LEFT JOIN business_entities be ON be.id = pr.business_entity_id
+      WHERE pr.id = ? LIMIT 1
+    `, [link.requisition_id]),
+    queryAsync('SELECT id, vendor_name FROM vendors WHERE id = ? LIMIT 1', [link.vendor_id]),
+    queryAsync('SELECT id, item_name, description, quantity, unit FROM purchase_requisition_items WHERE pr_id = ? ORDER BY id ASC', [link.requisition_id]),
+    queryAsync(
+      'SELECT id, status, quote_number FROM procurement_quotations WHERE id = ? OR (requisition_id = ? AND vendor_id = ?) ORDER BY id DESC LIMIT 1',
+      [Number(link.quotation_id || 0) || 0, link.requisition_id, link.vendor_id]
+    ),
+    queryAsync(
+      "SELECT id, quote_number, status FROM procurement_quotations WHERE requisition_id = ? AND LOWER(COALESCE(status, '')) IN ('selected', 'awarded', 'approved') LIMIT 1",
+      [link.requisition_id]
+    ),
+    queryAsync('SELECT id, po_number FROM purchase_orders WHERE requisition_id = ? LIMIT 1', [link.requisition_id])
+  ]);
+  const quotation = quotationRows[0] || null;
+  const selectedQuotation = selectedRows[0] || null;
+  const purchaseOrder = poRows[0] || null;
+  const quoteStatus = normalizeQuotationStatus(quotation?.status || '');
+  const selectedQuoteId = Number(selectedQuotation?.id || 0) || 0;
+  const currentQuoteId = Number(quotation?.id || link.quotation_id || 0) || 0;
+  const prStatus = String(prRows[0]?.status || '').trim().toLowerCase();
+  const finalStatus = purchaseOrder
+    ? 'ordered'
+    : ['ordered', 'received'].includes(prStatus)
+      ? 'ordered'
+    : selectedQuoteId
+      ? (selectedQuoteId === currentQuoteId ? 'awarded' : 'closed')
+      : isFinalAwardedQuotationStatus(quoteStatus)
+        ? 'awarded'
+        : quoteStatus === 'rejected'
+          ? 'rejected'
+          : prStatus === 'cancelled'
+            ? 'cancelled'
+            : '';
+  return {
+    link,
+    pr: prRows[0] || null,
+    vendor: vendorRows[0] || null,
+    items: Array.isArray(itemRows) ? itemRows : [],
+    quotation,
+    selectedQuotation,
+    purchaseOrder,
+    finalStatus
+  };
+}
+
+app.get('/rfq/:token', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'rfq-portal.html'));
+});
+
+app.get('/api/public/rfq/:token', async (req, res) => {
   try {
-    const conditions = [];
-    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-    const rows = await queryAsync(`
-      SELECT q.*,
-             r.pr_number,
-             r.business_entity_id,
-             r.status AS requisition_status,
-             r.company_id,
-             r.project_id,
-             v.vendor_name,
-             c.company_name,
-             c.company_no,
-             p.project_docno,
-             p.project_name
-      FROM procurement_quotations q
-      JOIN purchase_requisitions r ON r.id = q.requisition_id
-      LEFT JOIN vendors v ON v.id = q.vendor_id
-      LEFT JOIN company_registry c ON c.id = r.company_id
-      LEFT JOIN projects p ON p.id = r.project_id
-      ${where}
-      ORDER BY q.quote_date DESC, q.id DESC
-    `);
-    res.json((Array.isArray(rows) ? rows : []).map((row) => ({
-      ...row,
-      quoted_total: Number(row.quoted_total || 0),
-      delivery_days: Number(row.delivery_days || 0),
-      score: Number(row.score || 0)
-    })));
+    const ctx = await loadRfqPortalContext(req.params.token);
+    if (!ctx || !ctx.pr) return res.status(404).json({ ok: false, error: 'This RFQ link is invalid.' });
+    let submission = null;
+    try { submission = ctx.link.submission ? JSON.parse(ctx.link.submission) : null; } catch (_) { submission = null; }
+    res.json({
+      ok: true,
+      expired: rfqLinkIsExpired(ctx.link.deadline),
+      locked: Boolean(ctx.finalStatus),
+      final_status: ctx.finalStatus || '',
+      pr_number: ctx.pr.pr_number || `PR-${ctx.pr.id}`,
+      company_name: ctx.pr.business_entity_name || 'Kinaadman ERP',
+      vendor_name: ctx.vendor ? ctx.vendor.vendor_name : '',
+      deadline: ctx.link.deadline || null,
+      submitted_at: ctx.link.submitted_at || null,
+      items: ctx.items.map((it) => ({
+        id: it.id,
+        name: String(it.item_name || it.description || 'Item'),
+        qty: Number(it.quantity || 0),
+        unit: String(it.unit || 'pcs')
+      })),
+      submission
+    });
   } catch (err) {
-    console.error('Quotations error:', err);
-    if (isPostgresUndefinedTable(err) || isPostgresUndefinedColumn(err)) return res.json([]);
-    res.status(500).json({ error: err.message || 'Unable to load quotations.' });
+    console.error('RFQ portal load error:', err);
+    res.status(500).json({ ok: false, error: 'Unable to load this RFQ.' });
   }
 });
 
-app.post('/api/procurement/quotations', protectAdmin, async (req, res) => {
-  let quoteNumber = String(req.body.quote_number || '').trim();
-  const requisitionId = Number(req.body.requisition_id || 0) || 0;
-  const vendorId = Number(req.body.vendor_id || 0) || 0;
-  const quoteDate = req.body.quote_date || getManilaYmd();
-  const quotedTotal = toNumber(req.body.quoted_total, 0);
-  const deliveryDays = Math.max(0, Number(req.body.delivery_days || 0) || 0);
-  const paymentTerms = String(req.body.payment_terms || '').trim() || null;
-  const warrantyTerms = String(req.body.warranty_terms || '').trim() || null;
-  const score = Math.max(0, Math.min(100, toNumber(req.body.score, 0)));
-  const status = 'draft';
-  const remarks = String(req.body.remarks || '').trim() || null;
+// Optional vendor PDF on the public RFQ submit: run the PDF multer but never hard-fail
+// the request — surface any error gently as req.fileUploadError.
+function publicQuotePdfUpload(req, res, next) {
+  upload.single('quote_pdf')(req, res, (err) => {
+    if (err) req.fileUploadError = err;
+    next();
+  });
+}
 
-  if (!requisitionId || !vendorId || quotedTotal <= 0) {
-    return res.status(400).json({ error: 'Approved PR, vendor, and quoted total are required.' });
+app.post('/api/public/rfq/:token', publicQuotePdfUpload, async (req, res) => {
+  const dropFile = () => { if (req.file && req.file.path) fs.unlink(req.file.path, () => {}); };
+  if (req.fileUploadError) {
+    dropFile();
+    return res.status(400).json({ ok: false, error: 'Attachment must be a PDF file (max 10MB).' });
   }
-
   try {
-    const requisitionRows = await queryAsync('SELECT id, status, business_entity_id FROM purchase_requisitions WHERE id = ? LIMIT 1', [requisitionId]);
-    if (!requisitionRows.length) return res.status(404).json({ error: 'Selected requisition was not found.' });
-    if (!['approved', 'ordered'].includes(normalizeProcurementWorkflowStatus(requisitionRows[0].status))) {
-      return res.status(400).json({ error: 'Only approved requisitions can receive vendor quotations.' });
+    const ctx = await loadRfqPortalContext(req.params.token);
+    if (!ctx || !ctx.pr) { dropFile(); return res.status(404).json({ ok: false, error: 'This RFQ link is invalid.' }); }
+    if (ctx.finalStatus) {
+      dropFile();
+      return res.status(400).json({ ok: false, error: 'A final decision has already been made on this RFQ. This link is now read-only.' });
     }
-    const existingPoRows = await queryAsync('SELECT id, po_number FROM purchase_orders WHERE requisition_id = ? LIMIT 1', [requisitionId]);
-    if (existingPoRows.length) {
-      return res.status(409).json({ error: `Selected PR already has PO ${existingPoRows[0].po_number || existingPoRows[0].id}. New RFQs are disabled.` });
+    if (rfqLinkIsExpired(ctx.link.deadline)) {
+      dropFile();
+      return res.status(400).json({ ok: false, error: 'The deadline for this RFQ has passed. Please contact us directly.' });
     }
-    const selectedQuoteRows = await queryAsync(
-      "SELECT id, quote_number FROM procurement_quotations WHERE requisition_id = ? AND status = 'selected' LIMIT 1",
-      [requisitionId]
-    );
-    if (selectedQuoteRows.length) {
-      return res.status(409).json({ error: `Selected PR already has approved RFQ ${selectedQuoteRows[0].quote_number || selectedQuoteRows[0].id}. New RFQs are disabled.` });
+    if (String(ctx.pr.status || '').toLowerCase() === 'cancelled') {
+      dropFile();
+      return res.status(400).json({ ok: false, error: 'This request is no longer open for quotation.' });
     }
-    const vendorRows = await queryAsync('SELECT id, COALESCE(is_active, TRUE) AS is_active FROM vendors WHERE id = ? LIMIT 1', [vendorId]);
-    if (!vendorRows.length) return res.status(404).json({ error: 'Selected vendor was not found.' });
-    if (Number(vendorRows[0].is_active || 0) !== 1) return res.status(400).json({ error: 'Vendor is inactive.' });
-    const businessEntityId = await resolveBusinessEntityId(requisitionRows[0].business_entity_id || req.body.business_entity_id);
-    if (!quoteNumber || !isDraftDocumentNo(quoteNumber)) {
-      quoteNumber = await generateNextDraftEntityDocumentNo({
+
+    let bodyLines = req.body.lines;
+    if (typeof bodyLines === 'string') { try { bodyLines = JSON.parse(bodyLines); } catch (_) { bodyLines = []; } }
+    if (!Array.isArray(bodyLines)) bodyLines = [];
+
+    const priceById = new Map();
+    bodyLines.forEach((line) => {
+      const id = Number(line && line.id) || 0;
+      if (id) priceById.set(id, Math.max(0, Number(line && line.unit_price) || 0));
+    });
+
+    let quotedTotal = 0;
+    const summaryLines = [];
+    const storedLines = [];
+    ctx.items.forEach((it) => {
+      const unitPrice = priceById.get(Number(it.id)) || 0;
+      const qty = Number(it.quantity || 0);
+      const lineTotal = qty * unitPrice;
+      quotedTotal += lineTotal;
+      const name = String(it.item_name || it.description || 'Item');
+      summaryLines.push(`${name}: ${qty} x ${formatPdfMoney(unitPrice)} = ${formatPdfMoney(lineTotal)}`);
+      storedLines.push({ item_id: it.id, name, qty, unit: String(it.unit || 'pcs'), unit_price: unitPrice });
+    });
+
+    if (quotedTotal <= 0) {
+      dropFile();
+      return res.status(400).json({ ok: false, error: 'Please enter a unit price for at least one item.' });
+    }
+
+    const deliveryDays = Math.max(0, Number(req.body.delivery_days || 0) || 0);
+    const paymentTerms = String(req.body.payment_terms || '').trim().slice(0, 100) || null;
+    const warrantyTerms = String(req.body.warranty_terms || '').trim().slice(0, 255) || null;
+    const vendorRemarks = String(req.body.remarks || '').trim().slice(0, 1000) || null;
+    const businessEntityId = await resolveBusinessEntityId(ctx.link.business_entity_id);
+    const remarksSummary = [
+      'Submitted via vendor portal.',
+      summaryLines.join('; '),
+      vendorRemarks ? `Vendor note: ${vendorRemarks}` : ''
+    ].filter(Boolean).join(' | ').slice(0, 1500);
+
+    // Find the quotation for this PR+vendor — linked, or created manually. A unique
+    // constraint on (requisition_id, vendor_id) guarantees at most one exists, so we
+    // must reuse it instead of inserting a duplicate.
+    let quotationId = Number(ctx.link.quotation_id || 0) || 0;
+    if (!quotationId) {
+      const existingByPair = await queryAsync(
+        'SELECT id FROM procurement_quotations WHERE requisition_id = ? AND vendor_id = ? LIMIT 1',
+        [ctx.link.requisition_id, ctx.link.vendor_id]
+      );
+      if (existingByPair.length) quotationId = Number(existingByPair[0].id) || 0;
+    }
+    if (quotationId) {
+      const qRows = await queryAsync('SELECT id, status FROM procurement_quotations WHERE id = ? LIMIT 1', [quotationId]);
+      const st = qRows.length ? normalizeQuotationStatus(qRows[0].status) : '';
+      const poRows = await queryAsync('SELECT id FROM purchase_orders WHERE requisition_id = ? LIMIT 1', [ctx.link.requisition_id]);
+      if (!qRows.length) {
+        quotationId = 0; // record vanished — fall through to insert
+      } else if (isFinalAwardedQuotationStatus(st) || st === 'rejected' || poRows.length) {
+        dropFile();
+        return res.status(400).json({ ok: false, error: 'A final decision has already been made on this request. Please contact us directly.' });
+      }
+    }
+
+    if (quotationId) {
+      await queryAsync(
+        `UPDATE procurement_quotations
+         SET quoted_total = ?, delivery_days = ?, payment_terms = ?, warranty_terms = ?, status = 'submitted', remarks = ?, quote_date = CURRENT_DATE
+         WHERE id = ?`,
+        [quotedTotal, deliveryDays, paymentTerms, warrantyTerms, remarksSummary, quotationId]
+      );
+    } else {
+      const quoteNumber = await generateNextDraftEntityDocumentNo({
         businessEntityId,
         documentType: 'procurement-quotation',
         prefix: 'RFQ',
         tableName: 'procurement_quotations',
         columnName: 'quote_number'
       });
-    }
-
-    const result = await queryAsync(
-      'INSERT INTO procurement_quotations (quote_number, requisition_id, vendor_id, quote_date, quoted_total, delivery_days, payment_terms, warranty_terms, score, status, remarks, selected_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [quoteNumber, requisitionId, vendorId, quoteDate, quotedTotal, deliveryDays, paymentTerms, warrantyTerms, score, status, remarks, status === 'selected' ? new Date() : null]
-    );
-    if (status === 'selected') {
-      await queryAsync("UPDATE procurement_quotations SET status = 'rejected', selected_at = NULL WHERE requisition_id = ? AND id <> ?", [requisitionId, result.insertId]);
-    }
-    await claimEntityDocumentNo({
-      businessEntityId,
-      documentType: 'procurement-quotation',
-      prefix: 'RFQ',
-      documentNo: quoteNumber
-    });
-    logAction(req, 'CREATE_QUOTATION', `Created quotation ${quoteNumber}`);
-    res.json({ id: result.insertId, quote_number: quoteNumber });
-  } catch (err) {
-    if (isPostgresUniqueViolation(err)) return res.status(409).json({ error: 'Quotation already exists for this PR and vendor.' });
-    console.error('Create quotation error:', err);
-    res.status(500).json({ error: err.message || 'Unable to create quotation.' });
-  }
-});
-
-app.put('/api/procurement/quotations/:id', protectAdmin, async (req, res) => {
-  const quotationId = Number(req.params.id || 0) || 0;
-  if (!quotationId) return res.status(400).json({ error: 'Quotation ID is required.' });
-
-  const requisitionId = Number(req.body.requisition_id || 0) || 0;
-  const vendorId = Number(req.body.vendor_id || 0) || 0;
-  const quoteDate = req.body.quote_date || getManilaYmd();
-  const quotedTotal = toNumber(req.body.quoted_total, 0);
-  const deliveryDays = Math.max(0, Number(req.body.delivery_days || 0) || 0);
-  const paymentTerms = String(req.body.payment_terms || '').trim() || null;
-  const warrantyTerms = String(req.body.warranty_terms || '').trim() || null;
-  const score = Math.max(0, Math.min(100, toNumber(req.body.score, 0)));
-  let status = 'draft';
-  const remarks = String(req.body.remarks || '').trim() || null;
-
-  if (!requisitionId || !vendorId || quotedTotal <= 0) {
-    return res.status(400).json({ error: 'Approved PR, vendor, and quoted total are required.' });
-  }
-
-  try {
-    const currentRows = await queryAsync('SELECT id, requisition_id, status FROM procurement_quotations WHERE id = ? LIMIT 1', [quotationId]);
-    if (!currentRows.length) return res.status(404).json({ error: 'Quotation not found.' });
-    if (normalizeQuotationStatus(currentRows[0].status) === 'rejected') {
-      return res.status(400).json({ error: 'Rejected RFQs are read-only.' });
-    }
-    const existingPoRows = await queryAsync('SELECT id, po_number FROM purchase_orders WHERE requisition_id IN (?, ?) LIMIT 1', [currentRows[0].requisition_id, requisitionId]);
-    if (existingPoRows.length) {
-      return res.status(409).json({ error: `Selected PR already has PO ${existingPoRows[0].po_number || existingPoRows[0].id}. RFQ changes are disabled.` });
-    }
-    const selectedQuoteRows = await queryAsync(
-      "SELECT id, quote_number FROM procurement_quotations WHERE requisition_id = ? AND status = 'selected' LIMIT 1",
-      [requisitionId]
-    );
-    if (selectedQuoteRows.length && Number(selectedQuoteRows[0].id || 0) !== quotationId) {
-      return res.status(409).json({ error: `Selected PR already has approved RFQ ${selectedQuoteRows[0].quote_number || selectedQuoteRows[0].id}. New RFQs are disabled.` });
-    }
-    status = normalizeQuotationStatus(currentRows[0].status) || 'draft';
-
-    const result = await queryAsync(
-      'UPDATE procurement_quotations SET requisition_id = ?, vendor_id = ?, quote_date = ?, quoted_total = ?, delivery_days = ?, payment_terms = ?, warranty_terms = ?, score = ?, status = ?, remarks = ?, selected_at = CASE WHEN ? = ? THEN COALESCE(selected_at, NOW()) ELSE NULL END WHERE id = ?',
-      [requisitionId, vendorId, quoteDate, quotedTotal, deliveryDays, paymentTerms, warrantyTerms, score, status, remarks, status, 'selected', quotationId]
-    );
-    if (!Number(result.affectedRows || 0)) return res.status(404).json({ error: 'Quotation not found.' });
-    if (status === 'selected') {
-      await queryAsync("UPDATE procurement_quotations SET status = 'rejected', selected_at = NULL WHERE requisition_id = ? AND id <> ?", [requisitionId, quotationId]);
-    }
-    logAction(req, 'UPDATE_QUOTATION', `Updated quotation ${quotationId}`);
-    res.json({ success: true });
-  } catch (err) {
-    if (isPostgresUniqueViolation(err)) return res.status(409).json({ error: 'Quotation already exists for this PR and vendor.' });
-    console.error('Update quotation error:', err);
-    res.status(500).json({ error: err.message || 'Unable to update quotation.' });
-  }
-});
-
-app.post('/api/procurement/quotations/:id/select', protectAdminOnly, async (req, res) => {
-  const quotationId = Number(req.params.id || 0) || 0;
-  if (!quotationId) return res.status(400).json({ error: 'Quotation ID is required.' });
-  try {
-    const rows = await queryAsync(`
-      SELECT q.id, q.quote_number, q.draft_quote_number, q.requisition_id, q.status, pr.business_entity_id
-      FROM procurement_quotations q
-      LEFT JOIN purchase_requisitions pr ON pr.id = q.requisition_id
-      WHERE q.id = ? LIMIT 1
-    `, [quotationId]);
-    if (!rows.length) return res.status(404).json({ error: 'Quotation not found.' });
-    if (normalizeQuotationStatus(rows[0].status) === 'rejected') {
-      return res.status(400).json({ error: 'Rejected RFQs are read-only.' });
-    }
-    const existingPoRows = await queryAsync('SELECT id, po_number FROM purchase_orders WHERE requisition_id = ? LIMIT 1', [rows[0].requisition_id]);
-    if (existingPoRows.length) {
-      return res.status(409).json({ error: `Selected PR already has PO ${existingPoRows[0].po_number || existingPoRows[0].id}. RFQ approval is locked.` });
-    }
-    const officialQuoteNumber = isDraftDocumentNo(rows[0].quote_number)
-      ? await generateNextEntityDocumentNo({
-          businessEntityId: rows[0].business_entity_id,
-          documentType: 'procurement-quotation',
-          prefix: 'RFQ',
-          tableName: 'procurement_quotations',
-          columnName: 'quote_number'
-        })
-      : rows[0].quote_number;
-    await queryAsync("UPDATE procurement_quotations SET status = 'rejected', selected_at = NULL WHERE requisition_id = ? AND id <> ?", [rows[0].requisition_id, quotationId]);
-    await queryAsync("UPDATE procurement_quotations SET quote_number = ?, draft_quote_number = COALESCE(draft_quote_number, ?), status = 'selected', selected_at = COALESCE(selected_at, NOW()) WHERE id = ?", [officialQuoteNumber, rows[0].quote_number, quotationId]);
-    logAction(req, 'SELECT_QUOTATION', `Selected quotation ${officialQuoteNumber} (Draft ${rows[0].draft_quote_number || rows[0].quote_number || '-'})`);
-    sendBackgroundNotification(() => notifyRfqAwardedRequester(req, quotationId), 'rfq awarded requester email');
-    res.json({ success: true, status: 'selected', quote_number: officialQuoteNumber });
-  } catch (err) {
-    console.error('Select quotation error:', err);
-    res.status(500).json({ error: err.message || 'Unable to select quotation.' });
-  }
-});
-
-app.delete('/api/procurement/quotations/:id', protectAdminOnly, async (req, res) => {
-  try {
-    const rows = await queryAsync('SELECT id, requisition_id, status FROM procurement_quotations WHERE id = ? LIMIT 1', [Number(req.params.id || 0)]);
-    if (!rows.length) return res.status(404).json({ error: 'Quotation not found.' });
-    if (normalizeQuotationStatus(rows[0].status) === 'rejected') {
-      return res.status(400).json({ error: 'Rejected RFQs are read-only.' });
-    }
-    const existingPoRows = await queryAsync('SELECT id, po_number FROM purchase_orders WHERE requisition_id = ? LIMIT 1', [rows[0].requisition_id]);
-    if (existingPoRows.length) {
-      return res.status(409).json({ error: `Selected PR already has PO ${existingPoRows[0].po_number || existingPoRows[0].id}. RFQ deletion is disabled.` });
-    }
-    const result = await queryAsync('DELETE FROM procurement_quotations WHERE id = ?', [Number(req.params.id || 0)]);
-    if (!Number(result.affectedRows || 0)) return res.status(404).json({ error: 'Quotation not found.' });
-    logAction(req, 'DELETE_QUOTATION', `Deleted quotation ${req.params.id}`);
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Delete quotation error:', err);
-    res.status(500).json({ error: err.message || 'Unable to delete quotation.' });
-  }
-});
-
-app.post('/api/procurement/requisitions/:id/submit', protectAdmin, async (req, res) => {
-  const requisitionId = Number(req.params.id || 0);
-  if (!requisitionId) return res.status(400).json({ error: 'Requisition ID is required.' });
-
-  try {
-    const rows = await queryAsync(`
-      SELECT r.id, r.pr_number, r.draft_pr_number, r.business_entity_id, r.status,
-             r.requested_by, r.requested_by_email, r.submitted_by, r.department,
-             p.created_by, p.assigned_to, p.project_manager, p.members,
-             p.project_members, p.project_members_2, p.project_members_3
-      FROM purchase_requisitions r
-      LEFT JOIN projects p ON p.id = r.project_id
-      WHERE r.id = ?
-      LIMIT 1
-    `, [requisitionId]);
-    if (!Array.isArray(rows) || !rows.length) return res.status(404).json({ error: 'Requisition not found.' });
-    const actor = getAuthenticatedUser(req) || {};
-    if (isStaffRole(actor.role) && !requisitionRowMatchesStaffActor(rows[0], actor)) {
-      return sendStaffRecordAccessDenied(res, 'Requisition');
-    }
-
-    assertStatusTransition(rows[0].status, 'submitted', {
-      draft: ['submitted', 'cancelled'],
-      needs_revision: ['submitted', 'cancelled'],
-      submitted: ['submitted', 'approved', 'cancelled']
-    }, 'Purchase requisition');
-
-    const requesterEmail = await getAuthenticatedUserEmail(req);
-    await queryAsync(
-      "UPDATE purchase_requisitions SET status = 'submitted', requested_by_email = COALESCE(requested_by_email, ?), submitted_by = COALESCE(submitted_by, ?), submitted_at = COALESCE(submitted_at, NOW()) WHERE id = ?",
-      [requesterEmail || null, getApprovalActorName(req), requisitionId]
-    );
-    let generatedPdf = null;
-    try {
-      generatedPdf = await generatePurchaseRequisitionPdfFile(requisitionId);
-    } catch (pdfErr) {
-      console.error('Purchase requisition PDF generation warning:', pdfErr);
-    }
-    logAction(req, 'SUBMIT_PURCHASE_REQUISITION', `Submitted requisition ${rows[0].pr_number}`);
-    const detailRows = await queryAsync(`
-      SELECT
-        pr.pr_number,
-        pr.request_date,
-        pr.needed_by,
-        pr.requested_by,
-        c.company_name,
-        p.project_name
-      FROM purchase_requisitions pr
-      LEFT JOIN company_registry c ON c.id = pr.company_id
-      LEFT JOIN projects p ON p.id = pr.project_id
-      WHERE pr.id = ?
-      LIMIT 1
-    `, [requisitionId]);
-    const details = detailRows[0] || {};
-    sendBackgroundNotification(() => notifyApprovalRequest(req, {
-      title: 'Purchase Requisition',
-      recordNo: rows[0].pr_number,
-      reviewPath: '/procurement?tab=requisitions',
-      details: {
-        Company: details.company_name,
-        Project: details.project_name,
-        'Request Date': details.request_date,
-        'Needed By': details.needed_by,
-        'Requested By': details.requested_by
-      },
-      attachments: generatedPdf?.filePath ? [{
-        filename: generatedPdf.filename,
-        path: generatedPdf.filePath,
-        contentType: 'application/pdf'
-      }] : undefined
-    }), 'purchase requisition approval email');
-    res.json({ success: true, status: 'submitted', pdfFilename: generatedPdf?.filename || null });
-  } catch (err) {
-    const validationMessage = String(err?.message || '').toLowerCase();
-    if (validationMessage.includes('cannot move')) return res.status(400).json({ error: err.message });
-    console.error('Submit requisition error:', err);
-    res.status(500).json({ error: err.message || 'Unable to submit requisition.' });
-  }
-});
-
-app.post('/api/procurement/requisitions/:id/approve', protectAdminOnly, async (req, res) => {
-  const requisitionId = Number(req.params.id || 0);
-  if (!requisitionId) return res.status(400).json({ error: 'Requisition ID is required.' });
-
-  try {
-    const rows = await queryAsync('SELECT id, pr_number, draft_pr_number, business_entity_id, status FROM purchase_requisitions WHERE id = ? LIMIT 1', [requisitionId]);
-    if (!Array.isArray(rows) || !rows.length) return res.status(404).json({ error: 'Requisition not found.' });
-
-    assertStatusTransition(rows[0].status, 'approved', {
-      submitted: ['approved', 'cancelled'],
-      approved: ['approved']
-    }, 'Purchase requisition');
-
-    const officialPrNumber = isDraftDocumentNo(rows[0].pr_number)
-      ? await generateNextEntityDocumentNo({
-          businessEntityId: rows[0].business_entity_id,
-          documentType: 'purchase-requisition',
-          prefix: 'PR',
-          tableName: 'purchase_requisitions',
-          columnName: 'pr_number'
-        })
-      : rows[0].pr_number;
-    const comment = getApprovalComment(req);
-    await queryAsync(
-      "UPDATE purchase_requisitions SET pr_number = ?, draft_pr_number = COALESCE(draft_pr_number, ?), status = 'approved', approved_by = COALESCE(approved_by, ?), approved_at = COALESCE(approved_at, NOW()), approval_comment = ? WHERE id = ?",
-      [officialPrNumber, rows[0].pr_number, getApprovalActorName(req), comment || null, requisitionId]
-    );
-    logAction(req, 'APPROVE_PURCHASE_REQUISITION', appendApprovalComment(`Approved requisition ${officialPrNumber} (Draft ${rows[0].draft_pr_number || rows[0].pr_number || '-'})`, comment));
-    sendBackgroundNotification(() => notifyPurchaseRequisitionRequester(req, requisitionId, 'approved', {
-      approvedBy: getApprovalActorLabel(req)
-    }), 'purchase requisition approved email');
-    res.json({ success: true, status: 'approved', pr_number: officialPrNumber });
-  } catch (err) {
-    const validationMessage = String(err?.message || '').toLowerCase();
-    if (validationMessage.includes('cannot move')) return res.status(400).json({ error: err.message });
-    console.error('Approve requisition error:', err);
-    res.status(500).json({ error: err.message || 'Unable to approve requisition.' });
-  }
-});
-
-app.post('/api/procurement/requisitions/:id/reject', protectAdminOnly, async (req, res) => {
-  const requisitionId = Number(req.params.id || 0);
-  const reason = String(req.body?.reason || '').trim();
-  if (!requisitionId) return res.status(400).json({ error: 'Requisition ID is required.' });
-  if (!reason) return res.status(400).json({ error: 'Rejection reason is required.' });
-
-  try {
-    const rows = await queryAsync('SELECT id, pr_number, status FROM purchase_requisitions WHERE id = ? LIMIT 1', [requisitionId]);
-    if (!Array.isArray(rows) || !rows.length) return res.status(404).json({ error: 'Requisition not found.' });
-
-    assertStatusTransition(rows[0].status, 'needs_revision', {
-      submitted: ['approved', 'cancelled', 'needs_revision'],
-      approved: ['cancelled'],
-      draft: ['submitted', 'cancelled']
-    }, 'Purchase requisition');
-
-    await queryAsync(
-      "UPDATE purchase_requisitions SET status = 'needs_revision', submitted_at = NULL, approved_by = NULL, approved_at = NULL, cancel_reason = ?, approval_comment = ? WHERE id = ?",
-      [`Rejected: ${reason}`, reason, requisitionId]
-    );
-    logAction(req, 'REJECT_PURCHASE_REQUISITION', `Rejected requisition ${rows[0].pr_number} | Reason: ${reason}`);
-    sendBackgroundNotification(() => notifyPurchaseRequisitionRequester(req, requisitionId, 'rejected', {
-      reason,
-      cancelledBy: getApprovalActorLabel(req)
-    }), 'purchase requisition rejection email');
-    res.json({ success: true, status: 'needs_revision', reason });
-  } catch (err) {
-    const validationMessage = String(err?.message || '').toLowerCase();
-    if (validationMessage.includes('cannot move')) return res.status(400).json({ error: err.message });
-    console.error('Reject requisition error:', err);
-    res.status(500).json({ error: err.message || 'Unable to reject requisition.' });
-  }
-});
-
-app.post('/api/procurement/requisitions/:id/cancel', protectAdminOnly, async (req, res) => {
-  const requisitionId = Number(req.params.id || 0);
-  if (!requisitionId) return res.status(400).json({ error: 'Requisition ID is required.' });
-
-  try {
-    const rows = await queryAsync('SELECT id, pr_number, status FROM purchase_requisitions WHERE id = ? LIMIT 1', [requisitionId]);
-    if (!Array.isArray(rows) || !rows.length) return res.status(404).json({ error: 'Requisition not found.' });
-
-    assertStatusTransition(rows[0].status, 'cancelled', {
-      draft: ['submitted', 'approved', 'cancelled'],
-      needs_revision: ['submitted', 'approved', 'cancelled'],
-      submitted: ['approved', 'cancelled'],
-      approved: ['cancelled'],
-      cancelled: ['cancelled']
-    }, 'Purchase requisition');
-
-    const cancelReason = String(req.body?.reason || '').trim() || null;
-    await queryAsync(
-      "UPDATE purchase_requisitions SET status = 'cancelled', cancelled_by = COALESCE(cancelled_by, ?), cancelled_at = COALESCE(cancelled_at, NOW()), cancel_reason = COALESCE(cancel_reason, ?) WHERE id = ?",
-      [getApprovalActorName(req), cancelReason, requisitionId]
-    );
-    logAction(req, 'CANCEL_PURCHASE_REQUISITION', `Cancelled requisition ${rows[0].pr_number}`);
-    sendBackgroundNotification(() => notifyPurchaseRequisitionRequester(req, requisitionId, 'cancelled', {
-      reason: cancelReason,
-      cancelledBy: getApprovalActorLabel(req)
-    }), 'purchase requisition cancelled email');
-    res.json({ success: true, status: 'cancelled' });
-  } catch (err) {
-    const validationMessage = String(err?.message || '').toLowerCase();
-    if (validationMessage.includes('cannot move')) return res.status(400).json({ error: err.message });
-    console.error('Cancel requisition error:', err);
-    res.status(500).json({ error: err.message || 'Unable to cancel requisition.' });
-  }
-});
-
-app.delete('/api/procurement/requisitions/:id', protectAdminOnly, async (req, res) => {
-  try {
-    const result = await queryAsync('DELETE FROM purchase_requisitions WHERE id = ?', [Number(req.params.id || 0)]);
-    logAction(req, 'DELETE_PURCHASE_REQUISITION', `Deleted requisition ID: ${req.params.id}`);
-    res.json({ success: true, affectedRows: result.affectedRows || 0 });
-  } catch (err) {
-    console.error('Delete requisition error:', err);
-    res.status(500).json({ error: err.message || 'Unable to delete requisition.' });
-  }
-});
-
-app.put('/api/procurement/purchase-orders/:id', protectAdmin, async (req, res) => {
-  const poId = Number(req.params.id || 0);
-  let poNumber = String(req.body.po_number || '').trim();
-  const vendorId = Number(req.body.vendor_id || 0);
-  const requisitionId = Number(req.body.requisition_id || 0) || null;
-  const quotationId = Number(req.body.quotation_id || 0) || null;
-  const explicitBusinessEntityId = Number(req.body.business_entity_id || 0) || null;
-  const explicitCompanyId = Number(req.body.company_id || 0) || 0;
-  const projectId = Number(req.body.project_id || 0) || null;
-  const poDate = req.body.po_date || new Date().toISOString().slice(0, 10);
-  const deliveryDate = req.body.delivery_date || null;
-  const paymentTerms = String(req.body.payment_terms || '').trim() || null;
-  const preparedBy = String(req.body.prepared_by || '').trim() || null;
-  const approvedBy = String(req.body.approved_by || '').trim() || null;
-  const notes = String(req.body.notes || '').trim() || null;
-  let status = 'draft';
-  const lineItems = normalizePurchaseOrderLineItems(req.body);
-
-  if (!poId) {
-    return res.status(400).json({ error: 'Purchase order ID is required.' });
-  }
-  if (!vendorId || !lineItems.length) {
-    return res.status(400).json({ error: 'Vendor and at least one line item description are required.' });
-  }
-  if (!requisitionId) {
-    return res.status(400).json({ error: 'Approved purchase requisition is required before updating a purchase order.' });
-  }
-
-  try {
-    const poRows = await queryAsync('SELECT id, requisition_id, status FROM purchase_orders WHERE id = ? LIMIT 1', [poId]);
-    if (!Array.isArray(poRows) || !poRows.length) {
-      return res.status(404).json({ error: 'Purchase order not found.' });
-    }
-    const currentRequisitionId = Number(poRows[0].requisition_id || 0) || 0;
-    status = normalizeProcurementWorkflowStatus(poRows[0].status) || 'draft';
-
-    const vendorRows = await queryAsync(
-      'SELECT id, vendor_no, vendor_name, business_entity_id, COALESCE(is_active, TRUE) AS is_active FROM vendors WHERE id = ? LIMIT 1',
-      [vendorId]
-    );
-    if (!Array.isArray(vendorRows) || !vendorRows.length) {
-      return res.status(404).json({ error: 'Vendor not found.' });
-    }
-    if (Number(vendorRows[0].is_active || 0) !== 1) {
-      return res.status(400).json({ error: 'Vendor is inactive. Activate the vendor before using it in a purchase order.' });
-    }
-
-    const totalAmount = lineItems.reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.unit_price || 0)), 0);
-    const isSameRequisition = Boolean(requisitionId && currentRequisitionId && Number(requisitionId) === currentRequisitionId);
-    const { companyRecord, requisitionRow } = await resolvePurchaseOrderRequisitionContext(
-      requisitionId,
-      explicitCompanyId,
-      { requireApproved: true, allowOrdered: isSameRequisition }
-    );
-    const businessEntityId = await resolveBusinessEntityId(explicitBusinessEntityId || requisitionRow?.business_entity_id || null);
-    if (Number(vendorRows[0].business_entity_id || 0) && Number(vendorRows[0].business_entity_id || 0) === Number(businessEntityId || 0)) {
-      return res.status(400).json({ error: 'Select another vendor. The issuing company cannot be its own supplier on this PO.' });
-    }
-    const projectRecord = await resolvePurchaseOrderProjectContext(projectId || requisitionRow?.project_id || null, companyRecord?.id || explicitCompanyId || 0);
-    const quotationRow = await resolvePurchaseOrderQuotationContext(quotationId, requisitionRow?.id || requisitionId || 0, vendorId);
-    const resolvedCompanyId = Number(companyRecord?.id || projectRecord?.company_id || 0) || null;
-    await validatePurchaseOrderLineProducts(lineItems, businessEntityId);
-    if (!poNumber || !isDraftDocumentNo(poNumber)) {
-      poNumber = await generateNextDraftEntityDocumentNo({
-        businessEntityId,
-        documentType: 'purchase-order',
-        prefix: 'PO',
-        tableName: 'purchase_orders',
-        columnName: 'po_number'
-      });
-    }
-    await queryAsync(
-      'UPDATE purchase_orders SET po_number = ?, requisition_id = ?, quotation_id = ?, business_entity_id = ?, vendor_id = ?, company_id = ?, project_id = ?, po_date = ?, delivery_date = ?, payment_terms = ?, prepared_by = ?, approved_by = ?, total_amount = ?, status = ?, notes = ? WHERE id = ?',
-      [poNumber, requisitionRow?.id || null, quotationRow?.id || null, businessEntityId, vendorId, resolvedCompanyId, projectRecord?.id || null, poDate, deliveryDate, paymentTerms, preparedBy, approvedBy, totalAmount, status, notes, poId]
-    );
-
-    await queryAsync('DELETE FROM po_line_items WHERE po_id = ?', [poId]);
-    for (const item of lineItems) {
-      const lineTotal = Number(item.quantity || 0) * Number(item.unit_price || 0);
-      await queryAsync(
-        'INSERT INTO po_line_items (po_id, product_id, description, quantity, unit_price, line_total) VALUES (?, ?, ?, ?, ?, ?)',
-        [poId, item.product_id || null, item.description, item.quantity, item.unit_price, lineTotal]
+      const insertRes = await queryAsync(
+        'INSERT INTO procurement_quotations (quote_number, requisition_id, vendor_id, quote_date, quoted_total, delivery_days, payment_terms, warranty_terms, status, remarks) VALUES (?, ?, ?, CURRENT_DATE, ?, ?, ?, ?, ?, ?)',
+        [quoteNumber, ctx.link.requisition_id, ctx.link.vendor_id, quotedTotal, deliveryDays, paymentTerms, warrantyTerms, 'submitted', remarksSummary]
       );
+      quotationId = Number(insertRes.insertId || 0) || 0;
+      await claimEntityDocumentNo({ businessEntityId, documentType: 'procurement-quotation', prefix: 'RFQ', documentNo: quoteNumber });
     }
-    if (requisitionRow?.id) {
-      await markRequisitionOrdered(requisitionRow.id);
+
+    // Save the vendor's uploaded PDF (optional) onto the quotation.
+    let vendorPdfFilename = null;
+    if (req.file && req.file.filename && quotationId) {
+      vendorPdfFilename = req.file.filename;
+      await queryAsync('UPDATE procurement_quotations SET vendor_pdf = ? WHERE id = ?', [vendorPdfFilename, quotationId]);
     }
-    await claimEntityDocumentNo({
-      businessEntityId,
-      documentType: 'purchase-order',
-      prefix: 'PO',
-      documentNo: poNumber
+
+    const submissionJson = JSON.stringify({
+      lines: storedLines,
+      delivery_days: deliveryDays,
+      payment_terms: paymentTerms,
+      warranty_terms: warrantyTerms,
+      remarks: vendorRemarks,
+      quoted_total: quotedTotal,
+      vendor_pdf: vendorPdfFilename
     });
-
-    logAction(req, 'UPDATE_PURCHASE_ORDER', `Updated purchase order ${poNumber}`);
-    res.json({ success: true, po_number: poNumber });
-  } catch (err) {
-    if (isPostgresUniqueViolation(err)) {
-      return res.status(409).json({ error: 'PO number already exists.' });
-    }
-    const validationMessage = String(err?.message || '').toLowerCase();
-    if (validationMessage.includes('required') || validationMessage.includes('must match') || validationMessage.includes('same company') || validationMessage.includes('not found') || validationMessage.includes('approved') || validationMessage.includes('archived') || validationMessage.includes('quotation')) {
-      return res.status(400).json({ error: err.message || 'Unable to update purchase order.' });
-    }
-    console.error('Update purchase order error:', err);
-    res.status(500).json({ error: err.message || 'Unable to update purchase order.' });
-  }
-});
-
-app.post('/api/procurement/purchase-orders/:id/submit', protectAdmin, async (req, res) => {
-  const poId = Number(req.params.id || 0);
-  if (!poId) return res.status(400).json({ error: 'Purchase order ID is required.' });
-
-  try {
-    const rows = await queryAsync('SELECT id, po_number, status FROM purchase_orders WHERE id = ? LIMIT 1', [poId]);
-    if (!Array.isArray(rows) || !rows.length) return res.status(404).json({ error: 'Purchase order not found.' });
-
-    assertStatusTransition(rows[0].status, 'pending', {
-      draft: ['pending', 'cancelled'],
-      pending: ['pending', 'approved', 'cancelled']
-    }, 'Purchase order');
-
     await queryAsync(
-      "UPDATE purchase_orders SET status = 'pending', submitted_by = COALESCE(submitted_by, ?), submitted_at = COALESCE(submitted_at, NOW()) WHERE id = ?",
-      [getApprovalActorName(req), poId]
+      'UPDATE rfq_vendor_links SET quotation_id = ?, submission = ?, submitted_at = NOW() WHERE id = ?',
+      [quotationId || null, submissionJson, ctx.link.id]
     );
-    logAction(req, 'SUBMIT_PURCHASE_ORDER', `Submitted purchase order ${rows[0].po_number}`);
-    const detailRows = await queryAsync(`
-      SELECT
-        po.po_number,
-        po.po_date,
-        po.delivery_date,
-        po.total_amount,
-        c.company_name,
-        p.project_name,
-        v.vendor_name
-      FROM purchase_orders po
-      LEFT JOIN company_registry c ON c.id = po.company_id
-      LEFT JOIN projects p ON p.id = po.project_id
-      LEFT JOIN vendors v ON v.id = po.vendor_id
-      WHERE po.id = ?
-      LIMIT 1
-    `, [poId]);
-    const details = detailRows[0] || {};
-    const attachments = [];
+
+    const prNumber = ctx.pr.pr_number || `PR-${ctx.pr.id}`;
+    const vendorName = ctx.vendor ? ctx.vendor.vendor_name : `Vendor ${ctx.link.vendor_id}`;
+
+    // In-system notification (surfaces in the admin bell via the audit feed) + audit log.
+    logAction(req, 'VENDOR_QUOTE_SUBMITTED', `PR: ${prNumber} | Vendor: ${vendorName} | Total: ${formatPdfMoney(quotedTotal)} | Submitted via vendor portal.`, 'procurement');
+
+    // Email notification to KVSK admins — with the generated quotation PDF (and the
+    // vendor's own uploaded PDF, if they attached one) so the email itself carries it.
     try {
-      attachments.push(await buildPurchaseOrderPdfAttachment(poId));
-    } catch (pdfErr) {
-      console.error('Purchase order approval request PDF generation warning:', pdfErr);
-    }
-    sendBackgroundNotification(() => notifyApprovalRequest(req, {
-      title: 'Purchase Order',
-      recordNo: rows[0].po_number,
-      reviewPath: '/procurement?tab=purchase-orders',
-      details: {
-        Company: details.company_name,
-        Project: details.project_name,
-        Vendor: details.vendor_name,
-        'PO Date': details.po_date,
-        'Delivery Date': details.delivery_date,
-        Amount: details.total_amount
-      },
-      attachments: attachments.length ? attachments : undefined
-    }), 'purchase order approval email');
-    res.json({ success: true, status: 'pending' });
-  } catch (err) {
-    const validationMessage = String(err?.message || '').toLowerCase();
-    if (validationMessage.includes('cannot move')) return res.status(400).json({ error: err.message });
-    console.error('Submit purchase order error:', err);
-    res.status(500).json({ error: err.message || 'Unable to submit purchase order.' });
-  }
-});
-
-app.post('/api/procurement/purchase-orders/:id/approve', protectAdminOnly, async (req, res) => {
-  const poId = Number(req.params.id || 0);
-  if (!poId) return res.status(400).json({ error: 'Purchase order ID is required.' });
-
-  try {
-    const rows = await queryAsync('SELECT id, po_number, draft_po_number, business_entity_id, status, approved_by FROM purchase_orders WHERE id = ? LIMIT 1', [poId]);
-    if (!Array.isArray(rows) || !rows.length) return res.status(404).json({ error: 'Purchase order not found.' });
-
-    assertStatusTransition(rows[0].status, 'approved', {
-      pending: ['approved', 'cancelled'],
-      approved: ['approved']
-    }, 'Purchase order');
-
-    const approvedBy = String(rows[0].approved_by || '').trim() || getApprovalActorName(req);
-    const officialPoNumber = isDraftDocumentNo(rows[0].po_number)
-      ? await generateNextEntityDocumentNo({
-          businessEntityId: rows[0].business_entity_id,
-          documentType: 'purchase-order',
-          prefix: 'PO',
-          tableName: 'purchase_orders',
-          columnName: 'po_number'
-        })
-      : rows[0].po_number;
-    const comment = getApprovalComment(req);
-    await queryAsync(
-      "UPDATE purchase_orders SET po_number = ?, draft_po_number = COALESCE(draft_po_number, ?), status = 'approved', approved_by = ?, approved_at = COALESCE(approved_at, NOW()), approval_comment = ? WHERE id = ?",
-      [officialPoNumber, rows[0].po_number, approvedBy, comment || null, poId]
-    );
-    logAction(req, 'APPROVE_PURCHASE_ORDER', appendApprovalComment(`Approved purchase order ${officialPoNumber} (Draft ${rows[0].draft_po_number || rows[0].po_number || '-'})`, comment));
-    sendBackgroundNotification(() => notifyPurchaseOrderRequester(req, poId, 'approved', {
-      approvedBy: getApprovalActorLabel(req)
-    }), 'purchase order approved email');
-    res.json({ success: true, status: 'approved', po_number: officialPoNumber, approved_by: approvedBy });
-  } catch (err) {
-    const validationMessage = String(err?.message || '').toLowerCase();
-    if (validationMessage.includes('cannot move')) return res.status(400).json({ error: err.message });
-    console.error('Approve purchase order error:', err);
-    res.status(500).json({ error: err.message || 'Unable to approve purchase order.' });
-  }
-});
-
-app.post('/api/procurement/purchase-orders/:id/reject', protectAdminOnly, async (req, res) => {
-  const poId = Number(req.params.id || 0);
-  const reason = String(req.body?.reason || '').trim();
-  if (!poId) return res.status(400).json({ error: 'Purchase order ID is required.' });
-  if (!reason) return res.status(400).json({ error: 'Rejection reason is required.' });
-
-  try {
-    const rows = await queryAsync('SELECT id, po_number, status, notes FROM purchase_orders WHERE id = ? LIMIT 1', [poId]);
-    if (!Array.isArray(rows) || !rows.length) return res.status(404).json({ error: 'Purchase order not found.' });
-
-    assertStatusTransition(rows[0].status, 'draft', {
-      pending: ['approved', 'cancelled', 'draft'],
-      draft: ['pending', 'cancelled']
-    }, 'Purchase order');
-
-    const actor = getApprovalActorName(req);
-    const notes = [rows[0].notes, `Rejected by ${actor}: ${reason}`].filter(Boolean).join('\n');
-    await queryAsync(
-      "UPDATE purchase_orders SET status = 'draft', submitted_at = NULL, approved_by = NULL, approved_at = NULL, notes = ?, approval_comment = ? WHERE id = ?",
-      [notes, reason, poId]
-    );
-    logAction(req, 'REJECT_PURCHASE_ORDER', `Rejected purchase order ${rows[0].po_number} | Reason: ${reason}`);
-    sendBackgroundNotification(() => notifyPurchaseOrderRequester(req, poId, 'rejected', {
-      reason,
-      cancelledBy: getApprovalActorLabel(req),
-      statusOverride: 'rejected'
-    }), 'purchase order rejection email');
-    res.json({ success: true, status: 'draft', reason });
-  } catch (err) {
-    const validationMessage = String(err?.message || '').toLowerCase();
-    if (validationMessage.includes('cannot move')) return res.status(400).json({ error: err.message });
-    console.error('Reject purchase order error:', err);
-    res.status(500).json({ error: err.message || 'Unable to reject purchase order.' });
-  }
-});
-
-app.post('/api/procurement/purchase-orders/:id/cancel', protectAdminOnly, async (req, res) => {
-  const poId = Number(req.params.id || 0);
-  if (!poId) return res.status(400).json({ error: 'Purchase order ID is required.' });
-
-  try {
-    const rows = await queryAsync('SELECT id, po_number, status FROM purchase_orders WHERE id = ? LIMIT 1', [poId]);
-    if (!Array.isArray(rows) || !rows.length) return res.status(404).json({ error: 'Purchase order not found.' });
-
-    assertStatusTransition(rows[0].status, 'cancelled', {
-      draft: ['pending', 'approved', 'cancelled'],
-      pending: ['approved', 'cancelled'],
-      approved: ['cancelled'],
-      cancelled: ['cancelled']
-    }, 'Purchase order');
-
-    const cancelReason = String(req.body?.reason || '').trim() || null;
-    await queryAsync(
-      "UPDATE purchase_orders SET status = 'cancelled', cancelled_by = COALESCE(cancelled_by, ?), cancelled_at = COALESCE(cancelled_at, NOW()), cancel_reason = COALESCE(cancel_reason, ?) WHERE id = ?",
-      [getApprovalActorName(req), cancelReason, poId]
-    );
-    logAction(req, 'CANCEL_PURCHASE_ORDER', `Cancelled purchase order ${rows[0].po_number}`);
-    sendBackgroundNotification(() => notifyPurchaseOrderRequester(req, poId, 'cancelled', {
-      reason: cancelReason,
-      cancelledBy: getApprovalActorLabel(req)
-    }), 'purchase order cancelled email');
-    res.json({ success: true, status: 'cancelled' });
-  } catch (err) {
-    const validationMessage = String(err?.message || '').toLowerCase();
-    if (validationMessage.includes('cannot move')) return res.status(400).json({ error: err.message });
-    console.error('Cancel purchase order error:', err);
-    res.status(500).json({ error: err.message || 'Unable to cancel purchase order.' });
-  }
-});
-
-app.delete('/api/procurement/purchase-orders/:id', protectAdminOnly, async (req, res) => {
-  const poId = Number(req.params.id || 0);
-  try {
-    await queryAsync('DELETE FROM po_line_items WHERE po_id = ?', [poId]);
-    const result = await queryAsync('DELETE FROM purchase_orders WHERE id = ?', [poId]);
-    logAction(req, 'DELETE_PURCHASE_ORDER', `Deleted purchase order ID: ${req.params.id}`);
-    res.json({ success: true, affectedRows: result.affectedRows || 0 });
-  } catch (err) {
-    console.error('Delete purchase order error:', err);
-    res.status(500).json({ error: err.message || 'Unable to delete purchase order.' });
-  }
-});
-
-app.get('/api/projects', protectAdmin, (req, res) => {
-  runArchiveMaintenance((maintenanceErr) => {
-    if (maintenanceErr) {
-      console.error('Project maintenance warning:', maintenanceErr);
-    }
-
-    const includeArchived = String(req.query.include_archived || '0') === '1';
-    const actor = getAuthenticatedUser(req) || {};
-    const conditions = [];
-    const params = [];
-    if (!includeArchived) conditions.push('COALESCE(p.is_archived, FALSE) = FALSE');
-    if (isAdminRole(actor.role)) conditions.push("LOWER(COALESCE(p.status, '')) NOT IN ('draft', 'needs_revision')");
-    if (isStaffRole(actor.role)) {
-      const staffTerms = [actor.fullname, actor.username, actor.email]
-        .map(value => String(value || '').trim().toLowerCase())
-        .filter(value => value.length >= 3);
-      const staffClauses = [];
-      const actorId = Number(actor.id || 0) || 0;
-      if (actorId) {
-        staffClauses.push('p.assigned_to = ?');
-        params.push(actorId);
-        staffClauses.push('(p.assigned_to IS NULL AND p.created_by = ?)');
-        params.push(actorId);
+      const recipients = await getApprovalNotificationRecipients();
+      if (recipients.length && (hasEmailConfig || RESEND_API_KEY)) {
+        const emailAttachments = [];
+        try {
+          const quotePdf = await buildQuotationPdfAttachment(quotationId);
+          emailAttachments.push({ filename: quotePdf.filename, content: quotePdf.content, contentType: 'application/pdf' });
+        } catch (pdfErr) { console.error('Quotation PDF for email error:', pdfErr); }
+        if (vendorPdfFilename) {
+          const vpath = path.join(UPLOAD_DIR, path.basename(vendorPdfFilename));
+          if (fs.existsSync(vpath)) emailAttachments.push({ filename: `vendor-quote-${prNumber}.pdf`, path: vpath, contentType: 'application/pdf' });
+        }
+        await sendSystemEmail({
+          from: `Kinaadman ERP <${SMTP_FROM}>`,
+          to: recipients.join(','),
+          subject: `Vendor quotation received — ${prNumber}`,
+          attachments: emailAttachments,
+          text: `${vendorName} submitted a quotation for ${prNumber}.\nTotal: ${formatPdfMoney(quotedTotal)}\nReview it in Procurement → RFQ / Quotations.`,
+          html: `
+            <div style="font-family:Arial,sans-serif;color:#1f2937;line-height:1.55;">
+              <h2 style="margin:0 0 12px;">Vendor Quotation Received</h2>
+              <p style="margin:0 0 8px;"><strong>${htmlEscape(vendorName)}</strong> submitted a quotation for <strong>${htmlEscape(prNumber)}</strong>.</p>
+              <p style="margin:0 0 8px;">Total: <strong>${htmlEscape(formatPdfMoney(quotedTotal))}</strong></p>
+              <p style="margin:16px 0 0;"><a href="${htmlEscape(buildAppUrl('/procurement?tab=quotations'))}" style="background:#b42318;color:#fff;text-decoration:none;padding:10px 14px;border-radius:6px;display:inline-block;">Review in ERP</a></p>
+            </div>
+          `
+        });
       }
-      staffTerms.forEach((term) => {
-        const like = `%${term}%`;
-        staffClauses.push(`(p.assigned_to IS NULL AND (
-          LOWER(COALESCE(p.project_manager, '')) LIKE ?
-          OR LOWER(COALESCE(p.members, '')) LIKE ?
-          OR LOWER(COALESCE(p.project_members, '')) LIKE ?
-          OR LOWER(COALESCE(p.project_members_2, '')) LIKE ?
-          OR LOWER(COALESCE(p.project_members_3, '')) LIKE ?
-        ))`);
-        params.push(like, like, like, like, like);
-      });
-      conditions.push(staffClauses.length ? `(${staffClauses.join(' OR ')})` : '1=0');
-    }
-    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-    db.query(`
-      SELECT
-        p.*,
-        COALESCE(p.project_docno, p.draft_docno) AS project_docno,
-        p.project_docno AS official_project_docno,
-        be.company_name AS business_entity_name,
-        be.entity_code AS business_entity_code,
-        creator.fullname AS created_by_name,
-        creator.username AS created_by_username,
-        creator.email AS created_by_email,
-        assignee.fullname AS assigned_to_name,
-        assignee.username AS assigned_to_username,
-        assignee.email AS assigned_to_email,
-        creg.company_name AS registry_company_name,
-        creg.company_no AS registry_company_no,
-        creg.contact_person AS registry_contact_person,
-        creg.email AS registry_email,
-        creg.phone AS registry_phone,
-        creg.address AS registry_address
-      FROM projects p
-      LEFT JOIN business_entities be ON be.id = p.business_entity_id
-      LEFT JOIN users creator ON creator.id = p.created_by
-      LEFT JOIN users assignee ON assignee.id = p.assigned_to
-      LEFT JOIN company_registry creg ON creg.id = p.company_id
-      ${where}
-      ORDER BY COALESCE(p.start_date, p.planned_start_date, p.created_at) DESC, p.id DESC
-    `, params, (err, rows) => {
-      if (err) {
-        console.error('Projects API error:', err);
-        return res.status(500).json({ error: err.message });
-      }
-      res.json(Array.isArray(rows) ? rows : []);
-    });
-  });
-});
-
-app.put('/api/procurement/goods-receipts/:id', protectAdmin, async (req, res) => {
-  const receiptId = Number(req.params.id || 0);
-  let grnNumber = String(req.body.grn_number || '').trim();
-  const poId = Number(req.body.po_id || 0);
-  const warehouseId = Number(req.body.warehouse_id || req.body.receiving_warehouse_id || 0) || 0;
-  const receivedDate = req.body.received_date || new Date().toISOString().slice(0, 10);
-  const receivedBy = String(req.body.received_by || '').trim() || null;
-  let status = 'received';
-  const notes = String(req.body.notes || '').trim() || null;
-
-  if (!receiptId) {
-    return res.status(400).json({ error: 'Goods receipt ID is required.' });
-  }
-  if (!poId) {
-    return res.status(400).json({ error: 'Purchase order is required.' });
-  }
-  if (status === 'received' && !warehouseId) {
-    return res.status(400).json({ error: 'Receiving warehouse is required.' });
-  }
-
-  try {
-    const receiptRows = await queryAsync('SELECT id, status FROM goods_receipts WHERE id = ? LIMIT 1', [receiptId]);
-    if (!Array.isArray(receiptRows) || !receiptRows.length) {
-      return res.status(404).json({ error: 'Goods receipt not found.' });
-    }
-    status = normalizeProcurementWorkflowStatus(receiptRows[0].status) || 'received';
-    const poRows = await queryAsync('SELECT id, business_entity_id FROM purchase_orders WHERE id = ? LIMIT 1', [poId]);
-    if (!Array.isArray(poRows) || !poRows.length) {
-      return res.status(404).json({ error: 'Purchase order not found.' });
-    }
-    const businessEntityId = await resolveBusinessEntityId(poRows[0].business_entity_id || req.body.business_entity_id);
-    if (!grnNumber) {
-      grnNumber = await generateNextEntityDocumentNo({
-        businessEntityId,
-        documentType: 'goods-receipt',
-        prefix: 'GRN',
-        tableName: 'goods_receipts',
-        columnName: 'grn_number'
-      });
+    } catch (notifyErr) {
+      console.error('RFQ submit notify error:', notifyErr);
     }
 
-    await queryAsync(
-      'UPDATE goods_receipts SET grn_number = ?, po_id = ?, received_date = ?, received_by = ?, status = ?, notes = ? WHERE id = ?',
-      [grnNumber, poId, receivedDate, receivedBy, status, notes, receiptId]
-    );
-    const receiptItemRows = await queryAsync('SELECT COUNT(*)::int AS count FROM goods_receipt_items WHERE receipt_id = ?', [receiptId]);
-    if (status === 'received' && Number(receiptItemRows?.[0]?.count || 0) === 0) {
-      await postInventoryReceiptForPurchaseOrder({
-        poId,
-        receiptId,
-        grnNumber,
-        businessEntityId,
-        warehouseId,
-        receivedDate,
-        receivedBy,
-        notes
-      });
-    }
-    if (status === 'received') {
-      await markPurchaseOrderReceived(poId);
-    }
-    await claimEntityDocumentNo({
-      businessEntityId,
-      documentType: 'goods-receipt',
-      prefix: 'GRN',
-      documentNo: grnNumber
-    });
-
-    logAction(req, 'UPDATE_GOODS_RECEIPT', `Updated goods receipt ${grnNumber}`);
-    res.json({ success: true, grn_number: grnNumber, inventory_synced: status === 'received' });
+    res.json({ ok: true, message: 'Quotation submitted. Thank you!' });
   } catch (err) {
-    if (isPostgresUniqueViolation(err)) {
-      return res.status(409).json({ error: 'GRN number already exists.' });
-    }
-    console.error('Update goods receipt error:', err);
-    res.status(500).json({ error: err.message || 'Unable to update goods receipt.' });
+    dropFile();
+    console.error('RFQ portal submit error:', err);
+    res.status(500).json({ ok: false, error: 'Unable to submit your quotation. Please try again or contact us.' });
   }
 });
 
-app.delete('/api/procurement/goods-receipts/:id', protectAdminOnly, async (req, res) => {
-  try {
-    const result = await queryAsync('DELETE FROM goods_receipts WHERE id = ?', [Number(req.params.id || 0)]);
-    logAction(req, 'DELETE_GOODS_RECEIPT', `Deleted goods receipt ID: ${req.params.id}`);
-    res.json({ success: true, affectedRows: result.affectedRows || 0 });
-  } catch (err) {
-    console.error('Delete goods receipt error:', err);
-    res.status(500).json({ error: err.message || 'Unable to delete goods receipt.' });
-  }
-});
+// Serve the vendor-uploaded quotation PDF (from the public portal) to admins.
 
-app.get('/api/hr/departments', protectAdmin, async (req, res) => {
-  try {
-    const rows = await queryAsync('SELECT * FROM departments ORDER BY department_name ASC');
-    res.json(rows);
-  } catch (err) {
-    console.error('Departments error:', err);
-    res.status(500).json({ error: err.message || 'Unable to load departments.' });
-  }
-});
 
-app.post('/api/hr/departments', protectAdmin, async (req, res) => {
-  try {
-    const departmentName = String(req.body.department_name || '').trim();
-    const description = String(req.body.description || '').trim() || null;
-    if (!departmentName) {
-      return res.status(400).json({ error: 'Department name is required.' });
-    }
-    const duplicateRows = await queryAsync(
-      'SELECT id FROM departments WHERE department_name = ? LIMIT 1',
-      [departmentName]
-    );
-    if (duplicateRows.length) {
-      return res.status(409).json({ error: 'Department already exists.', field: 'department_name' });
-    }
-    const result = await queryAsync(
-      'INSERT INTO departments (department_name, description) VALUES (?, ?)',
-      [departmentName, description]
-    );
-    res.json({ id: result.insertId });
-  } catch (err) {
-    if (isPostgresUniqueViolation(err)) {
-      return res.status(409).json({ error: 'Department already exists.' });
-    }
-    console.error('Create department error:', err);
-    res.status(500).json({ error: err.message || 'Unable to create department.' });
-  }
-});
 
-app.get('/api/hr/employees', protectAdmin, async (req, res) => {
-  try {
-    const rows = await queryAsync(`
-      SELECT e.*, d.department_name
-      FROM employees e
-      LEFT JOIN departments d ON d.id = e.department_id
-      ORDER BY e.full_name ASC
-    `);
-    res.json(rows);
-  } catch (err) {
-    console.error('Employees error:', err);
-    res.status(500).json({ error: err.message || 'Unable to load employees.' });
-  }
-});
 
-app.post('/api/hr/employees', protectAdmin, async (req, res) => {
-  try {
-    const employeeCode = String(req.body.employee_code || '').trim() || generateCode('EMP');
-    const fullName = String(req.body.full_name || '').trim();
-    const departmentId = req.body.department_id ? Number(req.body.department_id) : null;
-    const jobTitle = String(req.body.job_title || '').trim() || null;
-    const employmentType = String(req.body.employment_type || 'regular').trim().toLowerCase();
-    const payFrequency = String(req.body.pay_frequency || 'monthly').trim().toLowerCase();
-    const salaryRate = toNumber(req.body.salary_rate, 0);
-    const email = String(req.body.email || '').trim() || null;
-    const phone = normalizePhone(req.body.phone);
-    const hireDate = req.body.hire_date || null;
 
-    if (!fullName) {
-      return res.status(400).json({ error: 'Employee name is required.' });
-    }
 
-    if (phone && !isValidPhone(phone)) {
-      return res.status(400).json({ error: 'Employee phone number must be digits only, 7 to 15 digits.' });
-    }
 
-    const duplicateRows = await queryAsync(
-      'SELECT id FROM employees WHERE employee_code = ? LIMIT 1',
-      [employeeCode]
-    );
-    if (duplicateRows.length) {
-      return res.status(409).json({ error: 'Employee code already exists.', field: 'employee_code' });
-    }
-
-    const result = await queryAsync(
-      'INSERT INTO employees (employee_code, full_name, department_id, job_title, employment_type, pay_frequency, salary_rate, email, phone, hire_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [employeeCode, fullName, departmentId, jobTitle, employmentType, payFrequency, salaryRate, email, phone, hireDate]
-    );
-    res.json({ id: result.insertId, employee_code: employeeCode });
-  } catch (err) {
-    if (isPostgresUniqueViolation(err)) {
-      return res.status(409).json({ error: 'Employee code already exists.' });
-    }
-    console.error('Create employee error:', err);
-    res.status(500).json({ error: err.message || 'Unable to create employee.' });
-  }
-});
-
-app.get('/api/hr/payroll-periods', protectAdmin, async (req, res) => {
-  try {
-    const rows = await queryAsync('SELECT * FROM payroll_periods ORDER BY start_date DESC, id DESC');
-    res.json(rows);
-  } catch (err) {
-    console.error('Payroll periods error:', err);
-    res.status(500).json({ error: err.message || 'Unable to load payroll periods.' });
-  }
-});
-
-app.post('/api/hr/payroll-periods', protectAdmin, async (req, res) => {
-  try {
-    const periodName = String(req.body.period_name || '').trim() || generateCode('PAY');
-    const startDate = req.body.start_date;
-    const endDate = req.body.end_date;
-    const payDate = req.body.pay_date || null;
-    const status = String(req.body.status || 'open').trim().toLowerCase();
-
-    if (!startDate || !endDate) {
-      return res.status(400).json({ error: 'Start and end dates are required.' });
-    }
-
-    const duplicateRows = await queryAsync(
-      'SELECT id FROM payroll_periods WHERE period_name = ? LIMIT 1',
-      [periodName]
-    );
-    if (duplicateRows.length) {
-      return res.status(409).json({ error: 'Payroll period already exists.', field: 'period_name' });
-    }
-
-    const result = await queryAsync(
-      'INSERT INTO payroll_periods (period_name, start_date, end_date, pay_date, status) VALUES (?, ?, ?, ?, ?)',
-      [periodName, startDate, endDate, payDate, status]
-    );
-    res.json({ id: result.insertId, period_name: periodName });
-  } catch (err) {
-    if (isPostgresUniqueViolation(err)) {
-      return res.status(409).json({ error: 'Payroll period already exists.' });
-    }
-    console.error('Create payroll period error:', err);
-    res.status(500).json({ error: err.message || 'Unable to create payroll period.' });
-  }
-});
-
-app.get('/api/hr/payroll-runs', protectAdmin, async (req, res) => {
-  try {
-    const rows = await queryAsync(`
-      SELECT pr.*, pp.period_name, e.employee_code, e.full_name
-      FROM payroll_runs pr
-      JOIN payroll_periods pp ON pp.id = pr.period_id
-      JOIN employees e ON e.id = pr.employee_id
-      ORDER BY pr.created_at DESC, pr.id DESC
-    `);
-    res.json(rows);
-  } catch (err) {
-    console.error('Payroll runs error:', err);
-    res.status(500).json({ error: err.message || 'Unable to load payroll runs.' });
-  }
-});
-
-app.post('/api/hr/payroll-runs', protectAdmin, async (req, res) => {
-  try {
-    const periodId = Number(req.body.period_id || 0);
-    const employeeId = Number(req.body.employee_id || 0);
-    const grossPay = toNumber(req.body.gross_pay, 0);
-    const deductions = toNumber(req.body.deductions, 0);
-    const notes = String(req.body.notes || '').trim() || null;
-
-    if (!periodId || !employeeId) {
-      return res.status(400).json({ error: 'Payroll period and employee are required.' });
-    }
-
-    const netPay = Math.max(0, grossPay - deductions);
-    const result = await queryAsync(
-      'INSERT INTO payroll_runs (period_id, employee_id, gross_pay, deductions, net_pay, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [periodId, employeeId, grossPay, deductions, netPay, 'draft', notes]
-    );
-
-    await queryAsync(
-      'INSERT INTO payroll_run_lines (payroll_run_id, line_type, amount) VALUES (?, ?, ?)',
-      [result.insertId, 'gross_pay', grossPay]
-    );
-    await queryAsync(
-      'INSERT INTO payroll_run_lines (payroll_run_id, line_type, amount) VALUES (?, ?, ?)',
-      [result.insertId, 'deductions', deductions]
-    );
-    await queryAsync(
-      'INSERT INTO payroll_run_lines (payroll_run_id, line_type, amount) VALUES (?, ?, ?)',
-      [result.insertId, 'net_pay', netPay]
-    );
-
-    logAction(req, 'CREATE_PAYROLL_RUN', `Created payroll run for employee ID ${employeeId}`);
-    res.json({ id: result.insertId, net_pay: netPay });
-  } catch (err) {
-    console.error('Create payroll run error:', err);
-    res.status(500).json({ error: err.message || 'Unable to create payroll run.' });
-  }
-});
+// HR module removed (legacy — not in current UI). Tables dropped in the legacy-cleanup block.
 
 app.post('/api/gantt/import', protectAdmin, ganttImportUpload.single('file'), (req, res) => {
   try {
@@ -17108,198 +10983,18 @@ async function normalizePaymentPayload(body = {}) {
   };
 }
 
-app.get('/api/payments', protectAdmin, (req, res) => {
-  const type = req.query.type || 'ap';
-  db.query(
-    'SELECT * FROM payments WHERE payment_type = ? ORDER BY payment_date DESC LIMIT 100',
-    [type],
-    (err, rows) => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json(rows);
-    }
-  );
-});
+// Payments (AP/AR) routes — extracted to src/modules/accounts-payable (step 8).
+app.use(require('./src/modules/accounts-payable/payments.routes')({ normalizePaymentPayload, assertPaymentWithinOpenBalance, syncPayableBalance, syncReceivableBalance, postApprovedPaymentJournal, deleteAutoJournalEntries, sendBackgroundNotification, notifyPaymentApprovalRequest, notifyFinanceApproval, getApprovalActorName, getApprovalActorLabel, getApprovalComment, appendApprovalComment, logAction }));
 
-app.post('/api/payments', protectAdmin, async (req, res) => {
-  try {
-    const payment = await normalizePaymentPayload(req.body);
-    await assertPaymentWithinOpenBalance(payment);
-    const approvalStatus = payment.payment_type === 'ap' ? 'pending' : 'approved';
-    const result = await queryAsync(
-      'INSERT INTO payments (payment_type, ap_id, ar_id, payment_date, amount, payment_method, reference_number, approval_status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [payment.payment_type, payment.ap_id, payment.ar_id, payment.payment_date, payment.amount, payment.payment_method, payment.reference_number, approvalStatus, payment.notes]
-    );
-
-    if (payment.payment_type === 'ap' && payment.ap_id) {
-      await syncPayableBalance(payment.ap_id);
-      await postApprovedPaymentJournal(result.insertId);
-      sendBackgroundNotification(() => notifyPaymentApprovalRequest(req, result.insertId), 'ap payment approval request email');
-    } else if (payment.payment_type === 'ar' && payment.ar_id) {
-      await syncReceivableBalance(payment.ar_id);
-      await postApprovedPaymentJournal(result.insertId);
-    }
-
-    res.json({ id: result.insertId });
-  } catch (err) {
-    const validationMessage = String(err?.message || '').toLowerCase();
-    if (validationMessage.includes('required') || validationMessage.includes('must') || validationMessage.includes('not found') || validationMessage.includes('approve') || validationMessage.includes('exceeds')) {
-      return res.status(400).json({ error: err.message || 'Unable to save payment.' });
-    }
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.put('/api/payments/:id', protectAdmin, async (req, res) => {
-  const paymentId = Number(req.params.id || 0);
-  if (!paymentId) return res.status(400).json({ error: 'Invalid payment id' });
-
-  try {
-    const payment = await normalizePaymentPayload(req.body);
-    const existingRows = await queryAsync('SELECT * FROM payments WHERE id = ? LIMIT 1', [paymentId]);
-    if (!existingRows.length) {
-      return res.status(404).json({ error: 'Payment not found' });
-    }
-    const existing = existingRows[0];
-
-    await assertPaymentWithinOpenBalance(payment, { excludePaymentId: paymentId });
-    await queryAsync(
-      'UPDATE payments SET payment_type = ?, ap_id = ?, ar_id = ?, payment_date = ?, amount = ?, payment_method = ?, reference_number = ?, notes = ? WHERE id = ?',
-      [payment.payment_type, payment.ap_id, payment.ar_id, payment.payment_date, payment.amount, payment.payment_method, payment.reference_number, payment.notes, paymentId]
-    );
-
-    const affectedApIds = new Set();
-    const affectedArIds = new Set();
-    if (Number(existing.ap_id || 0)) affectedApIds.add(Number(existing.ap_id));
-    if (Number(existing.ar_id || 0)) affectedArIds.add(Number(existing.ar_id));
-    if (payment.payment_type === 'ap' && Number(payment.ap_id || 0)) affectedApIds.add(Number(payment.ap_id));
-    if (payment.payment_type === 'ar' && Number(payment.ar_id || 0)) affectedArIds.add(Number(payment.ar_id));
-
-    await Promise.all([
-      ...Array.from(affectedApIds).map((id) => syncPayableBalance(id)),
-      ...Array.from(affectedArIds).map((id) => syncReceivableBalance(id))
-    ]);
-    await postApprovedPaymentJournal(paymentId);
-
-    res.json({ success: true });
-  } catch (err) {
-    const validationMessage = String(err?.message || '').toLowerCase();
-    if (validationMessage.includes('required') || validationMessage.includes('must') || validationMessage.includes('not found') || validationMessage.includes('approve') || validationMessage.includes('exceeds')) {
-      return res.status(400).json({ error: err.message || 'Unable to update payment.' });
-    }
-    console.error('Update payment error:', err);
-    res.status(500).json({ error: err.message || 'Unable to update payment.' });
-  }
-});
-
-app.post('/api/payments/:id/approve', protectAdminOnly, async (req, res) => {
-  const paymentId = Number(req.params.id || 0);
-  if (!paymentId) return res.status(400).json({ error: 'Invalid payment id' });
-
-  try {
-    const rows = await queryAsync('SELECT * FROM payments WHERE id = ? LIMIT 1', [paymentId]);
-    if (!rows.length) {
-      return res.status(404).json({ error: 'Payment not found' });
-    }
-
-    const payment = rows[0];
-    await assertPaymentWithinOpenBalance({
-      payment_type: payment.payment_type,
-      ap_id: payment.ap_id,
-      ar_id: payment.ar_id,
-      amount: payment.amount
-    }, { excludePaymentId: paymentId });
-    const approvedBy = getApprovalActorName(req);
-    const comment = getApprovalComment(req);
-    await queryAsync(
-      "UPDATE payments SET approval_status = 'approved', approved_by = ?, approved_at = COALESCE(approved_at, NOW()), approval_comment = ? WHERE id = ?",
-      [approvedBy, comment || null, paymentId]
-    );
-
-    if (Number(payment.ap_id || 0)) {
-      await syncPayableBalance(payment.ap_id);
-    }
-    if (Number(payment.ar_id || 0)) {
-      await syncReceivableBalance(payment.ar_id);
-    }
-    await postApprovedPaymentJournal(paymentId);
-
-    logAction(req, 'APPROVE_PAYMENT', appendApprovalComment(`Approved ${payment.payment_type || 'payment'} payment ID ${paymentId}`, comment));
-    sendBackgroundNotification(() => notifyFinanceApproval(req, 'payment', paymentId, {
-      approvedBy: getApprovalActorLabel(req)
-    }), 'payment approved email');
-    res.json({ success: true, approval_status: 'approved', approved_by: approvedBy, approval_comment: comment });
-  } catch (err) {
-    const validationMessage = String(err?.message || '').toLowerCase();
-    if (validationMessage.includes('exceeds') || validationMessage.includes('not found')) {
-      return res.status(400).json({ error: err.message || 'Unable to approve payment.' });
-    }
-    console.error('Approve payment error:', err);
-    res.status(500).json({ error: err.message || 'Unable to approve payment.' });
-  }
-});
-
-app.post('/api/payments/:id/reject', protectAdminOnly, async (req, res) => {
-  const paymentId = Number(req.params.id || 0);
-  const reason = String(req.body?.reason || '').trim();
-  if (!paymentId) return res.status(400).json({ error: 'Invalid payment id' });
-  if (!reason) return res.status(400).json({ error: 'Rejection reason is required.' });
-
-  try {
-    const rows = await queryAsync('SELECT * FROM payments WHERE id = ? LIMIT 1', [paymentId]);
-    if (!rows.length) return res.status(404).json({ error: 'Payment not found' });
-
-    const payment = rows[0];
-    const actor = getApprovalActorName(req);
-    const notes = [payment.notes, `Rejected by ${actor}: ${reason}`].filter(Boolean).join('\n');
-    await queryAsync(
-      "UPDATE payments SET approval_status = 'rejected', approved_by = ?, approved_at = COALESCE(approved_at, NOW()), notes = ?, approval_comment = ? WHERE id = ?",
-      [actor, notes, reason, paymentId]
-    );
-    if (Number(payment.ap_id || 0)) await syncPayableBalance(payment.ap_id);
-    if (Number(payment.ar_id || 0)) await syncReceivableBalance(payment.ar_id);
-    logAction(req, 'REJECT_PAYMENT', `Rejected ${payment.payment_type || 'payment'} payment ID ${paymentId} | Reason: ${reason}`);
-    sendBackgroundNotification(() => notifyFinanceApproval(req, 'payment', paymentId, {
-      decision: 'rejected',
-      reason,
-      rejectedBy: getApprovalActorLabel(req)
-    }), 'payment rejected email');
-    res.json({ success: true, approval_status: 'rejected', reason });
-  } catch (err) {
-    console.error('Reject payment error:', err);
-    res.status(500).json({ error: err.message || 'Unable to reject payment.' });
-  }
-});
-
-app.delete('/api/payments/:id', protectAdminOnly, async (req, res) => {
-  const paymentId = Number(req.params.id || 0);
-  if (!paymentId) return res.status(400).json({ error: 'Invalid payment id' });
-
-  try {
-    const existingRows = await queryAsync('SELECT * FROM payments WHERE id = ? LIMIT 1', [paymentId]);
-    if (!existingRows.length) {
-      return res.status(404).json({ error: 'Payment not found' });
-    }
-    const existing = existingRows[0];
-
-    await queryAsync('DELETE FROM payments WHERE id = ?', [paymentId]);
-    await deleteAutoJournalEntries(
-      String(existing.payment_type || '').trim().toLowerCase() === 'ap' ? 'ap_payment' : 'ar_payment',
-      paymentId
-    );
-
-    if (Number(existing.ap_id || 0)) {
-      await syncPayableBalance(existing.ap_id);
-    }
-    if (Number(existing.ar_id || 0)) {
-      await syncReceivableBalance(existing.ar_id);
-    }
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Delete payment error:', err);
-    res.status(500).json({ error: err.message || 'Unable to delete payment.' });
-  }
-});
+// AP bills (vendor invoices). Like procurement, this router was extracted to bills.routes.js but
+// its app.use mount was missing, 404'ing every /api/bills/* route ("Unable to load bills").
+app.use(require('./src/modules/accounts-payable/bills.routes')({
+  upload, UPLOAD_DIR, resolveBusinessEntityId, isDraftDocumentNo, generateNextDraftEntityDocumentNo,
+  generateNextEntityDocumentNo, peekNextDraftEntityDocumentNo, peekNextEntityDocumentNo,
+  claimEntityDocumentNo, sendBackgroundNotification, notifyBillApprovalRequest, syncPayableBalance,
+  postApprovedBillJournal, sendBillPdf, getApprovalActorName, getApprovalComment, appendApprovalComment,
+  notifyFinanceApproval, getApprovalActorLabel, logAction
+}));
 
 app.get('/api/notifications', protectAdmin, async (req, res) => {
   runArchiveMaintenance((maintenanceErr) => {
@@ -17322,11 +11017,10 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
       inventoryRequestRows,
       receivableRows,
       payableDueRows,
-      inventoryRows,
-      serviceRows
+      inventoryRows
     ] = await Promise.all([
       queryAsync(
-        `SELECT id, project_docno, source_docno, transaction_id, project_name, project_manager, start_date, end_date, status, COALESCE(is_archived, FALSE) AS is_archived
+        `SELECT id, project_docno, source_docno, project_name, project_manager, start_date, end_date, status, COALESCE(is_archived, FALSE) AS is_archived
          FROM projects
          ORDER BY end_date ASC, start_date ASC`
       ),
@@ -17424,15 +11118,6 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
            AND s.quantity_on_hand <= p.reorder_level
          ORDER BY (s.quantity_on_hand - p.reorder_level) ASC, p.product_name ASC
          LIMIT 10`
-      ).catch(() => []),
-      queryAsync(
-        `SELECT id, so_number, service_title, service_date, service_type, status
-         FROM service_orders
-         WHERE COALESCE(is_archived, FALSE) = FALSE
-           AND service_date <= CURRENT_DATE + INTERVAL '3 days'
-           AND status NOT IN ('completed', 'cancelled')
-         ORDER BY service_date ASC, id ASC
-         LIMIT 10`
       ).catch(() => [])
     ]);
 
@@ -17471,8 +11156,7 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
             message: 'Project completed successfully.',
             meta: `Managed by ${project.project_manager || 'Unknown'}`,
             date: project.end_date || project.start_date || null,
-            source_docno: project.project_docno || project.source_docno || '',
-            transaction_id: project.transaction_id || null
+            source_docno: project.project_docno || project.source_docno || ''
           };
         }
 
@@ -17488,8 +11172,7 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
             message: 'Project is overdue and still open.',
             meta: `Ended on ${formatNotificationDate(project.end_date)}`,
             date: project.end_date,
-            source_docno: project.project_docno || project.source_docno || '',
-            transaction_id: project.transaction_id || null
+            source_docno: project.project_docno || project.source_docno || ''
           };
         }
 
@@ -17505,8 +11188,7 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
             message: 'Deadline is coming soon.',
             meta: `Due on ${formatNotificationDate(project.end_date)}`,
             date: project.end_date,
-            source_docno: project.project_docno || project.source_docno || '',
-            transaction_id: project.transaction_id || null
+            source_docno: project.project_docno || project.source_docno || ''
           };
         }
 
@@ -17522,8 +11204,7 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
             message: 'Project is pending action or start confirmation.',
             meta: `Status: ${capitalizeProjectStatus(project.status)}`,
             date: project.start_date || project.end_date || null,
-            source_docno: project.project_docno || project.source_docno || '',
-            transaction_id: project.transaction_id || null
+            source_docno: project.project_docno || project.source_docno || ''
           };
         }
 
@@ -17539,8 +11220,7 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
             message: 'Project is starting soon.',
             meta: `Starts on ${formatNotificationDate(project.start_date)}`,
             date: project.start_date,
-            source_docno: project.project_docno || project.source_docno || '',
-            transaction_id: project.transaction_id || null
+            source_docno: project.project_docno || project.source_docno || ''
           };
         }
 
@@ -17672,18 +11352,6 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
       message: 'Stock is at or below reorder level.',
       meta: `${row.warehouse_name || 'Warehouse'} | On hand ${Number(row.quantity_on_hand || 0)} / Reorder ${Number(row.reorder_level || 0)}`,
       date: new Date().toISOString()
-    }));
-
-    const serviceItems = (serviceRows || []).map((row) => ({
-      id: `service-due-${row.id}`,
-      level: dateLevel(row.service_date),
-      type: 'service',
-      category: 'Service',
-      href: '/service-operations?tab=service-orders',
-      title: row.so_number || 'Service Order',
-      message: row.service_title || 'Service schedule needs attention.',
-      meta: `${capitalizeProjectStatus(row.service_type || 'service')} | ${capitalizeProjectStatus(row.status || 'issued')}`,
-      date: row.service_date || null
     }));
 
     const auditItems = (auditRows || []).map((row) => {
@@ -17847,7 +11515,6 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
       ...(isStaffRole(actor.role) ? staffDecisionItems : approvalItems),
       ...dueItems,
       ...inventoryItems,
-      ...serviceItems,
       ...projectItems,
       ...(isStaffRole(actor.role) ? [] : auditItems)
     ]
@@ -17864,79 +11531,6 @@ app.get('/api/notifications', protectAdmin, async (req, res) => {
   }
 });
 
-app.get('/api/projects/stats', protectAdmin, (req, res) => {
-  runArchiveMaintenance((maintenanceErr) => {
-    if (maintenanceErr) {
-      console.error('Project stats maintenance warning:', maintenanceErr);
-    }
-
-    const yearParam = Number.parseInt(req.query.year, 10);
-    const statsYear = Number.isFinite(yearParam) ? yearParam : new Date().getFullYear();
-    const companyParam = String(req.query.company || '').trim();
-    const companyFilter = companyParam && companyParam.toLowerCase() !== 'all' ? companyParam.toLowerCase() : '';
-    const businessEntityId = normalizeBusinessEntityId(req.query.business_entity_id);
-    const params = [];
-    const whereParts = ['1=1'];
-    const actor = getAuthenticatedUser(req) || {};
-    if (businessEntityId) {
-      whereParts.push('p.business_entity_id = ?');
-      params.push(businessEntityId);
-    }
-    if (companyFilter) {
-      whereParts.push('LOWER(COALESCE(p.company_name, p.client_name, p.company_no, \'\')) = ?');
-      params.push(companyFilter);
-    }
-    if (isAdminRole(actor.role)) {
-      whereParts.push("LOWER(COALESCE(p.status, '')) NOT IN ('draft', 'needs_revision', 'submitted')");
-    }
-    db.query(`
-      SELECT
-        SUM(
-          CASE
-            WHEN COALESCE(is_archived, FALSE) = FALSE AND status <> 'cancelled' THEN 1
-            ELSE 0
-          END
-        ) AS total_projects,
-        SUM(
-          CASE
-            WHEN COALESCE(is_archived, FALSE) = FALSE
-              AND CURRENT_DATE >= COALESCE(actual_start_date, planned_start_date, start_date)
-              AND CURRENT_DATE <= COALESCE(actual_end_date, planned_end_date, end_date)
-              AND status NOT IN ('completed', 'cancelled', 'on_hold') THEN 1
-            ELSE 0
-          END
-        ) AS ongoing_projects,
-        SUM(
-          CASE
-            WHEN COALESCE(is_archived, FALSE) = FALSE
-              AND CURRENT_DATE < COALESCE(actual_start_date, planned_start_date, start_date)
-              AND status NOT IN ('completed', 'cancelled', 'on_hold') THEN 1
-            ELSE 0
-          END
-        ) AS upcoming_projects,
-        SUM(
-          CASE
-            WHEN COALESCE(is_archived, FALSE) = FALSE
-              AND CURRENT_DATE > COALESCE(actual_end_date, planned_end_date, end_date)
-              AND status NOT IN ('completed', 'cancelled', 'on_hold') THEN 1
-            ELSE 0
-          END
-        ) AS overdue_projects
-      FROM projects p
-      WHERE ${whereParts.join(' AND ')}
-    `, params, (err, rows) => {
-      if (err) return res.status(500).json({ error: err.message });
-      const stats = rows[0] || {};
-      res.json({
-        total_projects: Number(stats.total_projects || 0),
-        ongoing_projects: Number(stats.ongoing_projects || 0),
-        upcoming_projects: Number(stats.upcoming_projects || 0),
-        overdue_projects: Number(stats.overdue_projects || 0),
-        stats_year: statsYear
-      });
-    });
-  });
-});
 
 function getMissingProjectRequiredFields(input = {}) {
   const requiredFields = [
@@ -17962,1196 +11556,49 @@ function getMissingProjectRequiredFields(input = {}) {
     .map(([, label]) => label);
 }
 
-app.post('/api/projects', protectAdmin, upload.single('pdf_file'), async (req, res) => {
-  const {
-    project_name,
-    business_entity_id,
-    transaction_id,
-    source_docno,
-    company_id,
-    company_no,
-    company_name,
-    client_name,
-    description,
-    checkno,
-    pono,
-    downpayment,
-    qty,
-    project_members,
-    member_role,
-    member_phone,
-    project_members_2,
-    member_role_2,
-    member_phone_2,
-    project_members_3,
-    member_role_3,
-    member_phone_3,
-    start_date,
-    end_date,
-    planned_start_date,
-    planned_end_date,
-    actual_start_date,
-    actual_end_date,
-    status_reason,
-    paused_at,
-    cancelled_at,
-    project_manager,
-    budget,
-    unit_cost,
-    members,
-    status,
-    priority,
-    assigned_to,
-    service_type,
-    estimated_material_cost,
-    estimated_labor_cost,
-    estimated_other_cost,
-    project_location,
-    createDefaultTask
-  } = req.body;
-  const pdfFilename = req.file ? req.file.filename : String(req.body.pdfFilename || '').trim() || null;
-  const resolvedBudget = toNumber(budget, 0);
-  const resolvedServiceType = String(service_type || 'installation').trim() || 'installation';
-  const resolvedEstMaterial = toNumber(estimated_material_cost, 0);
-  const resolvedEstLabor = toNumber(estimated_labor_cost, 0);
-  const resolvedEstOther = toNumber(estimated_other_cost, 0);
-  const resolvedProjectLocation = String(project_location || '').trim() || null;
-  const resolvedDownpayment = toNumber(downpayment, 0);
-  const resolvedQty = toNumber(qty, 0);
-  const resolvedUnitCost = toNumber(unit_cost, 0);
-  const normalizedMemberPhone = normalizePhone(member_phone);
-  const normalizedMemberPhone2 = normalizePhone(member_phone_2);
-  const normalizedMemberPhone3 = normalizePhone(member_phone_3);
-  const resolvedPlannedStart = planned_start_date || start_date;
-  const resolvedPlannedEnd = planned_end_date || end_date;
-  const actor = getAuthenticatedUser(req) || {};
-  const actorRole = normalizeAccessRole(actor.role);
-  const isStaffCreator = isStaffRole(actorRole);
-  let resolvedAssignedTo = null;
-  try {
-    resolvedAssignedTo = await resolveProjectAssignedStaffId(req, assigned_to);
-  } catch (assignErr) {
-    if (req.file) deleteUploadedPdfIfPresent(req.file.filename);
-    return res.status(assignErr.statusCode || 400).json({ error: assignErr.message || 'Assigned staff is required.' });
-  }
-  const resolvedProjectStatus = isStaffCreator
-    ? 'draft'
-    : 'planning';
-  const resolvedProjectPriority = computeProjectPriority(resolvedPlannedEnd, actual_end_date, resolvedProjectStatus);
-  const approvedBy = ['draft', 'submitted'].includes(resolvedProjectStatus) ? null : getApprovalActorName(req);
-  const todayYmd = new Date().toISOString().slice(0, 10);
-  const resolvedPausedAt = resolvedProjectStatus === 'on_hold' ? (paused_at || todayYmd) : (paused_at || null);
-  const resolvedCancelledAt = resolvedProjectStatus === 'cancelled' ? (cancelled_at || todayYmd) : (cancelled_at || null);
 
-  const missingProjectFields = getMissingProjectRequiredFields({ ...req.body, start_date, end_date });
-  if (missingProjectFields.length) {
-    return res.status(400).json({ error: `Please complete all project information before saving: ${missingProjectFields.join(', ')}.` });
-  }
 
-  if (normalizedMemberPhone && !isValidPhone(normalizedMemberPhone)) {
-    return res.status(400).json({ error: 'Member phone number must be digits only, 7 to 15 digits.' });
-  }
 
-  if (normalizedMemberPhone2 && !isValidPhone(normalizedMemberPhone2)) {
-    return res.status(400).json({ error: 'Member 2 phone number must be digits only, 7 to 15 digits.' });
-  }
+// Projects routes (built up chunk by chunk) — extracted to src/modules/projects (step 26+).
+app.use(require('./src/modules/projects/projects.routes')({ projectRowMatchesStaffActor, sendStaffRecordAccessDenied, sendProjectPdf, generateNextProjectDocnoAsync, getProjectInvoiceNumber, getProjectBillNumber, getApprovalActorName, getApprovalActorLabel, getApprovalComment, appendApprovalComment, notifyProjectRequester, notifyProjectApprovalRequest, sendBackgroundNotification, assertProjectAcceptsNewActivity, isProjectAwaitingApprovalStatus, getProjectAwaitingApprovalMessage, peekNextProjectDocnoAsync, peekNextDraftProjectDocnoAsync, runArchiveMaintenance, normalizeBusinessEntityId, upload, UPLOAD_DIR, toNumber, resolveBusinessEntityId, resolveProjectAssignedStaffId, deleteUploadedPdfIfPresent, computeProjectPriority, getMissingProjectRequiredFields, resolveCompanyRegistryReference, findProjectDuplicateByIdentity, sendProjectDuplicateResponse, ensureCompanyRegistryForProject, ensureDefaultProjectTasks, generateNextDraftProjectDocnoAsync, normalizeProjectStatusForSave, generateNextProjectDocno, logAction }));
+
+
+// ==================== PROCUREMENT (PR -> RFQ -> PO -> GRN) ====================
+// Mounts the extracted procurement router. This app.use was missing after the procurement
+// routes were moved out of server.js into procurement.routes.js, which 404'd EVERY
+// /api/procurement/* endpoint (PR next-number preview, requisitions, RFQ, PO, GRN). All deps
+// below are existing server.js scope helpers (verified present).
+app.use(require('./src/modules/procurement/procurement.routes')({
+  resolveBusinessEntityId, peekNextDraftEntityDocumentNo, peekNextEntityDocumentNo,
+  requisitionRowMatchesStaffActor, sendStaffRecordAccessDenied, assertStatusTransition,
+  getAuthenticatedUserEmail, isDraftDocumentNo, generateNextEntityDocumentNo,
+  generatePurchaseRequisitionPdfFile, sendBackgroundNotification, notifyApprovalRequest,
+  notifyPurchaseRequisitionRequester, getApprovalActorName, getApprovalActorLabel,
+  getApprovalComment, appendApprovalComment, buildPurchaseOrderPdfAttachment,
+  notifyPurchaseOrderRequester, notifyPurchaseOrderVendor, publicQuotePdfUpload, UPLOAD_DIR,
+  getManilaYmd, toNumber, normalizeProcurementWorkflowStatus, normalizeQuotationStatus,
+  generateNextDraftEntityDocumentNo, claimEntityDocumentNo, notifyRfqAwardedRequester,
+  notifyRfqAwardedVendor, isFinalAwardedQuotationStatus, buildQuotationPdfAttachment,
+  formatPdfStatusLabel, normalizeGoodsReceiptProductMappings, applyGoodsReceiptProductMappings,
+  postInventoryReceiptForPurchaseOrder, isPurchaseOrderFullyReceived, markPurchaseOrderReceived,
+  createSerialUnitsFromReceipt, buildPurchaseOrderItemSummary, normalizePurchaseRequisitionLineItems,
+  resolvePurchaseOrderProjectContext, resolvePurchaseRequisitionContext, procurementRequisitionIsLocked,
+  projectRowMatchesStaffActor, normalizePurchaseOrderLineItems, resolvePurchaseOrderRequisitionContext,
+  resolvePurchaseOrderQuotationContext, sanitizePurchaseOrderLineProducts, markRequisitionOrdered,
+  withDbTransaction, connectionQueryAsync, parsePurchaseOrderPaymentTerms, resolveTermDueDate,
+  hasEmailConfig, RESEND_API_KEY, APP_BASE_URL, SMTP_FROM, ensureRfqVendorLink,
+  buildRfqRequestPdfAttachment, sendSystemEmail, htmlEscape, shouldRegenerateErpPdfFile, logAction
+}));
+
+
+// ==================== CRM (Customer Relationship Management) ====================
+// Leads/pipeline + contacts. Self-contained module (creates its own tables on mount).
+app.use(require('./src/modules/crm/crm.routes')({ resolveBusinessEntityId, normalizeBusinessEntityId, getDefaultBusinessEntityId, generateNextProjectDocnoAsync, getBusinessEntitySequenceCode, logAction }));
+
+// ==================== GLOBAL SEARCH (dashboard) ====================
+// /api/search?q= — finds PR/PO/GRN/Quote/Bill/Invoice/Project/Company/Vendor/Sales by number/name.
+app.use(require('./src/modules/search/search.routes')());
 
-  if (normalizedMemberPhone3 && !isValidPhone(normalizedMemberPhone3)) {
-    return res.status(400).json({ error: 'Member 3 phone number must be digits only, 7 to 15 digits.' });
-  }
-
-  const projectMembersSummary = [
-    project_members && member_role && normalizedMemberPhone ? `${project_members} (${member_role}) - ${normalizedMemberPhone}` : '',
-    project_members_2 && member_role_2 && normalizedMemberPhone2 ? `${project_members_2} (${member_role_2}) - ${normalizedMemberPhone2}` : '',
-    project_members_3 && member_role_3 && normalizedMemberPhone3 ? `${project_members_3} (${member_role_3}) - ${normalizedMemberPhone3}` : ''
-  ].filter(Boolean).join(' | ') || null;
-  resolveCompanyRegistryReference({ company_id, company_no, company_name, client_name }, async (companyErr, companyRecord) => {
-    if (companyErr) return res.status(400).json({ error: companyErr.message });
-    if (!companyRecord) return res.status(400).json({ error: 'Company is required' });
-
-    const resolvedCompanyId = Number(companyRecord.id || 0) || null;
-    const resolvedCompanyNo = String(companyRecord.company_no || '').trim() || null;
-    const resolvedCompanyName = String(companyRecord.company_name || '').trim() || null;
-    let resolvedBusinessEntityId = null;
-    try {
-      resolvedBusinessEntityId = await resolveBusinessEntityId(business_entity_id);
-    } catch (entityErr) {
-      return res.status(400).json({ error: entityErr.message || 'Selected operating company was not found.' });
-    }
-
-    let duplicateProject = null;
-    try {
-      duplicateProject = await findProjectDuplicateByIdentity({
-        businessEntityId: resolvedBusinessEntityId,
-        companyId: resolvedCompanyId,
-        projectName: project_name,
-        plannedStartDate: resolvedPlannedStart,
-        plannedEndDate: resolvedPlannedEnd
-      });
-    } catch (dupErr) {
-      return res.status(500).json({ error: dupErr.message || 'Unable to check duplicate project.' });
-    }
-    if (duplicateProject) {
-      return sendProjectDuplicateResponse(res, duplicateProject);
-    }
-
-    const insertProject = (finalProjectDocno, finalDraftDocno = null) => {
-      const projectArInvoiceNo = finalProjectDocno ? getProjectInvoiceNumber(finalProjectDocno) : null;
-      const projectApBillNo = finalProjectDocno ? getProjectBillNumber(finalProjectDocno) : null;
-      db.query(
-        `INSERT INTO projects
-          (project_docno, draft_docno, project_name, business_entity_id, transaction_id, company_id, source_docno, company_no, company_name, client_name, project_ar_invoice_no, project_ap_bill_no, description, checkno, pono, downpayment, qty,
-           project_members, member_role, member_phone,
-           project_members_2, member_role_2, member_phone_2,
-           project_members_3, member_role_3, member_phone_3,
-           start_date, end_date, planned_start_date, planned_end_date,
-           actual_start_date, actual_end_date, status_reason, paused_at, cancelled_at,
-           project_manager, pdfFilename, budget, unit_cost, members, status, priority, created_by, assigned_to, approved_by, approved_at,
-           service_type, estimated_material_cost, estimated_labor_cost, estimated_other_cost, project_location)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
-        [
-          finalProjectDocno || null,
-          finalDraftDocno || null,
-          project_name,
-          resolvedBusinessEntityId,
-          transaction_id || null,
-          resolvedCompanyId,
-          source_docno || null,
-          resolvedCompanyNo,
-          resolvedCompanyName,
-          resolvedCompanyName,
-          projectArInvoiceNo,
-          projectApBillNo,
-          description || null,
-          checkno || null,
-          pono || null,
-          resolvedDownpayment,
-          resolvedQty,
-          project_members || null,
-          member_role || null,
-          normalizedMemberPhone || null,
-          project_members_2 || null,
-          member_role_2 || null,
-          normalizedMemberPhone2 || null,
-          project_members_3 || null,
-          member_role_3 || null,
-          normalizedMemberPhone3 || null,
-          start_date,
-          end_date,
-          resolvedPlannedStart,
-          resolvedPlannedEnd,
-          actual_start_date || null,
-          actual_end_date || null,
-          status_reason || null,
-          resolvedPausedAt,
-          resolvedCancelledAt,
-          project_manager || null,
-          pdfFilename,
-          resolvedBudget,
-          resolvedUnitCost,
-          members || projectMembersSummary,
-          resolvedProjectStatus,
-          resolvedProjectPriority,
-          actor.id || null,
-          resolvedAssignedTo,
-          approvedBy,
-          approvedBy ? new Date() : null,
-          resolvedServiceType,
-          resolvedEstMaterial,
-          resolvedEstLabor,
-          resolvedEstOther,
-          resolvedProjectLocation
-        ],
-        (err, result) => {
-          if (err) {
-            if (isPostgresUniqueViolation(err)) {
-              return res.status(409).json({ error: 'Project No. already exists.' });
-            }
-            return res.status(500).json({ error: err.message });
-          }
-
-          const projectId = result.insertId;
-          const projectForSync = {
-            id: projectId,
-            project_docno: finalProjectDocno || finalDraftDocno,
-            business_entity_id: resolvedBusinessEntityId,
-            company_id: resolvedCompanyId,
-            company_no: resolvedCompanyNo,
-            company_name: resolvedCompanyName,
-            project_name,
-            client_name: resolvedCompanyName,
-            description,
-            transaction_id: transaction_id || null,
-            budget: resolvedBudget,
-            downpayment: resolvedDownpayment,
-            start_date,
-            end_date,
-            planned_start_date: resolvedPlannedStart,
-            planned_end_date: resolvedPlannedEnd
-          };
-
-          ensureCompanyRegistryForProject(projectForSync, (registryErr) => {
-            if (registryErr) {
-              console.error('Company registry sync warning:', registryErr);
-            }
-
-            const respond = (taskErr, created) => {
-              if (taskErr) {
-                console.error('Default task creation failed:', taskErr);
-              }
-              logAction(req, 'CREATE_PROJECT', `Project No: ${finalProjectDocno || finalDraftDocno} | Status: ${resolvedProjectStatus} | Company ID: ${resolvedCompanyId} | Company No: ${resolvedCompanyNo} | Company Name: ${resolvedCompanyName}`);
-              if (resolvedProjectStatus === 'submitted') {
-                sendBackgroundNotification(() => notifyProjectApprovalRequest(req, projectId), 'project approval request email');
-              }
-              res.json({
-                id: projectId,
-                project_docno: finalProjectDocno || null,
-                draft_docno: finalDraftDocno || null,
-                status: resolvedProjectStatus,
-                requiresApproval: resolvedProjectStatus === 'submitted',
-                receivableSynced: false,
-                defaultTasksCreated: !taskErr && !!created
-              });
-            };
-
-            const finalizeProjectSave = async () => {
-              if (transaction_id) {
-                try {
-                  await syncTransactionProjectLink(transaction_id, projectId);
-                } catch (linkErr) {
-                  console.error('Project transaction link warning:', linkErr);
-                }
-              }
-
-              if (createDefaultTask) {
-                ensureDefaultProjectTasks(projectId, start_date, end_date, respond);
-              } else {
-                respond(null, false);
-              }
-            };
-
-            finalizeProjectSave().catch((finalizeErr) => {
-              console.error('Project save finalization error:', finalizeErr);
-              res.status(500).json({ error: finalizeErr.message || 'Unable to finalize project save.' });
-            });
-          });
-        }
-      );
-    };
-
-    const needsDraftNumber = ['draft', 'submitted'].includes(resolvedProjectStatus);
-    const numberPromise = needsDraftNumber
-      ? generateNextDraftProjectDocnoAsync(resolvedBusinessEntityId)
-      : generateNextProjectDocnoAsync(resolvedBusinessEntityId);
-    numberPromise
-      .then((nextNumber) => {
-        insertProject(needsDraftNumber ? null : nextNumber, needsDraftNumber ? nextNumber : null);
-      })
-      .catch((docErr) => res.status(500).json({ error: docErr.message }));
-  });
-});
-
-app.put('/api/projects/:id', protectAdmin, upload.single('pdf_file'), (req, res) => {
-  const {
-    project_name,
-    business_entity_id,
-    transaction_id,
-    source_docno,
-    company_id,
-    company_no,
-    company_name,
-    client_name,
-    description,
-    checkno,
-    pono,
-    downpayment,
-    qty,
-    project_members,
-    member_role,
-    member_phone,
-    project_members_2,
-    member_role_2,
-    member_phone_2,
-    project_members_3,
-    member_role_3,
-    member_phone_3,
-    start_date,
-    end_date,
-    planned_start_date,
-    planned_end_date,
-    actual_start_date,
-    actual_end_date,
-    status_reason,
-    paused_at,
-    cancelled_at,
-    project_manager,
-    budget,
-    unit_cost,
-    members,
-    status,
-    priority,
-    remove_pdf,
-    assigned_to,
-    service_type,
-    estimated_material_cost,
-    estimated_labor_cost,
-    estimated_other_cost,
-    project_location,
-    createDefaultTask
-  } = req.body;
-  const incomingPdfFilename = req.file ? req.file.filename : String(req.body.pdfFilename || '').trim() || null;
-  const normalizedMemberPhone = normalizePhone(member_phone);
-  const normalizedMemberPhone2 = normalizePhone(member_phone_2);
-  const normalizedMemberPhone3 = normalizePhone(member_phone_3);
-
-  const missingProjectFields = getMissingProjectRequiredFields({ ...req.body, start_date, end_date });
-  if (missingProjectFields.length) {
-    return res.status(400).json({ error: `Please complete all project information before saving: ${missingProjectFields.join(', ')}.` });
-  }
-
-  if (normalizedMemberPhone && !isValidPhone(normalizedMemberPhone)) {
-    return res.status(400).json({ error: 'Member phone number must be digits only, 7 to 15 digits.' });
-  }
-
-  if (normalizedMemberPhone2 && !isValidPhone(normalizedMemberPhone2)) {
-    return res.status(400).json({ error: 'Member 2 phone number must be digits only, 7 to 15 digits.' });
-  }
-
-  if (normalizedMemberPhone3 && !isValidPhone(normalizedMemberPhone3)) {
-    return res.status(400).json({ error: 'Member 3 phone number must be digits only, 7 to 15 digits.' });
-  }
-
-  const resolvedPlannedStart = planned_start_date || start_date;
-  const resolvedPlannedEnd = planned_end_date || end_date;
-  const projectMembersSummary = [
-    project_members && member_role && normalizedMemberPhone ? `${project_members} (${member_role}) - ${normalizedMemberPhone}` : '',
-    project_members_2 && member_role_2 && normalizedMemberPhone2 ? `${project_members_2} (${member_role_2}) - ${normalizedMemberPhone2}` : '',
-    project_members_3 && member_role_3 && normalizedMemberPhone3 ? `${project_members_3} (${member_role_3}) - ${normalizedMemberPhone3}` : ''
-  ].filter(Boolean).join(' | ') || null;
-
-    db.query(`SELECT project_docno, draft_docno, pdfFilename, budget, downpayment, qty, unit_cost, status,
-                     created_by, assigned_to, project_manager, members,
-                     project_members, project_members_2, project_members_3
-              FROM projects WHERE id = ?`, [req.params.id], async (findErr, rows) => {
-    if (findErr) return res.status(500).json({ error: findErr.message });
-    if (!rows || !rows.length) return res.status(404).json({ error: 'Project not found' });
-    const actor = getAuthenticatedUser(req) || {};
-    const actorRole = normalizeAccessRole(actor.role);
-    if (isStaffRole(actorRole) && !projectRowMatchesStaffActor(rows[0], actor)) {
-      if (req.file) deleteUploadedPdfIfPresent(req.file.filename);
-      return sendStaffRecordAccessDenied(res, 'Project');
-    }
-    let resolvedAssignedTo = null;
-    try {
-      resolvedAssignedTo = await resolveProjectAssignedStaffId(req, assigned_to || rows[0].assigned_to);
-    } catch (assignErr) {
-      if (req.file) deleteUploadedPdfIfPresent(req.file.filename);
-      return res.status(assignErr.statusCode || 400).json({ error: assignErr.message || 'Assigned staff is required.' });
-    }
-
-    const finalProjectDocno = String(rows[0].project_docno || '').trim();
-    const finalDraftDocno = String(rows[0].draft_docno || '').trim();
-    const currentPdfFilename = String(rows[0].pdfFilename || '').trim() || null;
-    const removePdfRequested = String(remove_pdf || '').trim() === '1';
-    if (currentPdfFilename) {
-      const currentPdfPath = path.join(UPLOAD_DIR, path.basename(currentPdfFilename));
-      if ((removePdfRequested || req.file) && fs.existsSync(currentPdfPath)) {
-        try {
-          fs.unlinkSync(currentPdfPath);
-        } catch (unlinkErr) {
-          console.error('Project PDF cleanup warning:', unlinkErr);
-        }
-      }
-    }
-    const finalPdfFilename = req.file
-      ? req.file.filename
-      : (removePdfRequested ? null : (incomingPdfFilename || currentPdfFilename));
-    const resolvedBudget = toNumber(budget, rows[0].budget || 0);
-    const resolvedDownpayment = toNumber(downpayment, rows[0].downpayment || 0);
-    const resolvedQty = toNumber(qty, rows[0].qty || 0);
-    const resolvedUnitCost = toNumber(unit_cost, rows[0].unit_cost || 0);
-    const resolvedServiceType = String(service_type || 'installation').trim() || 'installation';
-    const resolvedEstMaterial = toNumber(estimated_material_cost, 0);
-    const resolvedEstLabor = toNumber(estimated_labor_cost, 0);
-    const resolvedEstOther = toNumber(estimated_other_cost, 0);
-    const resolvedProjectLocation = String(project_location || '').trim() || null;
-    const currentProjectStatus = String(rows[0].status || 'planning').trim().toLowerCase() || 'planning';
-    const projectSubmitAction = String(req.body.project_submit_action || '').trim().toLowerCase();
-    let resolvedProjectStatus = isStaffRole(actorRole)
-      ? currentProjectStatus
-      : normalizeProjectStatusForSave(status || currentProjectStatus, actual_start_date, actual_end_date, resolvedPlannedEnd, resolvedPlannedStart);
-    if (!isStaffRole(actorRole) && (currentProjectStatus === 'draft' || currentProjectStatus === 'needs_revision' || currentProjectStatus === 'submitted')) {
-      resolvedProjectStatus = projectSubmitAction === 'submit' ? 'submitted' : 'draft';
-    }
-    const resolvedProjectPriority = computeProjectPriority(resolvedPlannedEnd, actual_end_date, resolvedProjectStatus);
-    const newlyApprovedBy = ['draft', 'needs_revision', 'submitted'].includes(currentProjectStatus) && !['draft', 'needs_revision', 'submitted'].includes(resolvedProjectStatus)
-      ? getApprovalActorName(req)
-      : null;
-    const todayYmd = new Date().toISOString().slice(0, 10);
-    const resolvedPausedAt = resolvedProjectStatus === 'on_hold' ? (paused_at || todayYmd) : (paused_at || null);
-    const resolvedCancelledAt = resolvedProjectStatus === 'cancelled' ? (cancelled_at || todayYmd) : (cancelled_at || null);
-    resolveCompanyRegistryReference({ company_id, company_no, company_name, client_name }, async (companyErr, companyRecord) => {
-      if (companyErr) return res.status(400).json({ error: companyErr.message });
-      if (!companyRecord) return res.status(400).json({ error: 'Company is required' });
-
-      const resolvedCompanyId = Number(companyRecord.id || 0) || null;
-      const resolvedCompanyNo = String(companyRecord.company_no || '').trim() || null;
-      const resolvedCompanyName = String(companyRecord.company_name || '').trim() || null;
-      let resolvedBusinessEntityId = null;
-      try {
-        resolvedBusinessEntityId = await resolveBusinessEntityId(business_entity_id);
-      } catch (entityErr) {
-        return res.status(400).json({ error: entityErr.message || 'Selected operating company was not found.' });
-      }
-
-      let duplicateProject = null;
-      try {
-        duplicateProject = await findProjectDuplicateByIdentity({
-          businessEntityId: resolvedBusinessEntityId,
-          companyId: resolvedCompanyId,
-          projectName: project_name,
-          plannedStartDate: resolvedPlannedStart,
-          plannedEndDate: resolvedPlannedEnd,
-          excludeProjectId: req.params.id
-        });
-      } catch (dupErr) {
-        return res.status(500).json({ error: dupErr.message || 'Unable to check duplicate project.' });
-      }
-      if (duplicateProject) {
-        return sendProjectDuplicateResponse(res, duplicateProject);
-      }
-
-      const ensureDocnoAndUpdate = (resolvedProjectDocno) => {
-        const projectArInvoiceNo = resolvedProjectDocno ? getProjectInvoiceNumber(resolvedProjectDocno) : null;
-        const projectApBillNo = resolvedProjectDocno ? getProjectBillNumber(resolvedProjectDocno) : null;
-        db.query(
-          `UPDATE projects
-           SET project_docno = ?, project_name = ?, business_entity_id = ?, transaction_id = COALESCE(?, transaction_id), company_id = ?, source_docno = COALESCE(?, source_docno), company_no = ?, company_name = ?, client_name = ?,
-               project_ar_invoice_no = ?, project_ap_bill_no = ?,
-               description = ?, checkno = ?, pono = ?, downpayment = ?,
-               project_members = ?, member_role = ?, member_phone = ?,
-               project_members_2 = ?, member_role_2 = ?, member_phone_2 = ?,
-               project_members_3 = ?, member_role_3 = ?, member_phone_3 = ?,
-               start_date = ?, end_date = ?, planned_start_date = ?, planned_end_date = ?,
-               actual_start_date = ?, actual_end_date = ?,
-               status_reason = COALESCE(?, status_reason), paused_at = ?, cancelled_at = ?,
-               project_manager = ?, pdfFilename = ?, budget = ?, qty = ?, unit_cost = ?, members = ?,
-               assigned_to = ?,
-               status = COALESCE(?, status), priority = COALESCE(?, priority),
-               approved_by = COALESCE(?, approved_by), approved_at = COALESCE(?, approved_at),
-               service_type = ?, estimated_material_cost = ?, estimated_labor_cost = ?, estimated_other_cost = ?, project_location = ?,
-               is_archived = FALSE, archived_at = NULL, archived_auto = FALSE
-           WHERE id = ?`,
-          [
-            resolvedProjectDocno || null,
-            project_name,
-            resolvedBusinessEntityId,
-            transaction_id || null,
-            resolvedCompanyId,
-            source_docno || null,
-            resolvedCompanyNo,
-            resolvedCompanyName,
-            resolvedCompanyName,
-            projectArInvoiceNo,
-            projectApBillNo,
-            description || null,
-            checkno || null,
-            pono || null,
-            resolvedDownpayment,
-            project_members || null,
-            member_role || null,
-            normalizedMemberPhone || null,
-            project_members_2 || null,
-            member_role_2 || null,
-            normalizedMemberPhone2 || null,
-            project_members_3 || null,
-            member_role_3 || null,
-            normalizedMemberPhone3 || null,
-            start_date,
-            end_date,
-            resolvedPlannedStart,
-            resolvedPlannedEnd,
-            actual_start_date || null,
-            actual_end_date || null,
-            status_reason || null,
-            resolvedPausedAt,
-            resolvedCancelledAt,
-            project_manager || null,
-            finalPdfFilename,
-            resolvedBudget,
-            resolvedQty,
-            resolvedUnitCost,
-            members || projectMembersSummary,
-            resolvedAssignedTo,
-            resolvedProjectStatus,
-            resolvedProjectPriority,
-            newlyApprovedBy,
-            newlyApprovedBy ? new Date() : null,
-            resolvedServiceType,
-            resolvedEstMaterial,
-            resolvedEstLabor,
-            resolvedEstOther,
-            resolvedProjectLocation,
-            req.params.id
-          ],
-          (err, result) => {
-            if (err) {
-              if (isPostgresUniqueViolation(err)) {
-                return res.status(409).json({ error: 'Project No. already exists.' });
-              }
-              return res.status(500).json({ error: err.message });
-            }
-            if (result.affectedRows === 0) return res.status(404).json({ error: 'Project not found' });
-            const projectForSync = {
-              id: Number(req.params.id),
-              project_docno: resolvedProjectDocno || finalProjectDocno || finalDraftDocno,
-              business_entity_id: resolvedBusinessEntityId,
-              company_id: resolvedCompanyId,
-              company_no: resolvedCompanyNo,
-              company_name: resolvedCompanyName,
-              project_name,
-              client_name: resolvedCompanyName,
-              description,
-              transaction_id: transaction_id || null,
-              budget: resolvedBudget,
-              downpayment: resolvedDownpayment,
-              start_date,
-              end_date,
-              planned_start_date: resolvedPlannedStart,
-              planned_end_date: resolvedPlannedEnd
-            };
-            ensureCompanyRegistryForProject(projectForSync, (registryErr) => {
-              if (registryErr) {
-                console.error('Company registry sync warning:', registryErr);
-              }
-
-              const respond = (taskErr, created) => {
-                if (taskErr) {
-                  console.error('Default task ensure failed:', taskErr);
-                }
-                logAction(req, 'UPDATE_PROJECT', `Project No: ${resolvedProjectDocno || finalProjectDocno || finalDraftDocno} | Company ID: ${resolvedCompanyId} | Company No: ${resolvedCompanyNo} | Company Name: ${resolvedCompanyName}`);
-                if (currentProjectStatus !== 'submitted' && resolvedProjectStatus === 'submitted') {
-                  sendBackgroundNotification(() => notifyProjectApprovalRequest(req, Number(req.params.id)), 'project approval request email');
-                }
-                res.json({
-                  success: true,
-                  defaultTasksCreated: !taskErr && !!created,
-                  project_docno: resolvedProjectDocno || null,
-                  draft_docno: finalDraftDocno || null,
-                  status: resolvedProjectStatus,
-                  requiresApproval: resolvedProjectStatus === 'submitted',
-                  approved_by: newlyApprovedBy || undefined,
-                  receivableSynced: false
-                });
-              };
-
-              const finalizeProjectSave = async () => {
-                if (transaction_id) {
-                  try {
-                    await syncTransactionProjectLink(transaction_id, Number(req.params.id));
-                  } catch (linkErr) {
-                    console.error('Project transaction link warning:', linkErr);
-                  }
-                }
-
-                if (createDefaultTask) {
-                  ensureDefaultProjectTasks(req.params.id, start_date, end_date, respond);
-                } else {
-                  respond(null, false);
-                }
-              };
-
-              finalizeProjectSave().catch((finalizeErr) => {
-                console.error('Project save finalization error:', finalizeErr);
-                res.status(500).json({ error: finalizeErr.message || 'Unable to finalize project save.' });
-              });
-            });
-          }
-        );
-      };
-
-      const needsOfficialDocno = !['draft', 'submitted'].includes(resolvedProjectStatus);
-      if (finalProjectDocno || !needsOfficialDocno) return ensureDocnoAndUpdate(finalProjectDocno || null);
-
-      generateNextProjectDocno((docErr, nextProjectDocno) => {
-        if (docErr) return res.status(500).json({ error: docErr.message });
-        ensureDocnoAndUpdate(nextProjectDocno);
-      }, resolvedBusinessEntityId);
-    });
-  });
-});
-
-app.get('/api/procurement/requisitions/:id/pdf', protectAdmin, async (req, res) => {
-  const requisitionId = Number(req.params.id || 0);
-  if (!requisitionId) return res.status(400).json({ error: 'Requisition ID is required.' });
-
-  try {
-    const rows = await queryAsync(
-      `SELECT r.id, r.pr_number, r.status, r.pdfFilename AS "pdfFilename",
-              r.requested_by, r.requested_by_email, r.submitted_by, r.department,
-              p.created_by, p.assigned_to, p.project_manager, p.members,
-              p.project_members, p.project_members_2, p.project_members_3
-       FROM purchase_requisitions r
-       LEFT JOIN projects p ON p.id = r.project_id
-       WHERE r.id = ?
-       LIMIT 1`,
-      [requisitionId]
-    );
-    if (!rows.length) {
-      return res.status(404).json({ error: 'Purchase requisition not found.' });
-    }
-
-    const record = rows[0];
-    const actor = getAuthenticatedUser(req) || {};
-    if (isStaffRole(actor.role) && !requisitionRowMatchesStaffActor(record, actor)) {
-      return sendStaffRecordAccessDenied(res, 'Purchase requisition');
-    }
-    if (isAdminRole(getAuthenticatedUser(req)?.role) && normalizeProcurementWorkflowStatus(record.status || 'draft') === 'draft') {
-      return res.status(404).json({ error: 'Purchase requisition not found.' });
-    }
-    let safeFilename = record.pdfFilename ? path.basename(record.pdfFilename) : '';
-    let filePath = safeFilename ? path.join(UPLOAD_DIR, safeFilename) : '';
-
-    if (shouldRegenerateErpPdfFile(safeFilename, filePath, 'purchase-requisition')) {
-      const generated = await generatePurchaseRequisitionPdfFile(requisitionId);
-      safeFilename = generated.filename;
-      filePath = generated.filePath;
-    }
-
-    const disposition = String(req.query.download || '') === '1' ? 'attachment' : 'inline';
-    res.type('application/pdf');
-    res.setHeader('Content-Disposition', `${disposition}; filename="${safeFilename}"`);
-    return res.sendFile(filePath);
-  } catch (err) {
-    return res.status(500).json({ error: err.message || 'Unable to generate purchase requisition PDF.' });
-  }
-});
-
-app.get('/api/projects/:id/pdf', protectAdmin, async (req, res) => {
-  const projectId = Number(req.params.id || 0);
-  if (!projectId) return res.status(400).json({ error: 'Invalid project id' });
-
-  try {
-    const rows = await queryAsync(
-      `SELECT id, status, created_by, assigned_to, project_manager, members,
-              project_members, project_members_2, project_members_3
-       FROM projects WHERE id = ? LIMIT 1`,
-      [projectId]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Project not found.' });
-    const actor = getAuthenticatedUser(req) || {};
-    if (isStaffRole(actor.role) && !projectRowMatchesStaffActor(rows[0], actor)) {
-      return sendStaffRecordAccessDenied(res, 'Project');
-    }
-    if (isAdminRole(getAuthenticatedUser(req)?.role) && String(rows[0].status || '').trim().toLowerCase() === 'draft') {
-      return res.status(404).json({ error: 'Project not found.' });
-    }
-    return sendProjectPdf(req, res, projectId);
-  } catch (err) {
-    console.error('Project PDF access check error:', err);
-    return res.status(500).json({ error: err.message || 'Unable to load project PDF.' });
-  }
-});
-
-app.get('/api/projects/:id/archive-summary', protectAdminOnly, async (req, res) => {
-  const projectId = Number(req.params.id || 0);
-  if (!projectId) return res.status(400).json({ error: 'Invalid project id' });
-
-  try {
-    const projectRows = await queryAsync(
-      'SELECT id, project_docno, project_name, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ? LIMIT 1',
-      [projectId]
-    );
-    if (!projectRows.length) return res.status(404).json({ error: 'Project not found' });
-
-    const [prRows, poRows, apRows, arRows, soRows, taskRows] = await Promise.all([
-      queryAsync(
-        `SELECT COUNT(*) AS total,
-                SUM(CASE WHEN LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'ordered') THEN 1 ELSE 0 END) AS open_count
-         FROM purchase_requisitions
-         WHERE project_id = ?`,
-        [projectId]
-      ),
-      queryAsync(
-        `SELECT COUNT(*) AS total,
-                SUM(CASE WHEN LOWER(COALESCE(status, '')) NOT IN ('cancelled', 'received') THEN 1 ELSE 0 END) AS open_count
-         FROM purchase_orders
-         WHERE project_id = ?`,
-        [projectId]
-      ),
-      queryAsync(
-        `SELECT COUNT(*) AS total,
-                SUM(CASE WHEN LOWER(COALESCE(status, '')) NOT IN ('paid', 'cancelled') THEN 1 ELSE 0 END) AS open_count
-         FROM accounts_payable
-         WHERE project_id = ?`,
-        [projectId]
-      ),
-      queryAsync(
-        `SELECT COUNT(*) AS total,
-                SUM(CASE WHEN LOWER(COALESCE(status, '')) NOT IN ('paid', 'cancelled') AND COALESCE(archived, FALSE) = FALSE THEN 1 ELSE 0 END) AS open_count
-         FROM accounts_receivable
-         WHERE project_id = ?`,
-        [projectId]
-      ),
-      queryAsync(
-        `SELECT COUNT(*) AS total,
-                SUM(CASE WHEN LOWER(COALESCE(status, '')) NOT IN ('completed', 'cancelled') AND COALESCE(is_archived, FALSE) = FALSE THEN 1 ELSE 0 END) AS open_count
-         FROM service_orders
-         WHERE project_id = ?`,
-        [projectId]
-      ),
-      queryAsync(
-        `SELECT COUNT(*) AS total,
-                SUM(CASE WHEN LOWER(COALESCE(status, '')) NOT IN ('completed', 'done', 'cancelled') AND COALESCE(progress, 0) < 100 THEN 1 ELSE 0 END) AS open_count
-         FROM tasks
-         WHERE project_id = ?`,
-        [projectId]
-      )
-    ]);
-
-    const readCount = (rows, key) => Number(rows?.[0]?.[key] || 0);
-    res.json({
-      project: projectRows[0],
-      warning: 'Only the project will be archived. Related records stay visible in their modules for accounting, procurement, and audit history.',
-      blocks_new_activity: true,
-      counts: {
-        purchase_requisitions: { total: readCount(prRows, 'total'), open: readCount(prRows, 'open_count') },
-        purchase_orders: { total: readCount(poRows, 'total'), open: readCount(poRows, 'open_count') },
-        accounts_payable: { total: readCount(apRows, 'total'), open: readCount(apRows, 'open_count') },
-        accounts_receivable: { total: readCount(arRows, 'total'), open: readCount(arRows, 'open_count') },
-        service_orders: { total: readCount(soRows, 'total'), open: readCount(soRows, 'open_count') },
-        tasks: { total: readCount(taskRows, 'total'), open: readCount(taskRows, 'open_count') }
-      }
-    });
-  } catch (err) {
-    console.error('Project archive summary error:', err);
-    res.status(500).json({ error: err.message || 'Unable to load project archive summary.' });
-  }
-});
-
-app.post('/api/projects/:id/approve', protectAdminOnly, async (req, res) => {
-  const projectId = Number(req.params.id || 0);
-  if (!projectId) return res.status(400).json({ error: 'Invalid project id' });
-
-  try {
-    const rows = await queryAsync(
-      'SELECT id, project_docno, draft_docno, project_name, business_entity_id, status, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ? LIMIT 1',
-      [projectId]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Project not found' });
-    if (rows[0].is_archived === true || Number(rows[0].is_archived || 0) === 1) {
-      return res.status(400).json({ error: 'Restore the project before approval.' });
-    }
-
-    const currentStatus = String(rows[0].status || '').trim().toLowerCase();
-    if (currentStatus === 'draft' || currentStatus === 'needs_revision') {
-      return res.status(400).json({ error: 'Submit the project for approval before approving it.' });
-    }
-    if (currentStatus !== 'submitted') {
-      return res.json({ success: true, status: currentStatus || 'planning', alreadyApproved: true });
-    }
-
-    const approvedBy = getApprovalActorName(req);
-    const officialProjectDocno = String(rows[0].project_docno || '').trim()
-      || await generateNextProjectDocnoAsync(rows[0].business_entity_id || null);
-    const projectArInvoiceNo = getProjectInvoiceNumber(officialProjectDocno);
-    const projectApBillNo = getProjectBillNumber(officialProjectDocno);
-    const comment = getApprovalComment(req);
-    await queryAsync(
-      "UPDATE projects SET project_docno = ?, project_ar_invoice_no = ?, project_ap_bill_no = ?, status = 'planning', approved_by = ?, approved_at = COALESCE(approved_at, NOW()), approval_comment = ? WHERE id = ?",
-      [officialProjectDocno, projectArInvoiceNo, projectApBillNo, approvedBy, comment || null, projectId]
-    );
-    logAction(req, 'APPROVE_PROJECT', appendApprovalComment(`Draft No: ${rows[0].draft_docno || '-'} | Project No: ${officialProjectDocno || projectId} | Project Name: ${rows[0].project_name || ''} | Approved by ${approvedBy}`, comment));
-    sendBackgroundNotification(() => notifyProjectRequester(req, projectId, 'approved', {
-      approvedBy: getApprovalActorLabel(req)
-    }), 'project approved staff email');
-    res.json({ success: true, status: 'planning', project_docno: officialProjectDocno, approved_by: approvedBy, approval_comment: comment });
-  } catch (err) {
-    res.status(500).json({ error: err.message || 'Unable to approve project.' });
-  }
-});
-
-app.post('/api/projects/:id/reject', protectAdminOnly, async (req, res) => {
-  const projectId = Number(req.params.id || 0);
-  const reason = String(req.body?.reason || '').trim();
-  if (!projectId) return res.status(400).json({ error: 'Invalid project id' });
-  if (!reason) return res.status(400).json({ error: 'Rejection reason is required.' });
-
-  try {
-    const rows = await queryAsync(
-      'SELECT id, project_docno, draft_docno, project_name, status, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ? LIMIT 1',
-      [projectId]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Project not found' });
-    if (rows[0].is_archived === true || Number(rows[0].is_archived || 0) === 1) {
-      return res.status(400).json({ error: 'Restore the project before rejection.' });
-    }
-
-    const currentStatus = String(rows[0].status || '').trim().toLowerCase();
-    if (currentStatus !== 'submitted') {
-      return res.status(400).json({ error: 'Only submitted projects can be rejected.' });
-    }
-
-    const actor = getApprovalActorName(req);
-    await queryAsync(
-      "UPDATE projects SET status = 'needs_revision', status_reason = ?, approved_by = ?, approved_at = COALESCE(approved_at, NOW()), approval_comment = ? WHERE id = ?",
-      [`Needs revision by ${actor}: ${reason}`, actor, reason, projectId]
-    );
-    logAction(req, 'REJECT_PROJECT', `Project No: ${rows[0].project_docno || rows[0].draft_docno || projectId} | Project Name: ${rows[0].project_name || ''} | Reason: ${reason}`);
-    res.json({ success: true, status: 'needs_revision', reason });
-  } catch (err) {
-    res.status(500).json({ error: err.message || 'Unable to reject project.' });
-  }
-});
-
-app.post('/api/projects/:id/submit', protectAdmin, async (req, res) => {
-  const projectId = Number(req.params.id || 0);
-  if (!projectId) return res.status(400).json({ error: 'Invalid project id' });
-
-  try {
-    const rows = await queryAsync(
-      `SELECT id, project_docno, draft_docno, project_name, status, COALESCE(is_archived, FALSE) AS is_archived,
-              created_by, assigned_to, project_manager, members,
-              project_members, project_members_2, project_members_3
-       FROM projects WHERE id = ? LIMIT 1`,
-      [projectId]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Project not found' });
-    const actor = getAuthenticatedUser(req) || {};
-    if (isStaffRole(actor.role) && !projectRowMatchesStaffActor(rows[0], actor)) {
-      return sendStaffRecordAccessDenied(res, 'Project');
-    }
-    if (rows[0].is_archived === true || Number(rows[0].is_archived || 0) === 1) {
-      return res.status(400).json({ error: 'Restore the project before submitting it.' });
-    }
-
-    const currentStatus = String(rows[0].status || '').trim().toLowerCase();
-    if (currentStatus === 'submitted') {
-      return res.json({ success: true, status: 'submitted', alreadySubmitted: true });
-    }
-    if (!['draft', 'needs_revision'].includes(currentStatus)) {
-      return res.status(400).json({ error: 'Only draft or needs revision projects can be submitted for approval.' });
-    }
-
-    await queryAsync("UPDATE projects SET status = 'submitted', approved_by = NULL, approved_at = NULL WHERE id = ?", [projectId]);
-    logAction(req, 'SUBMIT_PROJECT', `Project No: ${rows[0].project_docno || rows[0].draft_docno || projectId} | Project Name: ${rows[0].project_name || ''}`);
-    sendBackgroundNotification(() => notifyProjectApprovalRequest(req, projectId), 'project approval request email');
-    res.json({ success: true, status: 'submitted', requiresApproval: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message || 'Unable to submit project.' });
-  }
-});
-
-app.put('/api/projects/:id/archive', protectAdminOnly, (req, res) => {
-  const projectId = Number(req.params.id || 0);
-  if (!projectId) return res.status(400).json({ error: 'Invalid project id' });
-
-  db.query('UPDATE projects SET is_archived = TRUE, archived_at = CURRENT_TIMESTAMP, archived_auto = FALSE WHERE id = ?', [projectId], (err, result) => {
-    if (err) return res.status(500).json({ error: err.message });
-    if (result.affectedRows === 0) return res.status(404).json({ error: 'Project not found' });
-    logAction(req, 'ARCHIVE_PROJECT', `Archived project ID: ${projectId}`);
-    res.json({ success: true });
-  });
-});
-
-app.put('/api/projects/:id/restore', protectAdminOnly, (req, res) => {
-  const projectId = Number(req.params.id || 0);
-  if (!projectId) return res.status(400).json({ error: 'Invalid project id' });
-
-  db.query('UPDATE projects SET is_archived = FALSE, archived_at = NULL, archived_auto = FALSE WHERE id = ?', [projectId], (err, result) => {
-    if (err) return res.status(500).json({ error: err.message });
-    if (result.affectedRows === 0) return res.status(404).json({ error: 'Project not found' });
-    logAction(req, 'RESTORE_PROJECT', `Restored project ID: ${projectId}`);
-    res.json({ success: true });
-  });
-});
-
-app.get('/api/projects/:projectId/tasks', protectAdmin, async (req, res) => {
-  const projectId = Number(req.params.projectId || 0);
-  if (!projectId) return res.status(400).json({ error: 'Invalid project id' });
-  try {
-    const projectRows = await queryAsync(
-      `SELECT id, created_by, assigned_to, project_manager, members,
-              project_members, project_members_2, project_members_3
-       FROM projects WHERE id = ? LIMIT 1`,
-      [projectId]
-    );
-    if (!projectRows.length) return res.status(404).json({ error: 'Project not found' });
-    const actor = getAuthenticatedUser(req) || {};
-    if (isStaffRole(actor.role) && !projectRowMatchesStaffActor(projectRows[0], actor)) {
-      return sendStaffRecordAccessDenied(res, 'Project');
-    }
-    const rows = await queryAsync('SELECT * FROM tasks WHERE project_id = ? ORDER BY start_date ASC', [projectId]);
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message || 'Unable to load tasks.' });
-  }
-});
-
-app.post('/api/tasks', protectAdmin, async (req, res) => {
-  const { project_id, task_name, start_date, end_date, assigned_to, plan_cost } = req.body;
-  if (!project_id || !task_name || !start_date || !end_date)
-    return res.status(400).json({ error: 'Missing required fields' });
-
-  try {
-    const actor = getAuthenticatedUser(req) || {};
-    if (isStaffRole(actor.role)) {
-      const projectRows = await queryAsync(
-        `SELECT id, created_by, assigned_to, project_manager, members,
-                project_members, project_members_2, project_members_3
-         FROM projects WHERE id = ? LIMIT 1`,
-        [project_id]
-      );
-      if (!projectRows.length) return res.status(404).json({ error: 'Project not found' });
-      if (!projectRowMatchesStaffActor(projectRows[0], actor)) {
-        return sendStaffRecordAccessDenied(res, 'Project');
-      }
-    }
-    await assertProjectAcceptsNewActivity(project_id);
-    const duration = Math.ceil((new Date(end_date) - new Date(start_date)) / (1000 * 60 * 60 * 24));
-    db.query(
-      'INSERT INTO tasks (project_id, task_name, start_date, end_date, duration, assigned_to, plan_cost) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [project_id, task_name, start_date, end_date, duration, assigned_to || null, plan_cost || 0],
-      (err, result) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ id: result.insertId });
-      }
-    );
-  } catch (err) {
-    res.status(400).json({ error: err.message || 'Unable to add task.' });
-  }
-});
-
-app.put('/api/projects/:projectId/tasks', protectAdmin, (req, res) => {
-  const projectId = Number(req.params.projectId);
-  const tasks = Array.isArray(req.body.tasks) ? req.body.tasks : [];
-
-  if (!projectId) {
-    return res.status(400).json({ error: 'Invalid project id' });
-  }
-
-  db.query(`SELECT id, status, COALESCE(is_archived, FALSE) AS is_archived,
-                   created_by, assigned_to, project_manager, members,
-                   project_members, project_members_2, project_members_3
-            FROM projects WHERE id = ?`, [projectId], (projectErr, rows) => {
-    if (projectErr) return res.status(500).json({ error: projectErr.message });
-    if (!rows || !rows.length) return res.status(404).json({ error: 'Project not found' });
-    const actor = getAuthenticatedUser(req) || {};
-    if (isStaffRole(actor.role) && !projectRowMatchesStaffActor(rows[0], actor)) {
-      return sendStaffRecordAccessDenied(res, 'Project');
-    }
-    if (rows[0].is_archived === true || Number(rows[0].is_archived || 0) === 1) {
-      return res.status(400).json({ error: 'Selected project is archived. Restore the project before creating new activity.' });
-    }
-    if (isProjectAwaitingApprovalStatus(rows[0].status)) {
-      return res.status(400).json({ error: getProjectAwaitingApprovalMessage('creating new activity') });
-    }
-
-    db.getConnection((connErr, connection) => {
-      if (connErr) return res.status(500).json({ error: connErr.message });
-
-      const finish = (statusCode, payload) => {
-        connection.release();
-        return res.status(statusCode).json(payload);
-      };
-
-      connection.beginTransaction((txErr) => {
-        if (txErr) {
-          connection.release();
-          return res.status(500).json({ error: txErr.message });
-        }
-
-        connection.query('DELETE FROM tasks WHERE project_id = ?', [projectId], (deleteErr) => {
-          if (deleteErr) {
-            return connection.rollback(() => finish(500, { error: deleteErr.message }));
-          }
-
-          const normalizedTasks = tasks.map((task, index) => {
-            const taskName = String(task?.task_name || task?.taskName || '').trim();
-            const startDate = String(task?.start_date || task?.startDate || '').trim();
-            const endDate = String(task?.end_date || task?.endDate || '').trim();
-            const assignee = String(task?.assigned_to || task?.assignee || '').trim();
-            const status = String(task?.status || 'not_started').trim();
-            const progress = Number(task?.progress || 0);
-            const planCost = Number(task?.plan_cost || 0);
-            const actualCost = Number(task?.actual_cost || 0);
-            const safeStart = startDate || null;
-            const safeEnd = endDate || null;
-            const start = safeStart ? new Date(safeStart) : null;
-            const end = safeEnd ? new Date(safeEnd) : null;
-            const duration = (start && end && !Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()))
-              ? Math.max(1, Math.round((end - start) / 86400000) + 1)
-              : 1;
-
-            return {
-              taskName: taskName || `Task ${index + 1}`,
-              startDate: safeStart,
-              endDate: safeEnd,
-              duration,
-              assignee: assignee || null,
-              status: ['not_started', 'in_progress', 'on_hold', 'completed', 'cancelled'].includes(status) ? status : 'not_started',
-              progress: Number.isFinite(progress) ? Math.max(0, Math.min(100, progress)) : 0,
-              planCost: Number.isFinite(planCost) ? planCost : 0,
-              actualCost: Number.isFinite(actualCost) ? actualCost : 0
-            };
-          });
-
-          if (!normalizedTasks.length) {
-            return connection.commit((commitErr) => {
-              if (commitErr) {
-                return connection.rollback(() => finish(500, { error: commitErr.message }));
-              }
-              finish(200, { success: true, totalTasks: 0 });
-            });
-          }
-
-          let index = 0;
-          const insertNext = () => {
-            if (index >= normalizedTasks.length) {
-              return connection.commit((commitErr) => {
-                if (commitErr) {
-                  return connection.rollback(() => finish(500, { error: commitErr.message }));
-                }
-                finish(200, { success: true, totalTasks: normalizedTasks.length });
-              });
-            }
-
-            const task = normalizedTasks[index++];
-            connection.query(
-              `INSERT INTO tasks
-                (project_id, task_name, start_date, end_date, duration, progress, assigned_to, status, plan_cost, actual_cost)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-              [
-                projectId,
-                task.taskName,
-                task.startDate,
-                task.endDate,
-                task.duration,
-                task.progress,
-                task.assignee,
-                task.status,
-                task.planCost,
-                task.actualCost
-              ],
-              (insertErr) => {
-                if (insertErr) {
-                  return connection.rollback(() => finish(500, { error: insertErr.message }));
-                }
-                insertNext();
-              }
-            );
-          };
-
-          insertNext();
-        });
-      });
-    });
-  });
-});
-
-app.put('/api/tasks/:taskId', protectAdmin, (req, res) => {
-  const { progress, actual_cost, status } = req.body;
-  db.query(
-    'UPDATE tasks SET progress = ?, actual_cost = ?, status = ? WHERE id = ?',
-    [progress || 0, actual_cost || 0, status || 'in_progress', req.params.taskId],
-    (err, result) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (result.affectedRows === 0) return res.status(404).json({ error: 'Task not found' });
-      res.json({ success: true });
-    }
-  );
-});
-
-app.get('/api/projects/:projectId/costs', protectAdmin, async (req, res) => {
-  const projectId = Number(req.params.projectId || 0);
-  if (!projectId) return res.status(400).json({ error: 'Invalid project id' });
-  try {
-    const projectRows = await queryAsync(
-      `SELECT id, created_by, assigned_to, project_manager, members,
-              project_members, project_members_2, project_members_3
-       FROM projects WHERE id = ? LIMIT 1`,
-      [projectId]
-    );
-    if (!projectRows.length) return res.status(404).json({ error: 'Project not found' });
-    const actor = getAuthenticatedUser(req) || {};
-    if (isStaffRole(actor.role) && !projectRowMatchesStaffActor(projectRows[0], actor)) {
-      return sendStaffRecordAccessDenied(res, 'Project');
-    }
-    const rows = await queryAsync('SELECT * FROM project_costs WHERE project_id = ? ORDER BY cost_date DESC', [projectId]);
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message || 'Unable to load project costs.' });
-  }
-});
-
-app.post('/api/project-costs', protectAdmin, async (req, res) => {
-  const { project_id, task_id, cost_category, plan_amount, actual_amount, cost_date, notes } = req.body;
-  if (!project_id || !cost_category || !plan_amount)
-    return res.status(400).json({ error: 'Missing required fields' });
-
-  try {
-    const actor = getAuthenticatedUser(req) || {};
-    if (isStaffRole(actor.role)) {
-      const projectRows = await queryAsync(
-        `SELECT id, created_by, assigned_to, project_manager, members,
-                project_members, project_members_2, project_members_3
-         FROM projects WHERE id = ? LIMIT 1`,
-        [project_id]
-      );
-      if (!projectRows.length) return res.status(404).json({ error: 'Project not found' });
-      if (!projectRowMatchesStaffActor(projectRows[0], actor)) {
-        return sendStaffRecordAccessDenied(res, 'Project');
-      }
-    }
-    await assertProjectAcceptsNewActivity(project_id);
-    const variance = (actual_amount || 0) - plan_amount;
-    db.query(
-      'INSERT INTO project_costs (project_id, task_id, cost_category, plan_amount, actual_amount, variance, cost_date, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [project_id, task_id || null, cost_category, plan_amount, actual_amount || 0, variance, cost_date || new Date().toISOString().slice(0, 10), notes || null],
-      (err, result) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ id: result.insertId });
-      }
-    );
-  } catch (err) {
-    res.status(400).json({ error: err.message || 'Unable to add project cost.' });
-  }
-});
-
-app.get('/api/projects/:projectId/summary', protectAdmin, async (req, res) => {
-  const projectId = Number(req.params.projectId || 0);
-  if (!projectId) return res.status(400).json({ error: 'Invalid project id' });
-  try {
-    const projectRows = await queryAsync(
-      `SELECT id, created_by, assigned_to, project_manager, members,
-              project_members, project_members_2, project_members_3
-       FROM projects WHERE id = ? LIMIT 1`,
-      [projectId]
-    );
-    if (!projectRows.length) return res.status(404).json({ error: 'Project not found' });
-    const actor = getAuthenticatedUser(req) || {};
-    if (isStaffRole(actor.role) && !projectRowMatchesStaffActor(projectRows[0], actor)) {
-      return sendStaffRecordAccessDenied(res, 'Project');
-    }
-    const rows = await queryAsync(`
-    SELECT 
-      p.*,
-      COUNT(DISTINCT t.id) AS total_tasks,
-      SUM(CASE WHEN t.status = 'completed' THEN 1 ELSE 0 END) AS completed_tasks,
-      AVG(t.progress) AS avg_progress,
-      SUM(t.plan_cost) AS total_plan_cost,
-      SUM(t.actual_cost) AS total_actual_cost,
-      (SUM(t.actual_cost) - SUM(t.plan_cost)) AS cost_variance
-    FROM projects p
-    LEFT JOIN tasks t ON p.id = t.project_id
-    WHERE p.id = ?
-    GROUP BY p.id
-  `, [projectId]);
-    res.json(rows[0] || {});
-  } catch (err) {
-    res.status(500).json({ error: err.message || 'Unable to load project summary.' });
-  }
-});
 
 // ==================== USER MANAGEMENT (ADMIN ONLY) ====================
 app.get('/api/admin/users', protectAdminOnly, (req, res) => {
@@ -19637,77 +12084,6 @@ app.get('/api/admin/logs/export', protectSuperAdmin, async (req, res) => {
   }
 });
 
-app.get('/api/transactions/export', protectAdmin, (req, res) => {
-  const archived = String(req.query.archived || '0') === '1';
-  const format = String(req.query.format || 'csv').toLowerCase();
-  const search = String(req.query.q || '').trim().toLowerCase();
-  const whereClause = archived ? 'WHERE archived = TRUE' : 'WHERE archived = FALSE';
-
-  db.query(`
-    SELECT docno, type, client, description, amount, downpayment, checkno, pono,
-           to_char(date, 'YYYY-MM-DD') AS date,
-           to_char(project_start_date, 'YYYY-MM-DD') AS project_start_date,
-           to_char(project_end_date, 'YYYY-MM-DD') AS project_end_date,
-           status
-    FROM transactions
-    ${whereClause}
-    ORDER BY id DESC
-  `, (err, rows) => {
-    if (err) {
-      console.error('Transactions export error:', err);
-      return res.status(500).json({ error: err.message });
-    }
-
-    const filtered = rows.filter((row) => {
-      const haystack = [
-        row.docno || '',
-        row.type || '',
-        row.client || '',
-        row.description || '',
-        row.checkno || '',
-        row.pono || '',
-        row.status || '',
-        row.date || '',
-        row.project_start_date || '',
-        row.project_end_date || ''
-      ].join(' ').toLowerCase();
-      const tokens = search ? search.split(/\s+/).filter(Boolean) : [];
-      return !tokens.length || tokens.every((token) => haystack.includes(token));
-    });
-
-    const filenameBase = `${archived ? 'archived-records' : 'transactions'}-${new Date().toISOString().slice(0, 10)}`;
-    logAction(req, 'EXPORT_TRANSACTIONS', `Exported ${archived ? 'archived records' : 'transactions'} as ${format.toUpperCase()} | Search: ${search || 'none'}`, 'audit');
-
-    const headers = ['docno', 'type', 'client', 'description', 'amount', 'downpayment', 'checkno', 'pono', 'date', 'project_start_date', 'project_end_date', 'status'];
-    if (format === 'pdf') {
-      return sendPdfTableResponse(
-        res,
-        `${filenameBase}.pdf`,
-        archived ? 'Archived Records' : 'Transactions',
-        headers,
-        filtered,
-        `Generated at ${new Date().toLocaleString('en-PH')}`
-      );
-    }
-
-    if (format === 'xls' || format === 'xlsx' || format === 'excel') {
-      return sendHtmlSpreadsheetResponse(
-        res,
-        `${filenameBase}.xls`,
-        archived ? 'Archived Records' : 'Transactions',
-        headers,
-        filtered
-      );
-    }
-
-    sendCsvResponse(
-      res,
-      `${filenameBase}.csv`,
-      headers,
-      filtered
-    );
-  });
-});
 
 app.patch('/api/admin/users/:id/toggle', protectAdminOnly, (req, res) => {
 

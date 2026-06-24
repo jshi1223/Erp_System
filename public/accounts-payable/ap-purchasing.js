@@ -280,9 +280,7 @@ function getPurchaseOrderIssuerBusinessEntityId() {
 }
 
 function vendorCanBeUsedForPurchaseOrder(vendor) {
-  const vendorBusinessEntityId = String(vendor?.business_entity_id || '').trim();
-  const issuerBusinessEntityId = getPurchaseOrderIssuerBusinessEntityId();
-  return !vendorBusinessEntityId || !issuerBusinessEntityId || vendorBusinessEntityId !== issuerBusinessEntityId;
+  return Boolean(vendor);
 }
 
 function getPurchaseOrderVendorChoices() {
@@ -389,7 +387,7 @@ async function loadVendorNumberPreview() {
   return String(input.value || '').trim();
 }
 
-async function loadProcurementNumberPreview(inputId, endpoint, responseKey, businessEntityIdOverride) {
+async function loadProcurementNumberPreview(inputId, endpoint, responseKey, businessEntityIdOverride, extraParams) {
   const input = $(inputId);
   if (!input) return '';
   input.value = '';
@@ -399,30 +397,52 @@ async function loadProcurementNumberPreview(inputId, endpoint, responseKey, busi
       || (typeof getCurrentBusinessEntityId === 'function' ? getCurrentBusinessEntityId() : '')
       || getDefaultProcurementBusinessEntityId() || '';
     if (businessEntityId) params.set('business_entity_id', businessEntityId);
+    // Extra context (e.g. project_id) lets the server resolve the authoritative entity itself.
+    if (extraParams && typeof extraParams === 'object') {
+      Object.entries(extraParams).forEach(([key, val]) => {
+        const v = String(val == null ? '' : val).trim();
+        if (v) params.set(key, v);
+      });
+    }
     const query = params.toString();
     const data = await apiFetch(`${endpoint}${query ? `?${query}` : ''}`, { cache: 'no-store' });
     const value = String(data?.[responseKey] || '').trim();
     if (value && !input.value) input.value = value;
     return value;
-  } catch (_) {
+  } catch (err) {
+    // Surface failures instead of swallowing them — a silently-blank number preview was
+    // invisible and made an unmounted-route bug very hard to diagnose.
+    console.error('Number preview failed for', inputId, '-', err && err.message);
     input.value = '';
     return '';
   }
 }
 
 function loadRequisitionNumberPreview() {
-  // The operating company is a filter, not a default: the PR number comes from the selected
-  // project's operating company (e.g. KITSI). With no project chosen there is no company context,
-  // so leave the preview blank instead of falling back to the workspace/default entity.
+  const input = $('pr-number');
+  if (input) input.placeholder = 'Auto-generated';
+  // Stock PR has no project by design — preview against the active/default operating
+  // entity so the "Auto-generated" number actually appears.
+  if (currentRequisitionPrType === 'stock') {
+    return loadProcurementNumberPreview('pr-number', '/api/procurement/requisitions/next-number', 'pr_number');
+  }
+  // Project PR: the PR number sequence belongs to the SELECTED project's operating company
+  // (e.g. KITSI), so preview against that entity to show the exact number up-front. If the
+  // project's entity can't be resolved yet (none picked, or a draft project that isn't in the
+  // admin list), fall back to the active/default entity so the field still shows a best-effort
+  // number instead of a confusing blank. The server claims the official number on save either way.
   const projectId = currentRequisitionProjectId || Number($('pr-project')?.value || 0) || 0;
   const project = getProcurementProjectById(projectId);
   const projectEntityId = Number(project?.business_entity_id || 0) || 0;
-  const input = $('pr-number');
-  if (!projectEntityId) {
-    if (input) input.value = '';
-    return Promise.resolve('');
-  }
-  return loadProcurementNumberPreview('pr-number', '/api/procurement/requisitions/next-number', 'pr_number', projectEntityId);
+  // Pass project_id so the server resolves the operating entity authoritatively (it owns the
+  // project→entity mapping). projectEntityId is sent too as a best-effort client hint / fallback.
+  return loadProcurementNumberPreview(
+    'pr-number',
+    '/api/procurement/requisitions/next-number',
+    'pr_number',
+    projectEntityId,
+    projectId ? { project_id: projectId } : null
+  );
 }
 
 function loadPurchaseOrderNumberPreview() {
@@ -544,7 +564,7 @@ function setProcurementFieldMessage(fieldName, message = '') {
 }
 
 function clearProcurementFieldMessages() {
-  ['pr_number', 'vendor_no', 'company_id', 'request_date', 'pr_line_items', 'po_number', 'requisition_id', 'quotation_id', 'project_id', 'vendor_id', 'po_date', 'line_items', 'grn_number', 'quotation_number', 'po_id', 'received_date', 'vendor_name', 'vendor_contact', 'vendor_email', 'vendor_phone', 'vendor_tin', 'vendor_address'].forEach((fieldName) => {
+  ['pr_number', 'vendor_no', 'company_id', 'request_date', 'pr_line_items', 'po_number', 'requisition_id', 'quotation_id', 'project_id', 'vendor_id', 'po_date', 'line_items', 'grn_number', 'quotation_number', 'po_id', 'received_date', 'serials', 'vendor_name', 'vendor_contact', 'vendor_email', 'vendor_phone', 'vendor_tin', 'vendor_address'].forEach((fieldName) => {
     setProcurementFieldMessage(fieldName, '');
   });
   clearRequisitionLineItemMessages();
@@ -1093,7 +1113,7 @@ function renderVendorOptions() {
 
   const currentVendorId = hiddenInput.value;
   const currentVendor = procurementState.vendors.find(v => Number(v.id) === Number(currentVendorId));
-  if (!currentVendorId || !currentVendor || !vendorCanBeUsedForPurchaseOrder(currentVendor)) {
+  if (!currentVendorId || !currentVendor) {
     searchInput.value = '';
     hiddenInput.value = '';
   } else {
@@ -1341,8 +1361,9 @@ function syncVendorModalMode() {
 function openVendorRequestDraft(requestId) {
   const rows = Array.isArray(window.masterDataRequestsDb) ? window.masterDataRequestsDb : (typeof masterDataRequestsDb !== 'undefined' ? masterDataRequestsDb : []);
   const row = rows.find((entry) => Number(entry.id || 0) === Number(requestId || 0) && entry.request_type === 'vendor');
-  if (!row || String(row.status || '').toLowerCase() !== 'draft') {
-    showToast('Only draft vendor requests can be edited.', 'error');
+  const vendorDraftStatus = String(row?.status || '').toLowerCase();
+  if (!row || (vendorDraftStatus !== 'draft' && vendorDraftStatus !== 'needs_revision')) {
+    showToast('Only draft or returned-for-revision vendor requests can be edited.', 'error');
     return;
   }
   editingVendorId = null;
@@ -1716,17 +1737,6 @@ function applyPurchaseOrderVendorSelection(vendorId) {
     if (hiddenInput) hiddenInput.value = '';
     if (searchInput) searchInput.value = '';
     setProcurementFieldMessage('vendor_id', 'Please select a vendor from the search results.');
-    if (resultsContainer) {
-      resultsContainer.classList.remove('open');
-      resultsContainer.innerHTML = '';
-    }
-    return;
-  }
-
-  if (!vendorCanBeUsedForPurchaseOrder(vendor)) {
-    if (hiddenInput) hiddenInput.value = '';
-    if (searchInput) searchInput.value = '';
-    setProcurementFieldMessage('vendor_id', 'Select another vendor. The issuing company cannot be its own supplier on this PO.');
     if (resultsContainer) {
       resultsContainer.classList.remove('open');
       resultsContainer.innerHTML = '';
@@ -2279,7 +2289,206 @@ function syncGoodsReceiptFromPurchaseOrder() {
   if (po) {
     setProcurementFieldMessage('po_id', '');
   }
+  renderGoodsReceiptReceivingLines(po);
+  renderGoodsReceiptProductMappings(po);
   renderGoodsReceiptSerialInputs(po);
+}
+
+function getGoodsReceiptProductChoices(po, selectedProductId = 0) {
+  const selectedId = Number(selectedProductId || 0) || 0;
+  const activeEntityId = Number(po?.business_entity_id || 0) || 0;
+  return (Array.isArray(procurementState.products) ? procurementState.products : []).filter((product) => {
+    const productId = Number(product.id || 0) || 0;
+    const productEntityId = Number(product.business_entity_id || 0) || 0;
+    return productId === selectedId || !activeEntityId || !productEntityId || productEntityId === activeEntityId;
+  });
+}
+
+function renderGoodsReceiptProductOptions(po, selectedProductId = 0) {
+  const selectedId = Number(selectedProductId || 0) || 0;
+  const options = ['<option value="">Create new inventory product</option>'];
+  getGoodsReceiptProductChoices(po, selectedId).forEach((product) => {
+    const name = String(product.product_name || product.name || '').trim() || `Product #${product.id}`;
+    const meta = [product.sku, product.category, product.unit].map((value) => String(value || '').trim()).filter(Boolean).join(' / ');
+    options.push(`<option value="${escHtml(product.id)}"${Number(product.id || 0) === selectedId ? ' selected' : ''}>${escHtml(meta ? `${name} (${meta})` : name)}</option>`);
+  });
+  return options.join('');
+}
+
+// Per-line "receive now" quantities for partial goods receipts. Defaults to the full
+// remaining qty per line; the receiver can lower a value when only part arrived.
+function renderGoodsReceiptReceivingLines(po) {
+  const field = $('grn-receiving-field');
+  const container = $('grn-receiving-lines');
+  if (!field || !container) return;
+  const lines = (!editingGoodsReceiptId && po && Array.isArray(po.line_items)) ? po.line_items : [];
+  if (!lines.length) {
+    field.hidden = true;
+    container.innerHTML = '';
+    return;
+  }
+  field.hidden = false;
+  container.innerHTML = `
+    <table class="registry-table grn-receive-table">
+      <thead><tr>
+        <th>Item</th>
+        <th class="text-center">Receive Now</th>
+        <th class="text-right">Unit Cost</th>
+        <th class="text-right">Total</th>
+      </tr></thead>
+      <tbody>
+        ${lines.map((item) => {
+          const lineId = Number(item.id || 0) || 0;
+          const ordered = Number(item.quantity || 0);
+          const received = Number(item.received_qty || 0);
+          const remaining = Math.max(0, ordered - received);
+          const unitCost = Number(item.unit_price || 0) || 0;
+          const desc = String(item.description || `PO Line ${lineId}`).trim();
+          return `
+            <tr data-grn-line="${lineId}" data-unit-cost="${unitCost}">
+              <td>
+                <div class="grn-item-name">${escHtml(desc)}</div>
+                <div class="grn-item-meta">ordered ${ordered} &middot; received ${received} &middot; <strong>${remaining} left</strong></div>
+              </td>
+              <td class="text-center"><input type="number" class="grn-receive-qty" min="0" max="${remaining}" step="1" value="${remaining}" oninput="syncGoodsReceiptReceiveTotals(); syncGoodsReceiptSerialNeeded()" ${remaining <= 0 ? 'disabled' : ''} /></td>
+              <td class="text-right">${money(unitCost)}</td>
+              <td class="text-right grn-line-total">${money(remaining * unitCost)}</td>
+            </tr>
+          `;
+        }).join('')}
+      </tbody>
+      <tfoot><tr>
+        <td colspan="3" class="text-right"><strong>Total Received Value</strong></td>
+        <td class="text-right"><strong id="grn-receive-grand-total">${money(0)}</strong></td>
+      </tr></tfoot>
+    </table>
+    <div class="field-hint" style="margin-top:6px;">Naka-default sa buong natitira. Babaan kung partial — mananatiling bukas ang balanse para sa susunod na GRN. Live ang Total.</div>
+  `;
+  syncGoodsReceiptReceiveTotals();
+}
+
+// Live "Total" per line + the grand "Total Received Value" footer, recomputed from Receive Now ×
+// Unit Cost. Also CLAMPS each Receive Now to its remaining qty — you can't receive more than what's
+// left on the PO (the server caps it too, but clamping here keeps the total + serials honest).
+function syncGoodsReceiptReceiveTotals() {
+  let grand = 0;
+  document.querySelectorAll('#grn-receiving-lines tr[data-grn-line]').forEach((row) => {
+    const cost = Number(row.dataset.unitCost || 0) || 0;
+    const qtyInput = row.querySelector('.grn-receive-qty');
+    let qty = 0;
+    if (qtyInput && !qtyInput.disabled) {
+      qty = Math.max(0, Number(qtyInput.value || 0) || 0);
+      const max = Number(qtyInput.max || 0) || 0;
+      if (max > 0 && qty > max) {
+        qty = max;
+        qtyInput.value = String(max); // can't receive more than remaining
+        qtyInput.classList.add('grn-qty-clamped');
+        setTimeout(() => qtyInput.classList.remove('grn-qty-clamped'), 700);
+      }
+    }
+    const lineTotal = qty * cost;
+    grand += lineTotal;
+    const totalCell = row.querySelector('.grn-line-total');
+    if (totalCell) totalCell.textContent = money(lineTotal);
+  });
+  const grandEl = document.getElementById('grn-receive-grand-total');
+  if (grandEl) grandEl.textContent = money(grand);
+}
+
+function collectGoodsReceiptLineReceipts() {
+  return Array.from(document.querySelectorAll('#grn-receiving-lines [data-grn-line]')).map((row) => ({
+    po_line_item_id: Number(row.dataset.grnLine || 0) || 0,
+    qty: Math.max(0, Number(row.querySelector('.grn-receive-qty')?.value || 0) || 0)
+  })).filter((r) => r.po_line_item_id);
+}
+
+function renderGoodsReceiptProductMappings(po) {
+  const field = $('grn-product-mapping-field');
+  const container = $('grn-product-mapping');
+  if (!field || !container) return;
+  const items = (!editingGoodsReceiptId && po && Array.isArray(po.line_items))
+    ? po.line_items.filter((item) => !Number(item.product_id || 0))
+    : [];
+  if (!items.length) {
+    field.hidden = true;
+    container.innerHTML = '';
+    return;
+  }
+  field.hidden = false;
+  container.innerHTML = items.map((item) => {
+    const lineId = Number(item.id || 0) || 0;
+    const description = String(item.description || '').trim() || `PO Line ${lineId || ''}`.trim();
+    const unitPrice = Number(item.unit_price || 0) || 0;
+    return `
+      <div class="po-line-item" data-grn-product-map data-line-id="${lineId}" style="margin-bottom:8px;">
+        <div class="field full">
+          <label>${escHtml(description)}</label>
+          <select class="grn-map-product" onchange="syncGoodsReceiptProductMapping(this)">
+            ${renderGoodsReceiptProductOptions(po)}
+          </select>
+        </div>
+        <div class="po-line-meta-grid">
+          <div class="field">
+            <label>New Product Name</label>
+            <input type="text" class="grn-map-product-name" value="${escHtml(description)}" />
+          </div>
+          <div class="field">
+            <label>Category</label>
+            <input type="text" class="grn-map-category" placeholder="Procurement" />
+          </div>
+          <div class="field">
+            <label>Unit</label>
+            <input type="text" class="grn-map-unit" value="pcs" />
+          </div>
+          <div class="field">
+            <label>Unit Cost</label>
+            <input type="number" class="grn-map-unit-cost" min="0" step="0.01" value="${unitPrice ? escHtml(unitPrice.toFixed(2)) : ''}" />
+          </div>
+        </div>
+        <div class="modal-inline-message is-hidden" data-grn-map-message aria-live="polite"></div>
+      </div>
+    `;
+  }).join('');
+}
+
+function syncGoodsReceiptProductMapping(select) {
+  const row = select?.closest('[data-grn-product-map]');
+  if (!row) return;
+  const creating = !Number(select.value || 0);
+  row.querySelectorAll('.grn-map-product-name, .grn-map-category, .grn-map-unit, .grn-map-unit-cost').forEach((input) => {
+    input.disabled = !creating;
+  });
+  const notice = row.querySelector('[data-grn-map-message]');
+  if (notice) {
+    notice.textContent = '';
+    notice.classList.add('is-hidden');
+  }
+  row.classList.remove('has-error');
+}
+
+function collectGoodsReceiptProductMappings() {
+  return Array.from(document.querySelectorAll('#grn-product-mapping [data-grn-product-map]')).map((row) => ({
+    po_line_item_id: Number(row.dataset.lineId || 0) || 0,
+    product_id: Number(row.querySelector('.grn-map-product')?.value || 0) || null,
+    create_product: !Number(row.querySelector('.grn-map-product')?.value || 0),
+    product_name: String(row.querySelector('.grn-map-product-name')?.value || '').trim(),
+    category: String(row.querySelector('.grn-map-category')?.value || '').trim(),
+    unit: String(row.querySelector('.grn-map-unit')?.value || '').trim() || 'pcs',
+    unit_cost: Number(row.querySelector('.grn-map-unit-cost')?.value || 0) || 0
+  })).filter((mapping) => mapping.po_line_item_id);
+}
+
+function markGoodsReceiptProductMappingError(lineId, message) {
+  const row = document.querySelector(`#grn-product-mapping [data-grn-product-map][data-line-id="${Number(lineId || 0)}"]`);
+  if (!row) return false;
+  const notice = row.querySelector('[data-grn-map-message]');
+  if (notice) {
+    notice.textContent = message;
+    notice.classList.remove('is-hidden');
+  }
+  row.classList.add('has-error');
+  focusProcurementElement(row.querySelector('.grn-map-product-name') || row.querySelector('.grn-map-product'));
+  return true;
 }
 
 // Renders one serial-capture box per product line on the selected PO. Each box
@@ -2289,8 +2498,11 @@ function renderGoodsReceiptSerialInputs(po) {
   const field = $('grn-serials-field');
   const container = $('grn-serials');
   if (!field || !container) return;
+  // Show a serial box for EVERY received line (product-linked OR free-text being mapped to a
+  // product). Serials are optional per line — enter them for serial-tracked items, leave blank
+  // for bulk/non-serialized ones. Free-text lines resolve to their mapped product on save.
   const items = (!editingGoodsReceiptId && po && Array.isArray(po.line_items))
-    ? po.line_items.filter((it) => Number(it.product_id || 0))
+    ? po.line_items.filter((it) => Number(it.id || 0))
     : [];
   if (!items.length) {
     field.hidden = true;
@@ -2300,24 +2512,75 @@ function renderGoodsReceiptSerialInputs(po) {
   field.hidden = false;
   container.innerHTML = items.map((it) => {
     const pid = Number(it.product_id || 0);
+    const lineId = Number(it.id || 0) || 0;
     const product = getPurchaseOrderProductById(pid);
-    const name = product ? [product.sku, product.product_name].filter(Boolean).join(' - ') : (it.description || `Product #${pid}`);
-    const qty = Number(it.quantity || 0) || 0;
+    const name = product ? [product.sku, product.product_name].filter(Boolean).join(' - ') : (it.description || `PO Line ${lineId}`);
     return `
       <div class="grn-serial-group">
-        <div class="grn-serial-head">${escHtml(name)} <span class="grn-serial-qty">qty ${qty}</span></div>
-        <textarea class="grn-serial-input" data-serial-product="${pid}" rows="3" placeholder="Isa per linya, hal.&#10;SN-0001&#10;SN-0002"></textarea>
+        <div class="grn-serial-head">${escHtml(name)} <span class="grn-serial-qty"><span class="grn-serial-count">0</span> / <span class="grn-serial-needed">0</span> serials</span></div>
+        <textarea class="grn-serial-input" data-serial-product="${pid}" data-serial-line="${lineId}" rows="3" placeholder="Isa per linya, hal.&#10;SN-0001&#10;SN-0002" oninput="syncGoodsReceiptSerialNeeded()"></textarea>
+        <div class="grn-serial-error is-hidden"></div>
       </div>`;
   }).join('');
+  syncGoodsReceiptSerialNeeded();
+}
+
+// The quantity being received now for a PO line, read live from the receiving-lines table.
+function getGoodsReceiptReceiveNowQty(lineId) {
+  const row = document.querySelector(`#grn-receiving-lines [data-grn-line="${Number(lineId) || 0}"]`);
+  const input = row ? row.querySelector('.grn-receive-qty') : null;
+  return Math.max(0, Number(input?.value || 0) || 0);
+}
+
+// Counts the unique serials in one capture box (one serial per line / comma).
+function parseGoodsReceiptSerialBox(textarea) {
+  const serials = String(textarea?.value || '').split(/[\r\n,]+/).map((s) => s.trim()).filter(Boolean);
+  return { serials, unique: [...new Set(serials)] };
+}
+
+// Keeps each serial box in sync with its line's "Receive Now" qty: live "x / n" count,
+// and disables (clears) the box for lines that aren't being received in this GRN.
+function syncGoodsReceiptSerialNeeded() {
+  document.querySelectorAll('#grn-serials .grn-serial-group').forEach((group) => {
+    const ta = group.querySelector('.grn-serial-input');
+    if (!ta) return;
+    const expected = getGoodsReceiptReceiveNowQty(ta.dataset.serialLine);
+    const neededEl = group.querySelector('.grn-serial-needed');
+    const countEl = group.querySelector('.grn-serial-count');
+    if (expected <= 0) {
+      // Not receiving this line now — no serials needed; clear and lock the box.
+      if (ta.value) ta.value = '';
+      ta.disabled = true;
+      group.classList.add('is-muted');
+      if (neededEl) neededEl.textContent = '0';
+      if (countEl) { countEl.textContent = '0'; countEl.classList.remove('is-ok', 'is-bad'); }
+      const errEl = group.querySelector('.grn-serial-error');
+      if (errEl) { errEl.textContent = ''; errEl.classList.add('is-hidden'); }
+      return;
+    }
+    ta.disabled = false;
+    group.classList.remove('is-muted');
+    const { unique } = parseGoodsReceiptSerialBox(ta);
+    if (neededEl) neededEl.textContent = String(expected);
+    if (countEl) {
+      countEl.textContent = String(unique.length);
+      const ok = unique.length === expected;
+      countEl.classList.toggle('is-ok', ok);
+      countEl.classList.toggle('is-bad', !ok);
+    }
+  });
 }
 
 function collectGoodsReceiptSerials() {
   return Array.from(document.querySelectorAll('#grn-serials .grn-serial-input'))
     .map((ta) => ({
       product_id: Number(ta.dataset.serialProduct || 0) || 0,
+      po_line_item_id: Number(ta.dataset.serialLine || 0) || 0,
       serials: String(ta.value || '').split(/[\r\n,]+/).map((s) => s.trim()).filter(Boolean)
     }))
-    .filter((group) => group.product_id && group.serials.length);
+    // Keep any box that has serials typed in — free-text lines (product_id 0) resolve to their
+    // mapped product on the server via po_line_item_id.
+    .filter((group) => (group.product_id || group.po_line_item_id) && group.serials.length);
 }
 
 function getRequisitionLineItemsContainer() {
@@ -3085,16 +3348,19 @@ function renderRequisitions() {
     const existingPurchaseOrder = getPurchaseOrderForRequisition(row.id);
     const status = normalizeWorkflowStatus(row.status || 'draft');
     const isAdmin = userCanApproveProcurement();
+    const awardedQuote = getSelectedQuotationForRequisition(row.id);
+    const hasCompletedRfqFlow = Boolean(existingPurchaseOrder || awardedQuote);
     const canSubmit = ['draft'].includes(status);
     const canApprove = isAdmin && ['submitted'].includes(status);
-    const canCancel = isAdmin && !isFinalProcurementStatus(status);
+    const canCancel = isAdmin && !hasCompletedRfqFlow && !isFinalProcurementStatus(status);
     const deleteButton = isAdmin
-      ? `<button class="btn btn-cancel btn-sm" type="button" onclick="deleteRequisition(${Number(row.id)})">Delete</button>`
+      ? `<button class="btn btn-cancel btn-sm" type="button" onclick="deleteRequisition(${Number(row.id)})">Archive</button>`
       : '';
-    const createRfqButton = isAdmin && existingPurchaseOrder && canCreateRfq
-      ? '<button class="btn btn-add btn-sm" type="button" disabled title="PO already exists for this PR">Create RFQ</button>'
-      : isAdmin && canCreateRfq
+    const createRfqButton = isAdmin && canCreateRfq && !hasCompletedRfqFlow
       ? `<button class="btn btn-add btn-sm" type="button" onclick="createRfqFromRequisition(${Number(row.id)})">Create RFQ</button>`
+      : '';
+    const emailRfqButton = isAdmin && canCreateRfq && !hasCompletedRfqFlow
+      ? `<button class="btn btn-edit btn-sm" type="button" onclick="openRfqEmailModal(${Number(row.id)})">Email RFQ</button>`
       : '';
     const submitButton = canSubmit
       ? `<button class="btn btn-save btn-sm" type="button" onclick="submitRequisitionForApproval(${Number(row.id)})">Submit</button>`
@@ -3119,6 +3385,7 @@ function renderRequisitions() {
           <div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px;">${escHtml(companyLabel)}</div>
           ${renderProcurementArchivedProjectBadge(row)}
           ${renderAwardedRfqBadge(row.id)}
+          ${renderRfqEmailedBadge(row)}
           ${existingPurchaseOrder ? `<div style="margin-top:4px;"><span class="status-chip status-ordered">PO: ${escHtml(existingPurchaseOrder.po_number || existingPurchaseOrder.id)}</span></div>` : ''}
         </td>
         <td>${escHtml(dateText(row.request_date))}</td>
@@ -3135,8 +3402,8 @@ function renderRequisitions() {
             ${submitButton}
             ${approveButton}
             ${createRfqButton}
+            ${emailRfqButton}
             <button class="btn btn-edit btn-sm" type="button" onclick="openRequisitionModal(${Number(row.id)})">${editLabel}</button>
-            ${cancelButton}
             ${deleteButton}
           </div>
         </td>
@@ -3184,8 +3451,12 @@ function getSelectedQuotationForRequisition(requisitionId) {
   if (!normalizedRequisitionId) return null;
   return procurementState.quotations.find((quote) => {
     return Number(quote.requisition_id || 0) === normalizedRequisitionId
-      && normalizeWorkflowStatus(quote.status) === 'selected';
+      && quotationIsAwardedStatus(quote.status);
   }) || null;
+}
+
+function quotationIsAwardedStatus(status) {
+  return ['selected', 'awarded', 'approved'].includes(normalizeWorkflowStatus(status));
 }
 
 function getRfqAwardLockMessage(requisitionId) {
@@ -3205,6 +3476,18 @@ function renderAwardedRfqBadge(requisitionId) {
   if (!selectedQuote) return '';
   const label = `Awarded: ${selectedQuote.vendor_name || 'Vendor'} / ${selectedQuote.quote_number || `RFQ-${selectedQuote.id}`}`;
   return `<div style="margin-top:4px;"><span class="status-chip status-approved">${escHtml(label)}</span></div>`;
+}
+
+// Badge shown on a PR once its RFQ has been emailed to vendor(s).
+function renderRfqEmailedBadge(requisition) {
+  const row = requisition && requisition.rfq_emailed_at
+    ? requisition
+    : procurementState.requisitions.find((entry) => Number(entry.id) === Number(requisition?.id ?? requisition));
+  if (!row || !row.rfq_emailed_at) return '';
+  const names = String(row.rfq_emailed_to || '').trim();
+  const when = dateText(row.rfq_emailed_at);
+  const label = `RFQ emailed${names ? `: ${names}` : ''}${when ? ` · ${when}` : ''}`;
+  return `<div style="margin-top:4px;"><span class="status-chip status-submitted" title="${escHtml(label)}">📧 ${escHtml(label)}</span></div>`;
 }
 
 function buildPurchaseOrderItemsFromQuotation(quote) {
@@ -3231,7 +3514,7 @@ function buildPurchaseOrderItemsFromQuotation(quote) {
       ? (estimatedTotal > 0 ? quotedTotal * (estimatedLineTotal / estimatedTotal) : evenUnitTotal)
       : estimatedLineTotal;
     return {
-      product_id: Number(item.product_id || 0) || null,
+      product_id: null,
       description: [item.item_name, item.description].filter(Boolean).join(' - ') || `Approved RFQ ${quote.quote_number || quote.id}`,
       quantity,
       unit_price: quantity > 0 ? targetLineTotal / quantity : targetLineTotal
@@ -3314,14 +3597,22 @@ function renderRfqWorkspace() {
     const quote = row.quote || null;
     const requisition = row.requisition || null;
     const requisitionId = Number(requisition?.id || quote?.requisition_id || 0) || 0;
-    const selected = normalizeWorkflowStatus(row.status) === 'selected';
+    const selected = quotationIsAwardedStatus(row.status);
     const rejected = normalizeWorkflowStatus(row.status) === 'rejected';
     const selectedQuoteForPr = getSelectedQuotationForRequisition(requisitionId);
     const hasAwardedRfq = Boolean(selectedQuoteForPr);
     const existingPurchaseOrder = row.existingPurchaseOrder || getPurchaseOrderForRequisition(requisitionId);
-    // Once an RFQ is approved (awarded) or a PO exists for the PR, hide the Add/Create RFQ button entirely.
-    const addLinkedRfqButton = isAdmin && !existingPurchaseOrder && !hasAwardedRfq && requisitionId && (row.type === 'pending' || row.isFirstQuoteForPr)
-      ? `<button class="btn btn-add btn-sm" type="button" onclick="createRfqFromRequisition(${requisitionId})">${row.type === 'pending' ? 'Create RFQ' : 'Add RFQ'}</button>`
+    // RFQ creation is initiated only from the Purchase Requisitions table ("Create RFQ"),
+    // so the RFQ tab no longer carries its own add button — it is view/manage only.
+    // Once a vendor has a quotation, show "View PDF" of it here instead of an email button.
+    const viewQuotePdfButton = quote
+      ? `<a class="btn btn-pdf btn-sm" href="/api/procurement/quotations/${Number(quote.id)}/pdf" target="_blank" rel="noopener">View PDF</a>`
+      : (isAdmin && !existingPurchaseOrder && !hasAwardedRfq && requisitionId
+        ? `<button class="btn btn-edit btn-sm" type="button" onclick="openRfqEmailModal(${requisitionId})">Email RFQ</button>`
+        : '');
+    // A manually uploaded vendor PDF (or one attached via the portal) is viewable here too.
+    const vendorPdfButton = quote && quote.vendor_pdf
+      ? `<a class="btn btn-pdf btn-sm" href="/api/procurement/quotations/${Number(quote.id)}/vendor-pdf" target="_blank" rel="noopener">Vendor PDF</a>`
       : '';
     const editButton = quote && !rejected
       ? `<button class="btn btn-edit btn-sm" type="button" onclick="openQuotationModal(${Number(quote.id)})">Edit</button>`
@@ -3338,6 +3629,7 @@ function renderRfqWorkspace() {
           <div style="font-weight:600;">${escHtml(row.pr_number || '-')}</div>
           <div style="font-size:0.72rem;color:var(--text-muted);margin-top:2px;">${escHtml([row.project_docno, row.project_name].filter(Boolean).join(' - ') || row.company_name || '-')}</div>
           ${renderAwardedRfqBadge(requisitionId)}
+          ${renderRfqEmailedBadge(requisitionId)}
           ${existingPurchaseOrder ? `<div style="margin-top:4px;"><span class="status-chip status-ordered">PO: ${escHtml(existingPurchaseOrder.po_number || existingPurchaseOrder.id)}</span></div>` : ''}
         </td>
         <td>${escHtml(row.vendor_name || 'No vendor RFQ yet')}</td>
@@ -3346,7 +3638,8 @@ function renderRfqWorkspace() {
         <td><span class="status-chip ${statusClass(selected ? 'approved' : row.status)}">${escHtml(selected ? 'awarded' : row.status)}</span></td>
         <td>
           <div class="erp-actions" style="justify-content:center;">
-            ${addLinkedRfqButton}
+            ${viewQuotePdfButton}
+            ${vendorPdfButton}
             ${selectButton}
             ${editButton}
           </div>
@@ -3375,7 +3668,7 @@ function renderQuotations() {
 
   tbody.innerHTML = rows.length ? rows.map((row) => {
     const status = normalizeWorkflowStatus(row.status || 'draft');
-    const isSelected = status === 'selected';
+    const isSelected = quotationIsAwardedStatus(status);
     const isRejected = status === 'rejected';
     const existingPurchaseOrder = getPurchaseOrderForRequisition(row.requisition_id);
     const isAdmin = userCanApproveProcurement();
@@ -3390,8 +3683,16 @@ function renderQuotations() {
     const editButton = isRejected
       ? '<button class="btn btn-edit btn-sm" type="button" disabled title="Rejected RFQs are read-only">Edit</button>'
       : `<button class="btn btn-edit btn-sm" type="button" onclick="openQuotationModal(${Number(row.id)})">Edit</button>`;
-    const deleteButton = isAdmin && !isRejected
-      ? `<button class="btn btn-cancel btn-sm" type="button" onclick="deleteQuotation(${Number(row.id)})">Delete</button>`
+    const deleteButton = isAdmin
+      ? `<button class="btn btn-cancel btn-sm" type="button" onclick="deleteQuotation(${Number(row.id)})">Archive</button>`
+      : '';
+    const viewPdfButton = `<a class="btn btn-pdf btn-sm" href="/api/procurement/quotations/${Number(row.id)}/pdf" target="_blank" rel="noopener">View PDF</a>`;
+    const compareCount = getQuotationsForRequisition(row.requisition_id).length;
+    const compareButton = compareCount >= 2
+      ? `<button class="btn btn-edit btn-sm" type="button" onclick="openRfqComparison(${Number(row.requisition_id)})">Compare (${compareCount})</button>`
+      : '';
+    const vendorPdfButton = row.vendor_pdf
+      ? `<a class="btn btn-pdf btn-sm" href="/api/procurement/quotations/${Number(row.id)}/vendor-pdf" target="_blank" rel="noopener">Vendor PDF</a>`
       : '';
     return `
       <tr>
@@ -3404,12 +3705,16 @@ function renderQuotations() {
         </td>
         <td>${escHtml(row.vendor_name || '-')}</td>
         <td>${escHtml(dateText(row.quote_date))}</td>
-        <td class="text-right" style="font-weight:600;">${escHtml(money(row.quoted_total || 0))}</td>
+        <td class="text-right" style="font-weight:600;">${escHtml(money(row.quoted_total || 0))}
+          <div style="font-weight:400;margin-top:2px;">${renderQuoteVsEstimate(row.quoted_total, getRequisitionEstimate(row.requisition_id))}</div>
+        </td>
         <td class="text-right">${escHtml(Number(row.delivery_days || 0) ? `${Number(row.delivery_days)} days` : '-')}</td>
-        <td class="text-right">${escHtml(Number(row.score || 0) ? `${Number(row.score)}%` : '-')}</td>
         <td><span class="status-chip ${statusClass(isSelected ? 'approved' : status)}">${escHtml(row.status || 'draft')}</span></td>
         <td>
           <div class="erp-actions" style="justify-content:center;">
+            ${compareButton}
+            ${viewPdfButton}
+            ${vendorPdfButton}
             ${selectButton}
             ${createPoButton}
             ${editButton}
@@ -3418,7 +3723,7 @@ function renderQuotations() {
         </td>
       </tr>
     `;
-  }).join('') : '<tr class="empty-row"><td colspan="9">No quotations yet.</td></tr>';
+  }).join('') : '<tr class="empty-row"><td colspan="8">No quotations yet.</td></tr>';
 }
 
 function renderQuotationRequisitionOptions(selectedValue = '') {
@@ -3468,11 +3773,13 @@ function syncQuotationFromRequisition() {
 }
 
 function resetQuotationForm() {
-  ['quote-number', 'quote-total', 'quote-delivery-days', 'quote-payment-terms', 'quote-warranty-terms', 'quote-score', 'quote-remarks'].forEach((id) => {
+  ['quote-number', 'quote-total', 'quote-delivery-days', 'quote-payment-terms', 'quote-warranty-terms', 'quote-remarks'].forEach((id) => {
     const el = $(id);
     if (el) el.value = '';
   });
   if ($('quote-date')) $('quote-date').value = new Date().toISOString().slice(0, 10);
+  if ($('quote-pdf-file')) $('quote-pdf-file').value = '';
+  if ($('quote-pdf-existing')) $('quote-pdf-existing').innerHTML = '';
   if ($('quote-status')) $('quote-status').value = 'draft';
   syncProcurementStatusSelect('quote-status', ['draft', 'submitted'], { lockStaff: false });
   renderQuotationRequisitionOptions('');
@@ -3510,14 +3817,19 @@ function openQuotationModal(id = null, requisitionId = null) {
     renderQuotationRequisitionOptions(row.requisition_id || '');
     renderQuotationVendorOptions(row.vendor_id || '');
     $('quote-date').value = dateInputValue(row.quote_date);
-    $('quote-total').value = Number(row.quoted_total || 0) > 0 ? Number(row.quoted_total || 0).toFixed(2) : '';
+    $('quote-total').value = Number(row.quoted_total || 0) > 0 ? formatMoneyInputValue(row.quoted_total) : '';
     $('quote-delivery-days').value = Number(row.delivery_days || 0) || '';
     $('quote-payment-terms').value = row.payment_terms || '';
     $('quote-warranty-terms').value = row.warranty_terms || '';
-    $('quote-score').value = Number(row.score || 0) || '';
     $('quote-status').value = row.status || 'draft';
     syncProcurementStatusSelect('quote-status', ['draft', 'submitted'], { lockStaff: false });
     $('quote-remarks').value = row.remarks || '';
+    const existingPdf = $('quote-pdf-existing');
+    if (existingPdf) {
+      existingPdf.innerHTML = row.vendor_pdf
+        ? `<a href="/api/procurement/quotations/${Number(row.id)}/vendor-pdf" target="_blank" rel="noopener" style="color:var(--primary);">View current vendor PDF</a>`
+        : '<span style="color:var(--muted);">No vendor PDF attached yet.</span>';
+    }
   } else {
     if (requisitionId && getSelectedQuotationForRequisition(requisitionId)) {
       showToast(getRfqAwardLockMessage(requisitionId), 'error');
@@ -3562,6 +3874,205 @@ function createRfqFromRequisition(id) {
   openQuotationModal(null, Number(row.id));
 }
 
+let rfqEmailRequisitionId = null;
+
+// Opens the "Email RFQ to Vendors" modal for an approved PR: pick vendor(s), set a
+// quote deadline + optional note, then email each a PDF of the requested items.
+function openRfqEmailModal(requisitionId) {
+  const row = procurementState.requisitions.find((entry) => Number(entry.id) === Number(requisitionId));
+  if (!row) { showToast('Requisition not found.', 'error'); return; }
+  if (!requisitionCanCreateRfq(row)) { showToast('Approve this requisition before emailing an RFQ.', 'error'); return; }
+  if (getPurchaseOrderForRequisition(row.id)) { showToast('This PR already has a purchase order.', 'error'); return; }
+  if (getSelectedQuotationForRequisition(row.id)) { showToast(getRfqAwardLockMessage(row.id), 'error'); return; }
+
+  rfqEmailRequisitionId = Number(row.id);
+  const titleEl = $('rfq-email-modal-title');
+  if (titleEl) titleEl.textContent = `Email RFQ — ${row.pr_number || `PR-${row.id}`}`;
+
+  const list = $('rfq-email-vendor-list');
+  const vendors = getActiveVendors(procurementState.vendors);
+  if (list) {
+    list.innerHTML = vendors.length ? vendors.map((v) => {
+      const email = String(v.email || '').trim();
+      const disabled = !email;
+      return `
+        <label style="display:flex;align-items:center;gap:10px;padding:7px 6px;border-radius:8px;${disabled ? 'opacity:.55;' : ''}">
+          <input type="checkbox" class="rfq-email-vendor-cb" value="${Number(v.id)}" ${disabled ? 'disabled' : ''} />
+          <span style="flex:1;min-width:0;">
+            <span style="font-weight:600;">${escHtml(v.vendor_name || `Vendor ${v.id}`)}</span>
+            <span style="display:block;font-size:0.72rem;color:var(--muted);">${escHtml(email || 'No email on file')}</span>
+          </span>
+        </label>
+      `;
+    }).join('') : '<div style="padding:10px;color:var(--muted);font-size:0.8rem;">No active vendors with email. Add a vendor first.</div>';
+  }
+  if ($('rfq-email-deadline')) $('rfq-email-deadline').value = '';
+  if ($('rfq-email-message')) $('rfq-email-message').value = '';
+  openBackdrop('rfq-email-modal-backdrop');
+}
+
+function closeRfqEmailModal() {
+  rfqEmailRequisitionId = null;
+  closeBackdrop('rfq-email-modal-backdrop');
+}
+
+// All non-rejected quotations for a PR (for the side-by-side comparison).
+function getQuotationsForRequisition(requisitionId) {
+  const id = Number(requisitionId || 0) || 0;
+  if (!id) return [];
+  return (Array.isArray(procurementState.quotations) ? procurementState.quotations : [])
+    .filter((q) => Number(q.requisition_id || 0) === id && normalizeWorkflowStatus(q.status) !== 'rejected');
+}
+
+// Variance of a vendor's quoted total against the PR's internal estimate (budget).
+// Green = at/under budget, red = over. Internal only — never shown to vendors.
+function renderQuoteVsEstimate(total, estimate) {
+  const t = Number(total || 0) || 0;
+  const e = Number(estimate || 0) || 0;
+  if (e <= 0 || t <= 0) return '<span style="color:var(--text-muted);">—</span>';
+  const diff = t - e;
+  if (Math.abs(diff) < 0.005) return '<span style="color:#1b6b3a;font-weight:600;">on budget</span>';
+  const over = diff > 0;
+  const sign = over ? '+' : '−';
+  const color = over ? '#b91c1c' : '#1b6b3a';
+  const pct = Math.abs((diff / e) * 100).toFixed(1);
+  return `<span style="color:${color};font-weight:600;">${sign}${escHtml(money(Math.abs(diff)))}</span>`
+    + `<div style="font-size:0.62rem;color:${color};">${sign}${pct}% ${over ? 'over' : 'under'}</div>`;
+}
+
+// The PR's internal estimated total (budget) for a quotation's requisition.
+function getRequisitionEstimate(requisitionId) {
+  const id = Number(requisitionId || 0) || 0;
+  if (!id) return 0;
+  const req = (Array.isArray(procurementState.requisitions) ? procurementState.requisitions : [])
+    .find((r) => Number(r.id) === id);
+  return Number(req?.total_amount || 0) || 0;
+}
+
+// Side-by-side vendor comparison for a PR: lowest price + fastest delivery highlighted,
+// approve the winner straight from the modal.
+function openRfqComparison(requisitionId) {
+  const quotes = getQuotationsForRequisition(requisitionId);
+  if (!quotes.length) { showToast('No quotations to compare yet.', 'error'); return; }
+
+  const req = procurementState.requisitions.find((r) => Number(r.id) === Number(requisitionId));
+  const prNumber = req?.pr_number || `PR-${requisitionId}`;
+  const isAdmin = userCanApproveProcurement();
+  const hasPO = Boolean(getPurchaseOrderForRequisition(requisitionId));
+  const awarded = getSelectedQuotationForRequisition(requisitionId);
+  const estimate = Number(req?.total_amount || 0) || 0;
+
+  const totals = quotes.map((q) => Number(q.quoted_total || 0)).filter((t) => t > 0);
+  const lowest = totals.length ? Math.min(...totals) : 0;
+  const deliveries = quotes.map((q) => Number(q.delivery_days || 0)).filter((d) => d > 0);
+  const fastest = deliveries.length ? Math.min(...deliveries) : 0;
+
+  const title = $('rfq-compare-title');
+  if (title) title.textContent = `Compare Quotations — ${prNumber}`;
+
+  const rows = quotes.slice().sort((a, b) => Number(a.quoted_total || 0) - Number(b.quoted_total || 0)).map((q) => {
+    const total = Number(q.quoted_total || 0);
+    const delivery = Number(q.delivery_days || 0);
+    const isLowest = total > 0 && total === lowest;
+    const isFastest = delivery > 0 && delivery === fastest;
+    const isAwarded = awarded && Number(awarded.id) === Number(q.id);
+    const status = normalizeWorkflowStatus(q.status);
+    const approveBtn = isAdmin && !isAwarded && !hasPO && status !== 'rejected'
+      ? `<button class="btn btn-save btn-sm" type="button" onclick="approveQuotationFromCompare(${Number(q.id)})">Approve</button>`
+      : (isAwarded ? '<span class="status-chip status-approved">Awarded</span>' : '');
+    return `
+      <tr${isAwarded ? ' style="background:#eaf7ef;"' : ''}>
+        <td><strong>${escHtml(q.vendor_name || '-')}</strong><div style="font-size:0.68rem;color:var(--text-muted);">${escHtml(q.quote_number || '')}</div></td>
+        <td class="text-right" style="font-weight:700;${isLowest ? 'color:#1b6b3a;' : ''}">${escHtml(money(total))}${isLowest ? ' <span class="status-chip status-approved" style="font-size:0.58rem;">LOWEST</span>' : ''}</td>
+        <td class="text-right">${renderQuoteVsEstimate(total, estimate)}</td>
+        <td class="text-right">${delivery ? `${delivery} days` : '-'}${isFastest ? ' <span class="status-chip status-submitted" style="font-size:0.58rem;">FASTEST</span>' : ''}</td>
+        <td>${escHtml(q.payment_terms || '-')}</td>
+        <td>${escHtml(q.warranty_terms || '-')}</td>
+        <td><a class="btn btn-pdf btn-sm" href="/api/procurement/quotations/${Number(q.id)}/pdf" target="_blank" rel="noopener">PDF</a></td>
+        <td class="text-center">${approveBtn}</td>
+      </tr>
+    `;
+  }).join('');
+
+  const body = $('rfq-compare-body');
+  if (body) {
+    body.innerHTML = `
+      ${estimate > 0 ? `<div style="margin-bottom:10px;font-size:0.85rem;">
+        <strong>Estimated budget (PR):</strong> ${escHtml(money(estimate))}
+        <span style="color:var(--text-muted);font-size:0.75rem;">— internal reference only, not shown to vendors</span>
+      </div>` : ''}
+      <table class="registry-table" style="min-width:860px;">
+        <thead><tr>
+          <th>Vendor</th>
+          <th class="text-right">Quoted Total</th>
+          <th class="text-right">vs Estimate</th>
+          <th class="text-right">Delivery</th>
+          <th>Payment Terms</th>
+          <th>Warranty</th>
+          <th>Quote</th>
+          <th class="text-center">Action</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${hasPO ? '<div style="margin-top:10px;color:var(--text-muted);font-size:0.8rem;">A purchase order already exists for this PR — approval is locked.</div>'
+        : (awarded ? '<div style="margin-top:10px;color:var(--text-muted);font-size:0.8rem;">A winning quote is already awarded. Other quotes are kept for reference.</div>' : '')}
+    `;
+  }
+  openBackdrop('rfq-compare-modal-backdrop');
+}
+
+async function approveQuotationFromCompare(quotationId) {
+  closeRfqComparison();
+  await selectQuotation(quotationId);
+}
+
+function closeRfqComparison() {
+  closeBackdrop('rfq-compare-modal-backdrop');
+}
+
+async function sendRfqEmails() {
+  const requisitionId = Number(rfqEmailRequisitionId || 0) || 0;
+  if (!requisitionId) { showToast('No requisition selected.', 'error'); return; }
+  const vendorIds = Array.prototype.map.call(
+    document.querySelectorAll('.rfq-email-vendor-cb:checked'),
+    (cb) => Number(cb.value) || 0
+  ).filter(Boolean);
+  if (!vendorIds.length) { showToast('Select at least one vendor.', 'error'); return; }
+
+  const btn = $('rfq-email-send-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
+  try {
+    const result = await apiFetch(`/api/procurement/requisitions/${requisitionId}/email-rfq`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        vendor_ids: vendorIds,
+        deadline: $('rfq-email-deadline')?.value || '',
+        message: $('rfq-email-message')?.value.trim() || ''
+      })
+    });
+    const sent = Number(result?.sent || 0);
+    const total = Number(result?.total || vendorIds.length);
+    const failed = (Array.isArray(result?.results) ? result.results : []).filter((r) => !r.sent);
+    if (sent === total) {
+      showToast(`RFQ emailed to ${sent} vendor(s).`, 'success');
+    } else if (sent > 0) {
+      showToast(`Sent to ${sent}/${total}. Failed: ${failed.map((r) => r.vendor_name).join(', ')}`, 'error');
+    } else {
+      showToast(`No emails sent. ${failed.map((r) => `${r.vendor_name}: ${r.reason}`).join('; ')}`, 'error');
+    }
+    if (sent > 0) {
+      closeRfqEmailModal();
+      // Refresh so the "RFQ emailed" badge appears on the PR / RFQ rows.
+      await loadProcurementData();
+    }
+  } catch (err) {
+    showToast(err.message || 'Unable to send RFQ emails.', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Send RFQ Emails'; }
+  }
+}
+
 function closeQuotationModal() {
   editingQuotationId = null;
   closeBackdrop('quote-modal-backdrop');
@@ -3572,7 +4083,7 @@ async function saveQuotation() {
   ['quotation_requisition', 'quotation_vendor', 'quotation_total'].forEach((field) => setProcurementFieldMessage(field, ''));
   const requisitionId = Number($('quote-requisition')?.value || 0) || 0;
   const vendorId = Number($('quote-vendor')?.value || 0) || 0;
-  const quotedTotal = Number($('quote-total')?.value || 0) || 0;
+  const quotedTotal = parseMoneyInput($('quote-total')?.value);
   const quoteNumber = String($('quote-number')?.value || '').trim();
   const currentQuotation = editingQuotationId ? getQuotationById(editingQuotationId) : null;
   if (currentQuotation && normalizeWorkflowStatus(currentQuotation.status) === 'rejected') {
@@ -3604,35 +4115,32 @@ async function saveQuotation() {
     setProcurementFieldMessage('quotation_vendor', 'Select a vendor.');
     firstInvalid = firstInvalid || 'quote-vendor';
   }
-  if (quotedTotal <= 0) {
-    setProcurementFieldMessage('quotation_total', 'Quoted total is required.');
-    firstInvalid = firstInvalid || 'quote-total';
-  }
+  // Quoted Total is optional now: a vendor may have only emailed a PDF.
   if (firstInvalid) {
     focusFirstProcurementControl([firstInvalid]);
     return;
   }
 
-  const payload = {
-    quote_number: quoteNumber,
-    requisition_id: requisitionId,
-    vendor_id: vendorId,
-    quote_date: $('quote-date')?.value || new Date().toISOString().slice(0, 10),
-    quoted_total: quotedTotal,
-    delivery_days: Number($('quote-delivery-days')?.value || 0) || 0,
-    payment_terms: $('quote-payment-terms')?.value.trim() || '',
-    warranty_terms: $('quote-warranty-terms')?.value.trim() || '',
-    score: Number($('quote-score')?.value || 0) || 0,
-    status: $('quote-status')?.value || 'draft',
-    remarks: $('quote-remarks')?.value.trim() || ''
-  };
+  // Multipart so the optional vendor PDF can ride along with the quote fields.
+  const body = new FormData();
+  body.append('quote_number', quoteNumber);
+  body.append('requisition_id', String(requisitionId));
+  body.append('vendor_id', String(vendorId));
+  body.append('quote_date', $('quote-date')?.value || new Date().toISOString().slice(0, 10));
+  body.append('quoted_total', String(quotedTotal));
+  body.append('delivery_days', String(Number($('quote-delivery-days')?.value || 0) || 0));
+  body.append('payment_terms', $('quote-payment-terms')?.value.trim() || '');
+  body.append('warranty_terms', $('quote-warranty-terms')?.value.trim() || '');
+  body.append('status', $('quote-status')?.value || 'draft');
+  body.append('remarks', $('quote-remarks')?.value.trim() || '');
+  const pdfFile = $('quote-pdf-file')?.files?.[0];
+  if (pdfFile) body.append('quote_pdf', pdfFile);
 
   try {
     const wasEditing = Boolean(editingQuotationId);
     await apiFetch(editingQuotationId ? `/api/procurement/quotations/${editingQuotationId}` : '/api/procurement/quotations', {
       method: editingQuotationId ? 'PUT' : 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body
     });
     closeQuotationModal();
     showToast(wasEditing ? 'RFQ updated.' : 'RFQ saved and linked to the PR.', 'success');
@@ -3665,14 +4173,14 @@ async function selectQuotation(id) {
   }
   const confirmed = await openConfirmDialog({
     title: 'Approve RFQ?',
-    message: `Approve ${row?.quote_number || 'this RFQ'} for ${row?.vendor_name || 'this vendor'}? Other RFQs linked to this PR will be marked rejected.`,
+    message: `Approve ${row?.quote_number || 'this RFQ'} for ${row?.vendor_name || 'this vendor'}? This will award the RFQ, email the winning vendor automatically, and mark other RFQs linked to this PR as rejected.`,
     noText: 'No',
     yesText: 'Approve'
   });
   if (!confirmed) return;
   try {
     await apiFetch(`/api/procurement/quotations/${id}/select`, { method: 'POST' });
-    showToast('RFQ approved. Other RFQs for this PR were rejected.', 'success');
+    showToast('RFQ approved. Award email is being sent to the winning vendor.', 'success');
     await loadProcurementData();
     if (typeof window.switchApWorkspaceTab === 'function') {
       window.switchApWorkspaceTab('quotations', getProcurementTabButton('quotations'));
@@ -3716,7 +4224,7 @@ async function createPurchaseOrderFromQuotation(id) {
     showToast('RFQ not found.', 'error');
     return;
   }
-  if (normalizeWorkflowStatus(row.status) !== 'selected') {
+  if (!quotationIsAwardedStatus(row.status)) {
     showToast('Approve the RFQ before creating a purchase order.', 'error');
     return;
   }
@@ -3772,9 +4280,10 @@ function renderPurchaseOrders() {
     const canSubmit = ['draft'].includes(status);
     const canApprove = isAdmin && ['pending'].includes(status);
     const canCancel = isAdmin && !isFinalProcurementStatus(status);
-    const isApproved = status === 'approved';
+    const isApproved = ['approved', 'received'].includes(status);
     const isGeneratingBills = generatingPurchaseOrderBillIds.has(Number(row.id || 0));
-    const canGenerateBills = isApproved && String(row.payment_terms || '').trim() && Number(row.bill_count || 0) === 0 && !isGeneratingBills;
+    const hasGoodsReceipt = Number(row.goods_receipt_count || 0) > 0;
+    const canGenerateBills = isApproved && hasGoodsReceipt && String(row.payment_terms || '').trim() && Number(row.bill_count || 0) === 0 && !isGeneratingBills;
     let billAction = '';
     if (canGenerateBills) {
       billAction = `<button class="btn btn-save btn-sm" type="button" onclick="generatePurchaseOrderBills(${Number(row.id)})">Generate Bills</button>`;
@@ -3782,6 +4291,8 @@ function renderPurchaseOrders() {
       billAction = '<button class="btn btn-save btn-sm" type="button" disabled>Generating...</button>';
     } else if (Number(row.bill_count || 0) > 0) {
       billAction = '<span class="pdf-empty">Bills generated</span>';
+    } else if (isApproved && !hasGoodsReceipt && String(row.payment_terms || '').trim()) {
+      billAction = '<span class="pdf-empty">Receive before bills</span>';
     } else if (!isApproved && String(row.payment_terms || '').trim()) {
       billAction = '<span class="pdf-empty">Approve before bills</span>';
     }
@@ -3793,6 +4304,11 @@ function renderPurchaseOrders() {
       : '';
     const cancelButton = canCancel
       ? `<button class="btn btn-cancel btn-sm" type="button" onclick="cancelPurchaseOrder(${Number(row.id)})">Cancel</button>`
+      : '';
+    // Shortcut: jump straight from an approved PO to creating its Goods Receipt (GRN),
+    // with the PO + its items pre-filled. Stays available until the PO is fully received.
+    const receiveButton = (status === 'approved')
+      ? `<button class="btn btn-add btn-sm" type="button" onclick="createGoodsReceiptForPurchaseOrder(${Number(row.id)})">Create Goods Receipt</button>`
       : '';
     return `
       <tr>
@@ -3816,11 +4332,11 @@ function renderPurchaseOrders() {
           <div class="erp-actions" style="justify-content:center;">
             ${submitButton}
             ${approveButton}
+            ${receiveButton}
             ${billAction}
-            <button class="btn btn-edit btn-sm" type="button" onclick="openPurchaseOrderDocuments(${Number(row.id)})">Docs (${Number(row.document_count || 0)})</button>
+            <a class="btn btn-pdf btn-sm" href="/api/procurement/purchase-orders/${Number(row.id)}/pdf" target="_blank" rel="noopener">View PDF</a>
             <button class="btn btn-edit btn-sm" type="button" onclick="openPurchaseOrderModal(${Number(row.id)})">Edit</button>
-            ${cancelButton}
-            ${isAdmin ? `<button class="btn btn-cancel btn-sm" type="button" onclick="deletePurchaseOrder(${Number(row.id)})">Delete</button>` : ''}
+            ${isAdmin ? `<button class="btn btn-cancel btn-sm" type="button" onclick="deletePurchaseOrder(${Number(row.id)})">Archive</button>` : ''}
           </div>
         </td>
       </tr>
@@ -3842,22 +4358,60 @@ function renderGoodsReceipts() {
   ]);
 
   const canDelete = userCanApproveProcurement();
-  tbody.innerHTML = rows.length ? rows.map((row) => `
+  tbody.innerHTML = rows.length ? rows.map((row) => {
+    // Shortcut: bill the received PO straight in AP, pre-filled. Only when the PO isn't billed yet.
+    const po = (procurementState.purchaseOrders || []).find((p) =>
+      Number(p.id || 0) === Number(row.po_id || 0) || (row.po_number && String(p.po_number || '') === String(row.po_number)));
+    // Avoid double-billing from the receipt: the "Create Bill" shortcut only appears for a PO that
+    // has NO bill yet. Once a bill exists, the button is gone (it shows "Billed" instead). Any
+    // additional/partial bills are made deliberately from the AP Bills tab, where the 3-way-match
+    // guard still caps the total.
+    const alreadyBilled = po && Number(po.bill_count || 0) > 0;
+    const canBill = po && !alreadyBilled;
+    const billButton = canBill
+      ? `<button class="btn btn-add btn-sm" type="button" onclick="createBillForGoodsReceipt(${Number(row.id)})">Create Bill</button>`
+      : (alreadyBilled ? '<span class="pdf-empty">Billed</span>' : '');
+    // Fulfillment status (table only): is the PO fully received yet, or still partial?
+    // A PO can have several GRNs — it stays "Partial" until every line is fully received.
+    const poItems = po && Array.isArray(po.line_items) ? po.line_items : [];
+    const fullyReceived = poItems.length > 0 && poItems.every((it) => Number(it.received_qty || 0) >= Number(it.quantity || 0));
+    const receiptBadge = poItems.length
+      ? (fullyReceived
+          ? `<span class="status-chip ${statusClass('received')}">Complete</span>`
+          : `<span class="status-chip ${statusClass('pending')}">Partial</span>`)
+      : '';
+    return `
     <tr>
       <td style="font-weight:600;color:var(--primary)">${escHtml(row.grn_number)}</td>
       <td>${escHtml(row.po_number || '-')}</td>
       <td>${escHtml(dateText(row.received_date))}</td>
       <td>${escHtml(row.received_by || '-')}</td>
-      <td><span class="status-chip ${statusClass(row.status)}">${escHtml(row.status || 'draft')}</span></td>
+      <td><span class="status-chip ${statusClass(row.status)}">${escHtml(row.status || 'draft')}</span>${receiptBadge ? ` ${receiptBadge}` : ''}</td>
       <td>${escHtml(row.notes || '-')}</td>
       <td>
         <div class="erp-actions" style="justify-content:center;">
+          ${billButton}
           <button class="btn btn-edit btn-sm" type="button" onclick="openGoodsReceiptModal(${Number(row.id)})">Edit</button>
           ${canDelete ? `<button class="btn btn-cancel btn-sm" type="button" onclick="deleteGoodsReceipt(${Number(row.id)})">Delete</button>` : ''}
         </div>
       </td>
-    </tr>
-  `).join('') : '<tr class="empty-row"><td colspan="7">No goods receipts found.</td></tr>';
+    </tr>`;
+  }).join('') : '<tr class="empty-row"><td colspan="7">No goods receipts found.</td></tr>';
+}
+
+// Shortcut from a Goods Receipt row → create the AP bill for its PO. The bill modal lives in the
+// AP workspace (it's data-ap-only and hidden in the procurement workspace), so we NAVIGATE to the
+// AP page with an auto-open flag instead of trying to open it in place. The AP page then loads its
+// data and opens the bill modal pre-filled from this PO (vendor, amount, GR ref, items).
+function createBillForGoodsReceipt(grnId) {
+  const grn = (procurementState.goodsReceipts || []).find((g) => Number(g.id || 0) === Number(grnId));
+  let poId = Number(grn?.po_id || 0) || 0;
+  if (!poId && grn?.po_number) {
+    const po = (procurementState.purchaseOrders || []).find((p) => String(p.po_number || '') === String(grn.po_number));
+    poId = Number(po?.id || 0) || 0;
+  }
+  const grnRef = Number(grnId || 0) || 0;
+  window.location.href = `/accounts-payable?tab=bills&action=bill${poId ? `&po_id=${poId}` : ''}${grnRef ? `&grn_id=${grnRef}` : ''}`;
 }
 
 function formatDocumentTypeLabel(value) {
@@ -4069,6 +4623,20 @@ function syncRequisitionModalMode() {
   }
 }
 
+// Name of the logged-in user creating the PR, for the "Requested By" default.
+// Prefers the cached login badge (fullname), then the global currentUser.
+function getProcurementRequesterName() {
+  try {
+    const badge = JSON.parse(localStorage.getItem('kinaadman_currentUserBadge') || '{}');
+    const name = String(badge.fullname || badge.username || badge.email || '').trim();
+    if (name) return name;
+  } catch (_) {}
+  const u = (typeof window !== 'undefined' && window.currentUser)
+    ? window.currentUser
+    : (typeof currentUser !== 'undefined' ? currentUser : null);
+  return String(u?.fullname || u?.name || u?.username || u?.email || '').trim();
+}
+
 function openRequisitionModal(id = null, options = {}) {
   editingRequisitionId = id ? Number(id) : null;
   resetRequisitionForm();
@@ -4106,6 +4674,12 @@ function openRequisitionModal(id = null, options = {}) {
     applyRequisitionPrTypeMode(projectId ? 'project' : 'stock');
     void loadRequisitionNumberPreview();
     syncProcurementStatusSelect('pr-status', ['draft'], { lockStaff: true });
+    // Auto-fill "Requested By" with the current logged-in user (the admin/super-admin
+    // — or staff — creating this PR). Still editable for requests made on behalf of others.
+    const requesterField = $('pr-requested-by');
+    if (requesterField && !requesterField.value.trim()) {
+      requesterField.value = getProcurementRequesterName();
+    }
   }
   syncRequisitionModalMode();
   openBackdrop('pr-modal-backdrop');
@@ -4153,7 +4727,9 @@ async function saveRequisition() {
   };
 
   if (!payload.items.length) markError('pr_line_items', 'At least one requested item is required.');
-  if (!payload.pr_number) markError('pr_number', 'PR No. is required.');
+  // PR No. is assigned by the server on save (generateNextEntityDocumentNo), so the field is a
+  // read-only preview only — never block submission when it's blank (e.g. project PR before the
+  // project's operating entity resolves). The server claims the official number regardless.
   if (incompleteRows.length) markError('pr_line_items', `Complete item name and qty for line ${incompleteRows[0]}.`);
   if (!isStockPr && !payload.project_id) markError('project_id', 'Project selection is required for traceability.');
   if (!isStockPr && !payload.company_id) markError('company_id', 'Company selection is required.');
@@ -4216,20 +4792,24 @@ async function saveRequisition() {
 
 async function deleteRequisition(id) {
   const row = procurementState.requisitions.find((entry) => Number(entry.id) === Number(id));
+  if (getPurchaseOrderForRequisition(id) || getSelectedQuotationForRequisition(id)) {
+    showToast('This PR already has an approved RFQ or purchase order. Delete is disabled.', 'error');
+    return;
+  }
   const confirmed = await openConfirmDialog({
-    title: 'Delete Requisition',
-    message: `Delete ${row?.pr_number || 'this requisition'}?`,
+    title: 'Archive Requisition',
+    message: `Archive ${row?.pr_number || 'this requisition'}? It will be hidden from the list but kept on record.`,
     noText: 'No',
-    yesText: 'Yes'
+    yesText: 'Archive'
   });
   if (!confirmed) return;
 
   try {
     await apiFetch(`/api/procurement/requisitions/${id}`, { method: 'DELETE' });
-    showToast('Requisition deleted successfully!', 'success');
+    showToast('Requisition archived.', 'success');
     await loadProcurementData();
   } catch (err) {
-    showToast(err.message || 'Unable to delete requisition.', 'error');
+    showToast(err.message || 'Unable to archive requisition.', 'error');
   }
 }
 
@@ -4273,6 +4853,10 @@ async function approveRequisition(id) {
 
 async function cancelRequisition(id) {
   const row = procurementState.requisitions.find((entry) => Number(entry.id) === Number(id));
+  if (getPurchaseOrderForRequisition(id) || getSelectedQuotationForRequisition(id)) {
+    showToast('This PR already has an approved RFQ or purchase order. Cancel is disabled.', 'error');
+    return;
+  }
   const confirmed = await openConfirmDialog({
     title: 'Cancel Requisition',
     message: `Cancel ${row?.pr_number || 'this requisition'}?`,
@@ -4433,9 +5017,14 @@ async function savePurchaseOrder() {
     : null;
   const vendorId = Number($('po-vendor').value || 0) || 0;
   const selectedVendor = procurementState.vendors.find((entry) => Number(entry.id || 0) === vendorId) || null;
-  const businessEntityId = (typeof getCurrentBusinessEntityId === 'function' ? getCurrentBusinessEntityId() : '') || getDefaultProcurementBusinessEntityId() || '';
   const businessEntitySelect = $('po-business-entity');
-  if (businessEntitySelect) businessEntitySelect.value = businessEntityId;
+  const selectedBusinessEntityId = String(businessEntitySelect?.value || '').trim();
+  const requisitionBusinessEntityId = String(requisitionRow?.business_entity_id || '').trim();
+  const fallbackBusinessEntityId = String((typeof getCurrentBusinessEntityId === 'function' ? getCurrentBusinessEntityId() : '') || getDefaultProcurementBusinessEntityId() || '').trim();
+  const businessEntityId = selectedBusinessEntityId || requisitionBusinessEntityId || fallbackBusinessEntityId;
+  if (businessEntitySelect && businessEntityId && String(businessEntitySelect.value || '') !== String(businessEntityId)) {
+    businessEntitySelect.value = businessEntityId;
+  }
   syncPurchaseOrderProjectContext($('po-project')?.value || currentPurchaseOrderProjectId || '');
   const requisitionCompanyId = getCompanyIdFromRequisition(requisitionRow);
   const projectCompanyId = getProcurementProjectCompanyId(currentPurchaseOrderProjectId);
@@ -4472,9 +5061,6 @@ async function savePurchaseOrder() {
 
   if (!payload.vendor_id) markError('vendor_id', 'Vendor selection is required.');
   if (!payload.po_number) markError('po_number', 'PO No. is required.');
-  if (selectedVendor && !vendorCanBeUsedForPurchaseOrder(selectedVendor)) {
-    markError('vendor_id', 'Select another vendor. The issuing company cannot be its own supplier on this PO.');
-  }
   if (!payload.po_date) markError('po_date', 'PO Date is required.');
   if (!requisitionId) markError('requisition_id', 'Approved requisition is required before creating a purchase order.');
   if (requisitionId && !requisitionRow) markError('requisition_id', 'Selected requisition was not found.');
@@ -4545,6 +5131,7 @@ async function savePurchaseOrder() {
     await loadProcurementData();
   } catch (err) {
     const errorText = String(err?.message || '').toLowerCase();
+    console.error('Save purchase order error:', err, payload);
     if (errorText.includes('duplicate') || errorText.includes('already exists')) {
       setProcurementFieldMessage('po_number', err.message || 'PO No. already exists.');
       focusFirstProcurementControl(['po-number']);
@@ -4582,19 +5169,19 @@ async function savePurchaseOrder() {
 async function deletePurchaseOrder(id) {
   const row = procurementState.purchaseOrders.find((entry) => Number(entry.id) === Number(id));
   const confirmed = await openConfirmDialog({
-    title: 'Delete Purchase Order',
-    message: `Delete ${row?.po_number || 'this purchase order'}?`,
+    title: 'Archive Purchase Order',
+    message: `Archive ${row?.po_number || 'this purchase order'}? It will be hidden from the list but kept on record.`,
     noText: 'No',
-    yesText: 'Yes'
+    yesText: 'Archive'
   });
   if (!confirmed) return;
 
   try {
     await apiFetch(`/api/procurement/purchase-orders/${id}`, { method: 'DELETE' });
-    showToast('Purchase order deleted successfully!', 'success');
+    showToast('Purchase order archived.', 'success');
     await loadProcurementData();
   } catch (err) {
-    showToast(err.message || 'Unable to delete purchase order.', 'error');
+    showToast(err.message || 'Unable to archive purchase order.', 'error');
   }
 }
 
@@ -4709,6 +5296,8 @@ function resetGoodsReceiptForm() {
   });
   if ($('grn-status')) $('grn-status').value = 'received';
   if ($('grn-received-date')) $('grn-received-date').value = new Date().toISOString().slice(0, 10);
+  if ($('grn-product-mapping')) $('grn-product-mapping').innerHTML = '';
+  if ($('grn-product-mapping-field')) $('grn-product-mapping-field').hidden = true;
   if ($('grn-serials')) $('grn-serials').innerHTML = '';
   if ($('grn-serials-field')) $('grn-serials-field').hidden = true;
   clearProcurementFieldMessages();
@@ -4721,7 +5310,7 @@ function syncGoodsReceiptModalMode() {
   if (saveBtn) saveBtn.textContent = editingGoodsReceiptId ? 'Save Changes' : 'Create Goods Receipt';
 }
 
-function openGoodsReceiptModal(id = null) {
+function openGoodsReceiptModal(id = null, options = {}) {
   editingGoodsReceiptId = id ? Number(id) : null;
   resetGoodsReceiptForm();
   clearProcurementFieldMessages();
@@ -4745,9 +5334,36 @@ function openGoodsReceiptModal(id = null) {
     syncGoodsReceiptFromPurchaseOrder();
   } else {
     void loadGoodsReceiptNumberPreview();
+    // Auto-fill "Received By" with the current logged-in user (still editable for receipts on behalf of others).
+    const receivedByField = $('grn-received-by');
+    if (receivedByField && !receivedByField.value.trim()) {
+      receivedByField.value = getProcurementRequesterName();
+    }
+    // Shortcut from a PO row: pre-select that PO and pull in its items.
+    const presetPoId = Number(options.poId || 0) || 0;
+    if (presetPoId && $('grn-po')) {
+      $('grn-po').value = String(presetPoId);
+      syncGoodsReceiptFromPurchaseOrder();
+    }
   }
   syncGoodsReceiptModalMode();
   openBackdrop('grn-modal-backdrop');
+}
+
+// Shortcut used by the "Create Goods Receipt" button on an approved PO row: jump to the Goods
+// Receipts tab and open a new GRN with that PO (and its items) pre-filled.
+function createGoodsReceiptForPurchaseOrder(poId) {
+  const id = Number(poId || 0) || 0;
+  if (!id) return;
+  try {
+    const btn = typeof getProcurementTabButton === 'function' ? getProcurementTabButton('goods-receipts') : null;
+    if (typeof window.switchApWorkspaceTab === 'function') {
+      window.switchApWorkspaceTab('goods-receipts', btn);
+    } else if (typeof switchProcTab === 'function') {
+      switchProcTab('goods-receipts', btn);
+    }
+  } catch (_) {}
+  openGoodsReceiptModal(null, { poId: id });
 }
 
 function closeGoodsReceiptModal() {
@@ -4768,6 +5384,8 @@ async function saveGoodsReceipt() {
     received_by: $('grn-received-by').value.trim(),
     status: $('grn-status')?.value || 'received',
     notes: $('grn-notes').value.trim(),
+    product_mappings: editingGoodsReceiptId ? [] : collectGoodsReceiptProductMappings(),
+    line_receipts: editingGoodsReceiptId ? [] : collectGoodsReceiptLineReceipts(),
     serials: editingGoodsReceiptId ? [] : collectGoodsReceiptSerials()
   };
 
@@ -4783,13 +5401,51 @@ async function saveGoodsReceipt() {
   if (!payload.warehouse_id) markError('warehouse_id', 'Receiving Warehouse is required.');
   if (!payload.grn_number) markError('grn_number', 'GRN No. is required.');
   if (!payload.received_date) markError('received_date', 'Received Date is required.');
+  payload.product_mappings.forEach((mapping) => {
+    if (mapping.create_product && !mapping.product_name) {
+      markGoodsReceiptProductMappingError(mapping.po_line_item_id, 'Product name is required.');
+      hasValidationError = true;
+    }
+  });
+
+  // Serial numbers are required: each serialized line must have exactly one serial per
+  // unit being received now (lines with Receive Now = 0 are skipped — they're locked).
+  let firstSerialBox = null;
+  document.querySelectorAll('#grn-serials .grn-serial-group').forEach((group) => {
+    const ta = group.querySelector('.grn-serial-input');
+    const errEl = group.querySelector('.grn-serial-error');
+    if (!ta || ta.disabled) return;
+    const expected = getGoodsReceiptReceiveNowQty(ta.dataset.serialLine);
+    if (expected <= 0) return;
+    const { serials, unique } = parseGoodsReceiptSerialBox(ta);
+    let msg = '';
+    if (!unique.length) {
+      // Serials are optional per line: a blank box just means this item isn't serial-tracked.
+      msg = '';
+    } else if (serials.length !== unique.length) {
+      msg = `Remove duplicate serials — each must be unique.`;
+    } else if (unique.length > expected) {
+      msg = `Too many serials — you received ${expected} unit${expected === 1 ? '' : 's'} but entered ${unique.length}.`;
+    }
+    if (errEl) { errEl.textContent = msg; errEl.classList.toggle('is-hidden', !msg); }
+    if (msg) {
+      hasValidationError = true;
+      if (!firstSerialBox) firstSerialBox = ta;
+    }
+  });
 
   if (hasValidationError) {
-    focusFirstProcurementField(firstInvalidField, {
-      po_id: ['grn-po'],
-      warehouse_id: ['grn-warehouse'],
-      received_date: ['grn-received-date']
-    });
+    if (firstInvalidField) {
+      focusFirstProcurementField(firstInvalidField, {
+        po_id: ['grn-po'],
+        warehouse_id: ['grn-warehouse'],
+        received_date: ['grn-received-date']
+      });
+    } else if (firstSerialBox) {
+      setProcurementFieldMessage('serials', 'Fix the serial numbers below — the count must match the quantity received.');
+      firstSerialBox.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      firstSerialBox.focus();
+    }
     return;
   }
 
@@ -4806,13 +5462,15 @@ async function saveGoodsReceipt() {
       return;
     }
 
-    await apiFetch('/api/procurement/goods-receipts', {
+    const grnResult = await apiFetch('/api/procurement/goods-receipts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
     closeGoodsReceiptModal();
-    showToast('Goods receipt created successfully!', 'success');
+    showToast(grnResult && grnResult.fully_received === false
+      ? 'Partial goods receipt saved. The PO stays open for the remaining balance.'
+      : 'Goods receipt created successfully!', 'success');
     await loadProcurementData();
   } catch (err) {
     const errorText = String(err?.message || '').toLowerCase();
@@ -4829,6 +5487,10 @@ async function saveGoodsReceipt() {
     if (errorText.includes('warehouse')) {
       setProcurementFieldMessage('warehouse_id', err.message || 'Receiving Warehouse is required.');
       focusFirstProcurementControl(['grn-warehouse']);
+      return;
+    }
+    if (errorText.includes('product') || errorText.includes('inventory')) {
+      showToast(err.message || 'Map each PO line to inventory before receiving.', 'error');
       return;
     }
     if (errorText.includes('date')) {

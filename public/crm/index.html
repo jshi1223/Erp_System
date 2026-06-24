@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Customer Relationship Management</title>
+  <script src="/assets/js/auth-guard.js?v=20260622crm"></script>
+  <script defer src="/assets/js/table-paginate.js?v=20260609pg"></script>
+  <script defer src="/assets/js/workspace-switcher.js?v=20260611rev"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Orbitron:wght@500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/assets/css/shared-ui.css?v=20260611rev">
+  <link rel="stylesheet" href="/assets/css/shared.css?v=20260531a">
+  <link rel="stylesheet" href="/crm/crm.css?v=20260623approval">
+  <link rel="stylesheet" href="/assets/css/warm-minimal.css?v=20260611rev">
+</head>
+<body class="erp-clean-page crm-page">
+  <header>
+    <div class="header-left">
+      <button class="btn-icon sidebar-toggle-btn" type="button" onclick="toggleSidebar()" title="Menu" aria-label="Open menu">
+        <svg class="sidebar-toggle-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
+      </button>
+      <button class="brand-link" type="button" onclick="location.href='/admin?view=dashboard'" aria-label="Go back to dashboard">
+        <div class="brand-lockup">
+          <img class="brand-mark" alt="" hidden />
+          <div class="brand-copy">
+            <div class="header-logo">All Companies</div>
+            <div class="header-sub">Customer Relationship Management</div>
+          </div>
+        </div>
+      </button>
+    </div>
+    <div class="header-right">
+      <span class="workspace-badge" id="current-workspace-badge">Workspace</span>
+      <span class="admin-badge">CRM Module</span>
+    </div>
+  </header>
+  <script>
+    (function () {
+      var ctx = '';
+      try { ctx = String(localStorage.getItem('kinaadman_businessEntityContext') || '').trim().toLowerCase(); } catch (_) {}
+      var name = 'All Companies';
+      try {
+        var raw = localStorage.getItem('kinaadman_businessEntityTheme');
+        var stored = raw ? JSON.parse(raw) : null;
+        if (stored && stored.company_name) name = String(stored.company_name).trim();
+      } catch (_) {}
+      var brand = document.querySelector('header .brand-copy .header-logo');
+      if (brand) brand.textContent = ctx === 'all' ? 'All Companies' : name;
+      if (document.documentElement && document.documentElement.dataset) {
+        document.documentElement.dataset.businessEntityBrandTextReady = '1';
+      }
+    })();
+  </script>
+
+  <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-brand">
+        <img class="sidebar-brand-mark" alt="" hidden />
+        <div>
+          <div class="header-logo">All Companies</div>
+          <div class="header-sub">Operations Control Panel</div>
+        </div>
+      </div>
+      <button class="modal-close" type="button" onclick="toggleSidebar()">X</button>
+    </div>
+    <nav class="sidebar-nav"></nav>
+  </div>
+
+  <main>
+    <div class="page-hero">
+      <div class="page-hero-copy">
+        <div class="page-title">Customer Relationship Management</div>
+        <div class="page-sub">Track leads through your sales pipeline and manage customer contacts by workspace.</div>
+      </div>
+    </div>
+
+    <section class="module-page-toolbar">
+      <button class="btn btn-cancel btn-sm section-back-btn" type="button" onclick="location.href='/admin?view=dashboard'">Back to Dashboard</button>
+      <div class="module-page-toolbar-actions crm-actions">
+        <button class="btn btn-add btn-sm" type="button" data-crm-action="leads" onclick="openLeadModal()">New Lead</button>
+        <button class="btn btn-add btn-sm" type="button" data-crm-action="contacts" hidden onclick="openContactModal()">New Contact</button>
+      </div>
+    </section>
+
+    <section class="module-summary-grid crm-summary-grid" aria-label="CRM summary">
+      <article class="module-summary-card">
+        <span class="module-summary-label">Open Leads</span>
+        <div class="module-summary-value" id="crm-stat-open">0</div>
+      </article>
+      <article class="module-summary-card">
+        <span class="module-summary-label">Pipeline Value</span>
+        <div class="module-summary-value" id="crm-stat-value">₱0</div>
+      </article>
+      <article class="module-summary-card">
+        <span class="module-summary-label">Won</span>
+        <div class="module-summary-value" id="crm-stat-won">0</div>
+      </article>
+      <article class="module-summary-card">
+        <span class="module-summary-label">Contacts</span>
+        <div class="module-summary-value" id="crm-stat-contacts">0</div>
+      </article>
+    </section>
+
+    <section class="module-tabs crm-tabs" aria-label="CRM views">
+      <button class="module-tab crm-tab active" type="button" data-tab="leads" onclick="switchCrmTab('leads')">Leads &amp; Pipeline</button>
+      <button class="module-tab crm-tab" type="button" data-tab="contacts" onclick="switchCrmTab('contacts')">Contacts</button>
+    </section>
+
+    <section class="content-section crm-panel crm-section active" id="crm-tab-leads">
+      <div class="panel-head">
+        <h2>Leads &amp; Pipeline</h2>
+        <div class="crm-filter-bar">
+          <select id="leads-stage-filter" onchange="renderLeads()" aria-label="Filter by stage">
+            <option value="">All stages</option>
+            <option value="new">New</option>
+            <option value="qualified">Qualified</option>
+            <option value="proposal">Proposal</option>
+            <option value="won">Won</option>
+            <option value="lost">Lost</option>
+          </select>
+          <input id="leads-search" type="search" placeholder="Search lead, company, contact..." oninput="renderLeads()">
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Lead No</th>
+              <th>Lead</th>
+              <th>Company</th>
+              <th>Contact</th>
+              <th>Stage</th>
+              <th class="text-right">Est. Value</th>
+              <th>Source</th>
+              <th>Owner</th>
+              <th class="text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="leads-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="content-section crm-panel crm-section" id="crm-tab-contacts">
+      <div class="panel-head">
+        <h2>Contacts</h2>
+        <input id="contacts-search" type="search" placeholder="Search name, company, email..." oninput="renderContacts()">
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Company</th>
+              <th>Position</th>
+              <th>Email</th>
+              <th>Phone</th>
+              <th class="text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="contacts-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- Lead modal -->
+  <div class="modal-backdrop" id="lead-modal" aria-hidden="true">
+    <div class="modal modal-project" role="dialog" aria-modal="true" aria-labelledby="lead-modal-title" style="max-width: 720px;">
+      <button class="modal-close" type="button" onclick="closeLeadModal()" aria-label="Close">&times;</button>
+      <div class="user-modal-brand">
+        <div>
+          <div class="user-modal-kicker">CRM</div>
+          <div class="modal-title" id="lead-modal-title" style="margin-bottom:0;">New Lead</div>
+        </div>
+      </div>
+      <form id="lead-form" onsubmit="saveLead(event)">
+        <div class="section-divider">Lead Details</div>
+        <div class="modal-grid-compact">
+          <div class="field full">
+            <label>Lead No <span class="field-label-status is-optional">Auto</span></label>
+            <input id="lead-docno" readonly placeholder="Generating…" />
+          </div>
+          <div class="field full">
+            <label>Lead Name <span class="field-label-status is-required">Required</span></label>
+            <input id="lead-name" required placeholder="e.g. CCTV upgrade — ABC Corp" />
+          </div>
+          <div class="field">
+            <label>Company <span class="field-label-status is-optional">From master data</span></label>
+            <div class="crm-company-search" data-company-prefix="lead">
+              <input id="lead-company" autocomplete="off" placeholder="Search company in master data..."
+                     oninput="companyPickerInput('lead')" onfocus="companyPickerInput('lead')" />
+              <input type="hidden" id="lead-company-id" />
+              <div class="crm-company-results" id="lead-company-results" hidden></div>
+            </div>
+          </div>
+          <div class="field">
+            <label>Contact Person <span class="field-label-status is-optional">Optional</span></label>
+            <input id="lead-contact" placeholder="Person you talk to" />
+          </div>
+          <div class="field">
+            <label>Email <span class="field-label-status is-optional">Optional</span></label>
+            <input id="lead-email" type="email" />
+          </div>
+          <div class="field">
+            <label>Phone <span class="field-label-status is-optional">Optional</span></label>
+            <input id="lead-phone" />
+          </div>
+          <div class="field">
+            <label>Stage <span class="field-label-status is-required">Required</span></label>
+            <select id="lead-stage">
+              <option value="new">New</option>
+              <option value="qualified">Qualified</option>
+              <option value="proposal">Proposal</option>
+              <option value="won">Won</option>
+              <option value="lost">Lost</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Estimated Value <span class="field-label-status is-optional">Optional</span></label>
+            <input id="lead-value" type="number" step="0.01" min="0" placeholder="0.00" />
+          </div>
+          <div class="field">
+            <label>Source <span class="field-label-status is-optional">Optional</span></label>
+            <input id="lead-source" list="crm-source-list" placeholder="Referral, Website..." />
+          </div>
+          <div class="field">
+            <label>Owner <span class="field-label-status is-optional">Optional</span></label>
+            <input id="lead-owner" placeholder="Assigned to" />
+          </div>
+          <div class="field full">
+            <label>Notes <span class="field-label-status is-optional">Optional</span></label>
+            <textarea id="lead-notes" rows="3"></textarea>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-cancel btn-sm" type="button" onclick="closeLeadModal()">Cancel</button>
+          <button class="btn btn-save btn-sm" type="submit">Save Lead</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Contact modal -->
+  <div class="modal-backdrop" id="contact-modal" aria-hidden="true">
+    <div class="modal modal-project" role="dialog" aria-modal="true" aria-labelledby="contact-modal-title" style="max-width: 640px;">
+      <button class="modal-close" type="button" onclick="closeContactModal()" aria-label="Close">&times;</button>
+      <div class="user-modal-brand">
+        <div>
+          <div class="user-modal-kicker">CRM</div>
+          <div class="modal-title" id="contact-modal-title" style="margin-bottom:0;">New Contact</div>
+        </div>
+      </div>
+      <form id="contact-form" onsubmit="saveContact(event)">
+        <div class="section-divider">Contact Details</div>
+        <div class="modal-grid-compact">
+          <div class="field full">
+            <label>Name <span class="field-label-status is-required">Required</span></label>
+            <input id="contact-name" required />
+          </div>
+          <div class="field">
+            <label>Company <span class="field-label-status is-optional">From master data</span></label>
+            <div class="crm-company-search" data-company-prefix="contact">
+              <input id="contact-company" autocomplete="off" placeholder="Search company in master data..."
+                     oninput="companyPickerInput('contact')" onfocus="companyPickerInput('contact')" />
+              <input type="hidden" id="contact-company-id" />
+              <div class="crm-company-results" id="contact-company-results" hidden></div>
+            </div>
+          </div>
+          <div class="field">
+            <label>Position <span class="field-label-status is-optional">Optional</span></label>
+            <input id="contact-position" placeholder="e.g. Procurement Officer" />
+          </div>
+          <div class="field">
+            <label>Email <span class="field-label-status is-optional">Optional</span></label>
+            <input id="contact-email" type="email" />
+          </div>
+          <div class="field">
+            <label>Phone <span class="field-label-status is-optional">Optional</span></label>
+            <input id="contact-phone" />
+          </div>
+          <div class="field full">
+            <label>Notes <span class="field-label-status is-optional">Optional</span></label>
+            <textarea id="contact-notes" rows="3"></textarea>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-cancel btn-sm" type="button" onclick="closeContactModal()">Cancel</button>
+          <button class="btn btn-save btn-sm" type="submit">Save Contact</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Convert-to-project modal -->
+  <div class="modal-backdrop" id="convert-modal" aria-hidden="true">
+    <div class="modal modal-project" role="dialog" aria-modal="true" aria-labelledby="convert-modal-title" style="max-width: 520px;">
+      <button class="modal-close" type="button" onclick="closeConvertModal()" aria-label="Close">&times;</button>
+      <div class="user-modal-brand">
+        <div>
+          <div class="user-modal-kicker">CRM → Projects</div>
+          <div class="modal-title" id="convert-modal-title" style="margin-bottom:0;">Convert Lead to Project</div>
+        </div>
+      </div>
+      <form id="convert-form" onsubmit="confirmConvertLead(event)">
+        <div class="section-divider">Conversion</div>
+        <div class="modal-grid-compact">
+          <div class="field full">
+            <label>Lead</label>
+            <input id="convert-lead-name" readonly />
+          </div>
+          <div class="field full">
+            <label>Create Project under Entity <span class="field-label-status is-required">Required</span></label>
+            <select id="convert-entity"></select>
+          </div>
+          <div class="field full">
+            <div class="crm-sub">Pipiliin kung anong business entity / workspace mapupunta ang bagong project. Default = entity ng lead.</div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-cancel btn-sm" type="button" onclick="closeConvertModal()">Cancel</button>
+          <button class="btn btn-add btn-sm" type="submit">Convert to Project</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <datalist id="crm-source-list">
+    <option value="Referral"></option>
+    <option value="Website"></option>
+    <option value="Walk-in"></option>
+    <option value="Cold Call"></option>
+    <option value="Social Media"></option>
+    <option value="Existing Customer"></option>
+  </datalist>
+
+  <div id="crm-status" class="crm-status" role="status" aria-live="polite"></div>
+
+  <script src="/crm/crm.js?v=20260623approval"></script>
+</body>
+</html>

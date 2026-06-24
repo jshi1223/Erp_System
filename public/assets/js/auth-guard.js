@@ -534,7 +534,9 @@
   function sanitizeStoredBusinessEntityThemeProfile(profile) {
     if (!profile || !profile.theme) return profile;
     var fallback = getBusinessEntityThemeFallback({ theme: 'kvsk' });
-    return Object.assign({}, profile, fallback, {
+    return Object.assign({}, fallback, profile, {
+      logo: profile.logo || profile.logo_path || '',
+      alt: profile.alt || (profile.company_name ? profile.company_name + ' logo' : fallback.alt),
       company_name: profile.company_name || 'KVSK CCTV & IT Solution'
     });
   }
@@ -583,11 +585,12 @@
   }
 
   function getBusinessEntityThemeFallback(profile) {
-    void profile;
+    var logo = String((profile && (profile.logo_path || profile.logo)) || '').trim();
+    var name = String((profile && profile.company_name) || '').trim();
     return {
       theme: 'kvsk',
-      logo: '/assets/img/kvsk-logo-switch.png',
-      alt: 'KVSK logo',
+      logo: logo,
+      alt: name ? name + ' logo' : 'Company logo',
       primary: '#b42318',
       primaryLight: '#ef5b4f',
       primaryDark: '#4b1210',
@@ -598,9 +601,13 @@
 
   function applyStoredBusinessEntityThemeEarly() {
     var stored = getStoredBusinessEntityThemeProfile();
-    var profile = getBusinessEntityThemeFallback({ theme: 'kvsk' });
+    var profile = getBusinessEntityThemeFallback(stored || { theme: 'kvsk' });
+    var rawEntityContext = '';
+    try {
+      rawEntityContext = String(localStorage.getItem(BUSINESS_ENTITY_CONTEXT_KEY) || '').trim().toLowerCase();
+    } catch (_) {}
     var logoProfile = {
-      logo: profile.logo,
+      logo: rawEntityContext !== 'all' ? profile.logo : '',
       alt: profile.alt
     };
     var activeTheme = profile.theme;
@@ -630,13 +637,22 @@
   function getBusinessEntityBrandTitle(profile) {
     var name = String(profile && profile.company_name ? profile.company_name : '').trim();
     if (name) return name;
-    return 'KVSK CCTV & IT Solution';
+    // Default workspace scope is "All Companies" — never the old hard-coded KVSK brand.
+    return 'All Companies';
   }
 
   function applyBusinessEntityLogoProfileToImage(img) {
     if (!img || !activeBusinessEntityLogoProfile) return;
-    img.src = activeBusinessEntityLogoProfile.logo;
-    img.alt = activeBusinessEntityLogoProfile.alt;
+    if (activeBusinessEntityLogoProfile.logo) {
+      img.src = activeBusinessEntityLogoProfile.logo;
+      img.alt = activeBusinessEntityLogoProfile.alt;
+      img.style.removeProperty('display');
+      img.removeAttribute('hidden');
+    } else {
+      img.style.display = 'none';
+      img.removeAttribute('src');
+      img.alt = '';
+    }
   }
 
   function applyBusinessEntityLogoProfileToDocument(root) {
@@ -917,6 +933,78 @@
     var target = event && event.target;
     if (!isTableSearchInput(target)) return;
     syncTableSearchInput(target);
+    scheduleTableSearchMatchMarks(target);
+  }
+
+  // ---- Yellow match highlighting inside table rows while searching ----
+  // Modules re-render their table synchronously from the input's own oninput
+  // handler, so we apply the marks on a short delay (after the re-render) and
+  // wrap every case-insensitive match in the visible data tables.
+  var tableSearchMarkTimer = null;
+
+  function scheduleTableSearchMatchMarks(input) {
+    if (tableSearchMarkTimer) clearTimeout(tableSearchMarkTimer);
+    tableSearchMarkTimer = setTimeout(function () {
+      tableSearchMarkTimer = null;
+      applyTableSearchMatchMarks(String(input && input.value || '').trim());
+    }, 80);
+  }
+
+  function clearTableSearchMatchMarks() {
+    var marks = document.querySelectorAll('mark.table-search-hit');
+    for (var i = 0; i < marks.length; i += 1) {
+      var mark = marks[i];
+      var parent = mark.parentNode;
+      if (!parent) continue;
+      parent.replaceChild(document.createTextNode(mark.textContent), mark);
+      parent.normalize();
+    }
+  }
+
+  function applyTableSearchMatchMarks(query) {
+    clearTableSearchMatchMarks();
+    var needle = String(query || '').toLowerCase();
+    if (!needle) return;
+    var cells = document.querySelectorAll('.table-wrap tbody td');
+    for (var i = 0; i < cells.length; i += 1) {
+      markMatchesInCell(cells[i], needle);
+    }
+  }
+
+  function markMatchesInCell(cell, needle) {
+    var walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT, null);
+    var hits = [];
+    var node;
+    while ((node = walker.nextNode())) {
+      var parent = node.parentNode;
+      if (!parent || !parent.closest) continue;
+      // Never decorate text inside controls or already-highlighted fragments.
+      if (parent.closest('button, a, select, input, textarea, mark')) continue;
+      if (String(node.nodeValue || '').toLowerCase().indexOf(needle) !== -1) hits.push(node);
+    }
+    for (var i = 0; i < hits.length; i += 1) {
+      wrapTextNodeMatches(hits[i], needle);
+    }
+  }
+
+  function wrapTextNodeMatches(node, needle) {
+    var text = String(node.nodeValue || '');
+    var lower = text.toLowerCase();
+    var idx = lower.indexOf(needle);
+    if (idx === -1 || !node.parentNode) return;
+    var frag = document.createDocumentFragment();
+    var pos = 0;
+    while (idx !== -1) {
+      if (idx > pos) frag.appendChild(document.createTextNode(text.slice(pos, idx)));
+      var mark = document.createElement('mark');
+      mark.className = 'table-search-hit';
+      mark.textContent = text.slice(idx, idx + needle.length);
+      frag.appendChild(mark);
+      pos = idx + needle.length;
+      idx = lower.indexOf(needle, pos);
+    }
+    if (pos < text.length) frag.appendChild(document.createTextNode(text.slice(pos)));
+    node.parentNode.replaceChild(frag, node);
   }
 
   function isTableSearchInput(element) {
@@ -1112,6 +1200,14 @@
             ]
           },
           {
+            key: 'crm',
+            label: 'Customer Relationship',
+            items: [
+              { href: '/crm?tab=leads', label: 'Leads & Pipeline', id: 'menu-crm', aliases: ['/crm'] },
+              { href: '/crm?tab=contacts', label: 'Contacts' }
+            ]
+          },
+          {
             key: 'procurement',
             label: 'Procurement',
             items: [
@@ -1159,6 +1255,14 @@
               { href: '/sales-management?tab=sales-request', label: 'Sales Inquiry', id: 'menu-sales-management', aliases: ['/sales-management'] },
               { href: '/sales-management?tab=sales-order', label: 'SO' },
               { href: '/sales-management?tab=project-delivery', label: 'Delivery Receipt' }
+            ]
+          },
+          {
+            key: 'crm',
+            label: 'Customer Relationship',
+            items: [
+              { href: '/crm?tab=leads', label: 'Leads & Pipeline', id: 'menu-crm', aliases: ['/crm'] },
+              { href: '/crm?tab=contacts', label: 'Contacts' }
             ]
           },
           {
@@ -1300,13 +1404,24 @@
         : ''
     };
     var sidebarProfile = getBusinessEntityThemeFallback(storedProfile || explicitProfile);
+    var sidebarContext = '';
+    try {
+      sidebarContext = String(localStorage.getItem(BUSINESS_ENTITY_CONTEXT_KEY) || '').trim().toLowerCase();
+    } catch (_) {}
+    var sidebarLogo = sidebarContext !== 'all' && storedProfile && storedProfile.logo ? String(storedProfile.logo) : '';
+    var sidebarLogoAlt = sidebarLogo
+      ? String(storedProfile && storedProfile.alt ? storedProfile.alt : sidebarProfile.alt)
+      : '';
+    var sidebarLogoMarkup = sidebarLogo
+      ? '<img class="sidebar-brand-mark" src="' + escapeAttr(sidebarLogo) + '" alt="' + escapeAttr(sidebarLogoAlt) + '" />'
+      : '<img class="sidebar-brand-mark" alt="" hidden />';
     var sidebarTitle = 'KVSK CCTV';
     var sidebarSub = 'Operations Control Panel';
 
     sidebar.innerHTML = [
       '<div class="sidebar-header">',
         '<a class="sidebar-brand" href="' + sidebarConfig.dashboardHref + '" onclick="if (typeof openSidebarDashboard === &quot;function&quot;) { openSidebarDashboard(this); return false; }">',
-          '<img class="sidebar-brand-mark" src="' + escapeAttr(storedProfile && storedProfile.logo ? storedProfile.logo : sidebarProfile.logo) + '" alt="' + escapeAttr(storedProfile && storedProfile.alt ? storedProfile.alt : sidebarProfile.alt) + '" />',
+          sidebarLogoMarkup,
           '<div>',
             '<div class="header-logo" style="font-size: 1rem;">' + escapeAttr(sidebarTitle) + '</div>',
             '<div class="header-sub">' + escapeAttr(sidebarSub) + '</div>',
@@ -1666,4 +1781,106 @@
   metaPragma.httpEquiv = 'Pragma';
   metaPragma.content = 'no-cache';
   document.head.appendChild(metaPragma);
+})();
+
+// ── Live search highlighting (app-wide) ─────────────────────────────────────
+// Any search box: while typing, matches in the associated results table are
+// wrapped in <mark> (yellow). Self-contained — no per-module wiring needed.
+// A search input is detected by type=search or "search/hanap/filter/find" in its
+// id/placeholder/class/name. Override the target with data-search-highlight="<sel>".
+(function () {
+  'use strict';
+  if (window.__erpSearchHighlightInstalled) return;
+  window.__erpSearchHighlightInstalled = true;
+
+  var HL = 'erp-search-hl';
+
+  function injectStyle() {
+    if (document.getElementById('erp-search-hl-style')) return;
+    var s = document.createElement('style');
+    s.id = 'erp-search-hl-style';
+    s.textContent = 'mark.' + HL + '{background:#ffe066;color:inherit;padding:0 1px;border-radius:2px;box-shadow:0 0 0 1px rgba(214,173,0,.35);}';
+    (document.head || document.documentElement).appendChild(s);
+  }
+
+  function isSearchInput(el) {
+    if (!el || el.tagName !== 'INPUT') return false;
+    var type = String(el.type || '').toLowerCase();
+    if (type === 'search') return true;
+    if (type && type !== 'text') return false;
+    var hay = ((el.id || '') + ' ' + (el.placeholder || '') + ' ' + (el.className || '') + ' ' + (el.name || '')).toLowerCase();
+    return /search|hanap|filter|find/.test(hay);
+  }
+
+  function targetFor(input) {
+    var sel = input.getAttribute('data-search-highlight');
+    if (sel) return document.querySelector(sel);
+    var scope = input.closest('section, .content-section, .card, .table-card, .panel, main') || document.body;
+    return scope.querySelector('table tbody') || scope.querySelector('.table-wrap') || scope.querySelector('table') || scope;
+  }
+
+  function clear(root) {
+    if (!root) return;
+    var marks = root.querySelectorAll('mark.' + HL);
+    for (var i = 0; i < marks.length; i++) {
+      var m = marks[i];
+      var parent = m.parentNode;
+      if (!parent) continue;
+      parent.replaceChild(document.createTextNode(m.textContent), m);
+      parent.normalize();
+    }
+  }
+
+  function escapeRx(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+  function highlight(root, query) {
+    if (!root) return;
+    clear(root);
+    var q = String(query || '').trim();
+    if (q.length < 1) return;
+    var rx = new RegExp(escapeRx(q), 'gi');
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode: function (node) {
+        if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+        var p = node.parentNode;
+        if (!p) return NodeFilter.FILTER_REJECT;
+        var tag = p.nodeName;
+        if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'OPTION' || tag === 'MARK' || tag === 'BUTTON') return NodeFilter.FILTER_REJECT;
+        rx.lastIndex = 0;
+        return rx.test(node.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+      }
+    });
+    var targets = [];
+    var n;
+    while ((n = walker.nextNode())) targets.push(n);
+    for (var i = 0; i < targets.length; i++) {
+      var node = targets[i];
+      var text = node.nodeValue;
+      rx.lastIndex = 0;
+      var frag = document.createDocumentFragment();
+      var last = 0, match;
+      while ((match = rx.exec(text)) !== null) {
+        if (match.index > last) frag.appendChild(document.createTextNode(text.slice(last, match.index)));
+        var mark = document.createElement('mark');
+        mark.className = HL;
+        mark.textContent = match[0];
+        frag.appendChild(mark);
+        last = match.index + match[0].length;
+        if (match.index === rx.lastIndex) rx.lastIndex++;
+      }
+      if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+      if (node.parentNode) node.parentNode.replaceChild(frag, node);
+    }
+  }
+
+  var timers = new WeakMap();
+  document.addEventListener('input', function (e) {
+    var input = e.target;
+    if (!isSearchInput(input)) return;
+    injectStyle();
+    if (timers.get(input)) clearTimeout(timers.get(input));
+    timers.set(input, setTimeout(function () {
+      try { highlight(targetFor(input), input.value); } catch (_) {}
+    }, 110));
+  }, true);
 })();

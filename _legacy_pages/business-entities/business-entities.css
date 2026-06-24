@@ -1,0 +1,128 @@
+.business-entities-shell {
+  width: min(1180px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 22px 0 48px;
+}
+
+.business-entities-toolbar {
+  margin-top: 14px;
+}
+
+.business-entities-page .registry-panel {
+  margin-top: 14px;
+}
+
+.business-entities-page .registry-status {
+  min-height: 24px;
+  margin-top: 10px;
+}
+
+.business-entities-page .registry-status.is-success {
+  color: #047857;
+}
+
+.business-entities-page .registry-status.is-error {
+  color: #b42318;
+}
+
+.business-entities-page .business-entity-check {
+  align-self: end;
+}
+
+.business-entities-page .business-entity-check label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  font-weight: 700;
+}
+
+.business-entities-page .business-entity-empty td {
+  text-align: center;
+  color: var(--muted);
+  padding: 24px;
+}
+
+.business-entities-page .business-entity-actions {
+  justify-content: flex-start;
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+/* Company logo upload (edit modal) + table thumbnail */
+.business-entities-page .be-logo-field .be-logo-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.business-entities-page .be-logo-thumb {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--primary-light, #ef5b4f) 8%, #ffffff);
+  border: 1px solid color-mix(in srgb, var(--primary, #b42318) 18%, transparent);
+  overflow: hidden;
+}
+
+.business-entities-page .be-logo-thumb img {
+  max-width: 56px;
+  max-height: 56px;
+  object-fit: contain;
+}
+
+.business-entities-page .be-logo-empty {
+  font-size: .68rem;
+  font-weight: 700;
+  color: var(--muted, #8a7a78);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.business-entities-page .be-logo-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.business-entities-page .be-logo-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.business-entities-page .be-logo-hint {
+  font-size: .72rem;
+  color: var(--muted, #8a7a78);
+  line-height: 1.4;
+}
+
+.business-entities-page .be-title-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.business-entities-page .be-row-logo {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  object-fit: contain;
+  background: color-mix(in srgb, var(--primary-light, #ef5b4f) 8%, #ffffff);
+  border: 1px solid color-mix(in srgb, var(--primary, #b42318) 14%, transparent);
+}
+
+.business-entities-page .be-row-logo-empty {
+  background: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--primary, #b42318) 6%, #ffffff),
+    color-mix(in srgb, var(--primary, #b42318) 6%, #ffffff) 5px,
+    #ffffff 5px,
+    #ffffff 10px
+  );
+}

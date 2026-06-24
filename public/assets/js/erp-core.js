@@ -44,11 +44,12 @@ function erpGetExplicitBusinessEntityTheme() {
 }
 
 function erpGetBusinessEntityBrandProfile(row) {
-  void row;
+  var logo = String((row && (row.logo_path || row.logo)) || '').trim();
+  var name = String((row && row.company_name) || '').trim();
   return {
     theme: 'kvsk',
-    logo: '/assets/img/kvsk-logo-switch.png',
-    alt: 'KVSK logo',
+    logo: logo,
+    alt: name ? name + ' logo' : 'Company logo',
     primary: '#b42318',
     primaryLight: '#ef5b4f',
     primaryDark: '#4b1210',
@@ -69,18 +70,27 @@ function erpApplyBusinessEntityBrand(row) {
   document.documentElement.style.setProperty('--accent', profile.accent);
   document.documentElement.style.setProperty('--accent2', profile.accent2);
 
-  document.querySelectorAll('.brand-mark, .sidebar-brand-mark, .user-modal-brand-mark').forEach(function (img) {
-    img.src = profile.logo;
-    img.alt = profile.alt;
-  });
-
   // When the workspace context is "All Companies", the header title should say
   // "All Companies" (matching the badge) instead of the default/parent entity
   // name — otherwise it looks like you're scoped to one company.
   var rawEntityContext = String(localStorage.getItem(window.__ERP_BUSINESS_ENTITY_CONTEXT_KEY__) || '').trim().toLowerCase();
-  var brandTitle = rawEntityContext === 'all'
+  var entityLogo = rawEntityContext !== 'all' ? profile.logo : '';
+  document.querySelectorAll('.brand-mark, .sidebar-brand-mark, .user-modal-brand-mark').forEach(function (img) {
+    if (entityLogo) {
+      img.src = entityLogo;
+      img.alt = profile.alt;
+      img.style.removeProperty('display');
+      img.removeAttribute('hidden');
+    } else {
+      img.style.display = 'none';
+      img.removeAttribute('src');
+      img.alt = '';
+    }
+  });
+
+  var brandTitle = (!rawEntityContext || rawEntityContext === 'all')
     ? 'All Companies'
-    : (row && row.company_name ? row.company_name : 'KVSK CCTV & IT Solution');
+    : (row && row.company_name ? row.company_name : 'All Companies');
   document.querySelectorAll('header .brand-copy .header-logo').forEach(function (node) {
     node.textContent = brandTitle;
   });
@@ -610,6 +620,38 @@ function getProjectLifecycleStatusFilter(project) {
 function formatPhpCurrency(value) {
   return `PHP ${Number(value || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
+
+// --- Money input formatting (thousands separators INSIDE text inputs) ---------
+// type="number" cannot show commas, so money fields use type="text" + class
+// "js-money-input" and these helpers. Read them with parseMoneyInput().
+function parseMoneyInput(value) {
+  return Number(String(value == null ? '' : value).replace(/,/g, '').trim()) || 0;
+}
+
+// Plain comma-grouped amount (no currency symbol) for placing inside an <input>.
+function formatMoneyInputValue(value) {
+  return parseMoneyInput(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Live-format a money text input as the user types: groups the integer part with
+// commas, allows one decimal point and up to 2 decimals (caret moves to end).
+function formatMoneyInputLive(el) {
+  if (!el) return;
+  let cleaned = String(el.value || '').replace(/[^\d.]/g, '');
+  const dot = cleaned.indexOf('.');
+  if (dot !== -1) cleaned = cleaned.slice(0, dot + 1) + cleaned.slice(dot + 1).replace(/\./g, '');
+  let [intPart, decPart] = cleaned.split('.');
+  intPart = (intPart || '').replace(/^0+(?=\d)/, '');
+  const grouped = intPart ? Number(intPart).toLocaleString('en-US') : (cleaned.startsWith('.') ? '0' : '');
+  el.value = cleaned.indexOf('.') !== -1 ? `${grouped || '0'}.${(decPart || '').slice(0, 2)}` : grouped;
+}
+
+// Any input with class "js-money-input" gets live comma formatting (works for
+// dynamically-added inputs too, since the listener is delegated on document).
+document.addEventListener('input', function (e) {
+  const t = e.target;
+  if (t && t.classList && t.classList.contains('js-money-input')) formatMoneyInputLive(t);
+});
 
 function extractClientFromProjectName(projectName) {
   const parts = String(projectName || '').split(' - ').map(part => part.trim()).filter(Boolean);

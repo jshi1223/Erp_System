@@ -31,6 +31,35 @@
   font-size: 0.82rem;
 }
 
+.grn-serial-input:disabled {
+  background: #eef2f6;
+  cursor: not-allowed;
+}
+
+.grn-serial-group.is-muted {
+  opacity: 0.6;
+}
+
+.grn-serial-count.is-ok {
+  color: #15803d;
+  font-weight: 600;
+}
+
+.grn-serial-count.is-bad {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.grn-serial-error {
+  margin-top: 6px;
+  font-size: 0.75rem;
+  color: #b91c1c;
+}
+
+.grn-serial-error.is-hidden {
+  display: none;
+}
+
 .field-hint {
   font-weight: 400;
   font-size: 0.75rem;
@@ -383,6 +412,24 @@ body.erp-clean-page.accounts-payable-page .module-page-toolbar .module-toolbar-s
   display: flex;
   flex-direction: column;
   gap: 8px;
+  /* Give the items column a workable width inside the table's auto layout. */
+  min-width: 240px;
+  max-width: 340px;
+}
+
+/* The shared td rule forces white-space:nowrap !important on every cell, which the
+   card text inherits — long item lines then overflow the card and run over the
+   Lines/Total columns. Re-enable wrapping inside the cards so each line stays put. */
+.po-item-line .po-item-desc,
+.po-item-line .po-item-meta {
+  white-space: normal;
+}
+
+/* Approval-trail / bill cards have no number bubble, so .po-item-copy is the first
+   child — let it span the whole card instead of landing in the 28px index track
+   (which would wrap the text every few characters). */
+.po-item-line > .po-item-copy:first-child {
+  grid-column: 1 / -1;
 }
 
 .po-item-line {
@@ -449,4 +496,111 @@ body.erp-clean-page.accounts-payable-page .module-page-toolbar .module-toolbar-s
     flex-direction: column;
     align-items: flex-start;
   }
+}
+
+/* Bill modal: read-only received-items breakdown (Item / Qty Received / Unit Cost / Total) */
+.bill-items-box {
+  border: 1px solid var(--border, #e5d9d2);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface, #fff);
+}
+.bill-items-empty {
+  padding: 14px;
+  color: var(--muted, #8a7d75);
+  font-style: italic;
+  font-size: 0.86rem;
+}
+.bill-items-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+.bill-items-table th,
+.bill-items-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border, #efe6e0);
+}
+.bill-items-table thead th {
+  background: var(--surface2, #f7f1ed);
+  font-weight: 700;
+  text-align: left;
+  color: var(--text, #3a2c25);
+}
+.bill-items-table .text-right { text-align: right; }
+.bill-items-table tfoot td {
+  background: var(--surface2, #f7f1ed);
+  border-bottom: none;
+}
+.bill-date-row label { display: block; margin-bottom: 4px; }
+
+/* Goods Receipt modal: it has several stacked sections (Receiving Quantities, Inventory
+   Mapping, Serial Numbers) and was getting clipped on shorter screens. Make it wide enough
+   and scroll INTERNALLY so every section is reachable. */
+#grn-modal-backdrop .modal {
+  max-width: 820px;
+  width: min(820px, calc(100vw - 28px));
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+}
+#grn-modal-backdrop #grn-receiving-lines table,
+#grn-modal-backdrop #grn-product-mapping {
+  width: 100%;
+}
+/* Compact receiving table: 4 columns only (Item / Receive Now / Unit Cost / Total), with the
+   ordered·received·remaining info as small meta under the item name so nothing overflows. */
+.grn-receive-table { font-size: 0.84rem; width: 100%; table-layout: fixed; }
+.grn-receive-table th,
+.grn-receive-table td { padding: 7px 9px; vertical-align: middle; }
+.grn-receive-table .text-center { text-align: center; }
+/* Fixed column widths so the row does NOT shift while you type the qty / the live total changes. */
+.grn-receive-table th:nth-child(2), .grn-receive-table td:nth-child(2) { width: 110px; }
+.grn-receive-table th:nth-child(3), .grn-receive-table td:nth-child(3) { width: 96px; }
+.grn-receive-table th:nth-child(4), .grn-receive-table td:nth-child(4) { width: 112px; }
+.grn-receive-table td:nth-child(1) { word-break: break-word; }
+.grn-item-name { font-weight: 700; color: var(--text, #3a2c25); }
+.grn-item-meta { font-size: 0.72rem; color: var(--muted, #8a7d75); margin-top: 2px; }
+.grn-receive-table tfoot td {
+  border-top: 2px solid var(--border, #e5d9d2);
+  font-size: 0.9rem;
+}
+/* Make the editable "Receive Now" qty box obvious + easy to click. */
+#grn-modal-backdrop .grn-receive-qty {
+  width: 74px;
+  text-align: center;
+  border: 1px solid var(--primary, #7a1f1f);
+  border-radius: 6px;
+  padding: 5px 6px;
+  font-weight: 700;
+  background: #fff;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+/* Flash when the qty is capped to the remaining (can't over-receive). */
+#grn-modal-backdrop .grn-receive-qty.grn-qty-clamped {
+  background: #fdeaea;
+  border-color: #b42318;
+  color: #b42318;
+}
+
+/* Document trail modal (PR → Quote → PO → GRN → Bill → Payment). */
+.doc-trail-lines { list-style: none; margin: 0 0 14px; padding: 0; }
+.doc-trail-lines li {
+  padding: 9px 12px;
+  border: 1px solid var(--border, #e5d9d2);
+  border-radius: 8px;
+  margin-bottom: 6px;
+  font-size: 0.88rem;
+  background: var(--surface, #fff);
+}
+.doc-trail-stage {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface2, #f7f1ed);
+  font-size: 0.9rem;
+}
+.doc-trail-empty {
+  padding: 18px;
+  color: var(--muted, #8a7d75);
+  font-style: italic;
+  text-align: center;
 }

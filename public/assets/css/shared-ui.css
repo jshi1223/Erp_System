@@ -76,6 +76,35 @@ body[data-business-entity-theme="kitsi"].erp-clean-page header {
     linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%) !important;
 }
 
+/* Table search bars are YELLOW app-wide (same look as the inventory module) so
+   they're easy to spot above every data table. Resting = soft yellow; typing or
+   focused = stronger amber via .is-table-search-active (tagged by auth-guard). */
+.module-page-toolbar .search-wrap input[type="text"],
+.module-page-toolbar .search-wrap input[type="search"],
+.module-page-toolbar .search-wrap-compact input[type="text"],
+.module-page-toolbar .search-wrap-compact input[type="search"],
+.module-page-toolbar .top-search-bar input[type="text"],
+.module-page-toolbar .top-search-bar input[type="search"],
+.module-page-toolbar-actions .search-wrap input[type="text"],
+.module-page-toolbar-actions .search-wrap input[type="search"],
+.module-page-toolbar-actions .search-wrap-compact input[type="text"],
+.module-page-toolbar-actions .search-wrap-compact input[type="search"],
+.module-page-toolbar-actions .top-search-bar input[type="text"],
+.module-page-toolbar-actions .top-search-bar input[type="search"],
+.section-topbar .top-search-bar input[type="text"],
+.section-topbar .top-search-bar input[type="search"],
+.section-head .search-wrap input[type="text"],
+.section-head .search-wrap input[type="search"],
+.dashboard-filter-bar .search-wrap input[type="text"],
+.dashboard-filter-bar .search-wrap input[type="search"],
+.company-toolbar-actions .search-wrap input[type="text"],
+.company-toolbar-actions .search-wrap input[type="search"],
+.reports-company-search-shell .search-wrap input[type="text"],
+.reports-company-search-shell .search-wrap input[type="search"] {
+  background: #fffbeb !important;
+  border-color: #facc15 !important;
+}
+
 /* Shared table-search highlight while typing */
 .module-page-toolbar .search-wrap:focus-within,
 .module-page-toolbar .search-wrap-compact:focus-within,
@@ -88,25 +117,35 @@ body[data-business-entity-theme="kitsi"].erp-clean-page header {
 .dashboard-filter-bar .search-wrap:focus-within,
 .company-toolbar-actions .search-wrap:focus-within,
 .reports-company-search-shell .search-wrap:focus-within {
-  border-color: rgba(180, 35, 24, 0.42) !important;
+  border-color: #eab308 !important;
   box-shadow:
-    0 0 0 4px rgba(180, 35, 24, 0.12),
-    0 12px 28px rgba(180, 35, 24, 0.08),
+    0 0 0 4px rgba(250, 204, 21, 0.30),
+    0 12px 28px rgba(245, 158, 11, 0.10),
     inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
 }
 
 body .is-table-search-active {
-  border-color: rgba(180, 35, 24, 0.65) !important;
-  background: linear-gradient(180deg, #fff8f7, #ffe9e6) !important;
-  color: #4b1210 !important;
+  border-color: #eab308 !important;
+  background: linear-gradient(180deg, #fffbeb, #fef3c7) !important;
+  color: #4d3c05 !important;
   box-shadow:
-    0 0 0 4px rgba(180, 35, 24, 0.14),
-    0 10px 24px rgba(180, 35, 24, 0.10),
+    0 0 0 4px rgba(250, 204, 21, 0.30),
+    0 10px 24px rgba(245, 158, 11, 0.12),
     inset 0 1px 0 rgba(255, 255, 255, 0.88) !important;
 }
 
 body .is-table-search-active::placeholder {
-  color: rgba(75, 18, 16, 0.6) !important;
+  color: rgba(111, 84, 10, 0.7) !important;
+}
+
+/* Yellow highlight on the matching text inside table rows while searching. */
+body mark.table-search-hit,
+body .table-wrap tbody mark {
+  background: #fde047;
+  color: inherit;
+  padding: 0 2px;
+  border-radius: 3px;
+  font-weight: 700;
 }
 
 body .table-sort-trigger,
@@ -1336,6 +1375,16 @@ body.erp-clean-page .content-section {
   background-color: transparent !important;
 }
 
+body.admin-page #dashboard main,
+body.erp-clean-page #dashboard main,
+body.erp-clean-page main {
+  box-sizing: border-box !important;
+  flex: 1 1 auto !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  width: 100% !important;
+}
+
 body.admin-page .stat-card,
 body.erp-clean-page .stat-card,
 body.admin-page .module-summary-card,
@@ -1694,6 +1743,35 @@ body.erp-clean-page .public-table thead th {
   text-transform: uppercase !important;
   vertical-align: middle !important;
   white-space: nowrap !important;
+}
+
+/* Headers that declare their own alignment must keep it, so numeric (.text-right)
+   and centered (.text-center) columns line up with the data below them — the blanket
+   left-align above would otherwise win on specificity. */
+body.admin-page .table-wrap thead th.text-right,
+body.erp-clean-page .table-wrap thead th.text-right,
+body.admin-page .registry-table thead th.text-right,
+body.erp-clean-page .registry-table thead th.text-right,
+body.admin-page .project-master-table thead th.text-right,
+body.erp-clean-page .project-master-table thead th.text-right,
+body.admin-page .project-records-table thead th.text-right,
+body.erp-clean-page .project-records-table thead th.text-right,
+body.admin-page .public-table thead th.text-right,
+body.erp-clean-page .public-table thead th.text-right {
+  text-align: right !important;
+}
+
+body.admin-page .table-wrap thead th.text-center,
+body.erp-clean-page .table-wrap thead th.text-center,
+body.admin-page .registry-table thead th.text-center,
+body.erp-clean-page .registry-table thead th.text-center,
+body.admin-page .project-master-table thead th.text-center,
+body.erp-clean-page .project-master-table thead th.text-center,
+body.admin-page .project-records-table thead th.text-center,
+body.erp-clean-page .project-records-table thead th.text-center,
+body.admin-page .public-table thead th.text-center,
+body.erp-clean-page .public-table thead th.text-center {
+  text-align: center !important;
 }
 
 body.admin-page .table-wrap tbody td,
