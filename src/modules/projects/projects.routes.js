@@ -9,6 +9,42 @@ const { db, queryAsync, isPostgresUniqueViolation } = require('../../database');
 const { protectAdmin, protectAdminOnly, getAuthenticatedUser, isStaffRole, isAdminRole, normalizeAccessRole } = require('../../middleware/auth');
 const { normalizePhone, isValidPhone } = require('../../shared/validation');
 
+// Before→after change set for the audit trail (numbers numerically, Dates as YYYY-MM-DD, else strings).
+const auditDiff = (oldVals, newVals) => {
+  const disp = (v) => (v == null ? '' : (v instanceof Date ? v.toISOString().slice(0, 10) : v));
+  const same = (a, b) => {
+    const na = disp(a), nb = disp(b);
+    if (String(na).trim() === '' && String(nb).trim() === '') return true;
+    const fa = Number(na), fb = Number(nb);
+    if (Number.isFinite(fa) && Number.isFinite(fb) && String(na).trim() !== '' && String(nb).trim() !== '') return fa === fb;
+    return String(na) === String(nb);
+  };
+  const changes = [];
+  Object.keys(newVals).forEach((f) => {
+    if (!same(oldVals ? oldVals[f] : undefined, newVals[f])) {
+      changes.push({ field: f, from: disp(oldVals ? oldVals[f] : undefined), to: disp(newVals[f]) });
+    }
+  });
+  return changes;
+};
+
+// Project-centered cascade: archive/restore every record linked to a project (project_id = X).
+// Best-effort per table — a table missing project_id or archived is skipped, so one odd schema
+// never breaks the cascade. Returns how many linked rows were toggled. Restore mirrors archive
+// (symmetric — the project's connections come back with it).
+const PROJECT_CASCADE_TABLES = ['purchase_requisitions', 'purchase_orders', 'sales_management_records', 'goods_receipts', 'accounts_receivable', 'procurement_quotations'];
+async function cascadeProjectArchive(projectId, archived) {
+  const flag = archived ? 'TRUE' : 'FALSE';
+  let total = 0;
+  for (const table of PROJECT_CASCADE_TABLES) {
+    try {
+      const r = await queryAsync(`UPDATE ${table} SET archived = ${flag} WHERE project_id = ?`, [projectId]);
+      total += Number((r && (r.affectedRows ?? r.rowCount)) || 0);
+    } catch (_) { /* table lacks project_id or archived — skip */ }
+  }
+  return total;
+}
+
 module.exports = function createProjectsRouter(deps) {
   const {
     projectRowMatchesStaffActor,
@@ -177,7 +213,7 @@ module.exports = function createProjectsRouter(deps) {
         "UPDATE projects SET project_docno = ?, project_ar_invoice_no = ?, project_ap_bill_no = ?, status = 'planning', approved_by = ?, approved_at = COALESCE(approved_at, NOW()), approval_comment = ? WHERE id = ?",
         [officialProjectDocno, projectArInvoiceNo, projectApBillNo, approvedBy, comment || null, projectId]
       );
-      logAction(req, 'APPROVE_PROJECT', appendApprovalComment(`Draft No: ${rows[0].draft_docno || '-'} | Project No: ${officialProjectDocno || projectId} | Project Name: ${rows[0].project_name || ''} | Approved by ${approvedBy}`, comment));
+      logAction(req, 'APPROVE_PROJECT', appendApprovalComment(`Draft No: ${rows[0].draft_docno || '-'} | Project No: ${officialProjectDocno || projectId} | Project Name: ${rows[0].project_name || ''} | Approved by ${approvedBy}`, comment), 'projects', { entityType: 'project', entityId: projectId, businessEntityId: rows[0].business_entity_id, changes: [{ field: 'status', from: 'submitted', to: 'planning' }] });
       sendBackgroundNotification(() => notifyProjectRequester(req, projectId, 'approved', {
         approvedBy: getApprovalActorLabel(req)
       }), 'project approved staff email');
@@ -195,7 +231,7 @@ module.exports = function createProjectsRouter(deps) {
 
     try {
       const rows = await queryAsync(
-        'SELECT id, project_docno, draft_docno, project_name, status, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ? LIMIT 1',
+        'SELECT id, project_docno, draft_docno, project_name, business_entity_id, status, COALESCE(is_archived, FALSE) AS is_archived FROM projects WHERE id = ? LIMIT 1',
         [projectId]
       );
       if (!rows.length) return res.status(404).json({ error: 'Project not found' });
@@ -213,7 +249,7 @@ module.exports = function createProjectsRouter(deps) {
         "UPDATE projects SET status = 'needs_revision', status_reason = ?, approved_by = ?, approved_at = COALESCE(approved_at, NOW()), approval_comment = ? WHERE id = ?",
         [`Needs revision by ${actor}: ${reason}`, actor, reason, projectId]
       );
-      logAction(req, 'REJECT_PROJECT', `Project No: ${rows[0].project_docno || rows[0].draft_docno || projectId} | Project Name: ${rows[0].project_name || ''} | Reason: ${reason}`);
+      logAction(req, 'REJECT_PROJECT', `Project No: ${rows[0].project_docno || rows[0].draft_docno || projectId} | Project Name: ${rows[0].project_name || ''} | Reason: ${reason}`, 'projects', { entityType: 'project', entityId: projectId, businessEntityId: rows[0].business_entity_id, severity: 'warning', changes: [{ field: 'status', from: 'submitted', to: 'needs_revision' }] });
       res.json({ success: true, status: 'needs_revision', reason });
     } catch (err) {
       res.status(500).json({ error: err.message || 'Unable to reject project.' });
@@ -226,7 +262,7 @@ module.exports = function createProjectsRouter(deps) {
 
     try {
       const rows = await queryAsync(
-        `SELECT id, project_docno, draft_docno, project_name, status, COALESCE(is_archived, FALSE) AS is_archived,
+        `SELECT id, project_docno, draft_docno, project_name, business_entity_id, status, COALESCE(is_archived, FALSE) AS is_archived,
                 created_by, assigned_to, project_manager, members,
                 project_members, project_members_2, project_members_3
          FROM projects WHERE id = ? LIMIT 1`,
@@ -250,7 +286,7 @@ module.exports = function createProjectsRouter(deps) {
       }
 
       await queryAsync("UPDATE projects SET status = 'submitted', approved_by = NULL, approved_at = NULL WHERE id = ?", [projectId]);
-      logAction(req, 'SUBMIT_PROJECT', `Project No: ${rows[0].project_docno || rows[0].draft_docno || projectId} | Project Name: ${rows[0].project_name || ''}`);
+      logAction(req, 'SUBMIT_PROJECT', `Project No: ${rows[0].project_docno || rows[0].draft_docno || projectId} | Project Name: ${rows[0].project_name || ''}`, 'projects', { entityType: 'project', entityId: projectId, businessEntityId: rows[0].business_entity_id, changes: [{ field: 'status', from: rows[0].status, to: 'submitted' }] });
       sendBackgroundNotification(() => notifyProjectApprovalRequest(req, projectId), 'project approval request email');
       res.json({ success: true, status: 'submitted', requiresApproval: true });
     } catch (err) {
@@ -258,28 +294,34 @@ module.exports = function createProjectsRouter(deps) {
     }
   });
 
-  router.put('/api/projects/:id/archive', protectAdminOnly, (req, res) => {
+  router.put('/api/projects/:id/archive', protectAdminOnly, async (req, res) => {
     const projectId = Number(req.params.id || 0);
     if (!projectId) return res.status(400).json({ error: 'Invalid project id' });
-
-    db.query('UPDATE projects SET is_archived = TRUE, archived_at = CURRENT_TIMESTAMP, archived_auto = FALSE WHERE id = ?', [projectId], (err, result) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (result.affectedRows === 0) return res.status(404).json({ error: 'Project not found' });
-      logAction(req, 'ARCHIVE_PROJECT', `Archived project ID: ${projectId}`);
-      res.json({ success: true });
-    });
+    try {
+      const result = await queryAsync('UPDATE projects SET is_archived = TRUE, archived_at = CURRENT_TIMESTAMP, archived_auto = FALSE WHERE id = ?', [projectId]);
+      if (!((result && (result.affectedRows ?? result.rowCount)) || 0)) return res.status(404).json({ error: 'Project not found' });
+      // Project-centered: archive every linked record (PR/PO/Sales/GRN/AR/Quotation) too.
+      const cascaded = await cascadeProjectArchive(projectId, true);
+      logAction(req, 'ARCHIVE_PROJECT', `Archived project ID: ${projectId}${cascaded ? ` (+${cascaded} linked record(s))` : ''}`, 'projects', { entityType: 'project', entityId: projectId, severity: 'warning' });
+      res.json({ success: true, cascaded });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
-  router.put('/api/projects/:id/restore', protectAdminOnly, (req, res) => {
+  router.put('/api/projects/:id/restore', protectAdminOnly, async (req, res) => {
     const projectId = Number(req.params.id || 0);
     if (!projectId) return res.status(400).json({ error: 'Invalid project id' });
-
-    db.query('UPDATE projects SET is_archived = FALSE, archived_at = NULL, archived_auto = FALSE WHERE id = ?', [projectId], (err, result) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (result.affectedRows === 0) return res.status(404).json({ error: 'Project not found' });
-      logAction(req, 'RESTORE_PROJECT', `Restored project ID: ${projectId}`);
-      res.json({ success: true });
-    });
+    try {
+      const result = await queryAsync('UPDATE projects SET is_archived = FALSE, archived_at = NULL, archived_auto = FALSE WHERE id = ?', [projectId]);
+      if (!((result && (result.affectedRows ?? result.rowCount)) || 0)) return res.status(404).json({ error: 'Project not found' });
+      // Symmetric cascade: restoring the project brings its linked records back too.
+      const cascaded = await cascadeProjectArchive(projectId, false);
+      logAction(req, 'RESTORE_PROJECT', `Restored project ID: ${projectId}${cascaded ? ` (+${cascaded} linked record(s))` : ''}`, 'projects', { entityType: 'project', entityId: projectId, severity: 'info' });
+      res.json({ success: true, cascaded });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   router.get('/api/projects/:projectId/tasks', protectAdmin, async (req, res) => {
@@ -965,7 +1007,7 @@ module.exports = function createProjectsRouter(deps) {
                 if (taskErr) {
                   console.error('Default task creation failed:', taskErr);
                 }
-                logAction(req, 'CREATE_PROJECT', `Project No: ${finalProjectDocno || finalDraftDocno} | Status: ${resolvedProjectStatus} | Company ID: ${resolvedCompanyId} | Company No: ${resolvedCompanyNo} | Company Name: ${resolvedCompanyName}`);
+                logAction(req, 'CREATE_PROJECT', `Project No: ${finalProjectDocno || finalDraftDocno} | Status: ${resolvedProjectStatus} | Company ID: ${resolvedCompanyId} | Company No: ${resolvedCompanyNo} | Company Name: ${resolvedCompanyName}`, 'projects', { entityType: 'project', entityId: projectId, businessEntityId: resolvedBusinessEntityId });
                 if (resolvedProjectStatus === 'submitted') {
                   sendBackgroundNotification(() => notifyProjectApprovalRequest(req, projectId), 'project approval request email');
                 }
@@ -1087,7 +1129,7 @@ module.exports = function createProjectsRouter(deps) {
       project_members_3 && member_role_3 && normalizedMemberPhone3 ? `${project_members_3} (${member_role_3}) - ${normalizedMemberPhone3}` : ''
     ].filter(Boolean).join(' | ') || null;
 
-      db.query(`SELECT project_docno, draft_docno, pdfFilename, budget, downpayment, qty, unit_cost, status,
+      db.query(`SELECT project_docno, draft_docno, project_name, pdfFilename, budget, downpayment, qty, unit_cost, status,
                        created_by, assigned_to, project_manager, members,
                        project_members, project_members_2, project_members_3
                 FROM projects WHERE id = ?`, [req.params.id], async (findErr, rows) => {
@@ -1285,7 +1327,11 @@ module.exports = function createProjectsRouter(deps) {
                   if (taskErr) {
                     console.error('Default task ensure failed:', taskErr);
                   }
-                  logAction(req, 'UPDATE_PROJECT', `Project No: ${resolvedProjectDocno || finalProjectDocno || finalDraftDocno} | Company ID: ${resolvedCompanyId} | Company No: ${resolvedCompanyNo} | Company Name: ${resolvedCompanyName}`);
+                  const projectChanges = auditDiff(
+                    { project_name: rows[0].project_name, status: rows[0].status, budget: rows[0].budget, downpayment: rows[0].downpayment, qty: rows[0].qty, unit_cost: rows[0].unit_cost, assigned_to: rows[0].assigned_to, project_manager: rows[0].project_manager },
+                    { project_name, status: resolvedProjectStatus, budget: resolvedBudget, downpayment: resolvedDownpayment, qty: resolvedQty, unit_cost: resolvedUnitCost, assigned_to: resolvedAssignedTo, project_manager: project_manager || null }
+                  );
+                  logAction(req, 'UPDATE_PROJECT', `Project No: ${resolvedProjectDocno || finalProjectDocno || finalDraftDocno} | Company ID: ${resolvedCompanyId} | Company No: ${resolvedCompanyNo} | Company Name: ${resolvedCompanyName}`, 'projects', { entityType: 'project', entityId: Number(req.params.id), businessEntityId: resolvedBusinessEntityId, changes: projectChanges });
                   if (currentProjectStatus !== 'submitted' && resolvedProjectStatus === 'submitted') {
                     sendBackgroundNotification(() => notifyProjectApprovalRequest(req, Number(req.params.id)), 'project approval request email');
                   }

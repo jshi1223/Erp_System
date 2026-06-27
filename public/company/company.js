@@ -11,11 +11,25 @@ let editingCompanyId = null;
 let currentBusinessEntityContextId = '';
 const BUSINESS_ENTITY_CONTEXT_KEY = 'kinaadman_businessEntityContext';
 const BUSINESS_ENTITY_THEME_KEY = 'kinaadman_businessEntityTheme';
+let initialCompanySearchValue = getInitialCompanySearchValue();
 
 document.addEventListener('DOMContentLoaded', bootstrapCompanyRegistry);
 
 function $(id) {
   return document.getElementById(id);
+}
+
+function getInitialCompanySearchValue() {
+  const params = new URLSearchParams(window.location.search || '');
+  return String(params.get('q') || params.get('search') || '').trim();
+}
+
+function applyInitialCompanySearchValue() {
+  if (!initialCompanySearchValue) return;
+  const input = $('company-search-input');
+  if (!input) return;
+  input.value = initialCompanySearchValue;
+  initialCompanySearchValue = '';
 }
 
 function escHtml(value) {
@@ -905,6 +919,7 @@ async function bootstrapCompanyRegistry() {
   bindCompanyTinMask();
   bindCompanyPhoneMask();
   bindCompanyValidationListeners();
+  applyInitialCompanySearchValue();
 
   $('company-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();

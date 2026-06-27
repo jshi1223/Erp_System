@@ -20,6 +20,11 @@ function isArchived(c: CompanyRegistry): boolean {
   return Number(c.archived) === 1 || c.archived === true;
 }
 
+function initialRegistrySearch(): string {
+  const params = new URLSearchParams(window.location.search || '');
+  return (params.get('q') || params.get('search') || '').trim();
+}
+
 interface CompanyForm {
   company_no: string;
   branch_code: string;
@@ -230,7 +235,7 @@ export function CompaniesTab() {
   const qc = useQueryClient();
   const { data: me } = useMe();
   const isStaff = me?.role === 'staff';
-  const [q, setQ] = useState('');
+  const [q, setQ] = useState(initialRegistrySearch);
   const [showArchived, setShowArchived] = useState(false);
   const [modal, setModal] = useState<{ open: boolean; company: CompanyRegistry | null }>({ open: false, company: null });
   const [overview, setOverview] = useState<CompanyRegistry | null>(null);

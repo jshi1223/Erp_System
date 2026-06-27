@@ -3404,6 +3404,7 @@ function renderRequisitions() {
             ${createRfqButton}
             ${emailRfqButton}
             <button class="btn btn-edit btn-sm" type="button" onclick="openRequisitionModal(${Number(row.id)})">${editLabel}</button>
+            ${isAdmin ? `<button class="btn btn-pdf btn-sm" type="button" onclick="openRecordHistory('purchase_requisition', ${Number(row.id)}, '${escHtml(String(row.pr_number || row.draft_pr_number || ('PR #' + Number(row.id))).replace(/'/g, ''))}')" title="View history">History</button>` : ''}
             ${deleteButton}
           </div>
         </td>
@@ -4336,6 +4337,7 @@ function renderPurchaseOrders() {
             ${billAction}
             <a class="btn btn-pdf btn-sm" href="/api/procurement/purchase-orders/${Number(row.id)}/pdf" target="_blank" rel="noopener">View PDF</a>
             <button class="btn btn-edit btn-sm" type="button" onclick="openPurchaseOrderModal(${Number(row.id)})">Edit</button>
+            ${isAdmin ? `<button class="btn btn-pdf btn-sm" type="button" onclick="openRecordHistory('purchase_order', ${Number(row.id)}, '${escHtml(String(row.po_number || ('PO #' + Number(row.id))).replace(/'/g, ''))}')" title="View history">History</button>` : ''}
             ${isAdmin ? `<button class="btn btn-cancel btn-sm" type="button" onclick="deletePurchaseOrder(${Number(row.id)})">Archive</button>` : ''}
           </div>
         </td>
@@ -4392,7 +4394,7 @@ function renderGoodsReceipts() {
         <div class="erp-actions" style="justify-content:center;">
           ${billButton}
           <button class="btn btn-edit btn-sm" type="button" onclick="openGoodsReceiptModal(${Number(row.id)})">Edit</button>
-          ${canDelete ? `<button class="btn btn-cancel btn-sm" type="button" onclick="deleteGoodsReceipt(${Number(row.id)})">Delete</button>` : ''}
+          ${canDelete ? `<button class="btn btn-cancel btn-sm" type="button" onclick="deleteGoodsReceipt(${Number(row.id)})">Archive</button>` : ''}
         </div>
       </td>
     </tr>`;

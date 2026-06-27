@@ -287,6 +287,10 @@ function renderLeads() {
     } else if (isWon && isAdminUser() && status === 'approved') {
       convertCell = `<button class="btn btn-add btn-xs" type="button" onclick="openConvertModal(${Number(row.id)})">Convert to Project</button>`;
     }
+    // Per-record audit timeline (admin only — the /api/audit endpoint is admin-gated).
+    const histTitle = String(row.lead_docno || ('Lead #' + Number(row.id))).replace(/'/g, '');
+    const historyBtn = isAdminUser()
+      ? `<button class="btn btn-pdf btn-xs" type="button" onclick="openRecordHistory('crm_lead', ${Number(row.id)}, '${escHtml(histTitle)}')" title="View history">History</button>` : '';
     return `
     <tr>
       <td><span class="crm-docno">${escHtml(row.lead_docno || '-')}</span></td>
@@ -298,9 +302,9 @@ function renderLeads() {
       <td>${escHtml(row.source || '-')}</td>
       <td>${escHtml(row.owner || '-')}</td>
       <td class="text-right crm-row-actions">
-        ${submitBtn}${approveBtn}${rejectBtn}${convertCell}
+        ${submitBtn}${approveBtn}${rejectBtn}${convertCell}${historyBtn}
         <button class="btn btn-edit btn-xs" type="button" onclick="editLead(${Number(row.id)})">Edit</button>
-        <button class="btn btn-cancel btn-xs" type="button" onclick="deleteLead(${Number(row.id)})">Delete</button>
+        <button class="btn btn-cancel btn-xs" type="button" onclick="deleteLead(${Number(row.id)})">Archive</button>
       </td>
     </tr>`;
   }).join('');
@@ -328,27 +332,61 @@ function renderContacts() {
       <td>${escHtml(row.phone || '-')}</td>
       <td class="text-right crm-row-actions">
         <button class="btn btn-edit btn-xs" type="button" onclick="editContact(${Number(row.id)})">Edit</button>
-        <button class="btn btn-cancel btn-xs" type="button" onclick="deleteContact(${Number(row.id)})">Delete</button>
+        <button class="btn btn-cancel btn-xs" type="button" onclick="deleteContact(${Number(row.id)})">Archive</button>
       </td>
     </tr>`).join('');
 }
 
 // ---------- lead modal ----------
+// Fill the Lead modal's Business Entity dropdown; defaults to the active workspace
+// (or the default entity when you're on "All Companies"). The chosen entity codes the Lead No.
+function populateLeadEntityOptions(selectedId) {
+  const sel = document.getElementById('lead-business-entity-id');
+  if (!sel) return;
+  sel.innerHTML = businessEntitiesDb
+    .map((e) => `<option value="${Number(e.id)}">${escHtml(e.company_name || ('Entity #' + e.id))}</option>`)
+    .join('');
+  let target = (selectedId != null && String(selectedId).trim()) ? String(selectedId) : '';
+  if (!target) {
+    const ctx = getCurrentBusinessEntityId();
+    target = (ctx && ctx !== 'all') ? ctx : getDefaultBusinessEntityId();
+  }
+  if (target) sel.value = String(target);
+}
+
+// Preview the next entity-coded Lead No for the selected Business Entity. Editing keeps its
+// assigned number; the server stamps the authoritative one on save.
+async function refreshLeadDocnoPreview() {
+  if (editingLeadId) return;
+  const docnoEl = document.getElementById('lead-docno');
+  const ent = String(document.getElementById('lead-business-entity-id')?.value || '').trim() || getWritableBusinessEntityId();
+  try {
+    const data = await fetchJson(`/api/crm/leads/next-docno?business_entity_id=${encodeURIComponent(ent)}`);
+    if (docnoEl) docnoEl.value = data.docno || '';
+  } catch (_) { /* leave blank — server assigns the real number */ }
+}
+
+// Lost Reason only applies to a lost lead — show/hide it as the Stage changes.
+function onLeadStageChange() {
+  const field = document.getElementById('lead-lost-reason-field');
+  if (!field) return;
+  const isLost = String(document.getElementById('lead-stage')?.value || '').toLowerCase() === 'lost';
+  field.hidden = !isLost;
+  if (!isLost) { const r = document.getElementById('lead-lost-reason'); if (r) r.value = ''; }
+}
+
 async function openLeadModal() {
   editingLeadId = null;
   document.getElementById('lead-modal-title').textContent = 'New Lead';
   document.getElementById('lead-form').reset();
   document.getElementById('lead-stage').value = 'new';
+  onLeadStageChange();
+  populateLeadEntityOptions();
   resetCompanyPicker('lead');
   const docnoEl = document.getElementById('lead-docno');
   if (docnoEl) docnoEl.value = '';
   openBackdrop('lead-modal');
-  // Preview the next entity-coded Lead No (the number stamped on save is authoritative).
-  try {
-    const ent = getWritableBusinessEntityId();
-    const data = await fetchJson(`/api/crm/leads/next-docno?business_entity_id=${encodeURIComponent(ent)}`);
-    if (docnoEl && !editingLeadId) docnoEl.value = data.docno || '';
-  } catch (_) { /* leave blank — server assigns the real number */ }
+  await refreshLeadDocnoPreview();
 }
 
 function editLead(id) {
@@ -358,6 +396,7 @@ function editLead(id) {
   document.getElementById('lead-modal-title').textContent = 'Edit Lead';
   document.getElementById('lead-docno').value = row.lead_docno || '';
   document.getElementById('lead-name').value = row.lead_name || '';
+  populateLeadEntityOptions(row.business_entity_id);
   document.getElementById('lead-company').value = row.company_name || '';
   document.getElementById('lead-company-id').value = row.company_id || '';
   document.getElementById('lead-company-results').hidden = true;
@@ -365,10 +404,15 @@ function editLead(id) {
   document.getElementById('lead-email').value = row.email || '';
   document.getElementById('lead-phone').value = row.phone || '';
   document.getElementById('lead-stage').value = String(row.stage || 'new').toLowerCase();
+  document.getElementById('lead-priority').value = String(row.priority || 'medium').toLowerCase();
   document.getElementById('lead-value').value = row.estimated_value != null ? row.estimated_value : '';
+  document.getElementById('lead-expected-close').value = row.expected_close_date ? String(row.expected_close_date).slice(0, 10) : '';
+  document.getElementById('lead-followup').value = row.next_follow_up_date ? String(row.next_follow_up_date).slice(0, 10) : '';
   document.getElementById('lead-source').value = row.source || '';
   document.getElementById('lead-owner').value = row.owner || '';
+  document.getElementById('lead-lost-reason').value = row.lost_reason || '';
   document.getElementById('lead-notes').value = row.notes || '';
+  onLeadStageChange();
   openBackdrop('lead-modal');
 }
 
@@ -377,7 +421,7 @@ function closeLeadModal() { closeBackdrop('lead-modal'); }
 async function saveLead(event) {
   event.preventDefault();
   const payload = {
-    business_entity_id: getWritableBusinessEntityId(),
+    business_entity_id: Number(document.getElementById('lead-business-entity-id')?.value) || getWritableBusinessEntityId(),
     lead_name: document.getElementById('lead-name').value.trim(),
     company_name: document.getElementById('lead-company').value.trim(),
     company_id: Number(document.getElementById('lead-company-id').value || 0) || null,
@@ -385,9 +429,13 @@ async function saveLead(event) {
     email: document.getElementById('lead-email').value.trim(),
     phone: document.getElementById('lead-phone').value.trim(),
     stage: document.getElementById('lead-stage').value,
+    priority: document.getElementById('lead-priority').value,
     estimated_value: Number(document.getElementById('lead-value').value || 0) || 0,
+    expected_close_date: document.getElementById('lead-expected-close').value || null,
+    next_follow_up_date: document.getElementById('lead-followup').value || null,
     source: document.getElementById('lead-source').value.trim(),
     owner: document.getElementById('lead-owner').value.trim(),
+    lost_reason: document.getElementById('lead-lost-reason').value.trim(),
     notes: document.getElementById('lead-notes').value.trim()
   };
   if (!payload.lead_name) { showCrmStatus('Lead name is required.', 'error'); return; }
@@ -407,13 +455,13 @@ async function saveLead(event) {
 }
 
 async function deleteLead(id) {
-  if (!window.confirm('Delete this lead? This cannot be undone.')) return;
+  if (!window.confirm('Archive this lead? Mapupunta ito sa Archive Center (hindi binubura).')) return;
   try {
     await fetchJson(`/api/crm/leads/${Number(id)}`, { method: 'DELETE' });
-    showCrmStatus('Lead deleted.');
+    showCrmStatus('Lead archived.');
     await loadCrm();
   } catch (err) {
-    showCrmStatus(err.message || 'Unable to delete lead.', 'error');
+    showCrmStatus(err.message || 'Unable to archive lead.', 'error');
   }
 }
 
@@ -544,13 +592,13 @@ async function saveContact(event) {
 }
 
 async function deleteContact(id) {
-  if (!window.confirm('Delete this contact? This cannot be undone.')) return;
+  if (!window.confirm('Archive this contact? Mapupunta ito sa Archive Center (hindi binubura).')) return;
   try {
     await fetchJson(`/api/crm/contacts/${Number(id)}`, { method: 'DELETE' });
-    showCrmStatus('Contact deleted.');
+    showCrmStatus('Contact archived.');
     await loadCrm();
   } catch (err) {
-    showCrmStatus(err.message || 'Unable to delete contact.', 'error');
+    showCrmStatus(err.message || 'Unable to archive contact.', 'error');
   }
 }
 

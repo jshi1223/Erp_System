@@ -25,7 +25,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadBusinessEntities();
   await loadInventory();
   if (isInventoryStaffRole()) await loadInventoryRequests();
+  applyInitialInventorySearch();
 });
+
+// Pre-fill a tab's search box from ?q= so global dashboard search links land filtered.
+function applyInitialInventorySearch() {
+  const q = String(new URLSearchParams(window.location.search || '').get('q') || new URLSearchParams(window.location.search || '').get('search') || '').trim();
+  if (!q) return;
+  const tab = getInitialInventoryTab();
+  const inputId = tab === 'units' ? 'units-search'
+    : tab === 'stock' ? 'inventory-search'
+    : tab === 'products' ? 'products-search'
+    : '';
+  const box = inputId ? document.getElementById(inputId) : null;
+  if (!box) return; // other tabs (e.g. warehouses) rely on the shared row highlighter instead
+  box.value = q;
+  if (tab === 'units') renderUnits(); else renderInventory();
+}
 
 function getInitialInventoryTab() {
   const params = new URLSearchParams(window.location.search || '');

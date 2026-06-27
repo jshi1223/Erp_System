@@ -156,6 +156,14 @@
       })();
     </script>
 
+    <!-- Global Search — staff see only their own non-official docs in modules they can open. -->
+    <div class="global-search" id="global-search">
+      <div class="global-search-box">
+        <input id="global-search-input" type="search" autocomplete="off" placeholder="🔍  Search your documents — PR, Project, Sales, Lead..." aria-label="Global search" />
+      </div>
+      <div class="global-search-results" id="global-search-results" hidden></div>
+    </div>
+
     <!-- Quick Actions for Staff -->
     <div class="dashboard-quick-actions" id="dashboard-quick-actions">
       <span class="dqa-label">Quick Actions</span>
@@ -874,13 +882,72 @@
 <!-- Toast Notification -->
 <div id="toast" class="">Hindi ma-load ang records: HTTP 401</div>
 
-
+<!-- Global dashboard search: type any document number/name → results → jump straight there. -->
+<style>
+  .global-search { position: relative; max-width: 460px; margin: 0 0 16px auto; }
+  /* Global search belongs to the dashboard only — every other panel/module has its own search bar. */
+  body.staff-page:not([data-dashboard-panel="home"]) #global-search { display: none !important; }
+  @media (max-width: 640px) { .global-search { max-width: 100%; margin: 0 0 16px; } }
+  .global-search-box { display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid var(--border, #e5d9d2); border-radius: 12px; padding: 10px 14px; box-shadow: 0 2px 10px rgba(0,0,0,0.04); }
+  .global-search-box:focus-within { border-color: var(--primary, #7a1f1f); box-shadow: 0 4px 18px rgba(122,31,31,0.12); }
+  #global-search-input { flex: 1; border: 0; outline: 0; font-size: 0.95rem; background: transparent; color: var(--text, #3a2c25); }
+  .global-search-results { position: absolute; left: 0; right: 0; top: calc(100% + 6px); background: #fff; border: 1px solid var(--border, #e5d9d2); border-radius: 12px; box-shadow: 0 16px 50px rgba(0,0,0,0.18); max-height: 420px; overflow-y: auto; z-index: 2000; padding: 6px; }
+  .gs-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; text-decoration: none; color: var(--text, #3a2c25); }
+  .gs-item:hover { background: var(--surface2, #f7f1ed); }
+  .gs-type { font-size: 0.64rem; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; color: var(--primary, #7a1f1f); background: #f3e6e2; border-radius: 6px; padding: 3px 8px; flex: none; min-width: 120px; text-align: center; }
+  .gs-label { font-weight: 700; }
+  .gs-draft { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: #475569; background: #eef2f7; border: 1px solid #d7dee8; border-radius: 999px; padding: 2px 8px; flex: none; }
+  .gs-archived { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: #6b7280; background: #f1f1ef; border: 1px solid #d8d6d1; border-radius: 999px; padding: 2px 8px; flex: none; }
+  .gs-pending { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: #b45309; background: #fff4e2; border: 1px solid #f6d9a8; border-radius: 999px; padding: 2px 8px; flex: none; }
+  .gs-sub { color: var(--muted, #8a7d75); font-size: 0.8rem; margin-left: auto; }
+  .gs-empty { padding: 16px; color: var(--muted, #8a7d75); font-style: italic; text-align: center; }
+</style>
+<script>
+  (function () {
+    var input = document.getElementById('global-search-input');
+    var box = document.getElementById('global-search-results');
+    var wrap = document.getElementById('global-search');
+    if (!input || !box || !wrap) return;
+    var timer = null, lastQ = '';
+    function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+    function hide() { box.hidden = true; box.innerHTML = ''; }
+    function render(results, q) {
+      if (!results || !results.length) { box.innerHTML = '<div class="gs-empty">Walang nahanap para sa &quot;' + esc(q) + '&quot;</div>'; box.hidden = false; return; }
+      box.innerHTML = results.map(function (r) {
+        return '<a class="gs-item" href="' + esc(r.url) + '">' +
+          '<span class="gs-type">' + esc(r.type) + '</span>' +
+          '<span class="gs-label">' + esc(r.label) + '</span>' +
+          (r.archived ? '<span class="gs-archived">Archived</span>' : (r.state === 'pending' ? '<span class="gs-pending">Pending</span>' : (r.state === 'draft' ? '<span class="gs-draft">Draft</span>' : ''))) +
+          (r.sub ? '<span class="gs-sub">' + esc(r.sub) + '</span>' : '') + '</a>';
+      }).join('');
+      box.hidden = false;
+    }
+    function run() {
+      var q = input.value.trim(); lastQ = q;
+      if (q.length < 2) { hide(); return; }
+      var ctx = '';
+      try { ctx = String(localStorage.getItem('kinaadman_businessEntityContext') || '').trim(); } catch (_) {}
+      var url = '/api/search?q=' + encodeURIComponent(q) + (ctx ? '&business_entity_id=' + encodeURIComponent(ctx) : '');
+      fetch(url, { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : { results: [] }; })
+        .then(function (d) { if (input.value.trim() === lastQ) render(d.results || [], q); })
+        .catch(function () {});
+    }
+    input.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(run, 220); });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { hide(); input.blur(); }
+      else if (e.key === 'Enter') { var first = box.querySelector('.gs-item'); if (first) window.location.href = first.getAttribute('href'); }
+    });
+    document.addEventListener('click', function (e) { if (!wrap.contains(e.target)) hide(); });
+  })();
+</script>
 
 <!-- Scripts -->
 <script src="/staff/js/staff-notifications.js?v=20260601b"></script>
 <script src="/staff/js/staff-dashboard-cards.js?v=20260601c"></script>
 <script src="/staff/js/staff-page.js?v=20260603statuspoll"></script>
 <script src="/admin/js/admin.js?v=20260611rev"></script>
+<script src="/assets/js/search-highlight.js?v=20260626gs"></script>
 
 
 

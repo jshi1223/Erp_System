@@ -8,11 +8,17 @@
   let approvalCenterPollBusy = false;
   let approvalCenterLastSignature = '';
   let approvalCenterLastCount = null;
+  let approvalSearchInitializedFromUrl = false;
   const APPROVAL_CENTER_POLL_MS = 30000;
 
   function approvalStatusPending(value) {
     const status = String(value || '').trim().toLowerCase();
     return ['pending', 'submitted', 'for_approval', 'for approval'].includes(status);
+  }
+
+  function isSalesDraftApprovalItem(row = {}) {
+    return /^DFT-/i.test(String(row.document_no || '').trim())
+      && ['draft', 'submitted', 'pending', 'for_approval', 'for approval'].includes(String(row.status || '').trim().toLowerCase());
   }
 
   function getApprovalDate(row, fields = []) {
@@ -324,18 +330,19 @@
       });
 
     (Array.isArray(salesRecords) ? salesRecords : [])
-      .filter(row => SALES_STAGE_LABELS[row.record_type] && approvalStatusPending(row.status))
+      .filter(row => SALES_STAGE_LABELS[row.record_type] && (approvalStatusPending(row.status) || isSalesDraftApprovalItem(row)))
       .forEach(row => {
         const stageLabel = SALES_STAGE_LABELS[row.record_type] || 'Sales Record';
+        const label = row.document_no || row.title || stageLabel;
         items.push(makeApprovalItem({
           raw: row,
           category: 'sales',
           type: stageLabel,
-          title: row.document_no || row.title || stageLabel,
+          title: label,
           requestedBy: row.company_name || row.project_name || row.contact_person || '-',
           date: getApprovalDate(row, ['requested_date', 'created_at', 'target_date']),
           status: row.status || 'submitted',
-          url: `/sales-management?tab=${row.record_type}`,
+          url: `/sales-management?tab=requests&q=${encodeURIComponent(label)}`,
           approveUrl: `/api/sales-management/records/${Number(row.id || 0)}/approve`,
           rejectUrl: `/api/sales-management/records/${Number(row.id || 0)}/reject`,
           timeline: buildApprovalTimeline(row, { created: 'Requested' }),
@@ -544,6 +551,16 @@
   function getApprovalSearchQuery() {
     currentApprovalSearch = String(document.getElementById('approval-center-search-input')?.value || '').trim().toLowerCase();
     return currentApprovalSearch;
+  }
+
+  function applyApprovalSearchFromUrlOnce() {
+    if (approvalSearchInitializedFromUrl) return;
+    approvalSearchInitializedFromUrl = true;
+    const input = document.getElementById('approval-center-search-input');
+    if (!input || String(input.value || '').trim()) return;
+    const params = new URLSearchParams(window.location.search || '');
+    const q = String(params.get('q') || params.get('search') || '').trim();
+    if (q) input.value = q;
   }
 
   function approvalItemMatchesSearch(item, query = getApprovalSearchQuery()) {
@@ -912,6 +929,7 @@
     };
     if (subtitle) subtitle.textContent = subtitleMap[currentApprovalFilter] || subtitleMap.all;
 
+    applyApprovalSearchFromUrlOnce();
     const query = getApprovalSearchQuery();
     const visibleItems = items
       .map((item, index) => ({ ...item, index }))

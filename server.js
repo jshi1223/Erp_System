@@ -3358,6 +3358,14 @@ function initApp() {
       db.query(`ALTER TABLE sales_management_records ADD COLUMN IF NOT EXISTS source_po_id integer NULL`, (alterErr) => {
         if (alterErr) console.error('Sales records source_po_id migration error:', alterErr);
       });
+      // Archive-only policy: records are soft-archived (never hard-deleted) so they appear in
+      // the Archive Center and stay searchable. archived_at records when it was archived.
+      db.query(`ALTER TABLE sales_management_records ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT FALSE`, (alterErr) => {
+        if (alterErr) console.error('Sales records archived migration error:', alterErr);
+      });
+      db.query(`ALTER TABLE sales_management_records ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP NULL`, (alterErr) => {
+        if (alterErr) console.error('Sales records archived_at migration error:', alterErr);
+      });
       // Project-centric flow migration: the legacy 'proposal-request' (Projects)
       // and 'service-order' sales record types were removed. Soft-archive any
       // existing rows (status -> cancelled) so they drop out of the active
@@ -3653,6 +3661,29 @@ function initApp() {
   });
   db.query(`ALTER TABLE system_logs ADD COLUMN IF NOT EXISTS ip_address VARCHAR(50) NULL`, (err) => {
     if (err) console.error('System logs ip migration error:', err);
+  });
+  // Audit-trail enrichment: link each log to the record it touched (entity_type + entity_id),
+  // scope it to a workspace, capture WHAT changed (before → after), and flag its severity.
+  db.query(`ALTER TABLE system_logs ADD COLUMN IF NOT EXISTS entity_type VARCHAR(50) NULL`, (err) => {
+    if (err) console.error('System logs entity_type migration error:', err);
+  });
+  db.query(`ALTER TABLE system_logs ADD COLUMN IF NOT EXISTS entity_id INTEGER NULL`, (err) => {
+    if (err) console.error('System logs entity_id migration error:', err);
+  });
+  db.query(`ALTER TABLE system_logs ADD COLUMN IF NOT EXISTS business_entity_id INTEGER NULL`, (err) => {
+    if (err) console.error('System logs business_entity_id migration error:', err);
+  });
+  db.query(`ALTER TABLE system_logs ADD COLUMN IF NOT EXISTS changed_fields TEXT NULL`, (err) => {
+    if (err) console.error('System logs changed_fields migration error:', err);
+  });
+  db.query(`ALTER TABLE system_logs ADD COLUMN IF NOT EXISTS severity VARCHAR(20) NOT NULL DEFAULT 'info'`, (err) => {
+    if (err) console.error('System logs severity migration error:', err);
+  });
+  db.query(`CREATE INDEX IF NOT EXISTS idx_system_logs_entity ON system_logs (entity_type, entity_id)`, (err) => {
+    if (err) console.error('System logs entity index error:', err);
+  });
+  db.query(`CREATE INDEX IF NOT EXISTS idx_system_logs_created_at ON system_logs (created_at DESC)`, (err) => {
+    if (err) console.error('System logs created_at index error:', err);
   });
 
   // Migration for projects members
@@ -4387,7 +4418,38 @@ function inferAuditModule(action = '') {
   return 'system';
 }
 
-function logAction(req, action, details, moduleName = '') {
+// Audit value formatter — shows ∅ for empty and trims very long values so a log line stays readable.
+function auditVal(v) {
+  if (v == null || v === '') return '∅';
+  const s = String(v);
+  return s.length > 80 ? `${s.slice(0, 77)}…` : s;
+}
+
+// Normalize a change set into a human-readable "field: from → to; ..." string. Accepts either an
+// array of { field, from, to }, an object map { field: [from, to] } / { field: { from, to } },
+// or an already-formatted string.
+function formatAuditChanges(changes) {
+  if (!changes) return '';
+  if (typeof changes === 'string') return changes.trim();
+  let list = changes;
+  if (!Array.isArray(list)) {
+    list = Object.keys(list).map((k) => {
+      const v = list[k];
+      const pair = Array.isArray(v) ? { from: v[0], to: v[1] } : (v || {});
+      return { field: k, from: pair.from, to: pair.to };
+    });
+  }
+  return list
+    .filter((c) => c && c.field)
+    .map((c) => `${c.field}: ${auditVal(c.from)} → ${auditVal(c.to)}`)
+    .join('; ');
+}
+
+// logAction(req, action, details, moduleName?, meta?)
+//   meta = { entityType, entityId, businessEntityId, changes, severity }
+// `changes` records WHAT changed (before → after); the rest links the log to a specific record +
+// workspace and flags severity. All optional — legacy 4-arg calls keep working unchanged.
+function logAction(req, action, details, moduleName = '', meta = {}) {
   const actor = getAuthenticatedUser(req);
   const userId = actor ? actor.id : null;
   const auditModule = String(moduleName || inferAuditModule(action) || '').trim().toLowerCase() || null;
@@ -4396,9 +4458,19 @@ function logAction(req, action, details, moduleName = '') {
     ? String(actor.fullname || actor.username || `User #${actor.id || ''}`).trim()
     : 'System';
   const actorRole = formatAccessRoleLabel(actor?.role || 'user');
-  const auditDetails = `[Actor: ${actorName} | Role: ${actorRole}] ${String(details || '').trim()}`.trim();
-  const sql = 'INSERT INTO system_logs (user_id, module, action, details, ip_address) VALUES (?, ?, ?, ?, ?)';
-  const params = [userId, auditModule, action, auditDetails, clientIp];
+  const m = meta || {};
+  const changedFields = formatAuditChanges(m.changes) || null;
+  const severity = ['info', 'warning', 'critical'].includes(String(m.severity || '').toLowerCase())
+    ? String(m.severity).toLowerCase() : 'info';
+  const entityType = String(m.entityType || '').trim().toLowerCase() || null;
+  const entityId = Number(m.entityId) > 0 ? Number(m.entityId) : null;
+  const businessEntityId = Number(m.businessEntityId) > 0 ? Number(m.businessEntityId) : null;
+  const baseDetails = String(details || '').trim();
+  // Echo the diff into details too, so the existing System Logs UI shows it without UI changes.
+  const fullDetails = changedFields ? `${baseDetails}${baseDetails ? ' — ' : ''}Changes: ${changedFields}` : baseDetails;
+  const auditDetails = `[Actor: ${actorName} | Role: ${actorRole}] ${fullDetails}`.trim();
+  const sql = 'INSERT INTO system_logs (user_id, module, action, details, ip_address, entity_type, entity_id, business_entity_id, changed_fields, severity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+  const params = [userId, auditModule, action, auditDetails, clientIp, entityType, entityId, businessEntityId, changedFields, severity];
   const insertLog = (hasRetried = false) => {
     db.query(sql, params, (err) => {
       if (!err) return;
@@ -4413,6 +4485,19 @@ function logAction(req, action, details, moduleName = '') {
     });
   };
   insertLog();
+}
+
+// Audit a rejected sign-in attempt. No authenticated actor yet, so the attempted username is the
+// key forensic detail. A lockout is flagged 'critical'; a plain miss is 'warning'.
+function auditLoginFailure(req, username, lockState, reason) {
+  const locked = !!(lockState && lockState.locked);
+  const remaining = lockState && typeof lockState.attemptsRemaining === 'number' ? lockState.attemptsRemaining : null;
+  const tail = locked
+    ? ' — account temporarily locked'
+    : (remaining != null ? ` — ${remaining} attempt(s) left` : '');
+  logAction(req, locked ? 'LOGIN_LOCKED' : 'LOGIN_FAILED',
+    `Failed login for "${String(username || '').trim() || '(blank)'}"${reason ? ` — ${reason}` : ''}${tail}`,
+    'auth', { severity: locked ? 'critical' : 'warning' });
 }
 
 function getApprovalComment(req) {
@@ -7941,6 +8026,7 @@ app.post('/login', loginRateLimiter, async (req, res) => {
 
     if (rows.length === 0) {
       const lockState = registerLoginFailure(req, username);
+      auditLoginFailure(req, username, lockState, 'no matching account');
       if (lockState.locked) {
         res.setHeader('Retry-After', String(lockState.retryAfter));
         return res.status(429).json({
@@ -7998,6 +8084,7 @@ app.post('/login', loginRateLimiter, async (req, res) => {
 
     if (!passwordMatch) {
       const lockState = registerLoginFailure(req, username);
+      auditLoginFailure(req, username, lockState, 'wrong password');
       if (lockState.locked) {
         res.setHeader('Retry-After', String(lockState.retryAfter));
         return res.status(429).json({
@@ -8791,20 +8878,87 @@ app.get('/api/archive-center', protectAdmin, async (req, res) => {
           search: joinArchiveCenterText(row.invoice_number, row.project_docno, row.customer_name, row.status)
         };
       })
-    ].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || String(a.type || '').localeCompare(String(b.type || '')));
+    ];
 
-    res.json({
-      counts: {
-        projects: projectRows.length,
-        companies: companyRows.length,
-        receivables: receivableRows.length
-      },
-      rows
-    });
+    // Additional archived sources (procurement, AP, sales, CRM). Each query is best-effort:
+    // a missing table/column just yields no rows for that type (never breaks the page).
+    const safeArchiveQuery = async (sql) => { try { return await queryAsync(sql); } catch (_) { return []; } };
+    const extraSources = [
+      { type: 'Purchase Requisition', key: 'purchase-requisition', party: () => 'Procurement', sql: "SELECT id, COALESCE(pr_number, draft_pr_number, 'PR #'||id) AS label, status, archived_at AS dt, created_at FROM purchase_requisitions WHERE COALESCE(archived,FALSE)=TRUE ORDER BY COALESCE(archived_at, created_at) DESC, id DESC" },
+      { type: 'Purchase Order', key: 'purchase-order', party: () => 'Procurement', sql: "SELECT id, COALESCE(po_number, draft_po_number, 'PO #'||id) AS label, status, archived_at AS dt, created_at FROM purchase_orders WHERE COALESCE(archived,FALSE)=TRUE ORDER BY COALESCE(archived_at, created_at) DESC, id DESC" },
+      { type: 'Goods Receipt', key: 'goods-receipt', party: () => 'Procurement', sql: "SELECT id, grn_number AS label, status, archived_at AS dt, created_at FROM goods_receipts WHERE COALESCE(archived,FALSE)=TRUE ORDER BY COALESCE(archived_at, created_at) DESC, id DESC" },
+      { type: 'RFQ / Quotation', key: 'quotation', party: () => 'Procurement', sql: "SELECT id, COALESCE(quote_number, draft_quote_number, 'RFQ #'||id) AS label, status, archived_at AS dt, created_at FROM procurement_quotations WHERE COALESCE(archived,FALSE)=TRUE ORDER BY COALESCE(archived_at, created_at) DESC, id DESC" },
+      { type: 'AP Bill', key: 'ap-bill', party: () => 'Accounts Payable', sql: "SELECT id, COALESCE(bill_number, draft_bill_number, invoice_number, 'BILL #'||id) AS label, status, archived_at AS dt, created_at FROM accounts_payable WHERE COALESCE(archived,FALSE)=TRUE ORDER BY COALESCE(archived_at, created_at) DESC, id DESC" },
+      { type: 'Sales', key: 'sales', party: () => 'Sales Management', sql: "SELECT id, document_no AS label, status, archived_at AS dt, created_at FROM sales_management_records WHERE COALESCE(archived,FALSE)=TRUE ORDER BY COALESCE(archived_at, created_at) DESC, id DESC" },
+      { type: 'Lead', key: 'lead', party: (r) => r.company_name || 'CRM', sql: "SELECT id, COALESCE(lead_docno, lead_name, 'Lead #'||id) AS label, approval_status AS status, updated_at AS dt, created_at, company_name FROM crm_leads WHERE COALESCE(archived,FALSE)=TRUE ORDER BY COALESCE(updated_at, created_at) DESC, id DESC" },
+      { type: 'Contact', key: 'contact', party: (r) => r.company_name || 'CRM', sql: "SELECT id, contact_name AS label, 'archived' AS status, updated_at AS dt, created_at, company_name FROM crm_contacts WHERE COALESCE(archived,FALSE)=TRUE ORDER BY COALESCE(updated_at, created_at) DESC, id DESC" }
+    ];
+    for (const src of extraSources) {
+      const srcRows = await safeArchiveQuery(src.sql);
+      for (const r of (srcRows || [])) {
+        rows.push({
+          type: src.type,
+          type_key: src.key,
+          key: `${src.key}:${Number(r.id || 0)}`,
+          id: Number(r.id || 0),
+          restore_url: `/api/archive-center/restore/${src.key}/${Number(r.id || 0)}`,
+          title: String(r.label || `${src.type} #${r.id}`),
+          party: String(src.party(r) || '-'),
+          status: String(r.status || 'archived'),
+          date: formatArchiveCenterDate(r.dt, r.created_at),
+          search: joinArchiveCenterText(r.label, src.party(r), r.status)
+        });
+      }
+    }
+
+    rows.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || String(a.type || '').localeCompare(String(b.type || '')));
+
+    // Dynamic counts keyed by type_key — the frontend builds tabs from these.
+    const counts = {};
+    for (const r of rows) counts[r.type_key] = (counts[r.type_key] || 0) + 1;
+
+    res.json({ counts, rows });
   } catch (err) {
     console.error('Archive center error:', err);
     res.status(500).json({ error: err.message || 'Unable to load archive center.' });
   }
+});
+
+// Generic restore-from-archive for the archive-only sources (whitelisted table + flag column).
+app.put('/api/archive-center/restore/:type/:id', protectAdminOnly, async (req, res) => {
+  const RESTORE_MAP = {
+    'purchase-requisition': { table: 'purchase_requisitions', flag: 'archived' },
+    'purchase-order': { table: 'purchase_orders', flag: 'archived' },
+    'goods-receipt': { table: 'goods_receipts', flag: 'archived' },
+    'quotation': { table: 'procurement_quotations', flag: 'archived' },
+    'ap-bill': { table: 'accounts_payable', flag: 'archived' },
+    'sales': { table: 'sales_management_records', flag: 'archived' },
+    'lead': { table: 'crm_leads', flag: 'archived' },
+    'contact': { table: 'crm_contacts', flag: 'archived' }
+  };
+  const cfg = RESTORE_MAP[String(req.params.type || '').toLowerCase()];
+  const id = Number(req.params.id || 0) || 0;
+  if (!cfg || !id) return res.status(400).json({ error: 'Invalid archive restore target.' });
+  try {
+    await queryAsync(`UPDATE ${cfg.table} SET ${cfg.flag} = FALSE WHERE id = ?`, [id]);
+    logAction(req, 'RESTORE_FROM_ARCHIVE', `Restored ${req.params.type} #${id} from archive`, 'system', { entityId: id });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Archive restore error:', err);
+    res.status(500).json({ error: err.message || 'Unable to restore record.' });
+  }
+});
+
+// Dashboard reminders — due-date driven counts: overdue AR invoices, AP bills due within 7 days,
+// and CRM follow-ups due today/overdue. Best-effort per source so a missing column never 500s.
+app.get('/api/alerts', protectAdmin, async (req, res) => {
+  const one = async (sql) => { try { const r = await queryAsync(sql); return Number(r?.[0]?.n || 0); } catch (_) { return 0; } };
+  const [overdueAr, apDueSoon, crmFollowups] = await Promise.all([
+    one("SELECT COUNT(*)::int AS n FROM accounts_receivable WHERE COALESCE(archived,FALSE)=FALSE AND due_date IS NOT NULL AND due_date < CURRENT_DATE AND (COALESCE(total_amount,0) - COALESCE(paid_amount,0)) > 0.005 AND LOWER(COALESCE(status,'')) NOT IN ('paid','cancelled','void')"),
+    one("SELECT COUNT(*)::int AS n FROM accounts_payable WHERE due_date IS NOT NULL AND due_date <= CURRENT_DATE + INTERVAL '7 days' AND (COALESCE(total_amount,0) - COALESCE(paid_amount,0)) > 0.005 AND LOWER(COALESCE(status,'')) NOT IN ('paid','cancelled','void')"),
+    one("SELECT COUNT(*)::int AS n FROM crm_leads WHERE COALESCE(archived,FALSE)=FALSE AND next_follow_up_date IS NOT NULL AND next_follow_up_date <= CURRENT_DATE AND LOWER(COALESCE(stage,'')) NOT IN ('won','lost')")
+  ]);
+  res.json({ overdue_ar: overdueAr, ap_due_soon: apDueSoon, crm_followups: crmFollowups });
 });
 
 // ==================== EDIT TRANSACTION (PUT) ====================
@@ -9283,9 +9437,10 @@ async function createReceivableFromDeliveryRecord(connection, record, req) {
 // Auto-advances the flow after a record is created/updated:
 //   * keeps a still-draft downstream copy in sync with headline fields;
 //   * when the current stage reaches its advance status, auto-creates the
-//     next-stage draft (idempotent via source_record_id);
+//     next-stage record (idempotent via source_record_id);
 //   * when a Delivery Receipt is delivered/completed, auto-creates the AR invoice.
-// New rows are created as 'draft', so they never re-trigger an advance (no loops).
+// Staff-created downstream rows stay as DFT drafts for approval; admin-created
+// downstream rows are official/approved immediately.
 async function advanceSalesRecordFlow(connection, recordId, req) {
   const record = await loadSalesRecordWithContext(connection, recordId);
   if (!record) return;
@@ -9321,16 +9476,26 @@ async function advanceSalesRecordFlow(connection, recordId, req) {
 
   const businessEntityId = await resolveSalesRecordBusinessEntityId(record, connection);
   const seqMeta = getSalesDocumentSequenceMeta(nextType);
-  // The next stage is created as a DRAFT awaiting its own (manual) approval, so it
-  // gets a DFT- draft number; approving it later converts that to an official one.
-  const documentNo = await generateNextDraftEntityDocumentNo({
-    businessEntityId,
-    documentType: seqMeta.documentType,
-    prefix: seqMeta.prefix,
-    tableName: 'sales_management_records',
-    columnName: 'document_no',
-    dbClient: connection
-  });
+  const actor = getAuthenticatedUser(req) || {};
+  const actorIsStaff = isStaffRole(actor.role);
+  const documentNo = actorIsStaff
+    ? await generateNextDraftEntityDocumentNo({
+        businessEntityId,
+        documentType: seqMeta.documentType,
+        prefix: seqMeta.prefix,
+        tableName: 'sales_management_records',
+        columnName: 'document_no',
+        dbClient: connection
+      })
+    : await generateNextEntityDocumentNo({
+        businessEntityId,
+        documentType: seqMeta.documentType,
+        prefix: seqMeta.prefix,
+        tableName: 'sales_management_records',
+        columnName: 'document_no',
+        dbClient: connection
+      });
+  const nextStatus = actorIsStaff ? 'draft' : 'approved';
   const insertRes = await queryDbAsync(connection, `
     INSERT INTO sales_management_records (
       record_type, document_no, business_entity_id, company_id, project_id, source_record_id,
@@ -9338,7 +9503,7 @@ async function advanceSalesRecordFlow(connection, recordId, req) {
       title, description, requested_date, target_date, amount, status, contact_person,
       payment_terms, notes, created_by
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     nextType,
     documentNo,
@@ -9355,6 +9520,7 @@ async function advanceSalesRecordFlow(connection, recordId, req) {
     getManilaYmd(),
     null,
     Math.max(0, Number(record.amount || 0) || 0),
+    nextStatus,
     record.contact_person || null,
     record.payment_terms || null,
     `Auto-created from ${SALES_RECORD_TYPES[type].label} ${record.document_no || ''}`.trim(),
@@ -11877,6 +12043,32 @@ app.get('/api/admin/logs', protectSuperAdmin, (req, res) => {
       return res.status(500).json({ error: err.message });
     }
     res.json(rows);
+  });
+});
+
+// Per-record audit timeline — every log row touching one record (entity_type + entity_id),
+// newest first. Powers the shared "Record History" modal. Admin + super-admin only.
+app.get('/api/audit', protectAdminOnly, (req, res) => {
+  const entityType = String(req.query.entity_type || '').trim().toLowerCase();
+  const entityId = Number(req.query.entity_id || 0) || 0;
+  if (!entityType || !entityId) return res.json({ entries: [] });
+  const limit = Math.max(1, Math.min(200, Number(req.query.limit || 100) || 100));
+  db.query(`
+    SELECT
+      l.id, l.module, l.action, l.details, l.changed_fields, l.severity,
+      l.ip_address, l.created_at,
+      u.fullname, u.username, COALESCE(u.role, 'system') AS user_role
+    FROM system_logs l
+    LEFT JOIN users u ON u.id = l.user_id
+    WHERE LOWER(COALESCE(l.entity_type, '')) = ? AND l.entity_id = ?
+    ORDER BY l.created_at DESC, l.id DESC
+    LIMIT ?
+  `, [entityType, entityId, limit], (err, rows) => {
+    if (err) {
+      console.error('Audit history error:', err);
+      return res.status(500).json({ error: err.message });
+    }
+    res.json({ entries: rows || [] });
   });
 });
 

@@ -140,7 +140,7 @@ module.exports = function createPaymentsRouter(deps) {
       }
       await postApprovedPaymentJournal(paymentId);
 
-      logAction(req, 'APPROVE_PAYMENT', appendApprovalComment(`Approved ${payment.payment_type || 'payment'} payment ID ${paymentId}`, comment));
+      logAction(req, 'APPROVE_PAYMENT', appendApprovalComment(`Approved ${payment.payment_type || 'payment'} payment ID ${paymentId}`, comment), 'finance', { entityType: 'payment', entityId: paymentId, businessEntityId: payment.business_entity_id, changes: [{ field: 'approval_status', from: payment.approval_status, to: 'approved' }] });
       sendBackgroundNotification(() => notifyFinanceApproval(req, 'payment', paymentId, {
         approvedBy: getApprovalActorLabel(req)
       }), 'payment approved email');
@@ -174,7 +174,7 @@ module.exports = function createPaymentsRouter(deps) {
       );
       if (Number(payment.ap_id || 0)) await syncPayableBalance(payment.ap_id);
       if (Number(payment.ar_id || 0)) await syncReceivableBalance(payment.ar_id);
-      logAction(req, 'REJECT_PAYMENT', `Rejected ${payment.payment_type || 'payment'} payment ID ${paymentId} | Reason: ${reason}`);
+      logAction(req, 'REJECT_PAYMENT', `Rejected ${payment.payment_type || 'payment'} payment ID ${paymentId} | Reason: ${reason}`, 'finance', { entityType: 'payment', entityId: paymentId, businessEntityId: payment.business_entity_id, severity: 'warning', changes: [{ field: 'approval_status', from: payment.approval_status, to: 'rejected' }] });
       sendBackgroundNotification(() => notifyFinanceApproval(req, 'payment', paymentId, {
         decision: 'rejected',
         reason,

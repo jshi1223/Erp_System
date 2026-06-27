@@ -7,6 +7,25 @@ const express = require('express');
 const { queryAsync, isPostgresUniqueViolation } = require('../../database');
 const { protectAdmin, protectAdminOnly, getAuthenticatedUser, isStaffRole } = require('../../middleware/auth');
 
+// Before→after change set for the audit trail (numbers numerically, Dates as YYYY-MM-DD, else strings).
+const auditDiff = (oldVals, newVals) => {
+  const disp = (v) => (v == null ? '' : (v instanceof Date ? v.toISOString().slice(0, 10) : v));
+  const same = (a, b) => {
+    const na = disp(a), nb = disp(b);
+    if (String(na).trim() === '' && String(nb).trim() === '') return true;
+    const fa = Number(na), fb = Number(nb);
+    if (Number.isFinite(fa) && Number.isFinite(fb) && String(na).trim() !== '' && String(nb).trim() !== '') return fa === fb;
+    return String(na) === String(nb);
+  };
+  const changes = [];
+  Object.keys(newVals).forEach((f) => {
+    if (!same(oldVals ? oldVals[f] : undefined, newVals[f])) {
+      changes.push({ field: f, from: disp(oldVals ? oldVals[f] : undefined), to: disp(newVals[f]) });
+    }
+  });
+  return changes;
+};
+
 module.exports = function createSalesManagementRouter(deps) {
   const {
     SALES_RECORD_TYPES,
@@ -39,8 +58,13 @@ module.exports = function createSalesManagementRouter(deps) {
 
   router.get('/api/sales-management/records', protectAdmin, async (req, res) => {
     const recordType = normalizeSalesRecordType(req.query.type);
-    const where = recordType ? 'WHERE smr.record_type = ?' : '';
-    const params = recordType ? [recordType] : [];
+    // Archive-only policy: hide archived records from the active list unless explicitly asked.
+    const includeArchived = String(req.query.include_archived || '') === '1';
+    const clauses = [];
+    const params = [];
+    if (!includeArchived) clauses.push('COALESCE(smr.archived, FALSE) = FALSE');
+    if (recordType) { clauses.push('smr.record_type = ?'); params.push(recordType); }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
 
     try {
       const rows = await queryAsync(`
@@ -126,6 +150,8 @@ module.exports = function createSalesManagementRouter(deps) {
       const actorIsStaff = isStaffRole(actor.role);
       if (actorIsStaff && !['draft', 'submitted'].includes(payload.status)) {
         payload.status = 'draft';
+      } else if (!actorIsStaff && ['draft', 'submitted', 'in_review'].includes(payload.status)) {
+        payload.status = payload.recordType === 'project-delivery' ? 'delivered' : 'approved';
       }
       const created = await withDbTransaction(async (connection) => {
         // Guard: one source advances to exactly one next-stage doc. Block creating a duplicate
@@ -210,7 +236,7 @@ module.exports = function createSalesManagementRouter(deps) {
         ]);
         return rows[0] || { success: true, document_no: documentNo };
       });
-      logAction(req, 'CREATE_SALES_RECORD', `Created ${SALES_RECORD_TYPES[payload.recordType].label}: ${created.document_no || 'sales record'}`, 'sales');
+      logAction(req, 'CREATE_SALES_RECORD', `Created ${SALES_RECORD_TYPES[payload.recordType].label}: ${created.document_no || 'sales record'}`, 'sales', { entityType: 'sales_record', entityId: created.id, businessEntityId: created.business_entity_id });
       res.status(201).json(created);
     } catch (err) {
       console.error('Create sales record error:', err);
@@ -223,7 +249,7 @@ module.exports = function createSalesManagementRouter(deps) {
     if (!recordId) return res.status(400).json({ error: 'Invalid sales record ID.' });
 
     try {
-      const existing = await queryAsync('SELECT id, record_type, document_no FROM sales_management_records WHERE id = ? LIMIT 1', [recordId]);
+      const existing = await queryAsync('SELECT id, record_type, document_no, status, amount, quantity, unit_price, title FROM sales_management_records WHERE id = ? LIMIT 1', [recordId]);
       if (!existing.length) return res.status(404).json({ error: 'Sales record not found.' });
       const payload = normalizeSalesRecordPayload(req.body, existing[0].record_type);
       validateSalesRecordStageRequirements(payload);
@@ -297,7 +323,12 @@ module.exports = function createSalesManagementRouter(deps) {
         await advanceSalesRecordFlow(connection, recordId, req);
         return rows[0] || { success: true };
       });
-      logAction(req, 'UPDATE_SALES_RECORD', `Updated sales record ${existing[0].document_no}`, 'sales');
+      const newRow = (updated && updated.id) ? updated : null;
+      const salesChanges = newRow ? auditDiff(
+        { status: existing[0].status, amount: existing[0].amount, quantity: existing[0].quantity, unit_price: existing[0].unit_price, title: existing[0].title },
+        { status: newRow.status, amount: newRow.amount, quantity: newRow.quantity, unit_price: newRow.unit_price, title: newRow.title }
+      ) : [];
+      logAction(req, 'UPDATE_SALES_RECORD', `Updated sales record ${existing[0].document_no}`, 'sales', { entityType: 'sales_record', entityId: recordId, businessEntityId: newRow ? newRow.business_entity_id : undefined, changes: salesChanges });
       res.json(updated);
     } catch (err) {
       console.error('Update sales record error:', err);
@@ -348,7 +379,7 @@ module.exports = function createSalesManagementRouter(deps) {
         });
       }
 
-      logAction(req, 'GENERATE_INVOICE', `Generated invoice ${result.invoice_number} from delivery ${record.document_no}`, 'finance');
+      logAction(req, 'GENERATE_INVOICE', `Generated invoice ${result.invoice_number} from delivery ${record.document_no}`, 'finance', { entityType: 'ar_invoice', entityId: result.id, businessEntityId: record.business_entity_id });
       res.status(201).json({
         id: result.id,
         invoice_number: result.invoice_number,
@@ -375,10 +406,11 @@ module.exports = function createSalesManagementRouter(deps) {
       if (!rows.length) return res.status(404).json({ error: 'Sales record not found.' });
       const record = rows[0];
       const currentStatus = normalizeSalesRecordStatus(record.status);
-      if (currentStatus === 'approved') {
+      const approvedDraftDoc = currentStatus === 'approved' && isDraftDocumentNo(record.document_no);
+      if (currentStatus === 'approved' && !approvedDraftDoc) {
         return res.json({ success: true, status: 'approved', document_no: record.document_no, alreadyApproved: true });
       }
-      if (!['draft', 'submitted', 'in_review'].includes(currentStatus)) {
+      if (!approvedDraftDoc && !['draft', 'submitted', 'in_review'].includes(currentStatus)) {
         return res.status(400).json({ error: 'Only submitted sales requests can be approved.' });
       }
 
@@ -413,7 +445,7 @@ module.exports = function createSalesManagementRouter(deps) {
         const result = await queryDbAsync(connection, 'SELECT * FROM sales_management_records WHERE id = ? LIMIT 1', [recordId]);
         return result[0] || { success: true, status: 'approved', document_no: officialNo };
       });
-      logAction(req, 'APPROVE_SALES_RECORD', appendApprovalComment(`Approved ${SALES_RECORD_TYPES[record.record_type]?.label || 'sales record'} ${updated.document_no || recordId} (Draft ${record.document_no || '-'}) | Approved by ${approvedBy}`, comment), 'sales');
+      logAction(req, 'APPROVE_SALES_RECORD', appendApprovalComment(`Approved ${SALES_RECORD_TYPES[record.record_type]?.label || 'sales record'} ${updated.document_no || recordId} (Draft ${record.document_no || '-'}) | Approved by ${approvedBy}`, comment), 'sales', { entityType: 'sales_record', entityId: recordId, businessEntityId: record.business_entity_id, changes: [{ field: 'status', from: record.status, to: 'approved' }] });
       res.json({ success: true, status: 'approved', document_no: updated.document_no, approved_by: approvedBy });
     } catch (err) {
       console.error('Approve sales record error:', err);
@@ -437,7 +469,7 @@ module.exports = function createSalesManagementRouter(deps) {
       }
       const revisedNotes = [`Rejected: ${reason}`, String(rows[0].notes || '').trim()].filter(Boolean).join('\n');
       await queryAsync("UPDATE sales_management_records SET status = 'draft', notes = ?, updated_at = NOW() WHERE id = ?", [revisedNotes, recordId]);
-      logAction(req, 'REJECT_SALES_RECORD', `Rejected sales record ${rows[0].document_no} | Reason: ${reason}`, 'sales');
+      logAction(req, 'REJECT_SALES_RECORD', `Rejected sales record ${rows[0].document_no} | Reason: ${reason}`, 'sales', { entityType: 'sales_record', entityId: recordId, severity: 'warning', changes: [{ field: 'status', from: rows[0].status, to: 'draft' }] });
       res.json({ success: true, status: 'draft', reason });
     } catch (err) {
       console.error('Reject sales record error:', err);
@@ -456,9 +488,10 @@ module.exports = function createSalesManagementRouter(deps) {
           await queryDbAsync(connection, "UPDATE sales_management_records SET status = 'cancelled' WHERE id = ?", [recordId]);
           await syncSalesRecordInventory(recordId, req, connection);
         }
-        return queryDbAsync(connection, 'DELETE FROM sales_management_records WHERE id = ?', [recordId]);
+        // Archive-only policy: soft-archive instead of hard delete so it lands in the Archive Center.
+        return queryDbAsync(connection, 'UPDATE sales_management_records SET archived = TRUE, archived_at = NOW(), updated_at = NOW() WHERE id = ?', [recordId]);
       });
-      logAction(req, 'DELETE_SALES_RECORD', `Deleted sales record ${rows[0]?.document_no || recordId}`, 'sales');
+      logAction(req, 'ARCHIVE_SALES_RECORD', `Archived sales record ${rows[0]?.document_no || recordId}`, 'sales', { entityType: 'sales_record', entityId: recordId, businessEntityId: rows[0]?.business_entity_id, severity: 'warning' });
       res.json({ success: true, affectedRows: result.affectedRows || 0 });
     } catch (err) {
       console.error('Delete sales record error:', err);

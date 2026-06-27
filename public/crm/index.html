@@ -186,6 +186,10 @@
             <label>Lead Name <span class="field-label-status is-required">Required</span></label>
             <input id="lead-name" required placeholder="e.g. CCTV upgrade — ABC Corp" />
           </div>
+          <div class="field full">
+            <label>Business Entity <span class="field-label-status is-required">Required</span></label>
+            <select id="lead-business-entity-id" onchange="refreshLeadDocnoPreview()"></select>
+          </div>
           <div class="field">
             <label>Company <span class="field-label-status is-optional">From master data</span></label>
             <div class="crm-company-search" data-company-prefix="lead">
@@ -209,7 +213,7 @@
           </div>
           <div class="field">
             <label>Stage <span class="field-label-status is-required">Required</span></label>
-            <select id="lead-stage">
+            <select id="lead-stage" onchange="onLeadStageChange()">
               <option value="new">New</option>
               <option value="qualified">Qualified</option>
               <option value="proposal">Proposal</option>
@@ -218,8 +222,24 @@
             </select>
           </div>
           <div class="field">
+            <label>Priority <span class="field-label-status is-optional">Optional</span></label>
+            <select id="lead-priority">
+              <option value="low">Low</option>
+              <option value="medium" selected>Medium</option>
+              <option value="high">High</option>
+            </select>
+          </div>
+          <div class="field">
             <label>Estimated Value <span class="field-label-status is-optional">Optional</span></label>
             <input id="lead-value" type="number" step="0.01" min="0" placeholder="0.00" />
+          </div>
+          <div class="field">
+            <label>Expected Close Date <span class="field-label-status is-optional">Optional</span></label>
+            <input id="lead-expected-close" type="date" />
+          </div>
+          <div class="field">
+            <label>Next Follow-up <span class="field-label-status is-optional">Optional</span></label>
+            <input id="lead-followup" type="date" />
           </div>
           <div class="field">
             <label>Source <span class="field-label-status is-optional">Optional</span></label>
@@ -228,6 +248,17 @@
           <div class="field">
             <label>Owner <span class="field-label-status is-optional">Optional</span></label>
             <input id="lead-owner" placeholder="Assigned to" />
+          </div>
+          <div class="field full" id="lead-lost-reason-field" hidden>
+            <label>Lost Reason <span class="field-label-status is-optional">Why was it lost?</span></label>
+            <input id="lead-lost-reason" list="crm-lost-reason-list" placeholder="Budget, competitor, no response..." />
+            <datalist id="crm-lost-reason-list">
+              <option value="Budget"></option>
+              <option value="Competitor"></option>
+              <option value="No response"></option>
+              <option value="Timing"></option>
+              <option value="Not qualified"></option>
+            </datalist>
           </div>
           <div class="field full">
             <label>Notes <span class="field-label-status is-optional">Optional</span></label>
@@ -338,5 +369,7 @@
   <div id="crm-status" class="crm-status" role="status" aria-live="polite"></div>
 
   <script src="/crm/crm.js?v=20260623approval"></script>
+  <script src="/assets/js/search-highlight.js?v=20260626gs"></script>
+  <script src="/assets/js/record-history.js?v=20260627rh"></script>
 </body>
 </html>

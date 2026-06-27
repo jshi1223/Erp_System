@@ -165,7 +165,7 @@ module.exports = function createVendorsRouter(deps) {
         [vendorId]
       );
       const vendor = rows[0] || existingRows[0];
-      logAction(req, 'UPDATE_VENDOR', `Updated vendor ${vendor.vendor_no || `ID ${vendorId}`} | ${vendorName}`);
+      logAction(req, 'UPDATE_VENDOR', `Updated vendor ${vendor.vendor_no || `ID ${vendorId}`} | ${vendorName}`, 'company', { entityType: 'vendor', entityId: vendorId });
       res.json({
         id: vendorId,
         company_id: Number(vendor.company_id || 0) || null,

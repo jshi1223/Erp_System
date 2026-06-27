@@ -17,6 +17,32 @@ const toNullableInt = (value) => {
   const n = Number(value || 0);
   return Number.isFinite(n) && n > 0 ? n : null;
 };
+const LEAD_PRIORITIES = ['low', 'medium', 'high'];
+const normalizePriority = (value) => {
+  const v = String(value || '').trim().toLowerCase();
+  return LEAD_PRIORITIES.includes(v) ? v : 'medium';
+};
+// <input type="date"> sends 'YYYY-MM-DD' (Postgres DATE accepts it); blank → NULL.
+const toNullableDate = (value) => (String(value || '').trim() || null);
+
+// Build a before→after change set (only fields that actually differ) for the audit trail.
+// Numbers compare numerically, Dates by their YYYY-MM-DD, everything else as trimmed strings.
+const auditDiff = (oldRow, newVals) => {
+  const disp = (v) => (v == null ? '' : (v instanceof Date ? v.toISOString().slice(0, 10) : v));
+  const same = (a, b) => {
+    const na = disp(a), nb = disp(b);
+    if (String(na).trim() === '' && String(nb).trim() === '') return true;
+    const fa = Number(na), fb = Number(nb);
+    if (Number.isFinite(fa) && Number.isFinite(fb) && String(na).trim() !== '' && String(nb).trim() !== '') return fa === fb;
+    return String(na) === String(nb);
+  };
+  const changes = [];
+  Object.keys(newVals).forEach((f) => {
+    const from = oldRow ? oldRow[f] : undefined;
+    if (!same(from, newVals[f])) changes.push({ field: f, from: disp(from), to: disp(newVals[f]) });
+  });
+  return changes;
+};
 
 module.exports = function createCrmRouter(deps) {
   const { resolveBusinessEntityId, logAction, generateNextProjectDocnoAsync, getBusinessEntitySequenceCode } = deps || {};
@@ -83,6 +109,11 @@ module.exports = function createCrmRouter(deps) {
         SET lead_docno = 'LEAD-' || n.code || '-' || n.yr || '-' || LPAD(n.rn::text, 3, '0')
         FROM numbered n
         WHERE t.id = n.id`).catch(() => {});
+      // Pipeline fields: expected close + next follow-up dates, priority, and (when lost) the reason.
+      await queryAsync('ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS expected_close_date DATE').catch(() => {});
+      await queryAsync('ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS next_follow_up_date DATE').catch(() => {});
+      await queryAsync("ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS priority VARCHAR(20) NOT NULL DEFAULT 'medium'").catch(() => {});
+      await queryAsync('ALTER TABLE crm_leads ADD COLUMN IF NOT EXISTS lost_reason TEXT').catch(() => {});
       console.log('✅ Table "crm_leads" / "crm_contacts" ready');
     } catch (err) {
       console.error('CRM schema init error:', err && err.message);
@@ -239,17 +270,23 @@ module.exports = function createCrmRouter(deps) {
       const actorIsStaff = isStaffRole((getAuthenticatedUser(req) || {}).role);
       const approvalStatus = actorIsStaff ? 'draft' : 'approved';
       const leadDocno = await generateNextLeadDocno(businessEntityId);
+      const stage = normalizeStage(b.stage);
+      // Lost reason only makes sense for a lost lead — drop it otherwise so stale text never lingers.
+      const lostReason = stage === 'lost' ? (String(b.lost_reason || '').trim() || null) : null;
       const result = await queryAsync(
         `INSERT INTO crm_leads
-          (business_entity_id, lead_docno, lead_name, company_id, company_name, contact_name, email, phone, source, stage, estimated_value, owner, notes, approval_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+          (business_entity_id, lead_docno, lead_name, company_id, company_name, contact_name, email, phone, source, stage, estimated_value, owner, notes, expected_close_date, next_follow_up_date, priority, lost_reason, approval_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
         [businessEntityId || null, leadDocno, leadName, toNullableInt(b.company_id), String(b.company_name || '').trim() || null,
           String(b.contact_name || '').trim() || null, String(b.email || '').trim() || null,
           String(b.phone || '').trim() || null, String(b.source || '').trim() || null,
-          normalizeStage(b.stage), Number(b.estimated_value || 0) || 0,
-          String(b.owner || '').trim() || null, String(b.notes || '').trim() || null, approvalStatus]);
-      if (typeof logAction === 'function') logAction(req, 'CREATE_CRM_LEAD', `Created lead ${leadDocno} — ${leadName}${actorIsStaff ? ' (draft)' : ''}`);
-      res.json({ id: result?.[0]?.id || result?.insertId, lead_docno: leadDocno, lead_name: leadName, approval_status: approvalStatus });
+          stage, Number(b.estimated_value || 0) || 0,
+          String(b.owner || '').trim() || null, String(b.notes || '').trim() || null,
+          toNullableDate(b.expected_close_date), toNullableDate(b.next_follow_up_date), normalizePriority(b.priority), lostReason,
+          approvalStatus]);
+      const newLeadId = result?.[0]?.id || result?.insertId;
+      if (typeof logAction === 'function') logAction(req, 'CREATE_CRM_LEAD', `Created lead ${leadDocno} — ${leadName}${actorIsStaff ? ' (draft)' : ''}`, 'crm', { entityType: 'crm_lead', entityId: newLeadId, businessEntityId });
+      res.json({ id: newLeadId, lead_docno: leadDocno, lead_name: leadName, approval_status: approvalStatus });
     } catch (err) {
       console.error('CRM lead create error:', err && err.message);
       res.status(500).json({ error: 'Unable to save lead.' });
@@ -263,16 +300,38 @@ module.exports = function createCrmRouter(deps) {
       const b = req.body || {};
       const leadName = String(b.lead_name || '').trim();
       if (!leadName) return res.status(400).json({ error: 'Lead name is required.' });
+      const stage = normalizeStage(b.stage);
+      const lostReason = stage === 'lost' ? (String(b.lost_reason || '').trim() || null) : null;
+      // Snapshot the row first so the audit log can record exactly what changed (before → after).
+      const oldRow = (await queryAsync('SELECT * FROM crm_leads WHERE id = ?', [id]))?.[0] || null;
+      const newVals = {
+        lead_name: leadName,
+        company_id: toNullableInt(b.company_id),
+        company_name: String(b.company_name || '').trim() || null,
+        contact_name: String(b.contact_name || '').trim() || null,
+        email: String(b.email || '').trim() || null,
+        phone: String(b.phone || '').trim() || null,
+        source: String(b.source || '').trim() || null,
+        stage,
+        estimated_value: Number(b.estimated_value || 0) || 0,
+        owner: String(b.owner || '').trim() || null,
+        notes: String(b.notes || '').trim() || null,
+        expected_close_date: toNullableDate(b.expected_close_date),
+        next_follow_up_date: toNullableDate(b.next_follow_up_date),
+        priority: normalizePriority(b.priority),
+        lost_reason: lostReason
+      };
       await queryAsync(
         `UPDATE crm_leads SET lead_name = ?, company_id = ?, company_name = ?, contact_name = ?, email = ?,
-           phone = ?, source = ?, stage = ?, estimated_value = ?, owner = ?, notes = ?, updated_at = NOW()
+           phone = ?, source = ?, stage = ?, estimated_value = ?, owner = ?, notes = ?,
+           expected_close_date = ?, next_follow_up_date = ?, priority = ?, lost_reason = ?, updated_at = NOW()
          WHERE id = ?`,
-        [leadName, toNullableInt(b.company_id), String(b.company_name || '').trim() || null,
-          String(b.contact_name || '').trim() || null, String(b.email || '').trim() || null,
-          String(b.phone || '').trim() || null, String(b.source || '').trim() || null,
-          normalizeStage(b.stage), Number(b.estimated_value || 0) || 0,
-          String(b.owner || '').trim() || null, String(b.notes || '').trim() || null, id]);
-      if (typeof logAction === 'function') logAction(req, 'UPDATE_CRM_LEAD', `Updated lead ${leadName}`);
+        [newVals.lead_name, newVals.company_id, newVals.company_name, newVals.contact_name, newVals.email,
+          newVals.phone, newVals.source, newVals.stage, newVals.estimated_value, newVals.owner, newVals.notes,
+          newVals.expected_close_date, newVals.next_follow_up_date, newVals.priority, newVals.lost_reason,
+          id]);
+      const changes = auditDiff(oldRow, newVals);
+      if (typeof logAction === 'function') logAction(req, 'UPDATE_CRM_LEAD', `Updated lead ${oldRow?.lead_docno || leadName}`, 'crm', { entityType: 'crm_lead', entityId: id, businessEntityId: oldRow?.business_entity_id, changes });
       res.json({ id, lead_name: leadName });
     } catch (err) {
       console.error('CRM lead update error:', err && err.message);
@@ -388,7 +447,12 @@ module.exports = function createCrmRouter(deps) {
   router.post('/api/crm/leads/:id/archive', protectAdmin, async (req, res) => {
     try {
       const id = Number(req.params.id || 0) || 0;
+      const before = (await queryAsync('SELECT lead_docno, archived, business_entity_id FROM crm_leads WHERE id = ?', [id]))?.[0] || null;
       await queryAsync('UPDATE crm_leads SET archived = NOT archived, updated_at = NOW() WHERE id = ?', [id]);
+      const nowArchived = before ? !before.archived : true;
+      if (typeof logAction === 'function') logAction(req, nowArchived ? 'ARCHIVE_CRM_LEAD' : 'RESTORE_CRM_LEAD',
+        `${nowArchived ? 'Archived' : 'Restored'} lead ${before?.lead_docno || ('#' + id)}`,
+        'crm', { entityType: 'crm_lead', entityId: id, businessEntityId: before?.business_entity_id, severity: 'warning' });
       res.json({ id });
     } catch (err) {
       res.status(500).json({ error: 'Unable to archive lead.' });
@@ -398,8 +462,12 @@ module.exports = function createCrmRouter(deps) {
   router.delete('/api/crm/leads/:id', protectAdmin, async (req, res) => {
     try {
       const id = Number(req.params.id || 0) || 0;
-      await queryAsync('DELETE FROM crm_leads WHERE id = ?', [id]);
-      if (typeof logAction === 'function') logAction(req, 'DELETE_CRM_LEAD', `Deleted lead #${id}`);
+      const victim = (await queryAsync('SELECT lead_docno, lead_name, business_entity_id FROM crm_leads WHERE id = ?', [id]))?.[0] || null;
+      // Archive-only policy: never hard-delete — soft-archive so it lands in the Archive Center.
+      await queryAsync('UPDATE crm_leads SET archived = TRUE, updated_at = NOW() WHERE id = ?', [id]);
+      if (typeof logAction === 'function') logAction(req, 'ARCHIVE_CRM_LEAD',
+        `Archived lead ${victim?.lead_docno || ('#' + id)}${victim?.lead_name ? ' — ' + victim.lead_name : ''}`,
+        'crm', { entityType: 'crm_lead', entityId: id, businessEntityId: victim?.business_entity_id, severity: 'warning' });
       res.json({ id });
     } catch (err) {
       res.status(500).json({ error: 'Unable to delete lead.' });
@@ -467,8 +535,9 @@ module.exports = function createCrmRouter(deps) {
   router.delete('/api/crm/contacts/:id', protectAdmin, async (req, res) => {
     try {
       const id = Number(req.params.id || 0) || 0;
-      await queryAsync('DELETE FROM crm_contacts WHERE id = ?', [id]);
-      if (typeof logAction === 'function') logAction(req, 'DELETE_CRM_CONTACT', `Deleted contact #${id}`);
+      // Archive-only policy: never hard-delete — soft-archive so it lands in the Archive Center.
+      await queryAsync('UPDATE crm_contacts SET archived = TRUE, updated_at = NOW() WHERE id = ?', [id]);
+      if (typeof logAction === 'function') logAction(req, 'ARCHIVE_CRM_CONTACT', `Archived contact #${id}`, 'crm', { entityType: 'crm_contact', entityId: id, severity: 'warning' });
       res.json({ id });
     } catch (err) {
       res.status(500).json({ error: 'Unable to delete contact.' });

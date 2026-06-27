@@ -435,6 +435,7 @@
           <div class="search-wrap top-search-bar module-toolbar-search">
             <input id="project-records-search-input" type="text" placeholder="Search project title, number, company, or linked record..." oninput="renderProjectWorkspace()">
           </div>
+          <button class="btn btn-pdf btn-sm" type="button" onclick="openProjectProfitability()" title="Revenue, cost, at margin kada project">Profitability</button>
           <button class="btn btn-add btn-sm" type="button" onclick="openProjectModal()">Add Project</button>
         </div>
       </div>
@@ -735,34 +736,8 @@
         </div>
       </div>
       <div class="section-divider">Archive Center</div>
-      <div class="stats dashboard-stats archive-summary-grid">
-        <div class="stat-card stat-card-primary">
-          <div class="stat-label">Archived Projects</div>
-          <div class="stat-val" id="archive-count-projects">0</div>
-          <div class="stat-mini">Hidden project records</div>
-        </div>
-        <div class="stat-card stat-card-company">
-          <div class="stat-label">Archived Companies</div>
-          <div class="stat-val" id="archive-count-companies">0</div>
-          <div class="stat-mini">Company registry records</div>
-        </div>
-        <div class="stat-card stat-card-accent">
-          <div class="stat-label">Archived AR</div>
-          <div class="stat-val gold" id="archive-count-receivables">0</div>
-          <div class="stat-mini">Receivable records</div>
-        </div>
-      </div>
-      <div class="module-tabs archive-center-tabs" role="tablist" aria-label="Archive Center categories">
-        <button class="module-tab archive-center-tab active" type="button" data-archive-center-tab="project" onclick="setArchiveCenterTab('project')" aria-selected="true">
-          Projects <span class="archive-tab-count" id="archive-tab-count-projects">0</span>
-        </button>
-        <button class="module-tab archive-center-tab" type="button" data-archive-center-tab="company" onclick="setArchiveCenterTab('company')" aria-selected="false">
-          Companies <span class="archive-tab-count" id="archive-tab-count-companies">0</span>
-        </button>
-        <button class="module-tab archive-center-tab" type="button" data-archive-center-tab="receivable" onclick="setArchiveCenterTab('receivable')" aria-selected="false">
-          AR <span class="archive-tab-count" id="archive-tab-count-receivables">0</span>
-        </button>
-      </div>
+      <!-- Tabs built dynamically from whatever is archived (All + one tab per type). See renderArchiveCenterTabs(). -->
+      <div class="module-tabs archive-center-tabs" id="archive-center-tabs" role="tablist" aria-label="Archive Center categories"></div>
       <div class="table-wrap archive-center-wrap">
         <table class="project-records-table">
           <thead>
@@ -782,6 +757,19 @@
   </main>
 
 </div><!-- Dashboard -->
+
+<!-- PROJECT PROFITABILITY MODAL — per-project revenue/cost/margin rollup (reuses the ledger calc) -->
+<div class="modal-backdrop" id="project-profitability-modal-backdrop" style="display:none;" onclick="if(event.target===this)closeProjectProfitability()">
+  <div class="modal" style="max-width: 1080px; max-height: 90vh;">
+    <div class="modal-header">
+      <div class="modal-title">Project Profitability</div>
+      <button class="modal-close" onclick="closeProjectProfitability()" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body" id="project-profitability-body">
+      <div class="empty-row" style="padding:24px;text-align:center;">Loading…</div>
+    </div>
+  </div>
+</div>
 
 <!-- NEW PROJECT STATS MODAL -->
 <div class="modal-backdrop" id="project-stats-modal-backdrop" style="display:none;">
@@ -1777,6 +1765,8 @@
 <script src="/admin/js/modules/notifications.module.js?v=20260531a"></script>
 <script src="/admin/js/admin.js?v=20260621arch"></script>
 <script src="/admin/js/modules/approval-center.module.js?v=20260611rev"></script>
+<script src="/assets/js/search-highlight.js?v=20260626gs"></script>
+<script src="/assets/js/record-history.js?v=20260627rh"></script>
 
 <!-- CRM dashboard card: live count (isolated from admin.js; updates by element id). -->
 <script>
@@ -1808,6 +1798,8 @@
 <!-- Global dashboard search: type any document number/name → results → jump straight there. -->
 <style>
   .global-search { position: relative; max-width: 460px; margin: 0 0 16px auto; }
+  /* Global search belongs to the dashboard only — every other panel/module has its own search bar. */
+  body.admin-page:not([data-dashboard-panel="home"]) #global-search { display: none !important; }
   @media (max-width: 640px) { .global-search { max-width: 100%; margin: 0 0 16px; } }
   .global-search-box { display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid var(--border, #e5d9d2); border-radius: 12px; padding: 10px 14px; box-shadow: 0 2px 10px rgba(0,0,0,0.04); }
   .global-search-box:focus-within { border-color: var(--primary, #7a1f1f); box-shadow: 0 4px 18px rgba(122,31,31,0.12); }
@@ -1820,6 +1812,7 @@
   .gs-type { font-size: 0.64rem; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; color: var(--primary, #7a1f1f); background: #f3e6e2; border-radius: 6px; padding: 3px 8px; flex: none; min-width: 120px; text-align: center; }
   .gs-label { font-weight: 700; }
   .gs-draft { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: #475569; background: #eef2f7; border: 1px solid #d7dee8; border-radius: 999px; padding: 2px 8px; flex: none; }
+  .gs-archived { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: #6b7280; background: #f1f1ef; border: 1px solid #d8d6d1; border-radius: 999px; padding: 2px 8px; flex: none; }
   .gs-pending { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: #b45309; background: #fff4e2; border: 1px solid #f6d9a8; border-radius: 999px; padding: 2px 8px; flex: none; }
   .gs-sub { color: var(--muted, #8a7d75); font-size: 0.8rem; margin-left: auto; }
   .gs-empty { padding: 16px; color: var(--muted, #8a7d75); font-style: italic; text-align: center; }
@@ -1839,7 +1832,7 @@
         return '<a class="gs-item" href="' + esc(r.url) + '">' +
           '<span class="gs-type">' + esc(r.type) + '</span>' +
           '<span class="gs-label">' + esc(r.label) + '</span>' +
-          (r.state === 'pending' ? '<span class="gs-pending">Pending</span>' : (r.state === 'draft' ? '<span class="gs-draft">Draft</span>' : '')) +
+          (r.archived ? '<span class="gs-archived">Archived</span>' : (r.state === 'pending' ? '<span class="gs-pending">Pending</span>' : (r.state === 'draft' ? '<span class="gs-draft">Draft</span>' : ''))) +
           (r.sub ? '<span class="gs-sub">' + esc(r.sub) + '</span>' : '') + '</a>';
       }).join('');
       box.hidden = false;

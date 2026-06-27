@@ -77,6 +77,7 @@ let purchaseOrders = [];
 let deliverySerialUnits = [];
 let activeSalesTab = getInitialSalesTab();
 let editingSalesRecordId = null;
+let initialSalesSearchValue = getInitialSalesSearchValue();
 
 document.addEventListener('DOMContentLoaded', () => {
   bindSalesEvents();
@@ -93,6 +94,11 @@ function getInitialSalesTab() {
   }
   if (tab === 'requests') return 'requests';
   return SALES_TYPES[tab] && !SALES_TYPES[tab].isVirtual ? tab : 'sales-request';
+}
+
+function getInitialSalesSearchValue() {
+  const params = new URLSearchParams(window.location.search || '');
+  return String(params.get('q') || params.get('search') || '').trim();
 }
 
 function bindSalesEvents() {
@@ -233,6 +239,7 @@ function renderSalesToolbarControls(tab) {
       </div>
       <button class="btn btn-add btn-sm" type="button" onclick="openSalesModal()">${escHtml(btnLabel)}</button>
     `;
+    applyInitialSalesSearchValue();
     return;
   }
 
@@ -249,6 +256,7 @@ function renderSalesToolbarControls(tab) {
       <div class="search-wrap top-search-bar module-toolbar-search">
         <input id="sales-search" type="text" placeholder="${escAttr(placeholder)}" oninput="renderSalesRecords()" />
       </div>`;
+    applyInitialSalesSearchValue();
     return;
   }
 
@@ -258,6 +266,15 @@ function renderSalesToolbarControls(tab) {
     </div>
     <button class="btn btn-add btn-sm" type="button" onclick="openSalesModal()">Add ${escHtml(label)}</button>
   `;
+  applyInitialSalesSearchValue();
+}
+
+function applyInitialSalesSearchValue() {
+  if (!initialSalesSearchValue) return;
+  const input = document.getElementById('sales-search');
+  if (!input) return;
+  input.value = initialSalesSearchValue;
+  initialSalesSearchValue = '';
 }
 
 function getSalesStageConfig(recordType = activeSalesTab) {
@@ -558,8 +575,9 @@ function renderSalesRow(row, options = {}) {
           ${showPromote ? renderPromoteButton(row) : ''}
           ${renderInvoiceButton(row)}
           ${renderApproveButton(row, isRequestsTab)}
+          ${!isSalesStaffView() ? `<button class="btn btn-cancel btn-sm" type="button" onclick="openRecordHistory('sales_record', ${Number(row.id)}, '${escHtml(String(row.document_no || ('Sales #' + Number(row.id))).replace(/'/g, ''))}')" title="View history">History</button>` : ''}
           <button class="btn btn-cancel btn-sm" type="button" onclick="editSalesRecord(${Number(row.id)})">Edit</button>
-          <button class="btn btn-danger btn-sm" type="button" onclick="deleteSalesRecord(${Number(row.id)})">Delete</button>
+          <button class="btn btn-danger btn-sm" type="button" onclick="deleteSalesRecord(${Number(row.id)})">Archive</button>
         </div>
       </td>
     </tr>
@@ -580,17 +598,17 @@ function renderApproveButton(row, isRequestsTab) {
 async function approveSalesRecord(id) {
   const record = salesRecords.find((row) => Number(row.id || 0) === Number(id || 0));
   if (!record) return;
-  const res = await fetch(`/api/sales-management/records/${Number(id)}`, {
-    method: 'PUT',
+  const res = await fetch(`/api/sales-management/records/${Number(id)}/approve`, {
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...record, status: 'approved' })
+    body: JSON.stringify({})
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     showToast(data.error || 'Unable to approve record.', 'error');
     return;
   }
-  showToast(`${record.document_no || 'Record'} approved.`, 'success');
+  showToast(`${data.document_no || record.document_no || 'Record'} approved.`, 'success');
   await loadSalesRecords();
   renderSalesRecords();
 }
@@ -1363,14 +1381,14 @@ async function deleteSalesRecord(id) {
   const record = salesRecords.find((row) => Number(row.id || 0) === Number(id || 0));
   if (!record) return;
   const confirmed = typeof showConfirm === 'function'
-    ? await showConfirm(`Delete ${record.document_no || 'this sales record'}?\n\nThis action cannot be undone.`, { title: 'Delete Record', confirmLabel: 'Delete', type: 'danger' })
-    : confirm(`Delete ${record.document_no || 'this sales record'}?`);
+    ? await showConfirm(`Archive ${record.document_no || 'this sales record'}?\n\nMapupunta ito sa Archive Center (hindi binubura).`, { title: 'Archive Record', confirmLabel: 'Archive', type: 'danger' })
+    : confirm(`Archive ${record.document_no || 'this sales record'}?`);
   if (!confirmed) return;
 
   const res = await fetch(`/api/sales-management/records/${Number(id)}`, { method: 'DELETE' });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    alert(data.error || 'Unable to delete sales record.');
+    alert(data.error || 'Unable to archive sales record.');
     return;
   }
   await loadSalesRecords();

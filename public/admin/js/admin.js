@@ -392,6 +392,7 @@ function applyInitialAdminView(user) {
   if (requestedPanel === 'project-records') {
     currentProjectWorkspaceTab = normalizeProjectWorkspaceTab(requestedTab || rememberedProjectWorkspaceTab || currentProjectWorkspaceTab);
     openDashboardPanel('project-records');
+    syncProjectWorkspaceSearchFromUrl();
     return;
   }
 
@@ -1670,6 +1671,9 @@ function renderProjectMasterTable() {
               ? `<span class="status-pill status-${isSubmitted ? 'submitted' : 'draft'}" title="${isSubmitted ? 'Waiting for admin approval' : 'Draft project, submit when ready'}">${isSubmitted ? 'For Approval' : 'Draft'}</span>`
               : `<button class="btn btn-sm btn-add" type="button" onclick="openProjectRequisition(${Number(project.id)})">Add PR</button><button class="btn btn-sm btn-add" type="button" onclick="openProjectSalesInquiry(${Number(project.id)})">Add SI</button>`}
             <button class="btn btn-sm btn-pdf" type="button" onclick="openProjectPdfViewer(${Number(project.id)})">View PDF</button>
+            ${isAdminUser()
+              ? `<button class="btn btn-sm btn-pdf" type="button" onclick="openRecordHistory('project', ${Number(project.id)}, '${escHtml(String(project.project_docno || project.draft_docno || ('Project #' + Number(project.id))).replace(/'/g, ''))}')" title="View history">History</button>`
+              : ''}
             ${isAdminUser()
               ? (isArchived
                 ? `<button class="btn btn-sm btn-restore" type="button" onclick="toggleProjectArchive(${Number(project.id)}, false)" title="Restore Project">Restore</button>`
@@ -3138,6 +3142,76 @@ async function loadProjectLedgerPage(projectId) {
   }
 }
 
+// Portfolio profitability — runs the SAME per-project ledger calc (AR revenue vs AP+inventory cost)
+// across ALL active projects so you can see margins at a glance. Reuses fetchProjectLedgerData +
+// buildProjectLedgerSnapshot so the numbers exactly match each project's Overview ("tama sa flow").
+async function openProjectProfitability() {
+  const backdrop = document.getElementById('project-profitability-modal-backdrop');
+  const body = document.getElementById('project-profitability-body');
+  if (!backdrop || !body) return;
+  body.innerHTML = '<div class="empty-row" style="padding:24px;text-align:center;">Loading profitability…</div>';
+  backdrop.style.display = 'flex';
+  backdrop.classList.add('open');
+  document.body.style.overflow = 'hidden';
+  try {
+    if (!Array.isArray(projectsDashboardDb) || !projectsDashboardDb.length) await loadProjectsDashboardData();
+    const data = await fetchProjectLedgerData();
+    const projects = (projectsDashboardDb || []).filter((p) => Number(p.is_archived) !== 1 && p.is_archived !== true);
+    const rows = projects.map((p) => {
+      const t = buildProjectLedgerSnapshot(p, data).totals;
+      const revenue = Number(t.arTotal || 0) || Number(t.contractAmount || 0);
+      const cost = Number(t.apTotal || 0) + Number(t.inventoryCostTotal || 0);
+      const profit = revenue - cost;
+      const margin = revenue > 0 ? Math.round((profit / revenue) * 100) : 0;
+      const label = [p.project_docno || p.draft_docno, p.project_name].map((v) => String(v || '').trim()).filter(Boolean).join(' - ') || `Project #${Number(p.id)}`;
+      return { id: Number(p.id), label, company: getProjectCompanyName(p) || '-', revenue, cost, profit, margin };
+    }).sort((a, b) => b.profit - a.profit);
+
+    const totRevenue = rows.reduce((s, r) => s + r.revenue, 0);
+    const totCost = rows.reduce((s, r) => s + r.cost, 0);
+    const totProfit = totRevenue - totCost;
+    const avgMargin = totRevenue > 0 ? Math.round((totProfit / totRevenue) * 100) : 0;
+    const profitable = rows.filter((r) => r.profit >= 0).length;
+    const losing = rows.length - profitable;
+    const tone = (v) => (v >= 0 ? '#166534' : '#b91c1c');
+
+    body.innerHTML = `
+      <div class="stats dashboard-stats" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px;">
+        <div class="stat-card stat-card-accent"><div class="stat-label">Total Revenue</div><div class="stat-val">${formatPhpCurrency(totRevenue)}</div><div class="stat-mini">AR billed / contract</div></div>
+        <div class="stat-card stat-card-warning"><div class="stat-label">Total Cost</div><div class="stat-val">${formatPhpCurrency(totCost)}</div><div class="stat-mini">AP bills + inventory</div></div>
+        <div class="stat-card stat-card-primary"><div class="stat-label">Gross Profit</div><div class="stat-val" style="color:${tone(totProfit)};">${formatPhpCurrency(totProfit)}</div><div class="stat-mini">Revenue − Cost</div></div>
+        <div class="stat-card stat-card-company"><div class="stat-label">Avg Margin</div><div class="stat-val">${avgMargin}%</div><div class="stat-mini">${profitable} profit • ${losing} loss</div></div>
+      </div>
+      <div class="table-wrap" style="max-height:50vh;overflow:auto;">
+        <table class="project-records-table">
+          <thead><tr><th>Project</th><th>Company</th><th class="text-right">Revenue</th><th class="text-right">Cost</th><th class="text-right">Gross Profit</th><th class="text-right">Margin</th></tr></thead>
+          <tbody>
+            ${rows.length ? rows.map((r) => `
+              <tr style="cursor:pointer;" onclick="closeProjectProfitability(); openProjectLedger(${r.id});" title="Buksan ang project overview">
+                <td><strong>${escHtml(r.label)}</strong></td>
+                <td>${escHtml(r.company)}</td>
+                <td class="text-right">${formatPhpCurrency(r.revenue)}</td>
+                <td class="text-right">${formatPhpCurrency(r.cost)}</td>
+                <td class="text-right" style="font-weight:700;color:${tone(r.profit)};">${formatPhpCurrency(r.profit)}</td>
+                <td class="text-right" style="font-weight:700;color:${tone(r.profit)};">${r.margin}%</td>
+              </tr>`).join('') : '<tr class="empty-row"><td colspan="6" style="text-align:center;padding:18px;">No active projects yet.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+      <div style="font-size:.72rem;color:var(--muted);margin-top:10px;">Revenue = AR billed (o project budget kung wala pang AR). Cost = AP bills + inventory cost. Hindi kasama ang drafts/cancelled. Pindutin ang row para sa detalyadong overview.</div>
+    `;
+  } catch (err) {
+    console.error('Project profitability error:', err);
+    body.innerHTML = `<div class="empty-row" style="padding:24px;text-align:center;">${escHtml(err.message || 'Unable to load profitability.')}</div>`;
+  }
+}
+
+function closeProjectProfitability() {
+  const backdrop = document.getElementById('project-profitability-modal-backdrop');
+  if (backdrop) { backdrop.style.display = 'none'; backdrop.classList.remove('open'); }
+  document.body.style.overflow = '';
+}
+
 async function openProjectLedger(projectId) {
   const id = Number(projectId || 0);
   const project = (Array.isArray(projectsDashboardDb) ? projectsDashboardDb : [])
@@ -4138,7 +4212,7 @@ let currentDashboardCompany = normalizeDashboardCompanyName(localStorage.getItem
 let logsDb = [];
 let notificationsDb = [];
 let archiveCenterDb = [];
-let archiveCenterActiveTab = 'project';
+let archiveCenterActiveTab = 'all';
 let invoiceStatusView = 'paid';
 let dashboardBarRange = 6;
 let currentDashboardPanel = 'home';
@@ -4957,6 +5031,19 @@ function computeProjectStatusFromDates({
   return 'planning';
 }
 
+// Seed the Projects workspace search box from ?q= / ?search= so global-search links land filtered.
+function syncProjectWorkspaceSearchFromUrl() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const searchValue = String(params.get('q') || params.get('search') || '').trim();
+    if (!searchValue) return;
+    const input = document.getElementById('project-records-search-input');
+    if (!input) return;
+    input.value = searchValue;
+    renderProjectWorkspace();
+  } catch (_) {}
+}
+
 function syncProjectSearchFromUrl() {
   try {
     const params = new URLSearchParams(window.location.search);
@@ -5010,7 +5097,7 @@ async function loadArchiveCenter() {
 
     archiveCenterDb = (Array.isArray(data.rows) ? data.rows : []).map((row) => ({
       type: row.type || 'Record',
-      typeKey: normalizeArchiveCenterTypeKey(row.type_key || row.typeKey || row.type || ''),
+      typeKey: String(row.type_key || row.typeKey || row.type || 'record').toLowerCase(),
       key: row.key || `${row.type_key || 'record'}:${row.id}`,
       id: Number(row.id || 0),
       restoreUrl: row.restore_url || row.restoreUrl || '',
@@ -5021,11 +5108,7 @@ async function loadArchiveCenter() {
       search: row.search || [row.type, row.title, row.party, row.status, row.date].join(' ')
     }));
 
-    const counts = data.counts || {};
-    setArchiveCount('projects', counts.projects || 0);
-    setArchiveCount('companies', counts.companies || 0);
-    setArchiveCount('receivables', counts.receivables || 0);
-    updateArchiveCenterTabs();
+    renderArchiveCenterTabs();
     renderArchiveCenter();
   } catch (err) {
     console.error('Archive center load error:', err);
@@ -5037,54 +5120,30 @@ async function loadArchiveCenter() {
   }
 }
 
-function setArchiveCount(key, value) {
-  const node = document.getElementById(`archive-count-${key}`);
-  if (node) node.textContent = String(Number(value || 0));
-  const tabNode = document.getElementById(`archive-tab-count-${key}`);
-  if (tabNode) tabNode.textContent = String(Number(value || 0));
-}
-
-function normalizeArchiveCenterTypeKey(value) {
-  const safe = String(value || '').trim().toLowerCase().replace(/_/g, '-');
-  if (['project', 'transaction', 'company', 'receivable', 'service-order'].includes(safe)) return safe;
-  if (safe === 'a/r' || safe === 'ar' || safe === 'accounts-receivable') return 'receivable';
-  if (safe.includes('service')) return 'service-order';
-  if (safe.includes('trans')) return 'transaction';
-  if (safe.includes('comp')) return 'company';
-  if (safe.includes('project')) return 'project';
-  return 'project';
-}
-
-function getArchiveCenterTabLabel(typeKey = archiveCenterActiveTab) {
-  const labels = {
-    project: 'projects',
-    transaction: 'transactions',
-    company: 'companies',
-    receivable: 'AR records',
-    'service-order': 'service orders'
-  };
-  return labels[typeKey] || 'records';
-}
-
-function updateArchiveCenterTabs() {
-  const activeType = normalizeArchiveCenterTypeKey(archiveCenterActiveTab);
-  archiveCenterActiveTab = activeType;
-
-  document.querySelectorAll('[data-archive-center-tab]').forEach((node) => {
-    const isActive = normalizeArchiveCenterTypeKey(node.getAttribute('data-archive-center-tab')) === activeType;
-    node.classList.toggle('active', isActive);
-    node.setAttribute('aria-selected', String(isActive));
+// Build the type tabs dynamically from whatever is actually archived (+ an "All" tab).
+function renderArchiveCenterTabs() {
+  const host = document.getElementById('archive-center-tabs');
+  if (!host) return;
+  const groups = new Map();
+  (archiveCenterDb || []).forEach((row) => {
+    const k = row.typeKey || 'record';
+    if (!groups.has(k)) groups.set(k, { label: row.type || 'Record', count: 0 });
+    groups.get(k).count += 1;
   });
-
-  const searchInput = document.getElementById('archive-center-search');
-  if (searchInput) {
-    searchInput.placeholder = `Search archived ${getArchiveCenterTabLabel(activeType)}...`;
-  }
+  const total = (archiveCenterDb || []).length;
+  if (archiveCenterActiveTab !== 'all' && !groups.has(archiveCenterActiveTab)) archiveCenterActiveTab = 'all';
+  const tab = (key, label, count) =>
+    `<button class="module-tab archive-center-tab ${archiveCenterActiveTab === key ? 'active' : ''}" type="button" onclick="setArchiveCenterTab('${escHtml(key)}')" aria-selected="${archiveCenterActiveTab === key}">${escHtml(label)} <span class="archive-tab-count">${count}</span></button>`;
+  let html = tab('all', 'All', total);
+  Array.from(groups.entries())
+    .sort((a, b) => a[1].label.localeCompare(b[1].label))
+    .forEach(([k, g]) => { html += tab(k, g.label, g.count); });
+  host.innerHTML = html;
 }
 
 function setArchiveCenterTab(typeKey) {
-  archiveCenterActiveTab = normalizeArchiveCenterTypeKey(typeKey);
-  updateArchiveCenterTabs();
+  archiveCenterActiveTab = String(typeKey || 'all').toLowerCase();
+  renderArchiveCenterTabs();
   renderArchiveCenter();
 }
 
@@ -5092,12 +5151,11 @@ function renderArchiveCenter() {
   const body = document.getElementById('archive-center-body');
   if (!body) return;
 
-  updateArchiveCenterTabs();
   const query = String(document.getElementById('archive-center-search')?.value || '').trim().toLowerCase();
-  const activeType = normalizeArchiveCenterTypeKey(archiveCenterActiveTab);
+  const active = archiveCenterActiveTab || 'all';
   const rows = (Array.isArray(archiveCenterDb) ? archiveCenterDb : [])
     .filter((row) => {
-      if (normalizeArchiveCenterTypeKey(row.typeKey || row.type || '') !== activeType) return false;
+      if (active !== 'all' && (row.typeKey || '') !== active) return false;
       if (!query) return true;
       return [row.type, row.title, row.party, row.status, row.date, row.search]
         .join(' ')
@@ -5106,7 +5164,7 @@ function renderArchiveCenter() {
     });
 
   if (!rows.length) {
-    body.innerHTML = `<tr class="empty-row"><td colspan="6">No archived ${getArchiveCenterTabLabel(activeType)} found.</td></tr>`;
+    body.innerHTML = `<tr class="empty-row"><td colspan="6">No archived records found.</td></tr>`;
     return;
   }
 
@@ -8669,7 +8727,7 @@ async function updateStats() {
   renderDashboardAlerts();
 }
 
-function renderDashboardAlerts() {
+async function renderDashboardAlerts() {
   const strip = document.getElementById('dashboard-alerts-strip');
   if (!strip) return;
 
@@ -8699,6 +8757,22 @@ function renderDashboardAlerts() {
   if (requestsMatch && Number(requestsMatch[1]) > 0) {
     const n = Number(requestsMatch[1]);
     alerts.push({ label: `${n} sales request${n !== 1 ? 's' : ''} pending`, type: 'info', icon: '<path d="M5.5 19.5V5A1.5 1.5 0 0 1 7 3.5h8l3.5 3.5v12.5"/><path d="M8.5 11h7"/>', onclick: "navigateDashboardCard('/sales-management?tab=requests')" });
+  }
+
+  // Due-date reminders from the server (overdue AR, AP due within 7 days, CRM follow-ups due).
+  if (isAdminUser()) {
+    try {
+      const res = await fetch('/api/alerts', { cache: 'no-store' });
+      if (res.ok) {
+        const a = await res.json();
+        const arN = Number(a.overdue_ar || 0);
+        if (arN > 0) alerts.push({ label: `${arN} overdue invoice${arN !== 1 ? 's' : ''}`, type: 'danger', icon: '<path d="M7 4.5h7l4 4V19.5H7A1.5 1.5 0 0 1 5.5 18V6A1.5 1.5 0 0 1 7 4.5z"/><path d="M10 12h4M12 10v4"/>', onclick: "navigateDashboardCard('/accounts-receivable?tab=ar-aging')" });
+        const apN = Number(a.ap_due_soon || 0);
+        if (apN > 0) alerts.push({ label: `${apN} bill${apN !== 1 ? 's' : ''} due soon`, type: 'warning', icon: '<circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2.5"/>', onclick: "navigateDashboardCard('/accounts-payable?tab=ap-aging')" });
+        const crmN = Number(a.crm_followups || 0);
+        if (crmN > 0) alerts.push({ label: `${crmN} follow-up${crmN !== 1 ? 's' : ''} due`, type: 'info', icon: '<path d="M7 4.5v3M17 4.5v3M4.5 8.5h15v10A1.5 1.5 0 0 1 18 20H6a1.5 1.5 0 0 1-1.5-1.5z"/><path d="M9 13l2 2 4-4"/>', onclick: "navigateDashboardCard('/crm?tab=leads')" });
+      }
+    } catch (_) { /* alerts are best-effort */ }
   }
 
   if (!alerts.length) {

@@ -129,7 +129,7 @@ module.exports = function createCompanyRegistryRouter(deps) {
                 }
                 return res.status(500).json({ error: err.message });
               }
-              logAction(req, 'CREATE_COMPANY', `Company ID: ${result.insertId} | Company No: ${companyNo} | Company Name: ${companyName} | Created company record.`);
+              logAction(req, 'CREATE_COMPANY', `Company ID: ${result.insertId} | Company No: ${companyNo} | Company Name: ${companyName} | Created company record.`, 'company', { entityType: 'company', entityId: result.insertId, businessEntityId });
               res.json({ id: result.insertId, company_no: companyNo, business_entity_id: businessEntityId });
             });
         };
@@ -227,7 +227,7 @@ module.exports = function createCompanyRegistryRouter(deps) {
               return res.status(500).json({ error: err.message });
             }
             if (result.affectedRows === 0) return res.status(404).json({ error: 'Company not found' });
-            logAction(req, 'UPDATE_COMPANY', `Company ID: ${companyId} | Company Name: ${companyName} | Updated company record.`);
+            logAction(req, 'UPDATE_COMPANY', `Company ID: ${companyId} | Company Name: ${companyName} | Updated company record.`, 'company', { entityType: 'company', entityId: companyId, businessEntityId });
             res.json({ success: true, business_entity_id: businessEntityId });
           }
         );
@@ -247,7 +247,7 @@ module.exports = function createCompanyRegistryRouter(deps) {
       (err, result) => {
         if (err) return res.status(500).json({ error: err.message });
         if (result.affectedRows === 0) return res.status(404).json({ error: 'Company not found' });
-        logAction(req, 'ARCHIVE_COMPANY', `Company ID: ${companyId} | Archived company record.`);
+        logAction(req, 'ARCHIVE_COMPANY', `Company ID: ${companyId} | Archived company record.`, 'company', { entityType: 'company', entityId: companyId, severity: 'warning' });
         res.json({ success: true });
       }
     );
@@ -263,7 +263,7 @@ module.exports = function createCompanyRegistryRouter(deps) {
       (err, result) => {
         if (err) return res.status(500).json({ error: err.message });
         if (result.affectedRows === 0) return res.status(404).json({ error: 'Company not found' });
-        logAction(req, 'RESTORE_COMPANY', `Company ID: ${companyId} | Restored company record.`);
+        logAction(req, 'RESTORE_COMPANY', `Company ID: ${companyId} | Restored company record.`, 'company', { entityType: 'company', entityId: companyId, severity: 'info' });
         res.json({ success: true });
       }
     );
@@ -447,7 +447,7 @@ module.exports = function createCompanyRegistryRouter(deps) {
         if (duplicateVendor && (!duplicateCompanyId || duplicateCompanyId === companyId)) {
           if (!duplicateCompanyId) {
             await queryAsync('UPDATE vendors SET company_id = ? WHERE id = ?', [companyId, duplicateVendor.id]);
-            logAction(req, 'LINK_VENDOR', `Vendor No: ${duplicateVendor.vendor_no || ''} | Company ID: ${companyId} | Company No: ${company.company_no || ''} | Linked existing vendor profile from company registry.`);
+            logAction(req, 'LINK_VENDOR', `Vendor No: ${duplicateVendor.vendor_no || ''} | Company ID: ${companyId} | Company No: ${company.company_no || ''} | Linked existing vendor profile from company registry.`, 'company', { entityType: 'vendor', entityId: duplicateVendor.id });
           }
 
           return res.json({
@@ -483,7 +483,7 @@ module.exports = function createCompanyRegistryRouter(deps) {
         [companyId, vendorNo, vendorName, vendorContact, vendorEmail, vendorPhone, vendorAddress, vendorTinFormatted]
       );
 
-      logAction(req, 'CREATE_VENDOR', `Vendor No: ${vendorNo} | Company ID: ${companyId} | Company No: ${company.company_no || ''} | Company Name: ${vendorName} | Created vendor profile from company registry.`);
+      logAction(req, 'CREATE_VENDOR', `Vendor No: ${vendorNo} | Company ID: ${companyId} | Company No: ${company.company_no || ''} | Company Name: ${vendorName} | Created vendor profile from company registry.`, 'company', { entityType: 'vendor', entityId: result.insertId });
 
       res.json({
         id: result.insertId,

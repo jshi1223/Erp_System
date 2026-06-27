@@ -148,6 +148,19 @@ body .table-wrap tbody mark {
   font-weight: 700;
 }
 
+/* Row spotlight when you land from the global dashboard search (?q=) — see search-highlight.js. */
+body tr.gs-hit-row > td {
+  background-color: #fef9c3 !important;
+  animation: gsHitFlash 1.2s ease-out 1;
+}
+body tr.gs-hit-row > td:first-child {
+  box-shadow: inset 3px 0 0 0 #eab308;
+}
+@keyframes gsHitFlash {
+  0% { background-color: #fde047; }
+  100% { background-color: #fef9c3; }
+}
+
 body .table-sort-trigger,
 body #vendor-sort-btn {
   display: inline-flex;

@@ -239,7 +239,7 @@ module.exports = function createProcurementRouter(deps) {
       } catch (pdfErr) {
         console.error('Purchase requisition PDF generation warning:', pdfErr);
       }
-      logAction(req, 'SUBMIT_PURCHASE_REQUISITION', `Submitted requisition ${rows[0].pr_number}`);
+      logAction(req, 'SUBMIT_PURCHASE_REQUISITION', `Submitted requisition ${rows[0].pr_number}`, 'procurement', { entityType: 'purchase_requisition', entityId: requisitionId, changes: [{ field: 'status', from: rows[0].status, to: 'submitted' }] });
       const detailRows = await queryAsync(`
         SELECT
           pr.pr_number,
@@ -308,7 +308,7 @@ module.exports = function createProcurementRouter(deps) {
         "UPDATE purchase_requisitions SET pr_number = ?, draft_pr_number = COALESCE(draft_pr_number, ?), status = 'approved', approved_by = COALESCE(approved_by, ?), approved_at = COALESCE(approved_at, NOW()), approval_comment = ? WHERE id = ?",
         [officialPrNumber, rows[0].pr_number, getApprovalActorName(req), comment || null, requisitionId]
       );
-      logAction(req, 'APPROVE_PURCHASE_REQUISITION', appendApprovalComment(`Approved requisition ${officialPrNumber} (Draft ${rows[0].draft_pr_number || rows[0].pr_number || '-'})`, comment));
+      logAction(req, 'APPROVE_PURCHASE_REQUISITION', appendApprovalComment(`Approved requisition ${officialPrNumber} (Draft ${rows[0].draft_pr_number || rows[0].pr_number || '-'})`, comment), 'procurement', { entityType: 'purchase_requisition', entityId: requisitionId, businessEntityId: rows[0].business_entity_id, changes: [{ field: 'status', from: rows[0].status, to: 'approved' }] });
       sendBackgroundNotification(() => notifyPurchaseRequisitionRequester(req, requisitionId, 'approved', {
         approvedBy: getApprovalActorLabel(req)
       }), 'purchase requisition approved email');
@@ -341,7 +341,7 @@ module.exports = function createProcurementRouter(deps) {
         "UPDATE purchase_requisitions SET status = 'needs_revision', submitted_at = NULL, approved_by = NULL, approved_at = NULL, cancel_reason = ?, approval_comment = ? WHERE id = ?",
         [`Rejected: ${reason}`, reason, requisitionId]
       );
-      logAction(req, 'REJECT_PURCHASE_REQUISITION', `Rejected requisition ${rows[0].pr_number} | Reason: ${reason}`);
+      logAction(req, 'REJECT_PURCHASE_REQUISITION', `Rejected requisition ${rows[0].pr_number} | Reason: ${reason}`, 'procurement', { entityType: 'purchase_requisition', entityId: requisitionId, severity: 'warning', changes: [{ field: 'status', from: rows[0].status, to: 'needs_revision' }] });
       sendBackgroundNotification(() => notifyPurchaseRequisitionRequester(req, requisitionId, 'rejected', {
         reason,
         cancelledBy: getApprovalActorLabel(req)
@@ -377,7 +377,7 @@ module.exports = function createProcurementRouter(deps) {
         "UPDATE purchase_requisitions SET status = 'cancelled', cancelled_by = COALESCE(cancelled_by, ?), cancelled_at = COALESCE(cancelled_at, NOW()), cancel_reason = COALESCE(cancel_reason, ?) WHERE id = ?",
         [getApprovalActorName(req), cancelReason, requisitionId]
       );
-      logAction(req, 'CANCEL_PURCHASE_REQUISITION', `Cancelled requisition ${rows[0].pr_number}`);
+      logAction(req, 'CANCEL_PURCHASE_REQUISITION', `Cancelled requisition ${rows[0].pr_number}`, 'procurement', { entityType: 'purchase_requisition', entityId: requisitionId, severity: 'warning', changes: [{ field: 'status', from: rows[0].status, to: 'cancelled' }] });
       sendBackgroundNotification(() => notifyPurchaseRequisitionRequester(req, requisitionId, 'cancelled', {
         reason: cancelReason,
         cancelledBy: getApprovalActorLabel(req)
@@ -397,7 +397,7 @@ module.exports = function createProcurementRouter(deps) {
 
     try {
       const result = await queryAsync('UPDATE purchase_requisitions SET archived = TRUE, archived_at = COALESCE(archived_at, NOW()) WHERE id = ?', [requisitionId]);
-      logAction(req, 'ARCHIVE_PURCHASE_REQUISITION', `Archived requisition ID: ${req.params.id}`);
+      logAction(req, 'ARCHIVE_PURCHASE_REQUISITION', `Archived requisition ID: ${req.params.id}`, 'procurement', { entityType: 'purchase_requisition', entityId: requisitionId, severity: 'warning' });
       res.json({ success: true, affectedRows: result.affectedRows || 0 });
     } catch (err) {
       console.error('Archive requisition error:', err);
@@ -422,7 +422,7 @@ module.exports = function createProcurementRouter(deps) {
         "UPDATE purchase_orders SET status = 'pending', submitted_by = COALESCE(submitted_by, ?), submitted_at = COALESCE(submitted_at, NOW()) WHERE id = ?",
         [getApprovalActorName(req), poId]
       );
-      logAction(req, 'SUBMIT_PURCHASE_ORDER', `Submitted purchase order ${rows[0].po_number}`);
+      logAction(req, 'SUBMIT_PURCHASE_ORDER', `Submitted purchase order ${rows[0].po_number}`, 'procurement', { entityType: 'purchase_order', entityId: poId, changes: [{ field: 'status', from: rows[0].status, to: 'pending' }] });
       const detailRows = await queryAsync(`
         SELECT
           po.po_number,
@@ -497,7 +497,7 @@ module.exports = function createProcurementRouter(deps) {
         "UPDATE purchase_orders SET po_number = ?, draft_po_number = COALESCE(draft_po_number, ?), status = 'approved', approved_by = ?, approved_at = COALESCE(approved_at, NOW()), approval_comment = ? WHERE id = ?",
         [officialPoNumber, rows[0].po_number, approvedBy, comment || null, poId]
       );
-      logAction(req, 'APPROVE_PURCHASE_ORDER', appendApprovalComment(`Approved purchase order ${officialPoNumber} (Draft ${rows[0].draft_po_number || rows[0].po_number || '-'})`, comment));
+      logAction(req, 'APPROVE_PURCHASE_ORDER', appendApprovalComment(`Approved purchase order ${officialPoNumber} (Draft ${rows[0].draft_po_number || rows[0].po_number || '-'})`, comment), 'procurement', { entityType: 'purchase_order', entityId: poId, businessEntityId: rows[0].business_entity_id, changes: [{ field: 'status', from: rows[0].status, to: 'approved' }] });
       sendBackgroundNotification(() => notifyPurchaseOrderRequester(req, poId, 'approved', {
         approvedBy: getApprovalActorLabel(req)
       }), 'purchase order approved email');
@@ -532,7 +532,7 @@ module.exports = function createProcurementRouter(deps) {
         "UPDATE purchase_orders SET status = 'draft', submitted_at = NULL, approved_by = NULL, approved_at = NULL, notes = ?, approval_comment = ? WHERE id = ?",
         [notes, reason, poId]
       );
-      logAction(req, 'REJECT_PURCHASE_ORDER', `Rejected purchase order ${rows[0].po_number} | Reason: ${reason}`);
+      logAction(req, 'REJECT_PURCHASE_ORDER', `Rejected purchase order ${rows[0].po_number} | Reason: ${reason}`, 'procurement', { entityType: 'purchase_order', entityId: poId, severity: 'warning', changes: [{ field: 'status', from: rows[0].status, to: 'draft' }] });
       sendBackgroundNotification(() => notifyPurchaseOrderRequester(req, poId, 'rejected', {
         reason,
         cancelledBy: getApprovalActorLabel(req),
@@ -567,7 +567,7 @@ module.exports = function createProcurementRouter(deps) {
         "UPDATE purchase_orders SET status = 'cancelled', cancelled_by = COALESCE(cancelled_by, ?), cancelled_at = COALESCE(cancelled_at, NOW()), cancel_reason = COALESCE(cancel_reason, ?) WHERE id = ?",
         [getApprovalActorName(req), cancelReason, poId]
       );
-      logAction(req, 'CANCEL_PURCHASE_ORDER', `Cancelled purchase order ${rows[0].po_number}`);
+      logAction(req, 'CANCEL_PURCHASE_ORDER', `Cancelled purchase order ${rows[0].po_number}`, 'procurement', { entityType: 'purchase_order', entityId: poId, severity: 'warning', changes: [{ field: 'status', from: rows[0].status, to: 'cancelled' }] });
       sendBackgroundNotification(() => notifyPurchaseOrderRequester(req, poId, 'cancelled', {
         reason: cancelReason,
         cancelledBy: getApprovalActorLabel(req)
@@ -585,7 +585,7 @@ module.exports = function createProcurementRouter(deps) {
     const poId = Number(req.params.id || 0);
     try {
       const result = await queryAsync('UPDATE purchase_orders SET archived = TRUE, archived_at = COALESCE(archived_at, NOW()) WHERE id = ?', [poId]);
-      logAction(req, 'ARCHIVE_PURCHASE_ORDER', `Archived purchase order ID: ${req.params.id}`);
+      logAction(req, 'ARCHIVE_PURCHASE_ORDER', `Archived purchase order ID: ${req.params.id}`, 'procurement', { entityType: 'purchase_order', entityId: poId, severity: 'warning' });
       res.json({ success: true, affectedRows: result.affectedRows || 0 });
     } catch (err) {
       console.error('Archive purchase order error:', err);
@@ -667,7 +667,7 @@ module.exports = function createProcurementRouter(deps) {
         prefix: 'RFQ',
         documentNo: quoteNumber
       });
-      logAction(req, 'CREATE_QUOTATION', `Created quotation ${quoteNumber}`);
+      logAction(req, 'CREATE_QUOTATION', `Created quotation ${quoteNumber}`, 'procurement', { entityType: 'quotation', entityId: result.insertId, businessEntityId });
       res.json({ id: result.insertId, quote_number: quoteNumber });
     } catch (err) {
       dropFile();
@@ -740,7 +740,7 @@ module.exports = function createProcurementRouter(deps) {
           fs.unlink(path.join(UPLOAD_DIR, path.basename(String(previous))), () => {});
         }
       }
-      logAction(req, 'UPDATE_QUOTATION', `Updated quotation ${quotationId}`);
+      logAction(req, 'UPDATE_QUOTATION', `Updated quotation ${quotationId}`, 'procurement', { entityType: 'quotation', entityId: quotationId });
       res.json({ success: true });
     } catch (err) {
       dropFile();
@@ -779,7 +779,7 @@ module.exports = function createProcurementRouter(deps) {
         : rows[0].quote_number;
       await queryAsync("UPDATE procurement_quotations SET status = 'rejected', selected_at = NULL WHERE requisition_id = ? AND id <> ?", [rows[0].requisition_id, quotationId]);
       await queryAsync("UPDATE procurement_quotations SET quote_number = ?, draft_quote_number = COALESCE(draft_quote_number, ?), status = 'selected', selected_at = COALESCE(selected_at, NOW()) WHERE id = ?", [officialQuoteNumber, rows[0].quote_number, quotationId]);
-      logAction(req, 'SELECT_QUOTATION', `Selected quotation ${officialQuoteNumber} (Draft ${rows[0].draft_quote_number || rows[0].quote_number || '-'})`);
+      logAction(req, 'SELECT_QUOTATION', `Selected quotation ${officialQuoteNumber} (Draft ${rows[0].draft_quote_number || rows[0].quote_number || '-'})`, 'procurement', { entityType: 'quotation', entityId: quotationId, changes: [{ field: 'status', from: rows[0].status, to: 'selected' }] });
       sendBackgroundNotification(() => notifyRfqAwardedRequester(req, quotationId), 'rfq awarded requester email');
       sendBackgroundNotification(() => notifyRfqAwardedVendor(req, quotationId), 'rfq awarded vendor email');
       res.json({ success: true, status: 'selected', quote_number: officialQuoteNumber });
@@ -819,7 +819,7 @@ module.exports = function createProcurementRouter(deps) {
       if (!rows.length) return res.status(404).json({ error: 'Quotation not found.' });
       const result = await queryAsync('UPDATE procurement_quotations SET archived = TRUE, archived_at = COALESCE(archived_at, NOW()) WHERE id = ?', [Number(req.params.id || 0)]);
       if (!Number(result.affectedRows || 0)) return res.status(404).json({ error: 'Quotation not found.' });
-      logAction(req, 'ARCHIVE_QUOTATION', `Archived quotation ${req.params.id}`);
+      logAction(req, 'ARCHIVE_QUOTATION', `Archived quotation ${req.params.id}`, 'procurement', { entityType: 'quotation', entityId: Number(req.params.id || 0), severity: 'warning' });
       res.json({ success: true });
     } catch (err) {
       console.error('Archive quotation error:', err);
@@ -1108,7 +1108,7 @@ module.exports = function createProcurementRouter(deps) {
         receivedBy
       });
 
-      logAction(req, 'CREATE_GOODS_RECEIPT', `Created goods receipt ${grnNumber}${fullyReceived ? ' (PO fully received)' : ' (partial receipt)'}`);
+      logAction(req, 'CREATE_GOODS_RECEIPT', `Created goods receipt ${grnNumber}${fullyReceived ? ' (PO fully received)' : ' (partial receipt)'}`, 'procurement', { entityType: 'goods_receipt', entityId: result.insertId, businessEntityId });
       res.json({ id: result.insertId, grn_number: grnNumber, inventory_synced: true, serials_created: serialsCreated, fully_received: fullyReceived });
     } catch (err) {
       if (isPostgresUniqueViolation(err)) {
@@ -1196,7 +1196,7 @@ module.exports = function createProcurementRouter(deps) {
         documentNo: grnNumber
       });
 
-      logAction(req, 'UPDATE_GOODS_RECEIPT', `Updated goods receipt ${grnNumber}`);
+      logAction(req, 'UPDATE_GOODS_RECEIPT', `Updated goods receipt ${grnNumber}`, 'procurement', { entityType: 'goods_receipt', entityId: Number(req.params.id), businessEntityId });
       res.json({ success: true, grn_number: grnNumber, inventory_synced: status === 'received' });
     } catch (err) {
       if (isPostgresUniqueViolation(err)) {
@@ -1214,7 +1214,7 @@ module.exports = function createProcurementRouter(deps) {
   router.delete('/api/procurement/goods-receipts/:id', protectAdminOnly, async (req, res) => {
     try {
       const result = await queryAsync('UPDATE goods_receipts SET archived = TRUE, archived_at = COALESCE(archived_at, NOW()) WHERE id = ?', [Number(req.params.id || 0)]);
-      logAction(req, 'ARCHIVE_GOODS_RECEIPT', `Archived goods receipt ID: ${req.params.id}`);
+      logAction(req, 'ARCHIVE_GOODS_RECEIPT', `Archived goods receipt ID: ${req.params.id}`, 'procurement', { entityType: 'goods_receipt', entityId: Number(req.params.id || 0), severity: 'warning' });
       res.json({ success: true, affectedRows: result.affectedRows || 0 });
     } catch (err) {
       console.error('Archive goods receipt error:', err);
@@ -1563,7 +1563,7 @@ module.exports = function createProcurementRouter(deps) {
         );
       }
 
-      logAction(req, 'CREATE_PURCHASE_REQUISITION', `Created requisition ${prNumber}`);
+      logAction(req, 'CREATE_PURCHASE_REQUISITION', `Created requisition ${prNumber}`, 'procurement', { entityType: 'purchase_requisition', entityId: reqResult.insertId });
       res.json({ id: reqResult.insertId, pr_number: prNumber });
     } catch (err) {
       if (isPostgresUniqueViolation(err)) {
@@ -1688,7 +1688,7 @@ module.exports = function createProcurementRouter(deps) {
         );
       }
 
-      logAction(req, 'UPDATE_PURCHASE_REQUISITION', `Updated requisition ${prNumber}`);
+      logAction(req, 'UPDATE_PURCHASE_REQUISITION', `Updated requisition ${prNumber}`, 'procurement', { entityType: 'purchase_requisition', entityId: requisitionId });
       res.json({ success: true, pr_number: prNumber });
     } catch (err) {
       if (isPostgresUniqueViolation(err)) {
@@ -1810,10 +1810,10 @@ module.exports = function createProcurementRouter(deps) {
         await markRequisitionOrdered(requisitionRow.id);
       }
 
-      logAction(req, 'CREATE_PURCHASE_ORDER', `Created purchase order ${poNumber}`);
+      logAction(req, 'CREATE_PURCHASE_ORDER', `Created purchase order ${poNumber}`, 'procurement', { entityType: 'purchase_order', entityId: poResult.insertId });
 
       if (adminCreatesApprovedPo) {
-        logAction(req, 'APPROVE_PURCHASE_ORDER', `Auto-approved purchase order ${poNumber}${draftPoNumber ? ` (Draft ${draftPoNumber})` : ''}`);
+        logAction(req, 'APPROVE_PURCHASE_ORDER', `Auto-approved purchase order ${poNumber}${draftPoNumber ? ` (Draft ${draftPoNumber})` : ''}`, 'procurement', { entityType: 'purchase_order', entityId: poResult.insertId, changes: [{ field: 'status', from: 'draft', to: 'approved' }] });
         sendBackgroundNotification(() => notifyPurchaseOrderRequester(req, poResult.insertId, 'approved', {
           approvedBy: getApprovalActorLabel(req)
         }), 'purchase order approved email');
@@ -1920,7 +1920,7 @@ module.exports = function createProcurementRouter(deps) {
         return { po, createdBills };
       });
 
-      logAction(req, 'GENERATE_PO_BILLS', `Generated ${createdBills.length} AP bill(s) from PO ${po.po_number}`);
+      logAction(req, 'GENERATE_PO_BILLS', `Generated ${createdBills.length} AP bill(s) from PO ${po.po_number}`, 'finance', { entityType: 'purchase_order', entityId: po.id, businessEntityId: po.business_entity_id });
       res.json({ success: true, bills: createdBills });
     } catch (err) {
       if (err?.statusCode) {
@@ -2134,7 +2134,7 @@ module.exports = function createProcurementRouter(deps) {
         documentNo: poNumber
       });
 
-      logAction(req, 'UPDATE_PURCHASE_ORDER', `Updated purchase order ${poNumber}`);
+      logAction(req, 'UPDATE_PURCHASE_ORDER', `Updated purchase order ${poNumber}`, 'procurement', { entityType: 'purchase_order', entityId: Number(req.params.id), businessEntityId });
       res.json({ success: true, po_number: poNumber });
     } catch (err) {
       if (isPostgresUniqueViolation(err)) {

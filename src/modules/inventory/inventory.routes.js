@@ -444,7 +444,7 @@ module.exports = function createInventoryRouter(deps) {
            VALUES (?, ?, ?, 'draft', ?, ?, NULL)`,
           [requestNo, requestType, JSON.stringify(payload), actor?.fullname || actor?.username || null, actor?.email || null]
         );
-        logAction(req, 'CREATE_INVENTORY_DRAFT', `Draft: ${requestNo} | Type: ${requestType}`);
+        logAction(req, 'CREATE_INVENTORY_DRAFT', `Draft: ${requestNo} | Type: ${requestType}`, 'inventory', { entityType: 'inventory_request' });
         return res.status(201).json({ success: true, request_no: requestNo, status: 'draft' });
       }
       // Admin applies the inventory change directly (creates the product/warehouse/movement).
@@ -457,7 +457,7 @@ module.exports = function createInventoryRouter(deps) {
          VALUES (?, ?, ?, 'approved', ?, ?, NOW(), ?, NOW())`,
         [requestNo, requestType, JSON.stringify(payload), actor?.fullname || actor?.username || null, actor?.email || null, approvedBy]
       );
-      logAction(req, 'CREATE_INVENTORY_OFFICIAL', `Official: ${requestNo} | Type: ${requestType}`);
+      logAction(req, 'CREATE_INVENTORY_OFFICIAL', `Official: ${requestNo} | Type: ${requestType}`, 'inventory', { entityType: 'inventory_request' });
       res.status(201).json({ success: true, request_no: requestNo, status: 'approved', applied });
     } catch (err) {
       res.status(400).json({ error: err.message || 'Unable to create inventory request.' });
@@ -475,7 +475,7 @@ module.exports = function createInventoryRouter(deps) {
       if (currentStatus === 'submitted') return res.json({ success: true, status: 'submitted', alreadySubmitted: true });
       if (currentStatus !== 'draft') return res.status(400).json({ error: 'Only draft inventory requests can be submitted.' });
       await queryAsync("UPDATE inventory_requests SET status = 'submitted', submitted_at = NOW() WHERE id = ?", [requestId]);
-      logAction(req, 'SUBMIT_INVENTORY_REQUEST', `Request No: ${requestRow.request_no || requestId}`);
+      logAction(req, 'SUBMIT_INVENTORY_REQUEST', `Request No: ${requestRow.request_no || requestId}`, 'inventory', { entityType: 'inventory_request', entityId: requestId, changes: [{ field: 'status', from: requestRow.status, to: 'submitted' }] });
       res.json({ success: true, status: 'submitted' });
     } catch (err) {
       res.status(500).json({ error: err.message || 'Unable to submit inventory request.' });
@@ -503,7 +503,7 @@ module.exports = function createInventoryRouter(deps) {
         'UPDATE inventory_requests SET request_type = ?, payload = ? WHERE id = ?',
         [requestType, JSON.stringify(payload), requestId]
       );
-      logAction(req, 'UPDATE_INVENTORY_DRAFT', `Draft No: ${requestRow.request_no || requestId} | Type: ${requestType}`);
+      logAction(req, 'UPDATE_INVENTORY_DRAFT', `Draft No: ${requestRow.request_no || requestId} | Type: ${requestType}`, 'inventory', { entityType: 'inventory_request', entityId: requestId });
       res.json({ success: true, status: 'draft', request_no: requestRow.request_no });
     } catch (err) {
       res.status(400).json({ error: err.message || 'Unable to update inventory request.' });
@@ -531,7 +531,7 @@ module.exports = function createInventoryRouter(deps) {
         "UPDATE inventory_requests SET request_no = ?, status = 'approved', approved_by = ?, approved_at = NOW(), reject_reason = NULL, approval_comment = ? WHERE id = ?",
         [officialRequestNo, approvedBy, comment || null, requestId]
       );
-      logAction(req, 'APPROVE_INVENTORY_REQUEST', appendApprovalComment(`Draft No: ${requestRow.request_no || requestId} | Request No: ${officialRequestNo} | Type: ${requestRow.request_type}`, comment));
+      logAction(req, 'APPROVE_INVENTORY_REQUEST', appendApprovalComment(`Draft No: ${requestRow.request_no || requestId} | Request No: ${officialRequestNo} | Type: ${requestRow.request_type}`, comment), 'inventory', { entityType: 'inventory_request', entityId: requestId, changes: [{ field: 'status', from: 'submitted', to: 'approved' }] });
       res.json({ success: true, status: 'approved', request_no: officialRequestNo, approved_by: approvedBy, approval_comment: comment, applied });
     } catch (err) {
       const isDuplicate = String(err.message || '').toLowerCase().includes('duplicate') || String(err.code || '') === '23505';
@@ -553,7 +553,7 @@ module.exports = function createInventoryRouter(deps) {
         "UPDATE inventory_requests SET status = 'rejected', approved_by = ?, approved_at = NOW(), reject_reason = ?, approval_comment = ? WHERE id = ?",
         [getApprovalActorName(req), reason, reason, requestId]
       );
-      logAction(req, 'REJECT_INVENTORY_REQUEST', `Request No: ${rows[0].request_no || requestId} | Reason: ${reason}`);
+      logAction(req, 'REJECT_INVENTORY_REQUEST', `Request No: ${rows[0].request_no || requestId} | Reason: ${reason}`, 'inventory', { entityType: 'inventory_request', entityId: requestId, severity: 'warning', changes: [{ field: 'status', from: rows[0].status, to: 'rejected' }] });
       res.json({ success: true, status: 'rejected', reason });
     } catch (err) {
       res.status(400).json({ error: err.message || 'Unable to reject inventory request.' });

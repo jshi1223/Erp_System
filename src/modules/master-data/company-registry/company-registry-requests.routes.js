@@ -162,7 +162,7 @@ module.exports = function createCompanyRegistryRequestsRouter(deps) {
         "UPDATE company_registry_requests SET request_no = ?, status = 'approved', approved_by = ?, approved_at = NOW(), reject_reason = NULL, approval_comment = ? WHERE id = ?",
         [officialRequestNo, approvedBy, comment || null, requestId]
       );
-      logAction(req, 'APPROVE_COMPANY_REGISTRY_REQUEST', appendApprovalComment(`Draft No: ${requestRow.request_no || requestId} | Request No: ${officialRequestNo} | Company No: ${companyNo} | Company Name: ${payload.company_name}`, comment));
+      logAction(req, 'APPROVE_COMPANY_REGISTRY_REQUEST', appendApprovalComment(`Draft No: ${requestRow.request_no || requestId} | Request No: ${officialRequestNo} | Company No: ${companyNo} | Company Name: ${payload.company_name}`, comment), 'company', { entityType: 'company_request', entityId: requestId, changes: [{ field: 'status', from: 'submitted', to: 'approved' }] });
       res.json({ success: true, status: 'approved', company_no: companyNo, request_no: officialRequestNo, approved_by: approvedBy, approval_comment: comment });
     } catch (err) {
       res.status(400).json({ error: err.message || 'Unable to approve company registry request.', field: err.field || null });
@@ -183,7 +183,7 @@ module.exports = function createCompanyRegistryRequestsRouter(deps) {
         "UPDATE company_registry_requests SET status = 'rejected', approved_by = ?, approved_at = NOW(), reject_reason = ?, approval_comment = ? WHERE id = ?",
         [getApprovalActorName(req), reason, reason, requestId]
       );
-      logAction(req, 'REJECT_COMPANY_REGISTRY_REQUEST', `Request No: ${rows[0].request_no || requestId} | Reason: ${reason}`);
+      logAction(req, 'REJECT_COMPANY_REGISTRY_REQUEST', `Request No: ${rows[0].request_no || requestId} | Reason: ${reason}`, 'company', { entityType: 'company_request', entityId: requestId, severity: 'warning', changes: [{ field: 'status', from: rows[0].status, to: 'rejected' }] });
       res.json({ success: true, status: 'rejected', reason });
     } catch (err) {
       res.status(400).json({ error: err.message || 'Unable to reject company registry request.' });
@@ -206,7 +206,7 @@ module.exports = function createCompanyRegistryRequestsRouter(deps) {
         "UPDATE company_registry_requests SET status = 'needs_revision', submitted_at = NULL, approved_by = NULL, approved_at = NULL, reject_reason = ?, approval_comment = ? WHERE id = ?",
         [reason, reason, requestId]
       );
-      logAction(req, 'REVISE_COMPANY_REGISTRY_REQUEST', `Request No: ${rows[0].request_no || requestId} | Reason: ${reason}`);
+      logAction(req, 'REVISE_COMPANY_REGISTRY_REQUEST', `Request No: ${rows[0].request_no || requestId} | Reason: ${reason}`, 'company', { entityType: 'company_request', entityId: requestId, severity: 'warning', changes: [{ field: 'status', from: rows[0].status, to: 'needs_revision' }] });
       res.json({ success: true, status: 'needs_revision', reason });
     } catch (err) {
       res.status(400).json({ error: err.message || 'Unable to return company registry request for revision.' });

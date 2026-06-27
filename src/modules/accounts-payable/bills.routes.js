@@ -331,7 +331,7 @@ module.exports = function createBillsRouter(deps) {
       );
       await syncPayableBalance(billId);
       await postApprovedBillJournal(billId);
-      logAction(req, 'APPROVE_AP_BILL', appendApprovalComment(`Approved AP bill ${officialBillNo || billId} (Draft ${rows[0].bill_number || '-'})`, comment));
+      logAction(req, 'APPROVE_AP_BILL', appendApprovalComment(`Approved AP bill ${officialBillNo || billId} (Draft ${rows[0].bill_number || '-'})`, comment), 'finance', { entityType: 'ap_bill', entityId: billId, businessEntityId: rows[0].business_entity_id, changes: [{ field: 'approval_status', from: rows[0].approval_status, to: 'approved' }] });
       sendBackgroundNotification(() => notifyFinanceApproval(req, 'bill', billId, {
         approvedBy: getApprovalActorLabel(req)
       }), 'ap bill approved email');
@@ -362,7 +362,7 @@ module.exports = function createBillsRouter(deps) {
         [actor, notes, reason, billId]
       );
       await syncPayableBalance(billId);
-      logAction(req, 'REJECT_AP_BILL', `Rejected AP bill ${rows[0].bill_number || billId} | Reason: ${reason}`);
+      logAction(req, 'REJECT_AP_BILL', `Rejected AP bill ${rows[0].bill_number || billId} | Reason: ${reason}`, 'finance', { entityType: 'ap_bill', entityId: billId, severity: 'warning', changes: [{ field: 'approval_status', to: 'rejected' }] });
       res.json({ success: true, approval_status: 'rejected', reason });
     } catch (err) {
       console.error('Reject AP bill error:', err);

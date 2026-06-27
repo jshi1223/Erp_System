@@ -17,6 +17,11 @@ function isActive(v: Vendor): boolean {
   return Number(v.is_active) === 1 || v.is_active === true;
 }
 
+function initialDirectorySearch(): string {
+  const params = new URLSearchParams(window.location.search || '');
+  return (params.get('q') || params.get('search') || '').trim();
+}
+
 interface VendorForm {
   vendor_no: string;
   vendor_name: string;
@@ -118,7 +123,7 @@ export function VendorsTab() {
   const qc = useQueryClient();
   const { data: me } = useMe();
   const isStaff = me?.role === 'staff';
-  const [q, setQ] = useState('');
+  const [q, setQ] = useState(initialDirectorySearch);
   const [showInactive, setShowInactive] = useState(false);
   const [modal, setModal] = useState<{ open: boolean; vendor: Vendor | null }>({ open: false, vendor: null });
   const { data, isLoading, isError } = useQuery({ queryKey: ['vendors'], queryFn: fetchVendors });
