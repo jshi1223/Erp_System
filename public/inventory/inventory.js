@@ -34,13 +34,16 @@ function applyInitialInventorySearch() {
   if (!q) return;
   const tab = getInitialInventoryTab();
   const inputId = tab === 'units' ? 'units-search'
+    : tab === 'rma' ? 'rma-search'
     : tab === 'stock' ? 'inventory-search'
     : tab === 'products' ? 'products-search'
     : '';
   const box = inputId ? document.getElementById(inputId) : null;
   if (!box) return; // other tabs (e.g. warehouses) rely on the shared row highlighter instead
   box.value = q;
-  if (tab === 'units') renderUnits(); else renderInventory();
+  if (tab === 'units') renderUnits();
+  else if (tab === 'rma') renderRma();
+  else renderInventory();
 }
 
 function getInitialInventoryTab() {
@@ -49,7 +52,7 @@ function getInitialInventoryTab() {
 }
 
 function normalizeInventoryTab(tab) {
-  return ['stock', 'products', 'warehouses', 'movements', 'units', 'requests'].includes(String(tab || '').trim().toLowerCase())
+  return ['stock', 'products', 'warehouses', 'movements', 'units', 'rma', 'requests'].includes(String(tab || '').trim().toLowerCase())
     ? String(tab || '').trim().toLowerCase()
     : 'products';
 }
@@ -200,6 +203,12 @@ function renderTabSummary(tab = (document.querySelector('.inventory-tab.active')
     case 'units':
       cards = card('Serial Units', num(unitsDb.length)) + card('In Stock', num(unitsBy('in_stock'))) + card('Sold', num(unitsBy('sold'))) + card('RMA / Defective', num(unitsBy('rma') + unitsBy('defective')));
       break;
+    case 'rma': {
+      const rmaLogged = unitsDb.filter(u => u.rma_logged_at);
+      const openRma = rmaLogged.filter(u => !u.rma_resolved_at).length;
+      cards = card('Open RMA', num(openRma)) + card('Resolved', num(rmaLogged.length - openRma)) + card('Total RMA', num(rmaLogged.length));
+      break;
+    }
     case 'requests':
       cards = card('Requests', num(inventoryRequestsDb.length)) + card('Pending', num(inventoryRequestsDb.filter(r => ['draft', 'submitted'].includes(String(r.status || '').toLowerCase())).length));
       break;
@@ -333,6 +342,7 @@ function renderInventory() {
   `).join('') : '<tr><td colspan="6">No stock movements yet.</td></tr>';
 
   renderUnits();
+  renderRma();
 }
 
 const UNIT_STATUS_LABELS = {
@@ -389,12 +399,140 @@ function renderUnits() {
         <td>${location}</td>
         <td>${warrantyEnd ? `${escHtml(warrantyEnd)}${expired ? ' <span class="inventory-low-tag">Expired</span>' : ''}` : '-'}</td>
         ${isAdmin ? `<td class="text-right inventory-row-actions">
+          ${['sold', 'installed'].includes(String(row.status || '').toLowerCase())
+            ? `<button class="btn btn-cancel btn-sm" type="button" onclick="openRmaModal(${Number(row.id)})">Log RMA</button>`
+            : ''}
           <button class="btn btn-edit btn-sm" type="button" onclick="editUnit(${Number(row.id)})">Edit</button>
           <button class="btn btn-cancel btn-sm" type="button" onclick="deleteUnit(${Number(row.id)})">Delete</button>
         </td>` : ''}
       </tr>
     `;
   }).join('');
+}
+
+const RMA_RESOLUTION_LABELS = {
+  restock: 'Restocked',
+  repair_return: 'Repaired & Returned',
+  replace: 'Replaced',
+  scrap: 'Scrapped'
+};
+
+// Renders the admin-only RMA / Returns table. An RMA "record" is any serial unit
+// that has rma_logged_at stamped; open = not yet resolved. Resolved rows show the
+// resolution outcome; open rows expose a Resolve action.
+function renderRma() {
+  const body = document.getElementById('rma-tbody');
+  if (!body) return;
+  const stateFilter = String(document.getElementById('rma-state-filter')?.value || 'open').trim().toLowerCase();
+  const q = String(document.getElementById('rma-search')?.value || '').trim().toLowerCase();
+  const logged = unitsDb.filter(u => u.rma_logged_at);
+  const rows = logged.filter(row => {
+    const resolved = !!row.rma_resolved_at;
+    if (stateFilter === 'open' && resolved) return false;
+    if (stateFilter === 'resolved' && !resolved) return false;
+    if (!q) return true;
+    return [row.serial_number, row.sku, row.product_name, row.customer_name, row.rma_reason, row.project_docno]
+      .join(' ').toLowerCase().includes(q);
+  });
+  if (!logged.length) {
+    body.innerHTML = '<tr><td colspan="7">Wala pang RMA / returns na naka-log.</td></tr>';
+    return;
+  }
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="7">Walang RMA na tumugma sa filter.</td></tr>';
+    return;
+  }
+  body.innerHTML = rows.map(row => {
+    const resolved = !!row.rma_resolved_at;
+    const loggedDate = String(row.rma_logged_at || '').slice(0, 10);
+    const statusCell = resolved
+      ? `<span class="unit-status-tag unit-status-${escHtml(String(row.status || ''))}">${escHtml(RMA_RESOLUTION_LABELS[String(row.rma_resolution || '').toLowerCase()] || unitStatusLabel(row.status))}</span>`
+      : '<span class="unit-status-tag unit-status-rma">Open RMA</span>';
+    const actions = resolved
+      ? `<span class="inventory-muted">Resolved ${escHtml(String(row.rma_resolved_at || '').slice(0, 10))}</span>`
+      : `<button class="btn btn-save btn-sm" type="button" onclick="openRmaResolveModal(${Number(row.id)})">Resolve</button>`;
+    return `
+      <tr>
+        <td>${escHtml(row.serial_number || '-')}</td>
+        <td>${escHtml([row.sku, row.product_name].filter(Boolean).join(' - ') || '-')}</td>
+        <td>${escHtml(row.customer_name || '-')}</td>
+        <td>${escHtml(row.rma_reason || '-')}</td>
+        <td>${escHtml(loggedDate || '-')}</td>
+        <td>${statusCell}</td>
+        <td class="text-right inventory-row-actions">${actions}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+let rmaTargetUnitId = null;
+
+function unitLabel(row) {
+  return [row?.serial_number, [row?.sku, row?.product_name].filter(Boolean).join(' - ')].filter(Boolean).join('  •  ') || `Unit #${row?.id || ''}`;
+}
+
+// Opens the "Log RMA" form for a sold/installed serial unit.
+function openRmaModal(id) {
+  if (isInventoryStaffRole()) return;
+  const row = unitsDb.find(item => Number(item.id) === Number(id));
+  if (!row) { setStatus('Serial unit not found.'); return; }
+  openInventoryModal('rma');
+  rmaTargetUnitId = Number(row.id);
+  document.getElementById('inventory-modal-title').textContent = 'Log RMA / Return';
+  const label = document.getElementById('rma-unit-label');
+  if (label) label.value = unitLabel(row);
+  const reason = document.getElementById('rma-reason');
+  if (reason) reason.value = '';
+}
+
+async function submitRma(event) {
+  event.preventDefault();
+  setStatus('');
+  const id = Number(rmaTargetUnitId || 0) || 0;
+  if (!id) { setStatus('No serial unit selected.'); return; }
+  const reason = String(document.getElementById('rma-reason')?.value || '').trim();
+  if (!reason) { setStatus('RMA reason is required.'); return; }
+  try {
+    await fetchJson(`/api/inventory/units/${id}/rma`, { method: 'POST', body: JSON.stringify({ reason }) });
+    closeInventoryModal();
+    await loadInventory();
+    switchInventoryTab('rma');
+  } catch (err) {
+    setStatus(err.message || 'Unable to log RMA.');
+  }
+}
+
+// Opens the "Resolve RMA" form for a unit with an open RMA.
+function openRmaResolveModal(id) {
+  if (isInventoryStaffRole()) return;
+  const row = unitsDb.find(item => Number(item.id) === Number(id));
+  if (!row) { setStatus('Serial unit not found.'); return; }
+  openInventoryModal('rma-resolve');
+  rmaTargetUnitId = Number(row.id);
+  document.getElementById('inventory-modal-title').textContent = 'Resolve RMA';
+  const label = document.getElementById('rma-resolve-label');
+  if (label) label.value = unitLabel(row);
+  const note = document.getElementById('rma-resolve-note');
+  if (note) note.value = '';
+  const resolution = document.getElementById('rma-resolution');
+  if (resolution) resolution.value = 'restock';
+}
+
+async function submitRmaResolve(event) {
+  event.preventDefault();
+  setStatus('');
+  const id = Number(rmaTargetUnitId || 0) || 0;
+  if (!id) { setStatus('No serial unit selected.'); return; }
+  const resolution = String(document.getElementById('rma-resolution')?.value || '').trim();
+  const note = String(document.getElementById('rma-resolve-note')?.value || '').trim();
+  try {
+    await fetchJson(`/api/inventory/units/${id}/rma/resolve`, { method: 'POST', body: JSON.stringify({ resolution, note }) });
+    closeInventoryModal();
+    await loadInventory();
+    switchInventoryTab('rma');
+  } catch (err) {
+    setStatus(err.message || 'Unable to resolve RMA.');
+  }
 }
 
 // Fills the product/warehouse/project selects inside the serial-unit modal form.
@@ -440,8 +578,8 @@ function onUnitProjectChange() {
 
 function switchInventoryTab(tab, options = {}) {
   let safeTab = normalizeInventoryTab(tab);
-  // Serial Units is an admin-only view; never let staff land on it.
-  if (safeTab === 'units' && isInventoryStaffRole()) safeTab = 'products';
+  // Serial Units and RMA are admin-only views; never let staff land on them.
+  if ((safeTab === 'units' || safeTab === 'rma') && isInventoryStaffRole()) safeTab = 'products';
   document.querySelectorAll('.inventory-tab').forEach(button => {
     button.classList.toggle('active', button.dataset.tab === safeTab);
   });
@@ -689,12 +827,13 @@ function openInventoryModal(type) {
   document.getElementById('inventory-modal').classList.add('open');
   document.getElementById('inventory-modal').setAttribute('aria-hidden', 'false');
   editingUnitId = null;
+  rmaTargetUnitId = null;
   const staffRole = isInventoryStaffRole();
   const titles = staffRole
     ? { product: 'Request Product', warehouse: 'Request Warehouse', movement: 'Request Stock Movement', unit: 'Add Serial Unit' }
     : { product: 'New Product', warehouse: 'New Warehouse', movement: 'Stock Movement', unit: 'Add Serial Unit' };
   document.getElementById('inventory-modal-title').textContent = titles[type] || 'Inventory';
-  ['product-form', 'warehouse-form', 'movement-form', 'unit-form'].forEach(id => document.getElementById(id)?.classList.remove('active'));
+  ['product-form', 'warehouse-form', 'movement-form', 'unit-form', 'rma-form', 'rma-resolve-form'].forEach(id => document.getElementById(id)?.classList.remove('active'));
   document.getElementById(`${type}-form`)?.classList.add('active');
   const productSave = document.querySelector('#product-form .btn-save');
   const warehouseSave = document.querySelector('#warehouse-form .btn-save');
@@ -837,6 +976,7 @@ function closeInventoryModal() {
   editingProductId = null;
   editingWarehouseId = null;
   editingUnitId = null;
+  rmaTargetUnitId = null;
   document.getElementById('inventory-modal').classList.remove('open');
   document.getElementById('inventory-modal').setAttribute('aria-hidden', 'true');
 }

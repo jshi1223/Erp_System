@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiPost, apiPut } from '../lib/api';
+import { digitsOnly, formatTin, isValidEmail } from '../lib/format';
 import AppShell from '../components/AppShell';
 import { useMe } from '../auth/auth';
 import type { CompanyRegistry, CompanyOverview } from '../types';
@@ -96,6 +97,19 @@ export function CompanyModal({ company, draft, onClose }: { company?: CompanyReg
     onError: (e: Error) => setError(e.message),
   });
 
+  // Client-side checks mirror the server (validateCompanyRegistryPayload) so the user
+  // gets an instant, specific message instead of a round-trip 400.
+  const validate = (): string | null => {
+    if (!form.company_name.trim()) return 'Company Name is required.';
+    if (!form.address.trim()) return 'Address is required.';
+    if (!form.contact_person.trim()) return 'Contact Person is required.';
+    if (!form.email.trim()) return 'Email is required.';
+    if (!isValidEmail(form.email)) return 'Please enter a valid email address.';
+    if (digitsOnly(form.phone, 11).length !== 11) return 'Phone must be exactly 11 digits.';
+    if (digitsOnly(form.tin, 12).length !== 12) return 'TIN must follow 000-000-000-000 (12 digits).';
+    return null;
+  };
+
   const heading = draft ? 'Edit Company Request' : company ? 'Edit Company' : (isStaff ? 'Request Company' : 'Register Company');
   const saveLabel = company ? 'Save' : draft ? 'Save Draft' : (isStaff ? 'Submit Request' : 'Add to Registry');
 
@@ -107,16 +121,16 @@ export function CompanyModal({ company, draft, onClose }: { company?: CompanyReg
           <button className="rmodal-x" type="button" onClick={onClose}>×</button>
         </div>
         <div className="rmodal-body">
-          <form onSubmit={(e) => { e.preventDefault(); setError(''); mut.mutate(); }}>
+          <form onSubmit={(e) => { e.preventDefault(); const v = validate(); if (v) { setError(v); return; } setError(''); mut.mutate(); }}>
             <div className="form-grid">
               <label className="form-field"><span>Company No. *</span><input value={form.company_no} readOnly placeholder="Auto-generated" /></label>
               <label className="form-field"><span>Branch Code</span><input value={form.branch_code} onChange={field('branch_code')} maxLength={10} placeholder="Optional, e.g. BR-01" /></label>
               <label className="form-field full"><span>Company Name *</span><input value={form.company_name} onChange={field('company_name')} autoFocus placeholder="Company or client name" /></label>
               <label className="form-field full"><span>Address *</span><input value={form.address} onChange={field('address')} placeholder="Complete address" /></label>
               <label className="form-field"><span>Contact Person *</span><input value={form.contact_person} onChange={field('contact_person')} placeholder="Primary contact" /></label>
-              <label className="form-field"><span>Phone *</span><input value={form.phone} onChange={field('phone')} maxLength={11} inputMode="numeric" placeholder="11 digits, e.g. 09171234567" /></label>
+              <label className="form-field"><span>Phone *</span><input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: digitsOnly(e.target.value, 11) }))} maxLength={11} inputMode="numeric" placeholder="11 digits, e.g. 09171234567" /></label>
               <label className="form-field"><span>Email *</span><input type="email" value={form.email} onChange={field('email')} placeholder="Contact email" /></label>
-              <label className="form-field"><span>TIN *</span><input value={form.tin} onChange={field('tin')} maxLength={15} inputMode="numeric" placeholder="000-000-000-000" /></label>
+              <label className="form-field"><span>TIN *</span><input value={form.tin} onChange={(e) => setForm((f) => ({ ...f, tin: formatTin(e.target.value) }))} maxLength={15} inputMode="numeric" placeholder="000-000-000-000" /></label>
               <label className="form-field"><span>Status *</span>
                 <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
                   <option value="active">Active</option>
@@ -231,7 +245,7 @@ function OverviewDrawer({ company, onClose }: { company: CompanyRegistry; onClos
   );
 }
 
-export function CompaniesTab() {
+export function CompaniesTab({ tabBar }: { tabBar?: ReactNode }) {
   const qc = useQueryClient();
   const { data: me } = useMe();
   const isStaff = me?.role === 'staff';
@@ -270,6 +284,11 @@ export function CompaniesTab() {
 
   return (
     <>
+      <div className="toolbar">
+        <input className="search" placeholder="Search company no, name, or address…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <button className="btn btn-add btn-sm" onClick={() => setModal({ open: true, company: null })}>{isStaff ? '+ Request Company' : '+ Add Company'}</button>
+      </div>
+
       <section className="module-summary-grid" aria-label="Summary">
         <article className="module-summary-card"><span className="module-summary-label">Active Companies</span><div className="module-summary-value">{activeCount}</div></article>
         <article className="module-summary-card"><span className="module-summary-label">Archived Companies</span><div className="module-summary-value">{archivedCount}</div></article>
@@ -278,13 +297,13 @@ export function CompaniesTab() {
         <article className="module-summary-card"><span className="module-summary-label">Active Rate</span><div className="module-summary-value">{activeRate}%</div></article>
       </section>
 
-      <div className="toolbar">
-        <input className="search" placeholder="Search company no, name, or address…" value={q} onChange={(e) => setQ(e.target.value)} />
+      {tabBar}
+
+      <div className="toolbar" style={{ justifyContent: 'flex-end' }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} style={{ width: 'auto' }} />
           <span style={{ margin: 0 }}>Show archived</span>
         </label>
-        <button className="btn btn-add btn-sm" onClick={() => setModal({ open: true, company: null })}>{isStaff ? '+ Request Company' : '+ Add Company'}</button>
       </div>
 
       {isLoading && <div className="state">Loading…</div>}

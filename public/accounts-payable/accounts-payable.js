@@ -736,7 +736,7 @@ async function approveMasterDataRequest(endpoint, id) {
 }
 
 async function rejectMasterDataRequest(endpoint, id) {
-  const reason = window.prompt('Reason for rejection?', 'Needs revision.');
+  const reason = await showPrompt('Reason for rejection?', { title: 'Reject Request', confirmLabel: 'Reject', cancelLabel: 'Cancel', placeholder: 'Reason for rejection', defaultValue: 'Needs revision.', multiline: true });
   if (reason === null) return;
   try {
     await fetchJson(`/api/${endpoint}/${Number(id)}/reject`, {

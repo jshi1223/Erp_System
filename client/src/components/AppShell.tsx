@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useMe } from '../auth/auth';
 import { logout } from '../lib/auth';
 import { apiGet } from '../lib/api';
+import { ConfirmDialog } from './dialogs';
 import type { BusinessEntity } from '../types';
 
 // Current workspace/entity label shown in the header — mirrors workspace-switcher.js:
@@ -117,6 +118,7 @@ export default function AppShell({ title, subtitle, children }: { title: string;
   const { data: me } = useMe();
   const role = (me?.role as Role) || 'user';
   const [open, setOpen] = useState(false);
+  const [confirmLogout, setConfirmLogout] = useState(false);
   const groups = useMemo(() => visibleGroups(role), [role]);
 
   // Resolve the current workspace/entity name for the header (All Companies or the company).
@@ -193,7 +195,7 @@ export default function AppShell({ title, subtitle, children }: { title: string;
               </svg>
             </button>
           </div>
-          <button className="btn btn-logout btn-sm" type="button" onClick={() => logout()}>Logout</button>
+          <button className="btn btn-logout btn-sm" type="button" onClick={() => setConfirmLogout(true)}>Logout</button>
         </div>
       </header>
 
@@ -239,6 +241,17 @@ export default function AppShell({ title, subtitle, children }: { title: string;
         </div>
         {children}
       </main>
+
+      {confirmLogout && (
+        <ConfirmDialog
+          title="Logout?"
+          message="Sigurado ka bang gusto mong mag-logout?"
+          confirmLabel="Oo, mag-logout"
+          cancelLabel="Cancel"
+          onConfirm={() => { setConfirmLogout(false); logout(); }}
+          onCancel={() => setConfirmLogout(false)}
+        />
+      )}
     </>
   );
 }

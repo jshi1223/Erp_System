@@ -33,19 +33,23 @@ export default function MasterDataPage() {
     window.history.replaceState({}, '', `${url.pathname}?${url.searchParams.toString()}`);
   };
 
+  // The tab switcher is rendered BELOW each tab's summary cards (passed down as a slot), with the
+  // search + Add button ABOVE the summary cards — per the requested Master Data layout.
+  const tabBar = (
+    <div className="module-tabs" role="tablist">
+      <button type="button" role="tab" className={`module-tab${activeTab === 'companies' ? ' active' : ''}`} aria-selected={activeTab === 'companies'} onClick={() => select('companies')}>Companies</button>
+      <button type="button" role="tab" className={`module-tab${activeTab === 'vendors' ? ' active' : ''}`} aria-selected={activeTab === 'vendors'} onClick={() => select('vendors')}>Vendors</button>
+      {isStaff && (
+        <button type="button" role="tab" className={`module-tab${activeTab === 'requests' ? ' active' : ''}`} aria-selected={activeTab === 'requests'} onClick={() => select('requests')}>Requests</button>
+      )}
+    </div>
+  );
+
   return (
     <AppShell title="Master Data Management" subtitle="Maintain the company and vendor master records used across procurement, projects, and finance.">
-      <div className="module-tabs" role="tablist">
-        <button type="button" role="tab" className={`module-tab${activeTab === 'companies' ? ' active' : ''}`} aria-selected={activeTab === 'companies'} onClick={() => select('companies')}>Companies</button>
-        <button type="button" role="tab" className={`module-tab${activeTab === 'vendors' ? ' active' : ''}`} aria-selected={activeTab === 'vendors'} onClick={() => select('vendors')}>Vendors</button>
-        {isStaff && (
-          <button type="button" role="tab" className={`module-tab${activeTab === 'requests' ? ' active' : ''}`} aria-selected={activeTab === 'requests'} onClick={() => select('requests')}>Requests</button>
-        )}
-      </div>
-
-      {activeTab === 'companies' && <CompaniesTab />}
-      {activeTab === 'vendors' && <VendorsTab />}
-      {activeTab === 'requests' && isStaff && <RequestsTab />}
+      {activeTab === 'companies' && <CompaniesTab tabBar={tabBar} />}
+      {activeTab === 'vendors' && <VendorsTab tabBar={tabBar} />}
+      {activeTab === 'requests' && isStaff && <RequestsTab tabBar={tabBar} />}
     </AppShell>
   );
 }

@@ -43,18 +43,39 @@ function erpGetExplicitBusinessEntityTheme() {
   return htmlTheme || bodyTheme;
 }
 
+function erpShadeHex(hex, percent) {
+  var h = String(hex || '').replace('#', '');
+  if (!/^[0-9a-fA-F]{6}$/.test(h)) return hex;
+  var t = percent < 0 ? 0 : 255, p = Math.abs(percent) / 100;
+  function ch(i) { var c = parseInt(h.slice(i, i + 2), 16); return Math.max(0, Math.min(255, Math.round((t - c) * p) + c)); }
+  return '#' + [ch(0), ch(2), ch(4)].map(function (x) { return ('0' + x.toString(16)).slice(-2); }).join('');
+}
+
 function erpGetBusinessEntityBrandProfile(row) {
   var logo = String((row && (row.logo_path || row.logo)) || '').trim();
   var name = String((row && row.company_name) || '').trim();
+  var brandColor = String((row && row.brand_color) || '').trim();
+  // Entity's own brand_color themes the workspace; no color / "All Companies" → neutral slate.
+  if (/^#[0-9a-fA-F]{6}$/.test(brandColor)) {
+    return {
+      theme: 'entity', brand_color: brandColor, logo: logo,
+      alt: name ? name + ' logo' : 'Company logo',
+      primary: brandColor,
+      primaryLight: erpShadeHex(brandColor, 38),
+      primaryDark: erpShadeHex(brandColor, -42),
+      accent: brandColor,
+      accent2: erpShadeHex(brandColor, -72)
+    };
+  }
   return {
-    theme: 'kvsk',
+    theme: 'neutral',
     logo: logo,
     alt: name ? name + ' logo' : 'Company logo',
-    primary: '#b42318',
-    primaryLight: '#ef5b4f',
-    primaryDark: '#4b1210',
-    accent: '#d92d20',
-    accent2: '#201313'
+    primary: '#334155',
+    primaryLight: '#64748b',
+    primaryDark: '#1e293b',
+    accent: '#475569',
+    accent2: '#0f172a'
   };
 }
 
@@ -102,6 +123,7 @@ function erpApplyBusinessEntityBrand(row) {
     var storedProfile = {
       company_name: brandTitle,
       theme: profile.theme,
+      brand_color: profile.brand_color || '',
       logo: profile.logo,
       alt: profile.alt,
       primary: profile.primary,
@@ -116,12 +138,18 @@ function erpApplyBusinessEntityBrand(row) {
 }
 
 function erpApplyStoredBusinessEntityBrand() {
+  var ctx = String(localStorage.getItem(window.__ERP_BUSINESS_ENTITY_CONTEXT_KEY__) || '').trim().toLowerCase();
+  // "All Companies" (or no selection) ALWAYS = neutral slate, never a stale stored entity color.
+  if (!ctx || ctx === 'all') {
+    erpApplyBusinessEntityBrand({});
+    return;
+  }
   var stored = erpGetStoredBusinessEntityThemeProfile();
   if (stored && stored.theme) {
     erpApplyBusinessEntityBrand(stored);
     return;
   }
-  erpApplyBusinessEntityBrand({ company_name: 'KVSK' });
+  erpApplyBusinessEntityBrand({});
 }
 
 function erpGetDefaultBusinessEntityId() {
@@ -153,21 +181,17 @@ function erpLoadBusinessEntitiesForTheme() {
     })
     .then(function (rows) {
       erpCoreBusinessEntitiesDb = Array.isArray(rows) ? rows : [];
-      var explicitTheme = erpGetExplicitBusinessEntityTheme();
-      if (explicitTheme) {
-        erpApplyBusinessEntityBrand({ theme: explicitTheme, company_name: explicitTheme === 'kitsi' ? 'KITSI' : 'KVSK CCTV & IT Solution' });
+      // The ACTIVE CONTEXT decides the color (using each entity's brand_color), never a stale
+      // stored theme nor the default entity. "All Companies" / no selection → neutral slate.
+      var rawCtx = String(localStorage.getItem(window.__ERP_BUSINESS_ENTITY_CONTEXT_KEY__) || '').trim().toLowerCase();
+      if (!rawCtx || rawCtx === 'all') {
+        erpApplyBusinessEntityBrand({});
         return;
       }
-      var storedThemeProfile = erpGetStoredBusinessEntityThemeProfile();
-      if (storedThemeProfile && storedThemeProfile.theme) {
-        erpApplyBusinessEntityBrand(storedThemeProfile);
-        return;
-      }
-      var current = erpGetCurrentBusinessEntityId();
       var activeEntity = erpCoreBusinessEntitiesDb.find(function (row) {
-        return String(row.id || '') === String(current || '');
-      }) || erpCoreBusinessEntitiesDb[0] || null;
-      erpApplyBusinessEntityBrand(activeEntity || { company_name: 'KVSK' });
+        return String(row.id || '') === rawCtx;
+      }) || null;
+      erpApplyBusinessEntityBrand(activeEntity || {});
     })
     .catch(function (err) {
       console.error('Business entity theme load error:', err);
@@ -1112,7 +1136,8 @@ async function toggleProjectArchive(projectId, archive = true) {
   const prompt = archive
     ? 'Archive this project? It will move to Archived Projects.'
     : 'Restore this project back to Project Transactions?';
-  if (!confirm(prompt)) return;
+  const ok = await showConfirm(prompt, { title: archive ? 'Archive Project' : 'Restore Project', confirmLabel: archive ? 'Archive' : 'Restore', type: archive ? 'danger' : 'default' });
+  if (!ok) return;
 
   try {
     const res = await fetch(`/api/projects/${id}/${verb}`, { method: 'PUT' });
@@ -2829,6 +2854,9 @@ function openConfirmDialog({
   const yesBtn = document.getElementById('confirm-modal-yes-btn');
 
   if (!backdrop || !titleEl || !messageEl || !noBtn || !yesBtn) {
+    if (typeof window.showConfirm === 'function') {
+      return window.showConfirm(String(message || ''), { title: String(title || 'Confirm Action'), confirmLabel: String(yesText || 'Yes'), cancelLabel: String(noText || 'No') });
+    }
     return Promise.resolve(window.confirm(String(message || title || 'Are you sure?')));
   }
 
@@ -4122,7 +4150,7 @@ async function selectGanttProject(projectId, { persistSelection = true } = {}) {
   }
 
   if (ganttPlannerState.dirty && currentId && nextId) {
-    const shouldSave = window.confirm('Save changes to the current project before switching?');
+    const shouldSave = await showConfirm('Save changes to the current project before switching?', { title: 'Unsaved Changes', confirmLabel: 'Save & switch', cancelLabel: "Don't save", type: 'warning' });
     if (shouldSave) {
       const saved = await saveGanttProjectTasks({ silent: true });
       if (!saved) return null;
@@ -5854,8 +5882,9 @@ function restoreArchived() {
     .catch(() => showToast('Server error.', 'error'));
 }
 
-function restoreArchivedDirect(id) {
-  if (!confirm('Restore this record from archive?')) return;
+async function restoreArchivedDirect(id) {
+  const ok = await showConfirm('Restore this record from archive?', { title: 'Restore from Archive', confirmLabel: 'Restore', type: 'default' });
+  if (!ok) return;
   fetch(`/api/transactions/${id}/restore`, { method: 'PUT' })
     .then(res => res.json())
     .then(data => {

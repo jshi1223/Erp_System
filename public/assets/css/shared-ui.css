@@ -250,21 +250,10 @@ body th.table-sort-header {
   }
 }
 
-body[data-business-entity-theme="kvsk"] {
-  --primary: #b42318;
-  --primary-light: #ef5b4f;
-  --primary-dark: #4b1210;
-  --accent: #d92d20;
-  --accent2: #201313;
-}
-
-body[data-business-entity-theme="kitsi"] {
-  --primary: #0898c7;
-  --primary-light: #22c7e8;
-  --primary-dark: #005b96;
-  --accent: #07a6d6;
-  --accent2: #005b96;
-}
+/* NOTE: per-entity --primary/accent colors are now driven SOLELY by JS inline vars on :root
+   (auth-guard.js / workspace-switcher.js / admin.js — derived from each entity's brand_color).
+   The old data-business-entity-theme CSS presets were REMOVED because they redefined --primary
+   on body/html and conflicted with the inline vars, causing a split header/sidebar color. */
 
 body .workspace-badge {
   align-items: center;
@@ -574,6 +563,16 @@ body.erp-clean-page .sidebar-header .header-sub,
 body.erp-clean-page .sidebar-group-toggle,
 body.erp-clean-page .sidebar-group-caret {
   color: #ffffff !important;
+}
+
+/* Entity name in the sidebar brand must never be underlined (it sits inside a dashboard link). */
+body.admin-page .sidebar-header a,
+body.admin-page .sidebar-header .header-logo,
+body.admin-page .sidebar-brand,
+body.erp-clean-page .sidebar-header a,
+body.erp-clean-page .sidebar-header .header-logo,
+body.erp-clean-page .sidebar-brand {
+  text-decoration: none !important;
 }
 
 body.admin-page .sidebar-group-toggle,

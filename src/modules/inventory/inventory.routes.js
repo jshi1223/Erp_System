@@ -409,6 +409,105 @@ module.exports = function createInventoryRouter(deps) {
     }
   });
 
+  // RMA (Return Merchandise Authorization) — lightweight lifecycle built on the
+  // serial unit itself. Logging an RMA flips the unit to 'rma' and stamps the reason;
+  // resolving it routes the unit to its next physical state. Each resolution maps to
+  // what should happen to the unit + its customer/sales linkage:
+  //   restock       → back to sellable stock  (clear customer + DR link)
+  //   repair_return → fixed and returned       (stays sold to the same customer)
+  //   replace       → unit is dead, customer got a different serial (defective, unlinked from DR)
+  //   scrap         → written off               (defective, unlinked from DR)
+  const RMA_RESOLUTIONS = {
+    restock:       { status: 'in_stock',  clearCustomer: true,  clearSales: true,  label: 'Restocked' },
+    repair_return: { status: 'sold',      clearCustomer: false, clearSales: false, label: 'Repaired & returned' },
+    replace:       { status: 'defective', clearCustomer: false, clearSales: true,  label: 'Replaced' },
+    scrap:         { status: 'defective', clearCustomer: false, clearSales: true,  label: 'Scrapped' }
+  };
+
+  // Log an RMA against a sold/delivered serial unit.
+  router.post('/api/inventory/units/:id/rma', protectAdmin, async (req, res) => {
+    try {
+      if (isStaffRole(getAuthenticatedUser(req)?.role)) {
+        return res.status(403).json({ error: 'Staff cannot log RMAs.' });
+      }
+      const id = Number(req.params.id || 0) || 0;
+      if (!id) return res.status(400).json({ error: 'Invalid unit id.' });
+      const reason = String(req.body.reason || '').trim();
+      if (!reason) return res.status(400).json({ error: 'RMA reason is required.' });
+
+      const existing = await queryAsync('SELECT * FROM product_units WHERE id = ? LIMIT 1', [id]);
+      const unit = existing[0];
+      if (!unit) return res.status(404).json({ error: 'Serial unit not found.' });
+      if (String(unit.status || '') === 'in_stock') {
+        return res.status(400).json({ error: 'Only sold/delivered units can be sent to RMA.' });
+      }
+
+      const rows = await queryAsync(
+        `UPDATE product_units SET
+           status = 'rma', rma_reason = ?, rma_logged_at = CURRENT_TIMESTAMP,
+           rma_resolution = NULL, rma_resolved_at = NULL, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?
+         RETURNING *`,
+        [reason, id]
+      );
+      logAction(req, 'RMA_LOG', `Logged RMA for serial ${unit.serial_number || `#${id}`}: ${reason}`, 'inventory', {
+        entityType: 'product_unit', entityId: id, businessEntityId: unit.business_entity_id,
+        changes: { status: { from: unit.status, to: 'rma' } }, severity: 'warning'
+      });
+      res.json(rows[0]);
+    } catch (err) {
+      console.error('Inventory RMA log error:', err);
+      res.status(500).json({ error: err.message || 'Unable to log RMA.' });
+    }
+  });
+
+  // Resolve an open RMA, routing the unit to its next state.
+  router.post('/api/inventory/units/:id/rma/resolve', protectAdmin, async (req, res) => {
+    try {
+      if (isStaffRole(getAuthenticatedUser(req)?.role)) {
+        return res.status(403).json({ error: 'Staff cannot resolve RMAs.' });
+      }
+      const id = Number(req.params.id || 0) || 0;
+      if (!id) return res.status(400).json({ error: 'Invalid unit id.' });
+      const resolution = String(req.body.resolution || '').trim().toLowerCase();
+      const rule = RMA_RESOLUTIONS[resolution];
+      if (!rule) return res.status(400).json({ error: 'Invalid RMA resolution.' });
+
+      const existing = await queryAsync('SELECT * FROM product_units WHERE id = ? LIMIT 1', [id]);
+      const unit = existing[0];
+      if (!unit) return res.status(404).json({ error: 'Serial unit not found.' });
+      if (String(unit.status || '') !== 'rma') {
+        return res.status(400).json({ error: 'This unit has no open RMA to resolve.' });
+      }
+
+      const note = String(req.body.note || '').trim();
+      const mergedReason = note
+        ? `${String(unit.rma_reason || '').trim()}${unit.rma_reason ? '\n— ' : ''}Resolution note: ${note}`
+        : unit.rma_reason;
+
+      const rows = await queryAsync(
+        `UPDATE product_units SET
+           status = ?,
+           customer_name = ${rule.clearCustomer ? 'NULL' : 'customer_name'},
+           sales_record_id = ${rule.clearSales ? 'NULL' : 'sales_record_id'},
+           rma_reason = ?, rma_resolution = ?, rma_resolved_at = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?
+         RETURNING *`,
+        [rule.status, mergedReason, resolution, id]
+      );
+      logAction(req, 'RMA_RESOLVE', `Resolved RMA for serial ${unit.serial_number || `#${id}`}: ${rule.label}`, 'inventory', {
+        entityType: 'product_unit', entityId: id, businessEntityId: unit.business_entity_id,
+        changes: { status: { from: 'rma', to: rule.status }, resolution: { from: null, to: resolution } },
+        severity: 'info'
+      });
+      res.json(rows[0]);
+    } catch (err) {
+      console.error('Inventory RMA resolve error:', err);
+      res.status(500).json({ error: err.message || 'Unable to resolve RMA.' });
+    }
+  });
+
   router.get('/api/inventory/requests', protectAdmin, async (req, res) => {
     try {
       const actor = getAuthenticatedUser(req);

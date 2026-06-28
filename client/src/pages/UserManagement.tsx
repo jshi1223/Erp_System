@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiGet, apiPatch } from '../lib/api';
 import { useMe } from '../auth/auth';
 import AppShell from '../components/AppShell';
+import { ConfirmDialog } from '../components/dialogs';
 import type { ManagedUser, UserRole } from '../types';
 
 async function fetchUsers(): Promise<ManagedUser[]> {
@@ -78,6 +79,7 @@ export default function UserManagementPage() {
   const canSuper = me?.role === 'super_admin';
   const [view, setView] = useState<'approvals' | 'users'>('approvals');
   const [approveUser, setApproveUser] = useState<ManagedUser | null>(null);
+  const [rejectUser, setRejectUser] = useState<ManagedUser | null>(null);
   const { data, isLoading, isError } = useQuery({ queryKey: ['admin-users'], queryFn: fetchUsers });
 
   const reject = useMutation({
@@ -146,7 +148,7 @@ export default function UserManagementPage() {
                     {String(u.approval_status) === 'pending' && (
                       <>
                         <button className="btn btn-save btn-sm" onClick={() => setApproveUser(u)}>Approve</button>
-                        <button className="btn btn-cancel btn-sm" disabled={reject.isPending} onClick={() => { if (confirm('Reject this account request?')) reject.mutate(u.id); }}>
+                        <button className="btn btn-cancel btn-sm" disabled={reject.isPending} onClick={() => setRejectUser(u)}>
                           Reject
                         </button>
                       </>
@@ -167,6 +169,17 @@ export default function UserManagementPage() {
       )}
 
       {approveUser && <ApproveModal user={approveUser} canSuper={canSuper} onClose={() => setApproveUser(null)} />}
+
+      {rejectUser && (
+        <ConfirmDialog
+          title="Reject Account Request?"
+          message={`Reject the account request for "${rejectUser.fullname || rejectUser.username}"?`}
+          confirmLabel="Reject"
+          pending={reject.isPending}
+          onConfirm={() => { reject.mutate(rejectUser.id); setRejectUser(null); }}
+          onCancel={() => setRejectUser(null)}
+        />
+      )}
     </AppShell>
   );
 }

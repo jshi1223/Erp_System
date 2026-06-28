@@ -15,6 +15,33 @@
     <link rel="stylesheet" href="/admin/css/roles/role-admin.css" />
     <link rel="stylesheet" href="/admin/css/roles/role-super-admin.css" />
     <link rel="stylesheet" href="/assets/css/warm-minimal.css" />
+    <!-- Apply the active workspace's brand color BEFORE paint (flicker-free, consistent on refresh).
+         Mirrors auth-guard.js for the React pages, which don't load auth-guard. -->
+    <script>
+      (function () {
+        try {
+          var ctx = String(localStorage.getItem('kinaadman_businessEntityContext') || '').trim().toLowerCase();
+          // "All Companies" (or no selection) always uses the neutral slate theme, not a stale stored one.
+          var NEUTRAL = { theme: 'neutral', primary: '#334155', primaryLight: '#64748b', primaryDark: '#1e293b', accent: '#475569', accent2: '#0f172a' };
+          var t = (!ctx || ctx === 'all') ? NEUTRAL : JSON.parse(localStorage.getItem('kinaadman_businessEntityTheme') || 'null');
+          if (!t || !t.theme) return;
+          function setVars(el) {
+            if (!el || !el.style) return;
+            if (t.primary) el.style.setProperty('--primary', t.primary);
+            if (t.primaryLight) el.style.setProperty('--primary-light', t.primaryLight);
+            if (t.primaryDark) el.style.setProperty('--primary-dark', t.primaryDark);
+            if (t.accent) el.style.setProperty('--accent', t.accent);
+            if (t.accent2) el.style.setProperty('--accent2', t.accent2);
+          }
+          setVars(document.documentElement);
+          document.documentElement.setAttribute('data-business-entity-theme', t.theme);
+          document.addEventListener('DOMContentLoaded', function () {
+            setVars(document.body);
+            if (document.body) document.body.setAttribute('data-business-entity-theme', t.theme);
+          });
+        } catch (e) { /* no theme yet */ }
+      })();
+    </script>
   </head>
   <body class="erp-clean-page">
     <div id="root"></div>

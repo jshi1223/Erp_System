@@ -24,22 +24,10 @@ body {
   background: var(--theme-page-bg) !important;
 }
 
-body[data-business-entity-theme="kvsk"],
-html[data-business-entity-theme="kvsk"] {
-  --primary: #b42318;
-  --primary-light: #ef5b4f;
-  --primary-dark: #4b1210;
-  --accent: #d92d20;
-  --accent2: #201313;
-}
-
+/* --primary/accent presets removed — colors now come from JS inline vars on :root (per-entity
+   brand_color). Only the page-bg wash stays theme-attribute-keyed. */
 body[data-business-entity-theme="kitsi"],
 html[data-business-entity-theme="kitsi"] {
-  --primary: #0898c7;
-  --primary-light: #22c7e8;
-  --primary-dark: #005b96;
-  --accent: #07a6d6;
-  --accent2: #005b96;
   --theme-page-bg:
     radial-gradient(circle at top left, rgba(8, 152, 199, 0.06), transparent 28%),
     radial-gradient(circle at top right, rgba(34, 199, 232, 0.06), transparent 24%),

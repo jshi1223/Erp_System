@@ -455,7 +455,8 @@ async function saveLead(event) {
 }
 
 async function deleteLead(id) {
-  if (!window.confirm('Archive this lead? Mapupunta ito sa Archive Center (hindi binubura).')) return;
+  const ok = await showConfirm('Archive this lead? Mapupunta ito sa Archive Center (hindi binubura).', { title: 'Archive Lead', confirmLabel: 'Archive', type: 'danger' });
+  if (!ok) return;
   try {
     await fetchJson(`/api/crm/leads/${Number(id)}`, { method: 'DELETE' });
     showCrmStatus('Lead archived.');
@@ -501,8 +502,9 @@ async function confirmConvertLead(event) {
     closeConvertModal();
     showCrmStatus('Na-convert sa project ' + (data.project_docno || '') + '.');
     await loadCrm();
-    if (data.project_id && window.confirm('Nagawa na ang project ' + (data.project_docno || '') + '. Pumunta sa Projects?')) {
-      window.location.href = '/admin?panel=project-records';
+    if (data.project_id) {
+      const goProjects = await showConfirm('Nagawa na ang project ' + (data.project_docno || '') + '. Pumunta sa Projects?', { title: 'Project Created', confirmLabel: 'Pumunta sa Projects', cancelLabel: 'Hindi muna', type: 'info' });
+      if (goProjects) window.location.href = '/admin?panel=project-records';
     }
   } catch (err) {
     showCrmStatus(err.message || 'Unable to convert lead.', 'error');
@@ -511,7 +513,8 @@ async function confirmConvertLead(event) {
 
 // ---------- draft/approval workflow ----------
 async function submitLead(id) {
-  if (!window.confirm('I-submit ang lead na ito para sa approval ng admin?')) return;
+  const ok = await showConfirm('I-submit ang lead na ito para sa approval ng admin?', { title: 'Submit Lead', confirmLabel: 'I-submit', type: 'default' });
+  if (!ok) return;
   try {
     await fetchJson(`/api/crm/leads/${Number(id)}/submit`, { method: 'POST', body: JSON.stringify({}) });
     showCrmStatus('Na-submit para sa approval.');
@@ -528,7 +531,8 @@ async function approveLead(id) {
 }
 
 async function rejectLead(id) {
-  if (!window.confirm('I-reject ang lead na ito? Pwedeng i-revise + i-resubmit ng staff.')) return;
+  const ok = await showConfirm('I-reject ang lead na ito? Pwedeng i-revise + i-resubmit ng staff.', { title: 'Reject Lead', confirmLabel: 'I-reject', type: 'danger' });
+  if (!ok) return;
   try {
     await fetchJson(`/api/crm/leads/${Number(id)}/reject`, { method: 'POST', body: JSON.stringify({}) });
     showCrmStatus('Lead rejected.');
@@ -592,7 +596,8 @@ async function saveContact(event) {
 }
 
 async function deleteContact(id) {
-  if (!window.confirm('Archive this contact? Mapupunta ito sa Archive Center (hindi binubura).')) return;
+  const ok = await showConfirm('Archive this contact? Mapupunta ito sa Archive Center (hindi binubura).', { title: 'Archive Contact', confirmLabel: 'Archive', type: 'danger' });
+  if (!ok) return;
   try {
     await fetchJson(`/api/crm/contacts/${Number(id)}`, { method: 'DELETE' });
     showCrmStatus('Contact archived.');

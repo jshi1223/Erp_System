@@ -6,6 +6,54 @@
   'use strict';
 
   var KEY = 'kinaadman_businessEntityContext';
+  var THEME_KEY = 'kinaadman_businessEntityTheme';
+  // "All Companies" / any entity without its own brand color → neutral slate (distinct from any entity).
+  var DEFAULT_THEME = { theme: 'neutral', brand_color: '', primary: '#334155', primaryLight: '#64748b', primaryDark: '#1e293b', accent: '#475569', accent2: '#0f172a' };
+
+  // Lighten (positive %) / darken (negative %) a #rrggbb hex toward white/black.
+  function shadeHex(hex, percent) {
+    var h = String(hex || '').replace('#', '');
+    if (!/^[0-9a-fA-F]{6}$/.test(h)) return hex;
+    var t = percent < 0 ? 0 : 255, p = Math.abs(percent) / 100;
+    function ch(i) { var c = parseInt(h.slice(i, i + 2), 16); return Math.max(0, Math.min(255, Math.round((t - c) * p) + c)); }
+    return '#' + [ch(0), ch(2), ch(4)].map(function (x) { return ('0' + x.toString(16)).slice(-2); }).join('');
+  }
+  // The active entity's brand color themes the whole workspace; no color → default maroon.
+  function entityThemeColors(entity) {
+    var c = entity && /^#[0-9a-fA-F]{6}$/.test(String(entity.brand_color || '')) ? String(entity.brand_color) : '';
+    if (!c) return DEFAULT_THEME;
+    return { theme: 'entity', brand_color: c, primary: c, primaryLight: shadeHex(c, 38), primaryDark: shadeHex(c, -42), accent: c, accent2: shadeHex(c, -72) };
+  }
+  function applyThemeVars(t) {
+    // Set the vars on BOTH <html> and <body>. Inline vars on <body> beat the
+    // body[data-business-entity-theme="kvsk"/"kitsi"] CSS rules (same element, inline wins),
+    // so a custom brand color always applies regardless of the data-theme attribute or timing.
+    [document.documentElement, document.body].forEach(function (el) {
+      if (!el || !el.style) return;
+      el.style.setProperty('--primary', t.primary);
+      el.style.setProperty('--primary-light', t.primaryLight);
+      el.style.setProperty('--primary-dark', t.primaryDark);
+      el.style.setProperty('--accent', t.accent);
+      el.style.setProperty('--accent2', t.accent2);
+    });
+    if (document.documentElement.dataset) document.documentElement.dataset.businessEntityTheme = t.theme;
+    if (document.body && document.body.dataset) document.body.dataset.businessEntityTheme = t.theme;
+  }
+  // Persist the active entity's theme (colors + logo + name) so auth-guard applies it before
+  // paint on the next load — keeping the workspace color CONSISTENT across refresh, no flash.
+  function storeEntityTheme(entity) {
+    var colors = entityThemeColors(entity);
+    try {
+      var tp = JSON.parse(localStorage.getItem(THEME_KEY) || 'null') || {};
+      tp.theme = colors.theme; tp.brand_color = colors.brand_color;
+      tp.primary = colors.primary; tp.primaryLight = colors.primaryLight; tp.primaryDark = colors.primaryDark;
+      tp.accent = colors.accent; tp.accent2 = colors.accent2;
+      tp.logo = entity && entity.logo_path ? String(entity.logo_path) : '';
+      tp.company_name = entity && entity.company_name ? entity.company_name : 'All Companies';
+      localStorage.setItem(THEME_KEY, JSON.stringify(tp));
+    } catch (e) {}
+    return colors;
+  }
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -89,6 +137,8 @@
       menu.hidden = true;
       if (String(val) === String(cur)) return; // only change on explicit, different pick
       localStorage.setItem(KEY, val);
+      // Persist the new entity's theme BEFORE reload so the new color is applied before paint.
+      storeEntityTheme((val && val !== 'all') ? rows.find(function (r) { return String(r.id || '') === String(val); }) : null);
       location.reload();
     });
   }
@@ -101,16 +151,10 @@
       ? rows.find(function (r) { return String(r.id || '') === stored; })
       : null;
     var logo = entity && entity.logo_path ? String(entity.logo_path) : '';
-    // Keep the shared theme key in sync so the logo survives a refresh even on pages
-    // (business-entities, inventory, staff) that have no dedicated brand applier — the
-    // auth-guard reads kinaadman_businessEntityTheme.logo on the next page load.
-    try {
-      var tp = JSON.parse(localStorage.getItem('kinaadman_businessEntityTheme') || 'null') || {};
-      tp.logo = logo;
-      if (!tp.theme) tp.theme = 'kvsk';
-      if (entity && entity.company_name) tp.company_name = entity.company_name;
-      localStorage.setItem('kinaadman_businessEntityTheme', JSON.stringify(tp));
-    } catch (e) {}
+    // Persist the active entity's full theme (colors + logo + name) and apply the color now.
+    // auth-guard re-applies it before paint on the next load, so the workspace color is
+    // CONSISTENT across refresh with no flash of the default.
+    applyThemeVars(storeEntityTheme(entity));
     document.querySelectorAll('.brand-mark, .sidebar-brand-mark, .user-modal-brand-mark').forEach(function (img) {
       if (logo) {
         img.src = logo;

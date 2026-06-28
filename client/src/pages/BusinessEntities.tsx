@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch, apiGet, apiPost, apiPut } from '../lib/api';
+import { digitsOnly, formatTin, isValidEmail } from '../lib/format';
 import AppShell from '../components/AppShell';
 import type { BusinessEntity } from '../types';
 
@@ -20,6 +21,7 @@ interface EntityForm {
   address: string;
   status: string;
   is_default: boolean;
+  brand_color: string;
 }
 
 function emptyForm(e: BusinessEntity | null): EntityForm {
@@ -33,6 +35,7 @@ function emptyForm(e: BusinessEntity | null): EntityForm {
     address: e?.address ?? '',
     status: e?.status ?? 'active',
     is_default: Number(e?.is_default) === 1 || e?.is_default === true,
+    brand_color: ((e as { brand_color?: string } | null)?.brand_color) || '#7a1f1f',
   };
 }
 
@@ -66,6 +69,17 @@ function EntityModal({ entity, onClose }: { entity: BusinessEntity | null; onClo
     onError: (e: Error) => setError(e.message),
   });
 
+  // Mirrors the server: company name required; email/phone/TIN validated only if provided.
+  const validate = (): string | null => {
+    if (!form.company_name.trim()) return 'Company name is required.';
+    if (form.email.trim() && !isValidEmail(form.email)) return 'Please enter a valid email address.';
+    const phone = digitsOnly(form.phone, 11);
+    if (phone && phone.length < 7) return 'Phone must be 7 to 11 digits.';
+    const tin = digitsOnly(form.tin, 12);
+    if (tin && tin.length !== 12) return 'TIN must follow 000-000-000-000 (12 digits).';
+    return null;
+  };
+
   return (
     <div className="rmodal-backdrop" onClick={onClose}>
       <div className="rmodal" onClick={(e) => e.stopPropagation()}>
@@ -74,20 +88,26 @@ function EntityModal({ entity, onClose }: { entity: BusinessEntity | null; onClo
           <button className="rmodal-x" type="button" onClick={onClose}>×</button>
         </div>
         <div className="rmodal-body">
-          <form onSubmit={(e) => { e.preventDefault(); setError(''); mut.mutate(); }}>
+          <form onSubmit={(e) => { e.preventDefault(); const v = validate(); if (v) { setError(v); return; } setError(''); mut.mutate(); }}>
             <div className="form-grid">
               <label className="form-field"><span>Entity code</span><input value={form.entity_code} onChange={field('entity_code')} placeholder="auto if blank" /></label>
               <label className="form-field"><span>Company name *</span><input value={form.company_name} onChange={field('company_name')} autoFocus /></label>
               <label className="form-field"><span>Contact person</span><input value={form.contact_person} onChange={field('contact_person')} /></label>
-              <label className="form-field"><span>Phone</span><input value={form.phone} onChange={field('phone')} /></label>
+              <label className="form-field"><span>Phone</span><input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: digitsOnly(e.target.value, 11) }))} maxLength={11} inputMode="numeric" placeholder="11 digits, e.g. 09171234567" /></label>
               <label className="form-field"><span>Email</span><input type="email" value={form.email} onChange={field('email')} /></label>
-              <label className="form-field"><span>TIN</span><input value={form.tin} onChange={field('tin')} placeholder="000-000-000-000" /></label>
+              <label className="form-field"><span>TIN</span><input value={form.tin} onChange={(e) => setForm((f) => ({ ...f, tin: formatTin(e.target.value) }))} maxLength={15} inputMode="numeric" placeholder="000-000-000-000" /></label>
               <label className="form-field full"><span>Address</span><input value={form.address} onChange={field('address')} /></label>
               <label className="form-field"><span>Status</span>
                 <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
                   <option value="active">Active</option>
                   <option value="inactive">Inactive</option>
                 </select>
+              </label>
+              <label className="form-field"><span>Brand color</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(form.brand_color) ? form.brand_color : '#7a1f1f'} onChange={field('brand_color')} style={{ width: 46, height: 36, padding: 2, cursor: 'pointer' }} />
+                  <span style={{ fontSize: '.78rem', color: 'var(--muted)' }}>Kulay ng PDF + header ng entity na ito</span>
+                </span>
               </label>
               <label className="form-field" style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 22 }}>
                 <input type="checkbox" checked={form.is_default} onChange={(e) => setForm((f) => ({ ...f, is_default: e.target.checked }))} style={{ width: 'auto' }} />
@@ -148,7 +168,10 @@ export default function BusinessEntitiesPage() {
               {rows.map((e) => (
                 <tr key={e.id}>
                   <td>{e.entity_code || '-'}</td>
-                  <td className="strong">{e.company_name}</td>
+                  <td className="strong">
+                    <span style={{ display: 'inline-block', width: 12, height: 12, borderRadius: '50%', marginRight: 8, verticalAlign: 'middle', border: '1px solid rgba(0,0,0,.15)', background: ((e as { brand_color?: string }).brand_color) || '#7a1f1f' }} title="Brand color" />
+                    {e.company_name}
+                  </td>
                   <td>{e.contact_person || '-'}</td>
                   <td>{e.phone || '-'}</td>
                   <td>{e.email || '-'}</td>

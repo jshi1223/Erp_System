@@ -81,6 +81,9 @@ module.exports = function createCompanyRegistryRouter(deps) {
       const businessEntityId = null;
 
       if (!companyName) return res.status(400).json({ error: 'Company name is required' });
+      if (String(email || '').trim() && !isValidEmail(String(email).trim())) {
+        return res.status(400).json({ error: 'Please enter a valid email address.', field: 'email' });
+      }
       if (!isValidCompanyRegistryPhone(companyPhone)) {
         return res.status(400).json({ error: 'Company phone number must be exactly 11 digits and numbers only.', field: 'phone' });
       }

@@ -159,7 +159,10 @@ function applySalesTabVisibility() {
 }
 
 async function loadSalesRecords() {
-  const res = await fetch('/api/sales-management/records', { cache: 'no-store' });
+  // Scope the list to the active workspace (business entity); 'all'/blank shows everything.
+  const ctx = String(localStorage.getItem('kinaadman_businessEntityContext') || '').trim();
+  const qs = (ctx && ctx.toLowerCase() !== 'all') ? `?business_entity_id=${encodeURIComponent(ctx)}` : '';
+  const res = await fetch(`/api/sales-management/records${qs}`, { cache: 'no-store' });
   salesRecords = res.ok ? await res.json().catch(() => []) : [];
   if (!Array.isArray(salesRecords)) salesRecords = [];
   updateSalesSummary();
@@ -852,7 +855,7 @@ async function saveSalesRecord() {
       status.textContent = data.error || 'Unable to save sales record.';
       status.classList.remove('is-hidden');
     } else {
-      alert(data.error || 'Unable to save sales record.');
+      showToast(data.error || 'Unable to save sales record.', 'error');
     }
     return;
   }
@@ -1388,7 +1391,7 @@ async function deleteSalesRecord(id) {
   const res = await fetch(`/api/sales-management/records/${Number(id)}`, { method: 'DELETE' });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    alert(data.error || 'Unable to archive sales record.');
+    showToast(data.error || 'Unable to archive sales record.', 'error');
     return;
   }
   await loadSalesRecords();

@@ -2753,6 +2753,10 @@ function initApp() {
   db.query(`ALTER TABLE business_entities ADD COLUMN IF NOT EXISTS logo_path TEXT`, (err) => {
     if (err) console.error('Business entities logo_path column error:', err);
   });
+  // Per-entity brand color (hex, e.g. #7a1f1f) — drives PDF accent + app header tint per workspace.
+  db.query(`ALTER TABLE business_entities ADD COLUMN IF NOT EXISTS brand_color VARCHAR(7)`, (err) => {
+    if (err) console.error('Business entities brand_color column error:', err);
+  });
 
   db.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -3172,6 +3176,21 @@ function initApp() {
               // so its status auto-flips to sold when the DR is delivered.
               db.query(`ALTER TABLE product_units ADD COLUMN IF NOT EXISTS sales_record_id integer NULL`, (alterErr) => {
                 if (alterErr) console.error('Product units sales_record_id migration error:', alterErr);
+              });
+              // RMA lifecycle (return/warranty) on the latest claim per unit. Full
+              // history lives in the audit trail; these columns track the open RMA so
+              // the Inventory → RMA tab can list and resolve it. rma_resolution NULL = open.
+              db.query(`ALTER TABLE product_units ADD COLUMN IF NOT EXISTS rma_reason TEXT`, (alterErr) => {
+                if (alterErr) console.error('Product units rma_reason migration error:', alterErr);
+              });
+              db.query(`ALTER TABLE product_units ADD COLUMN IF NOT EXISTS rma_logged_at TIMESTAMP NULL`, (alterErr) => {
+                if (alterErr) console.error('Product units rma_logged_at migration error:', alterErr);
+              });
+              db.query(`ALTER TABLE product_units ADD COLUMN IF NOT EXISTS rma_resolution VARCHAR(40) NULL`, (alterErr) => {
+                if (alterErr) console.error('Product units rma_resolution migration error:', alterErr);
+              });
+              db.query(`ALTER TABLE product_units ADD COLUMN IF NOT EXISTS rma_resolved_at TIMESTAMP NULL`, (alterErr) => {
+                if (alterErr) console.error('Product units rma_resolved_at migration error:', alterErr);
               });
               addIndexIfMissing('CREATE UNIQUE INDEX IF NOT EXISTS uniq_product_units_entity_serial ON product_units (business_entity_id, serial_number)', 'product units entity serial');
             });
@@ -6105,6 +6124,16 @@ function drawPdfWrappedText(drawText, x, y, value, options = {}) {
   });
 }
 
+// Hex (#rrggbb) → PDF "r g b" floats (0–1). Returns null for anything else.
+function hexToPdfRgb(hex) {
+  const s = String(hex || '').trim();
+  if (!/^#[0-9a-fA-F]{6}$/.test(s)) return null;
+  const r = parseInt(s.slice(1, 3), 16) / 255;
+  const g = parseInt(s.slice(3, 5), 16) / 255;
+  const b = parseInt(s.slice(5, 7), 16) / 255;
+  return `${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)}`;
+}
+
 function getPurchaseRequisitionPdfBrand(row = {}) {
   const entityName = String(row.business_entity_name || row.entity_name || '').trim();
   const entityCode = String(row.business_entity_code || row.entity_code || '').trim();
@@ -6115,10 +6144,13 @@ function getPurchaseRequisitionPdfBrand(row = {}) {
   const subtitleParts = [address, phone, email].filter(Boolean);
   const brandKey = `${entityCode} ${entityName}`.toLowerCase();
   const isKitsi = /\bkitsi\b|\bkits\b/.test(brandKey);
+  // The entity's own brand color (set in the Business Entity modal) drives the PDF accent.
+  // Falls back to the legacy per-name accent only when no color is set.
+  const customAccent = hexToPdfRgb(row.business_entity_brand_color);
   return {
     name: entityName || entityCode || fallbackName,
     subtitle: subtitleParts.length ? subtitleParts.join(' | ') : 'Tanauan City, Batangas, 4232 | info@kvsk.com.ph',
-    accent: isKitsi ? '0.00 0.58 0.78' : '0.70 0.12 0.08'
+    accent: customAccent || (isKitsi ? '0.00 0.58 0.78' : '0.70 0.12 0.08')
   };
 }
 
@@ -6470,7 +6502,7 @@ async function buildPurchaseRequisitionPdf(requisitionId) {
   const rows = await queryAsync(`
     SELECT
       pr.*,
-      be.company_name AS business_entity_name,
+      be.company_name AS business_entity_name, be.brand_color AS business_entity_brand_color,
       be.entity_code AS business_entity_code,
       be.address AS business_entity_address,
       be.phone AS business_entity_phone,
@@ -6524,7 +6556,7 @@ async function buildPurchaseRequisitionEmailAttachment(requisitionId) {
 async function buildRfqRequestPdfAttachment(requisitionId, options = {}) {
   const rows = await queryAsync(`
     SELECT pr.*,
-           be.company_name AS business_entity_name, be.entity_code AS business_entity_code,
+           be.company_name AS business_entity_name, be.brand_color AS business_entity_brand_color, be.entity_code AS business_entity_code,
            be.address AS business_entity_address, be.phone AS business_entity_phone,
            be.email AS business_entity_email,
            c.company_name, c.company_no, p.project_docno, p.project_name
@@ -6707,7 +6739,7 @@ async function buildPurchaseOrderPdfAttachment(poId, options = {}) {
   const rows = await queryAsync(`
     SELECT
       po.*,
-      be.company_name AS business_entity_name,
+      be.company_name AS business_entity_name, be.brand_color AS business_entity_brand_color,
       be.entity_code AS business_entity_code,
       be.address AS business_entity_address,
       be.phone AS business_entity_phone,
@@ -6791,7 +6823,7 @@ async function buildPaymentVoucherPdfAttachment(paymentId) {
       po.po_number,
       ar.invoice_number,
       ar.customer_name,
-      be.company_name AS business_entity_name,
+      be.company_name AS business_entity_name, be.brand_color AS business_entity_brand_color,
       be.entity_code AS business_entity_code,
       be.address AS business_entity_address,
       be.phone AS business_entity_phone,
@@ -6889,7 +6921,7 @@ async function generateProjectPdfFile(projectId) {
   const rows = await queryAsync(`
     SELECT
       p.*,
-      be.company_name AS business_entity_name,
+      be.company_name AS business_entity_name, be.brand_color AS business_entity_brand_color,
       be.entity_code AS business_entity_code,
       be.address AS business_entity_address,
       be.phone AS business_entity_phone,
@@ -6944,7 +6976,7 @@ async function generateBillPdfFile(billId) {
   const rows = await queryAsync(`
     SELECT
       ap.*,
-      be.company_name AS business_entity_name,
+      be.company_name AS business_entity_name, be.brand_color AS business_entity_brand_color,
       be.entity_code AS business_entity_code,
       be.address AS business_entity_address,
       be.phone AS business_entity_phone,
@@ -8351,6 +8383,11 @@ function validateCompanyRegistryPayload(payload = {}) {
   if (!payload.company_name) throw new Error('Company name is required.');
   if (!payload.contact_person) throw new Error('Contact Person is required.');
   if (!payload.email) throw new Error('Email is required.');
+  if (!isValidEmail(payload.email)) {
+    const err = new Error('Please enter a valid email address.');
+    err.field = 'email';
+    throw err;
+  }
   if (!isValidCompanyRegistryPhone(payload.phone)) {
     const err = new Error('Company phone number must be exactly 11 digits and numbers only.');
     err.field = 'phone';

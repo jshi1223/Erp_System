@@ -112,6 +112,7 @@
       <button class="module-tab inventory-tab" type="button" data-tab="stock" onclick="switchInventoryTab('stock')">Stock Levels</button>
       <button class="module-tab inventory-tab" type="button" data-tab="movements" onclick="switchInventoryTab('movements')">Movements</button>
       <button class="module-tab inventory-tab" type="button" data-tab="units" onclick="switchInventoryTab('units')" data-inventory-admin-col hidden>Serial Units</button>
+      <button class="module-tab inventory-tab" type="button" data-tab="rma" onclick="switchInventoryTab('rma')" data-inventory-admin-col hidden>RMA</button>
       <button class="module-tab inventory-tab" type="button" data-tab="requests" onclick="switchInventoryTab('requests')" data-staff-inventory-requests hidden>Requests</button>
     </section>
 
@@ -236,6 +237,36 @@
               </tr>
             </thead>
             <tbody id="units-tbody"></tbody>
+          </table>
+        </div>
+    </section>
+
+    <section class="content-section inventory-panel inventory-section" id="inventory-tab-rma">
+        <div class="panel-head">
+          <h2>RMA / Returns</h2>
+          <div class="inventory-filter-bar">
+            <select id="rma-state-filter" onchange="renderRma()" aria-label="Filter RMA by state">
+              <option value="open">Open</option>
+              <option value="resolved">Resolved</option>
+              <option value="">All</option>
+            </select>
+            <input id="rma-search" type="search" placeholder="Search serial, product, customer..." oninput="renderRma()">
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Serial No.</th>
+                <th>Product</th>
+                <th>Customer</th>
+                <th>Reason</th>
+                <th>Logged</th>
+                <th>Status</th>
+                <th class="text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="rma-tbody"></tbody>
           </table>
         </div>
     </section>
@@ -449,6 +480,51 @@
         <div class="modal-actions">
           <button class="btn btn-cancel btn-sm" type="button" onclick="closeInventoryModal()">Cancel</button>
           <button class="btn btn-save btn-sm" type="submit">Save Unit</button>
+        </div>
+      </form>
+
+      <form id="rma-form" class="inventory-form" onsubmit="submitRma(event)">
+        <div class="section-divider">Log RMA / Return</div>
+        <div class="modal-grid-compact">
+          <div class="field full">
+            <label>Serial Unit</label>
+            <input id="rma-unit-label" readonly />
+          </div>
+          <div class="field full">
+            <label>Reason <span class="field-label-status is-required">Required</span></label>
+            <textarea id="rma-reason" rows="3" placeholder="e.g. Defective on arrival, warranty claim, wrong item delivered" required></textarea>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-cancel btn-sm" type="button" onclick="closeInventoryModal()">Cancel</button>
+          <button class="btn btn-save btn-sm" type="submit">Log RMA</button>
+        </div>
+      </form>
+
+      <form id="rma-resolve-form" class="inventory-form" onsubmit="submitRmaResolve(event)">
+        <div class="section-divider">Resolve RMA</div>
+        <div class="modal-grid-compact">
+          <div class="field full">
+            <label>Serial Unit</label>
+            <input id="rma-resolve-label" readonly />
+          </div>
+          <div class="field full">
+            <label>Resolution <span class="field-label-status is-required">Required</span></label>
+            <select id="rma-resolution" required>
+              <option value="restock">Restock — balik sa sellable stock</option>
+              <option value="repair_return">Repair &amp; Return — ayos na, balik sa customer</option>
+              <option value="replace">Replace — palitan ng ibang unit (ito patay)</option>
+              <option value="scrap">Scrap — write-off / defective</option>
+            </select>
+          </div>
+          <div class="field full">
+            <label>Note <span class="field-label-status is-optional">Optional</span></label>
+            <textarea id="rma-resolve-note" rows="2" placeholder="Optional resolution note"></textarea>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-cancel btn-sm" type="button" onclick="closeInventoryModal()">Cancel</button>
+          <button class="btn btn-save btn-sm" type="submit">Save Resolution</button>
         </div>
       </form>
 

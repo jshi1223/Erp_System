@@ -424,13 +424,9 @@ body.erp-clean-page.accounts-payable-page .sidebar-link.is-subitem.active {
   border-color: rgba(255, 255, 255, 0.08) !important;
 }
 
-body.erp-clean-page.accounts-payable-page[data-business-entity-theme="kvsk"] .sidebar {
-  background:
-    radial-gradient(circle at top right, rgba(239, 91, 79, 0.24), transparent 28%),
-    linear-gradient(180deg, #b42318 0%, #4b1210 100%) !important;
-  border-right-color: rgba(239, 91, 79, 0.26) !important;
-  box-shadow: 24px 0 54px rgba(75, 18, 16, 0.26) !important;
-}
+/* REMOVED a hardcoded maroon sidebar override (kvsk) that ignored --primary and caused the
+   sidebar to stay maroon while the header followed the entity color. The default .sidebar rule
+   above already uses var(--primary)/var(--primary-dark), so it themes correctly for every entity. */
 
 body.erp-clean-page.accounts-payable-page[data-business-entity-theme] .sidebar-link.active,
 body.erp-clean-page.accounts-payable-page[data-business-entity-theme] .sidebar-link.is-subitem.active {

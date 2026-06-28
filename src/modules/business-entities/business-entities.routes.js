@@ -9,6 +9,12 @@ const { queryAsync, isPostgresUniqueViolation } = require('../../database');
 const { protectAdmin, protectSuperAdmin } = require('../../middleware/auth');
 const { normalizePhone, normalizeTin, formatTin, isValidEmail, isValidPhone } = require('../../shared/validation');
 
+// Accept only a 6-digit hex color (e.g. #7a1f1f); anything else → null (no brand color).
+const normalizeHexColor = (value) => {
+  const s = String(value || '').trim();
+  return /^#[0-9a-fA-F]{6}$/.test(s) ? s.toLowerCase() : null;
+};
+
 module.exports = function createBusinessEntitiesRouter(deps) {
   const { generateCode, generateNextVendorNo, findVendorDuplicate, logoUpload, LOGO_UPLOAD_DIR, logAction } = deps;
   const router = express.Router();
@@ -161,8 +167,8 @@ module.exports = function createBusinessEntitiesRouter(deps) {
 
       const result = await queryAsync(
         `INSERT INTO business_entities
-          (entity_code, company_name, address, contact_person, phone, email, tin, status, is_default)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          (entity_code, company_name, address, contact_person, phone, email, tin, status, is_default, brand_color)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           entityCode,
           companyName,
@@ -172,7 +178,8 @@ module.exports = function createBusinessEntitiesRouter(deps) {
           req.body.email || null,
           normalizeTin(req.body.tin) || null,
           String(req.body.status || 'active').trim().toLowerCase() === 'inactive' ? 'inactive' : 'active',
-          isDefault
+          isDefault,
+          normalizeHexColor(req.body.brand_color)
         ]
       );
       res.json({ id: result.insertId, entity_code: entityCode });
@@ -201,7 +208,7 @@ module.exports = function createBusinessEntitiesRouter(deps) {
 
       const result = await queryAsync(
         `UPDATE business_entities
-         SET entity_code = ?, company_name = ?, address = ?, contact_person = ?, phone = ?, email = ?, tin = ?, status = ?, is_default = ?
+         SET entity_code = ?, company_name = ?, address = ?, contact_person = ?, phone = ?, email = ?, tin = ?, status = ?, is_default = ?, brand_color = ?
          WHERE id = ?`,
         [
           entityCode,
@@ -213,6 +220,7 @@ module.exports = function createBusinessEntitiesRouter(deps) {
           normalizeTin(req.body.tin) || null,
           String(req.body.status || 'active').trim().toLowerCase() === 'inactive' ? 'inactive' : 'active',
           isDefault,
+          normalizeHexColor(req.body.brand_color),
           businessEntityId
         ]
       );

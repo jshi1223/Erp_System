@@ -7,6 +7,183 @@
 (function () {
   'use strict';
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // Universal styled dialogs: showConfirm / showToast / showPrompt.
+  // auth-guard.js loads on every protected page, so these are always available
+  // and no page ever falls back to the browser's native "localhost says"
+  // alert / confirm / prompt. Self-styling — injects its own CSS — so it looks
+  // right even on pages that don't load erp-core.js or admin-style.css.
+  // Each helper is defined only if the page hasn't already provided its own,
+  // and the CSS is injected unconditionally so erp-core's matching dialog is
+  // styled everywhere too.
+  // ──────────────────────────────────────────────────────────────────────────
+  function ensureDialogStyles() {
+    if (typeof document === 'undefined') return;
+    if (document.getElementById('erp-ui-dialog-styles')) return;
+    var head = document.head || document.getElementsByTagName('head')[0];
+    if (!head) return;
+    var style = document.createElement('style');
+    style.id = 'erp-ui-dialog-styles';
+    style.textContent =
+      '#erp-confirm-backdrop,#erp-prompt-backdrop{position:fixed;inset:0;z-index:100000;display:none;align-items:center;justify-content:center;background:rgba(15,23,42,.52);backdrop-filter:blur(4px);padding:16px;}' +
+      '#erp-confirm-backdrop.open,#erp-prompt-backdrop.open{display:flex;}' +
+      '.erp-confirm-modal{background:var(--surface,#fff);border:1px solid var(--border,rgba(72,85,58,.16));border-radius:20px;box-shadow:0 24px 60px rgba(15,23,42,.22);padding:28px 24px 22px;width:min(400px,calc(100vw - 32px));text-align:center;font-family:Inter,system-ui,sans-serif;}' +
+      '.erp-confirm-icon{width:50px;height:50px;border-radius:50%;margin:0 auto 14px;display:flex;align-items:center;justify-content:center;font-size:1.5rem;}' +
+      '.erp-confirm-icon-danger{background:rgba(185,28,28,.1);color:#b91c1c;}' +
+      '.erp-confirm-icon-warning{background:rgba(180,83,9,.1);color:#b45309;}' +
+      '.erp-confirm-icon-info{background:rgba(29,78,216,.08);color:#1d4ed8;}' +
+      '.erp-confirm-icon-default{background:rgba(107,19,32,.08);color:var(--primary,#6b1320);}' +
+      '.erp-confirm-title{font-size:1rem;font-weight:900;color:var(--text,#1f2937);margin-bottom:8px;}' +
+      '.erp-confirm-body{font-size:.84rem;color:var(--muted,#888);line-height:1.65;margin-bottom:22px;white-space:pre-line;}' +
+      '.erp-confirm-body:empty{display:none;}' +
+      '.erp-confirm-input{width:100%;box-sizing:border-box;margin:-8px 0 18px;padding:10px 12px;border:1px solid var(--border,#d0d7e2);border-radius:10px;font-size:.85rem;font-family:inherit;color:var(--text,#1f2937);}' +
+      'textarea.erp-confirm-input{min-height:84px;resize:vertical;}' +
+      '.erp-confirm-actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}' +
+      '#toast{position:fixed;bottom:24px;right:24px;z-index:100001;max-width:360px;background:var(--primary,linear-gradient(135deg,#b42318 0%,#4b1210 100%));color:#fff;border-radius:14px;padding:12px 18px;font-size:.78rem;font-weight:600;font-family:Inter,system-ui,sans-serif;box-shadow:0 20px 35px rgba(16,22,14,.22);transform:translateY(16px);opacity:0;transition:opacity .2s ease,transform .2s ease;pointer-events:none;white-space:pre-line;}' +
+      '#toast.show{transform:none;opacity:1;}' +
+      '#toast.success{background:var(--accent,#15803d);}' +
+      '#toast.error{background:var(--danger,#b42318);}';
+    head.appendChild(style);
+  }
+
+  function uiShowConfirm(message, opts) {
+    opts = opts || {};
+    var title = opts.title || 'Are you sure?';
+    var confirmLabel = opts.confirmLabel || 'Confirm';
+    var cancelLabel = opts.cancelLabel || 'Cancel';
+    var type = opts.type || 'default';
+    ensureDialogStyles();
+    return new Promise(function (resolve) {
+      var backdrop = document.getElementById('erp-confirm-backdrop');
+      if (!backdrop) {
+        backdrop = document.createElement('div');
+        backdrop.id = 'erp-confirm-backdrop';
+        backdrop.setAttribute('role', 'alertdialog');
+        backdrop.setAttribute('aria-modal', 'true');
+        backdrop.innerHTML =
+          '<div class="erp-confirm-modal">' +
+            '<div class="erp-confirm-icon" id="erp-confirm-icon"></div>' +
+            '<div class="erp-confirm-title" id="erp-confirm-title"></div>' +
+            '<div class="erp-confirm-body" id="erp-confirm-body"></div>' +
+            '<div class="erp-confirm-actions">' +
+              '<button class="btn btn-cancel btn-sm" id="erp-confirm-cancel" type="button"></button>' +
+              '<button class="btn btn-sm" id="erp-confirm-ok" type="button"></button>' +
+            '</div>' +
+          '</div>';
+        document.body.appendChild(backdrop);
+      }
+      var ICONS = { danger: '⚠', warning: '⚠', info: 'ℹ', default: '?' };
+      var iconEl = document.getElementById('erp-confirm-icon');
+      var titleEl = document.getElementById('erp-confirm-title');
+      var bodyEl = document.getElementById('erp-confirm-body');
+      var cancelBtn = document.getElementById('erp-confirm-cancel');
+      var okBtn = document.getElementById('erp-confirm-ok');
+      if (iconEl) { iconEl.className = 'erp-confirm-icon erp-confirm-icon-' + type; iconEl.innerHTML = ICONS[type] || ICONS.default; }
+      if (titleEl) titleEl.textContent = title;
+      if (bodyEl) bodyEl.textContent = message;
+      if (cancelBtn) cancelBtn.textContent = cancelLabel;
+      if (okBtn) { okBtn.textContent = confirmLabel; okBtn.className = 'btn btn-sm ' + (type === 'danger' ? 'btn-danger' : 'btn-save'); }
+      function close() {
+        backdrop.classList.remove('open');
+        backdrop.hidden = true;
+        document.body.style.overflow = '';
+        backdrop.removeEventListener('click', onBackdrop);
+        if (cancelBtn) cancelBtn.removeEventListener('click', onCancel);
+        if (okBtn) okBtn.removeEventListener('click', onOk);
+        document.removeEventListener('keydown', onKey);
+      }
+      function onBackdrop(e) { if (e.target === backdrop) { resolve(false); close(); } }
+      function onCancel() { resolve(false); close(); }
+      function onOk() { resolve(true); close(); }
+      function onKey(e) { if (e.key === 'Escape') { resolve(false); close(); } else if (e.key === 'Enter') { resolve(true); close(); } }
+      backdrop.addEventListener('click', onBackdrop);
+      if (cancelBtn) cancelBtn.addEventListener('click', onCancel);
+      if (okBtn) okBtn.addEventListener('click', onOk);
+      document.addEventListener('keydown', onKey);
+      backdrop.hidden = false;
+      backdrop.classList.add('open');
+      document.body.style.overflow = 'hidden';
+      if (okBtn) okBtn.focus();
+    });
+  }
+
+  function uiShowToast(msg, type) {
+    ensureDialogStyles();
+    var t = document.getElementById('toast');
+    if (!t) { t = document.createElement('div'); t.id = 'toast'; document.body.appendChild(t); }
+    t.textContent = msg;
+    t.className = 'show ' + (type || 'success');
+    clearTimeout(t._timer);
+    t._timer = setTimeout(function () { t.className = ''; }, 3500);
+  }
+
+  // Styled replacement for window.prompt — resolves the typed string, or null if cancelled.
+  function uiShowPrompt(message, opts) {
+    opts = opts || {};
+    var title = opts.title || 'Please provide details';
+    var confirmLabel = opts.confirmLabel || 'Submit';
+    var cancelLabel = opts.cancelLabel || 'Cancel';
+    var placeholder = opts.placeholder || '';
+    var defaultValue = opts.defaultValue != null ? String(opts.defaultValue) : '';
+    var multiline = !!opts.multiline;
+    ensureDialogStyles();
+    return new Promise(function (resolve) {
+      var backdrop = document.createElement('div');
+      backdrop.id = 'erp-prompt-backdrop';
+      backdrop.setAttribute('role', 'dialog');
+      backdrop.setAttribute('aria-modal', 'true');
+      var tag = multiline ? 'textarea' : 'input';
+      backdrop.innerHTML =
+        '<div class="erp-confirm-modal">' +
+          '<div class="erp-confirm-title"></div>' +
+          '<div class="erp-confirm-body"></div>' +
+          '<' + tag + ' class="erp-confirm-input"></' + tag + '>' +
+          '<div class="erp-confirm-actions">' +
+            '<button class="btn btn-cancel btn-sm" type="button"></button>' +
+            '<button class="btn btn-save btn-sm" type="button"></button>' +
+          '</div>' +
+        '</div>';
+      var titleEl = backdrop.querySelector('.erp-confirm-title');
+      var bodyEl = backdrop.querySelector('.erp-confirm-body');
+      var inputEl = backdrop.querySelector('.erp-confirm-input');
+      var btns = backdrop.querySelectorAll('.erp-confirm-actions .btn');
+      var cancelBtn = btns[0];
+      var okBtn = btns[1];
+      titleEl.textContent = title;
+      bodyEl.textContent = message || '';
+      if (placeholder) inputEl.setAttribute('placeholder', placeholder);
+      inputEl.value = defaultValue;
+      cancelBtn.textContent = cancelLabel;
+      okBtn.textContent = confirmLabel;
+      document.body.appendChild(backdrop);
+      function close(val) {
+        document.removeEventListener('keydown', onKey);
+        backdrop.remove();
+        document.body.style.overflow = '';
+        resolve(val);
+      }
+      function onKey(e) {
+        if (e.key === 'Escape') close(null);
+        else if (e.key === 'Enter' && !multiline) { e.preventDefault(); close(inputEl.value); }
+      }
+      cancelBtn.addEventListener('click', function () { close(null); });
+      okBtn.addEventListener('click', function () { close(inputEl.value); });
+      backdrop.addEventListener('click', function (e) { if (e.target === backdrop) close(null); });
+      document.addEventListener('keydown', onKey);
+      backdrop.classList.add('open');
+      document.body.style.overflow = 'hidden';
+      setTimeout(function () { inputEl.focus(); }, 0);
+    });
+  }
+
+  if (typeof window.showConfirm !== 'function') window.showConfirm = uiShowConfirm;
+  if (typeof window.showToast !== 'function') window.showToast = uiShowToast;
+  if (typeof window.showPrompt !== 'function') window.showPrompt = uiShowPrompt;
+  // Inject the CSS now (head is available during parsing) and again on DOM ready,
+  // so erp-core.js's own showConfirm/showToast are styled on every page too.
+  ensureDialogStyles();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ensureDialogStyles);
+
   var BUSINESS_ENTITY_THEME_KEY = 'kinaadman_businessEntityTheme';
   var DEFAULT_INACTIVITY_TIMEOUT_MS = 15 * 60 * 1000;
   var MIN_INACTIVITY_TIMEOUT_MS = 60 * 1000;
@@ -588,24 +765,29 @@
     var logo = String((profile && (profile.logo_path || profile.logo)) || '').trim();
     var name = String((profile && profile.company_name) || '').trim();
     return {
-      theme: 'kvsk',
+      theme: 'neutral',
       logo: logo,
       alt: name ? name + ' logo' : 'Company logo',
-      primary: '#b42318',
-      primaryLight: '#ef5b4f',
-      primaryDark: '#4b1210',
-      accent: '#d92d20',
-      accent2: '#201313'
+      primary: '#334155',
+      primaryLight: '#64748b',
+      primaryDark: '#1e293b',
+      accent: '#475569',
+      accent2: '#0f172a'
     };
   }
 
   function applyStoredBusinessEntityThemeEarly() {
-    var stored = getStoredBusinessEntityThemeProfile();
-    var profile = getBusinessEntityThemeFallback(stored || { theme: 'kvsk' });
     var rawEntityContext = '';
     try {
       rawEntityContext = String(localStorage.getItem(BUSINESS_ENTITY_CONTEXT_KEY) || '').trim().toLowerCase();
     } catch (_) {}
+    var stored = getStoredBusinessEntityThemeProfile();
+    // The ACTIVE CONTEXT decides the color, not a possibly-stale stored theme: "All Companies"
+    // (or no selection) ALWAYS uses the neutral slate theme — so KVSK's maroon never leaks into it.
+    // A specific entity uses its stored colors (its own brand_color), surviving refresh with no flash.
+    var profile = (!rawEntityContext || rawEntityContext === 'all')
+      ? getBusinessEntityThemeFallback({ theme: 'neutral' })
+      : ((stored && stored.theme) ? stored : getBusinessEntityThemeFallback({ theme: 'neutral' }));
     var logoProfile = {
       logo: rawEntityContext !== 'all' ? profile.logo : '',
       alt: profile.alt
@@ -614,12 +796,17 @@
     activeBusinessEntityBrandTitle = getBusinessEntityBrandTitle(
       stored || { theme: activeTheme }
     );
+    // Set on BOTH <html> and <body> — inline vars on <body> beat the body[data-business-entity-theme]
+    // CSS rules, so a custom entity color always wins (no flash of the default maroon on refresh).
+    [document.documentElement, document.body].forEach(function (el) {
+      if (!el || !el.style) return;
+      el.style.setProperty('--primary', profile.primary);
+      el.style.setProperty('--primary-light', profile.primaryLight);
+      el.style.setProperty('--primary-dark', profile.primaryDark);
+      el.style.setProperty('--accent', profile.accent);
+      el.style.setProperty('--accent2', profile.accent2);
+    });
     var root = document.documentElement;
-    root.style.setProperty('--primary', profile.primary);
-    root.style.setProperty('--primary-light', profile.primaryLight);
-    root.style.setProperty('--primary-dark', profile.primaryDark);
-    root.style.setProperty('--accent', profile.accent);
-    root.style.setProperty('--accent2', profile.accent2);
     if (root.dataset) {
       root.dataset.businessEntityTheme = activeTheme;
       root.dataset.businessEntityThemeReady = '1';

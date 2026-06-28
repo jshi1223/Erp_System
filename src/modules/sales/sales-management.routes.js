@@ -60,10 +60,14 @@ module.exports = function createSalesManagementRouter(deps) {
     const recordType = normalizeSalesRecordType(req.query.type);
     // Archive-only policy: hide archived records from the active list unless explicitly asked.
     const includeArchived = String(req.query.include_archived || '') === '1';
+    // Scope to the active workspace (business entity) when one is selected; 'all'/blank = no filter.
+    const entityRaw = String(req.query.business_entity_id || '').trim().toLowerCase();
+    const scopeEntityId = (entityRaw && entityRaw !== 'all') ? (Number(req.query.business_entity_id) || 0) : 0;
     const clauses = [];
     const params = [];
     if (!includeArchived) clauses.push('COALESCE(smr.archived, FALSE) = FALSE');
     if (recordType) { clauses.push('smr.record_type = ?'); params.push(recordType); }
+    if (scopeEntityId) { clauses.push('smr.business_entity_id = ?'); params.push(scopeEntityId); }
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
 
     try {

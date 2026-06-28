@@ -257,10 +257,10 @@ export default function AccountsReceivablePage() {
 
   return (
     <AppShell title="Accounts Receivable" subtitle="Invoices, collections, customer balances, and AR aging.">
-      <div className="module-tabs" role="tablist">
-        {TABS.map((t) => (
-          <button key={t.key} type="button" role="tab" className={`module-tab${tab === t.key ? ' active' : ''}`} aria-selected={tab === t.key} onClick={() => selectTab(t.key)}>{t.label}</button>
-        ))}
+      <div className="toolbar">
+        {(tab === 'invoices') && <input className="search" placeholder="Search customer or invoice number…" value={q} onChange={(e) => setQ(e.target.value)} />}
+        {tab === 'invoices' && <button className="btn btn-add btn-sm" onClick={() => setAddInvoice(true)}>+ Add Invoice</button>}
+        {tab === 'collections' && <button className="btn btn-add btn-sm" onClick={() => setCollection(true)}>+ Record Collection</button>}
       </div>
 
       <section className="module-summary-grid" aria-label="Summary">
@@ -294,10 +294,10 @@ export default function AccountsReceivablePage() {
         </>}
       </section>
 
-      <div className="toolbar">
-        {(tab === 'invoices') && <input className="search" placeholder="Search customer or invoice number…" value={q} onChange={(e) => setQ(e.target.value)} />}
-        {tab === 'invoices' && <button className="btn btn-add btn-sm" onClick={() => setAddInvoice(true)}>+ Add Invoice</button>}
-        {tab === 'collections' && <button className="btn btn-add btn-sm" onClick={() => setCollection(true)}>+ Record Collection</button>}
+      <div className="module-tabs" role="tablist">
+        {TABS.map((t) => (
+          <button key={t.key} type="button" role="tab" className={`module-tab${tab === t.key ? ' active' : ''}`} aria-selected={tab === t.key} onClick={() => selectTab(t.key)}>{t.label}</button>
+        ))}
       </div>
 
       {isLoading && <div className="state">Loading…</div>}

@@ -160,14 +160,69 @@ function closePdfViewer() {
 }
 
 function logout() {
-  if (confirm('Sigurado ka bang gusto mong mag-logout?')) {
+  uiConfirm('Sigurado ka bang gusto mong mag-logout?', { title: 'Logout?', confirmLabel: 'Oo, mag-logout', type: 'danger' }).then((ok) => {
+    if (!ok) return;
     fetch('/logout', {
       method: 'POST',
       headers: { 'X-CSRF-Token': window.__CSRF_TOKEN__ || '' }
     }).finally(() => {
       window.location.href = '/';
     });
+  });
+}
+
+// Self-contained styled confirm (this page does not load auth-guard/erp-core, so
+// we never fall back to the browser's native "localhost says" dialog).
+function uiConfirm(message, opts) {
+  opts = opts || {};
+  if (typeof window.showConfirm === 'function') {
+    try { return Promise.resolve(window.showConfirm(message, opts)); } catch (e) { /* build the inline modal */ }
   }
+  return new Promise((resolve) => {
+    const danger = opts.type === 'danger';
+    const overlay = document.createElement('div');
+    overlay.setAttribute('role', 'alertdialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.52);backdrop-filter:blur(4px);padding:16px;';
+    const card = document.createElement('div');
+    card.style.cssText = 'width:min(400px,94vw);background:#fff;border-radius:20px;box-shadow:0 24px 60px rgba(15,23,42,.22);padding:26px 24px 22px;text-align:center;font-family:Inter,system-ui,sans-serif;';
+    const title = document.createElement('div');
+    title.textContent = opts.title || 'Are you sure?';
+    title.style.cssText = 'font-size:1.05rem;font-weight:800;color:#1f2937;margin-bottom:8px;';
+    const msg = document.createElement('p');
+    msg.textContent = message || '';
+    msg.style.cssText = 'margin:0 0 22px;color:#4b5563;line-height:1.6;font-size:.9rem;';
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display:flex;gap:10px;justify-content:center;';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.textContent = opts.cancelLabel || 'Cancel';
+    cancelBtn.style.cssText = 'padding:9px 18px;border-radius:9px;border:1px solid #d0d7e2;background:#f3f4f6;color:#374151;font-weight:700;cursor:pointer;';
+    const okBtn = document.createElement('button');
+    okBtn.type = 'button';
+    okBtn.textContent = opts.confirmLabel || 'Confirm';
+    okBtn.style.cssText = 'padding:9px 18px;border-radius:9px;border:1px solid ' + (danger ? '#b42318' : '#15803d') + ';background:' + (danger ? '#b42318' : '#15803d') + ';color:#fff;font-weight:700;cursor:pointer;';
+    function cleanup(result) {
+      document.removeEventListener('keydown', onKey);
+      overlay.remove();
+      document.body.style.overflow = '';
+      resolve(result);
+    }
+    function onKey(e) { if (e.key === 'Escape') cleanup(false); else if (e.key === 'Enter') cleanup(true); }
+    cancelBtn.addEventListener('click', () => cleanup(false));
+    okBtn.addEventListener('click', () => cleanup(true));
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) cleanup(false); });
+    document.addEventListener('keydown', onKey);
+    actions.appendChild(cancelBtn);
+    actions.appendChild(okBtn);
+    card.appendChild(title);
+    card.appendChild(msg);
+    card.appendChild(actions);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    document.body.style.overflow = 'hidden';
+    setTimeout(() => okBtn.focus(), 0);
+  });
 }
 
 function escHtml(str) {

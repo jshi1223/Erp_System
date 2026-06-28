@@ -304,7 +304,7 @@ async function saveProject() {
   const budget = parseFloat(document.getElementById('f-project-budget').value);
   
   if (!name || !budget) {
-    alert('Project name and budget are required');
+    showToast('Project name and budget are required', 'error');
     return;
   }
   
@@ -331,9 +331,9 @@ async function saveProject() {
     }
     closeProjectModal();
     await loadProjects();
-    alert('Project created successfully');
+    showToast('Project created successfully', 'success');
   } catch (e) {
-    alert('Error: ' + e.message);
+    showToast('Error: ' + e.message, 'error');
   }
 }
 
@@ -425,7 +425,7 @@ function renderGantt(project) {
 
 function openTaskModal() {
   if (!currentProjectId) {
-    alert('Please select a project first');
+    showToast('Please select a project first', 'error');
     return;
   }
   document.getElementById('f-task-name').value = '';
@@ -445,7 +445,7 @@ async function saveTask() {
   const endDate = document.getElementById('f-task-end').value;
   
   if (!name || !startDate || !endDate) {
-    alert('Task name, start date, and end date are required');
+    showToast('Task name, start date, and end date are required', 'error');
     return;
   }
   
@@ -471,9 +471,9 @@ async function saveTask() {
     }
     closeTaskModal();
     await Promise.all([loadGanttForProject(), loadProjects()]);
-    alert('Task created successfully');
+    showToast('Task created successfully', 'success');
   } catch (e) {
-    alert('Error: ' + e.message);
+    showToast('Error: ' + e.message, 'error');
   }
 }
 
@@ -575,7 +575,7 @@ function renderCosts(project) {
 
 function openCostModal() {
   if (!currentProjectId) {
-    alert('Please select a project first');
+    showToast('Please select a project first', 'error');
     return;
   }
   document.getElementById('f-cost-category').value = '';
@@ -595,7 +595,7 @@ async function saveCost() {
   const actualAmount = parseFloat(document.getElementById('f-actual-amount').value);
   
   if (!category || !planAmount) {
-    alert('Cost category and planned amount are required');
+    showToast('Cost category and planned amount are required', 'error');
     return;
   }
   
@@ -620,9 +620,9 @@ async function saveCost() {
     }
     closeCostModal();
     await Promise.all([loadCostsForProject(), loadProjects()]);
-    alert('Cost recorded successfully');
+    showToast('Cost recorded successfully', 'success');
   } catch (e) {
-    alert('Error: ' + e.message);
+    showToast('Error: ' + e.message, 'error');
   }
 }
 

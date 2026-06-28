@@ -4424,18 +4424,42 @@ function businessEntityMatches(row) {
   return rowEntity === filter;
 }
 
+// Lighten (positive %) or darken (negative %) a #rrggbb hex toward white/black.
+function shadeBrandHex(hex, percent) {
+  const h = String(hex || '').replace('#', '');
+  if (!/^[0-9a-fA-F]{6}$/.test(h)) return hex;
+  const t = percent < 0 ? 0 : 255;
+  const p = Math.abs(percent) / 100;
+  const ch = (i) => { const c = parseInt(h.slice(i, i + 2), 16); return Math.round((t - c) * p) + c; };
+  return '#' + [ch(0), ch(2), ch(4)].map((x) => ('0' + Math.max(0, Math.min(255, x)).toString(16)).slice(-2)).join('');
+}
+
 function getBusinessEntityBrandProfile(row) {
   const logo = String(row?.logo_path || row?.logo || '').trim();
   const name = String(row?.company_name || '').trim();
+  const brandColor = String(row?.brand_color || '').trim();
+  // The entity's own brand color (set in the Business Entity modal) themes the whole workspace.
+  // Falls back to the default maroon when the entity has no color (or "All Companies").
+  if (/^#[0-9a-fA-F]{6}$/.test(brandColor)) {
+    return {
+      theme: 'entity', brand_color: brandColor, logo,
+      alt: name ? `${name} logo` : 'Company logo',
+      primary: brandColor,
+      primaryLight: shadeBrandHex(brandColor, 38),
+      primaryDark: shadeBrandHex(brandColor, -42),
+      accent: brandColor,
+      accent2: shadeBrandHex(brandColor, -72)
+    };
+  }
   return {
-    theme: 'kvsk',
+    theme: 'neutral',
     logo,
     alt: name ? `${name} logo` : 'Company logo',
-    primary: '#b42318',
-    primaryLight: '#ef5b4f',
-    primaryDark: '#4b1210',
-    accent: '#d92d20',
-    accent2: '#201313'
+    primary: '#334155',
+    primaryLight: '#64748b',
+    primaryDark: '#1e293b',
+    accent: '#475569',
+    accent2: '#0f172a'
   };
 }
 
@@ -4496,6 +4520,11 @@ function getStoredBusinessEntityThemeProfile() {
 }
 
 function applyStoredBusinessEntityBrand() {
+  // "All Companies" always uses the neutral slate theme — never KVSK's (or any) stale stored color.
+  if (typeof getBusinessEntityFilterId === 'function' && getBusinessEntityFilterId() === 'all') {
+    applyBusinessEntityBrand({});
+    return;
+  }
   const stored = getStoredBusinessEntityThemeProfile();
   if (stored?.theme) {
     applyBusinessEntityBrand(stored);
@@ -4516,11 +4545,15 @@ function applyBusinessEntityBrand(row) {
     document.body.dataset.businessEntityTheme = profile.theme;
     document.body.dataset.businessEntityThemeReady = '1';
   }
-  document.documentElement.style.setProperty('--primary', profile.primary);
-  document.documentElement.style.setProperty('--primary-light', profile.primaryLight);
-  document.documentElement.style.setProperty('--primary-dark', profile.primaryDark);
-  document.documentElement.style.setProperty('--accent', profile.accent);
-  document.documentElement.style.setProperty('--accent2', profile.accent2);
+  // Set on BOTH <html> and <body> so a custom entity color beats the body[data-theme] CSS rules.
+  [document.documentElement, document.body].forEach((el) => {
+    if (!el || !el.style) return;
+    el.style.setProperty('--primary', profile.primary);
+    el.style.setProperty('--primary-light', profile.primaryLight);
+    el.style.setProperty('--primary-dark', profile.primaryDark);
+    el.style.setProperty('--accent', profile.accent);
+    el.style.setProperty('--accent2', profile.accent2);
+  });
 
   // Brand marks show the active company's uploaded logo. "All Companies" (or a
   // company without an uploaded logo) shows no mark — walang logo muna.
@@ -4559,6 +4592,7 @@ function applyBusinessEntityBrand(row) {
     const storedProfile = {
       company_name: getBusinessEntityFilterId() === 'all' ? 'All Companies' : (row?.company_name || 'All Companies'),
       theme: profile.theme,
+      brand_color: profile.brand_color || '',
       logo: profile.logo,
       alt: profile.alt,
       primary: profile.primary,
@@ -5185,7 +5219,8 @@ function renderArchiveCenter() {
 async function restoreArchiveCenterItem(key) {
   const row = (Array.isArray(archiveCenterDb) ? archiveCenterDb : []).find((entry) => entry.key === key);
   if (!row?.restoreUrl) return;
-  if (!confirm(`Restore this ${row.type || 'record'} from archive?`)) return;
+  const ok = await showConfirm(`Restore this ${row.type || 'record'} from archive?`, { title: 'Restore from Archive', confirmLabel: 'Restore', type: 'default' });
+  if (!ok) return;
 
   try {
     const res = await fetch(row.restoreUrl, { method: 'PUT' });
@@ -5895,6 +5930,9 @@ function openConfirmDialog({
   const yesBtn = document.getElementById('confirm-modal-yes-btn');
 
   if (!backdrop || !titleEl || !messageEl || !noBtn || !yesBtn) {
+    if (typeof window.showConfirm === 'function') {
+      return window.showConfirm(String(message || ''), { title: String(title || 'Confirm Action'), confirmLabel: String(yesText || 'Yes'), cancelLabel: String(noText || 'No') });
+    }
     return Promise.resolve(window.confirm(String(message || title || 'Are you sure?')));
   }
 
@@ -7361,7 +7399,7 @@ async function selectGanttProject(projectId, { persistSelection = true } = {}) {
   }
 
   if (ganttPlannerState.dirty && currentId && nextId) {
-    const shouldSave = window.confirm('Save changes to the current project before switching?');
+    const shouldSave = await showConfirm('Save changes to the current project before switching?', { title: 'Unsaved Changes', confirmLabel: 'Save & switch', cancelLabel: "Don't save", type: 'warning' });
     if (shouldSave) {
       const saved = await saveGanttProjectTasks({ silent: true });
       if (!saved) return null;
@@ -9394,8 +9432,9 @@ function restoreArchived() {
     .catch(() => showToast('Server error.', 'error'));
 }
 
-function restoreArchivedDirect(id) {
-  if (!confirm('Restore this record from archive?')) return;
+async function restoreArchivedDirect(id) {
+  const ok = await showConfirm('Restore this record from archive?', { title: 'Restore from Archive', confirmLabel: 'Restore', type: 'default' });
+  if (!ok) return;
   fetch(`/api/transactions/${id}/restore`, { method: 'PUT' })
     .then(res => res.json())
     .then(data => {
