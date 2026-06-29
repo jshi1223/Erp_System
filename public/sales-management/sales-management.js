@@ -1255,12 +1255,21 @@ async function loadDeliverySerialOptions(preselectIds = null) {
   picker.innerHTML = '<div class="sales-serial-empty">Loading serial units...</div>';
   const lists = await Promise.all(productIds.map((pid) =>
     fetch(`/api/inventory/units?product_id=${encodeURIComponent(pid)}`, { cache: 'no-store' })
-      .then((r) => (r.ok ? r.json() : [])).catch(() => [])));
+      .then((r) => (r.ok ? r.json() : []))
+      .then((units) => (Array.isArray(units) ? units : []).map((u) => ({ ...u, _pid: Number(u.product_id || pid) || pid })))
+      .catch(() => [])));
   const all = lists.flat();
   const editingId = Number(editingSalesRecordId || 0) || 0;
-  // In-stock units, plus any already assigned to THIS delivery (so edits keep them).
-  deliverySerialUnits = (Array.isArray(all) ? all : []).filter((u) =>
-    String(u.status || '') === 'in_stock' || (editingId && Number(u.sales_record_id || 0) === editingId));
+  // Show ONLY units that are free to ship: in-stock AND not yet allocated to another delivery. A unit
+  // already taken by another DR (delivered/sold, or just linked to it) is hidden so it can't be
+  // double-shipped — "kapag nakuha na, di na lalabas." The one exception is the DR being edited:
+  // keep its own units so an edit doesn't lose them.
+  deliverySerialUnits = (Array.isArray(all) ? all : []).filter((u) => {
+    const linkedTo = Number(u.sales_record_id || 0) || 0;
+    if (editingId && linkedTo === editingId) return true;   // this DR's own units — keep
+    if (linkedTo) return false;                              // taken by another sales record — hide
+    return String(u.status || '') === 'in_stock';           // otherwise only free in-stock units
+  });
   renderDeliverySerialOptions(preselectIds);
 }
 
@@ -1292,26 +1301,99 @@ function onSalesSourceChange() {
   }
 }
 
+// Per-product serial groups, mirroring the Goods Receipt capture: one box per product line on the
+// DR, each with a "selected / needed" count and a scan/type field. For an OUTGOING delivery you
+// SELECT which in-stock units ship (you can't ship a serial that isn't in stock) — but you can also
+// scan/type a serial to tick it, so it feels the same as "paglalagay ng serial" when receiving.
 function renderDeliverySerialOptions(preselectIds = null) {
   const picker = document.getElementById('sales-serial-picker');
   if (!picker) return;
   const editingId = Number(editingSalesRecordId || 0) || 0;
   const preset = Array.isArray(preselectIds) ? new Set(preselectIds.map((v) => Number(v || 0) || 0)) : null;
-  if (!deliverySerialUnits.length) {
-    picker.innerHTML = '<div class="sales-serial-empty">Walang available na serial units para sa product na ito.</div>';
+
+  // How many units each product line delivers — the "needed" target per group.
+  const neededByProduct = new Map();
+  collectSalesLineItems().items.forEach((it) => {
+    const pid = Number(it.product_id || 0) || 0;
+    if (!pid) return;
+    neededByProduct.set(pid, (neededByProduct.get(pid) || 0) + Math.max(0, Number(it.quantity || 0) || 0));
+  });
+
+  // Available in-stock (+ this DR's) units, grouped by product.
+  const unitsByProduct = new Map();
+  deliverySerialUnits.forEach((u) => {
+    const pid = Number(u._pid || u.product_id || 0) || 0;
+    if (!pid) return;
+    if (!unitsByProduct.has(pid)) unitsByProduct.set(pid, []);
+    unitsByProduct.get(pid).push(u);
+  });
+
+  // One group per delivered product that actually has serial units (non-serialized lines are skipped).
+  const productIds = [...neededByProduct.keys()].filter((pid) => (unitsByProduct.get(pid) || []).length);
+  if (!productIds.length) {
+    picker.innerHTML = '<div class="sales-serial-empty">Walang available na serial units para sa mga produktong ito (o hindi serial-tracked).</div>';
     return;
   }
-  picker.innerHTML = deliverySerialUnits.map((u) => {
-    const id = Number(u.id || 0);
-    const checked = preset ? preset.has(id) : (editingId && Number(u.sales_record_id || 0) === editingId);
-    const warranty = String(u.warranty_end || '').slice(0, 10);
-    const product = [u.sku, u.product_name].filter(Boolean).join(' - ');
-    const meta = [product, warranty ? `warranty ${warranty}` : '', u.warehouse_code || u.warehouse_name || ''].filter(Boolean).join(' | ');
-    return `<label class="sales-serial-item">
-      <input type="checkbox" class="sales-serial-checkbox" value="${escAttr(id)}"${checked ? ' checked' : ''} />
-      <span>${escHtml(u.serial_number || `Unit #${id}`)}${meta ? ` <span class="sales-serial-meta">(${escHtml(meta)})</span>` : ''}</span>
-    </label>`;
+
+  picker.innerHTML = productIds.map((pid) => {
+    const units = unitsByProduct.get(pid) || [];
+    const needed = neededByProduct.get(pid) || 0;
+    const sample = units[0] || {};
+    const name = [sample.sku, sample.product_name].filter(Boolean).join(' - ') || `Product #${pid}`;
+    const boxes = units.map((u) => {
+      const id = Number(u.id || 0);
+      const checked = preset ? preset.has(id) : (editingId && Number(u.sales_record_id || 0) === editingId);
+      const warranty = String(u.warranty_end || '').slice(0, 10);
+      const meta = [warranty ? `warranty ${warranty}` : '', u.warehouse_code || u.warehouse_name || ''].filter(Boolean).join(' | ');
+      return `<label class="sales-serial-item">
+        <input type="checkbox" class="sales-serial-checkbox" data-serial-product="${pid}" value="${escAttr(id)}"${checked ? ' checked' : ''} onchange="syncDeliverySerialNeeded()" />
+        <span>${escHtml(u.serial_number || `Unit #${id}`)}${meta ? ` <span class="sales-serial-meta">(${escHtml(meta)})</span>` : ''}</span>
+      </label>`;
+    }).join('');
+    return `
+      <div class="sales-serial-group" data-serial-product="${pid}">
+        <div class="sales-serial-head">${escHtml(name)} <span class="sales-serial-qty"><span class="sales-serial-count">0</span> / <span class="sales-serial-needed">${needed}</span> serials</span></div>
+        <input type="text" class="sales-serial-scan" data-scan-product="${pid}" placeholder="I-scan o i-type ang serial, tapos Enter para piliin" onkeydown="if(event.key==='Enter'){event.preventDefault();applyDeliverySerialScan(this);}" />
+        <div class="sales-serial-list">${boxes}</div>
+        <div class="sales-serial-error is-hidden"></div>
+      </div>`;
   }).join('');
+  syncDeliverySerialNeeded();
+}
+
+// Live "selected / needed" per group: ticked units vs the line's delivery qty (green when matched).
+function syncDeliverySerialNeeded() {
+  document.querySelectorAll('#sales-serial-picker .sales-serial-group').forEach((group) => {
+    const needed = Number(group.querySelector('.sales-serial-needed')?.textContent || 0) || 0;
+    const selected = group.querySelectorAll('.sales-serial-checkbox:checked').length;
+    const countEl = group.querySelector('.sales-serial-count');
+    if (!countEl) return;
+    countEl.textContent = String(selected);
+    countEl.classList.toggle('is-ok', needed > 0 && selected === needed);
+    countEl.classList.toggle('is-bad', selected !== needed);
+  });
+}
+
+// Scan/type a serial to tick its matching in-stock unit within the group (the "paglalagay" feel,
+// but safe: only matches a serial that is actually in stock for this product).
+function applyDeliverySerialScan(input) {
+  const group = input.closest('.sales-serial-group');
+  if (!group) return;
+  const err = group.querySelector('.sales-serial-error');
+  const showErr = (msg) => { if (err) { err.textContent = msg; err.classList.remove('is-hidden'); } };
+  const clearErr = () => { if (err) { err.textContent = ''; err.classList.add('is-hidden'); } };
+  const val = String(input.value || '').trim();
+  if (!val) return;
+  let matched = null;
+  group.querySelectorAll('.sales-serial-checkbox').forEach((cb) => {
+    const u = deliverySerialUnits.find((x) => Number(x.id || 0) === Number(cb.value || 0));
+    if (u && String(u.serial_number || '').trim().toLowerCase() === val.toLowerCase()) matched = cb;
+  });
+  if (!matched) { showErr(`Walang in-stock na serial na "${val}" para sa produktong ito.`); return; }
+  if (matched.checked) { showErr(`Naka-select na ang serial na "${val}".`); }
+  else { matched.checked = true; clearErr(); }
+  input.value = '';
+  syncDeliverySerialNeeded();
 }
 
 function collectSelectedSerialIds() {
@@ -1623,31 +1705,102 @@ async function submitSalesRequest(id) {
   renderSalesRecords();
 }
 
-async function generateDeliveryInvoice(id) {
+// Derive a due date from an invoice date + payment terms like "Net 30" (defaults to 30 days).
+function deriveInvoiceDueDate(invoiceDate, terms) {
+  const m = String(terms || '').match(/(\d+)/);
+  const days = m ? Number(m[1]) : 30;
+  const d = new Date(`${invoiceDate}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return invoiceDate || '';
+  d.setDate(d.getDate() + (Number.isFinite(days) ? days : 30));
+  return d.toISOString().slice(0, 10);
+}
+
+// Manual AR invoice generation — opens a review modal (invoice date / terms / due date / amount /
+// notes) on a delivered Delivery Receipt. AR is NO LONGER auto-generated.
+function generateDeliveryInvoice(id) {
   const record = salesRecords.find((row) => Number(row.id || 0) === Number(id || 0));
-  const docNo = record?.document_no || `ID ${id}`;
-  const confirmed = typeof showConfirm === 'function'
-    ? await showConfirm(`This will create a draft AR invoice in Accounts Receivable that you can review and send to the customer.`, { title: `Generate Invoice from ${docNo}`, confirmLabel: 'Generate Invoice', type: 'default' })
-    : confirm(`Generate AR Invoice from ${docNo}?`);
-  if (!confirmed) return;
+  if (!record) return;
+  const docNo = record.document_no || `ID ${id}`;
+  const today = new Date().toISOString().slice(0, 10);
+  const invoiceDate = String(record.target_date || record.requested_date || today).slice(0, 10) || today;
+  const terms = String(record.payment_terms || 'Net 30').trim() || 'Net 30';
+  const amount = Number(record.amount || 0) || 0;
+  const customer = record.company_name || '—';
+  const dueDate = deriveInvoiceDueDate(invoiceDate, terms);
 
-  const res = await fetch(`/api/sales-management/records/${Number(id)}/generate-invoice`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-  const data = await res.json().catch(() => ({}));
+  document.getElementById('gen-invoice-backdrop')?.remove();
+  const backdrop = document.createElement('div');
+  backdrop.id = 'gen-invoice-backdrop';
+  backdrop.style.cssText = 'position:fixed;inset:0;z-index:6000;display:flex;align-items:flex-start;justify-content:center;background:rgba(15,23,42,.52);backdrop-filter:blur(3px);padding:72px 16px 40px;overflow-y:auto;';
+  const lbl = (t) => `<span style="display:block;font-size:.72rem;font-weight:700;color:#6b7280;margin-bottom:4px;">${t}</span>`;
+  const inp = 'width:100%;box-sizing:border-box;padding:9px 11px;border:1px solid #d0d7e2;border-radius:9px;font-family:inherit;';
+  backdrop.innerHTML = `
+    <div style="width:min(460px,94vw);background:#fff;border-radius:16px;box-shadow:0 24px 60px rgba(15,23,42,.22);font-family:Inter,system-ui,sans-serif;">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #eef1f4;">
+        <h3 style="margin:0;font-size:1rem;font-weight:800;color:#1f2937;">Generate AR Invoice &mdash; ${escHtml(docNo)}</h3>
+        <button type="button" id="gen-inv-x" style="border:none;background:none;font-size:1.4rem;cursor:pointer;color:#888;line-height:1;">&times;</button>
+      </div>
+      <div style="padding:18px 20px;">
+        <label style="display:block;margin-bottom:12px;">${lbl('Customer')}<input value="${escAttr(customer)}" readonly style="${inp}background:#f9fafb;color:#6b7280;" /></label>
+        <div style="display:flex;gap:12px;">
+          <label style="flex:1;display:block;margin-bottom:12px;">${lbl('Invoice Date')}<input type="date" id="gen-inv-date" value="${escAttr(invoiceDate)}" style="${inp}" /></label>
+          <label style="flex:1;display:block;margin-bottom:12px;">${lbl('Due Date')}<input type="date" id="gen-inv-due" value="${escAttr(dueDate)}" style="${inp}" /></label>
+        </div>
+        <label style="display:block;margin-bottom:12px;">${lbl('Payment Terms')}<input id="gen-inv-terms" value="${escAttr(terms)}" placeholder="e.g. Net 30" style="${inp}" /></label>
+        <label style="display:block;margin-bottom:12px;">${lbl('Total Amount (PHP)')}<input type="number" min="0" step="0.01" id="gen-inv-amount" value="${escAttr(String(amount))}" style="${inp}" /></label>
+        <label style="display:block;margin-bottom:4px;">${lbl('Notes (optional)')}<textarea id="gen-inv-notes" rows="2" style="${inp}resize:vertical;"></textarea></label>
+        <div id="gen-inv-error" style="color:#b91c1c;font-size:.75rem;margin-top:8px;display:none;"></div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;">
+          <button type="button" id="gen-inv-cancel" class="btn btn-cancel btn-sm">Cancel</button>
+          <button type="button" id="gen-inv-submit" class="btn btn-add btn-sm">Generate Invoice</button>
+        </div>
+      </div>
+    </div>`;
+  const close = () => backdrop.remove();
+  const recompute = () => {
+    const d = document.getElementById('gen-inv-date')?.value;
+    const t = document.getElementById('gen-inv-terms')?.value;
+    const due = document.getElementById('gen-inv-due');
+    if (d && due) due.value = deriveInvoiceDueDate(d, t);
+  };
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
+  document.body.appendChild(backdrop);
+  document.getElementById('gen-inv-x').onclick = close;
+  document.getElementById('gen-inv-cancel').onclick = close;
+  document.getElementById('gen-inv-date').onchange = recompute;
+  document.getElementById('gen-inv-terms').oninput = recompute;
+  document.getElementById('gen-inv-submit').onclick = () => submitGenerateInvoice(id, close);
+}
 
-  if (res.status === 409 && data.invoice_number) {
-    showToast(`Invoice ${data.invoice_number} already exists for this delivery.`, 'info');
-    await loadSalesRecords();
-    renderSalesRecords();
-    return;
+async function submitGenerateInvoice(id, close) {
+  const errEl = document.getElementById('gen-inv-error');
+  const showErr = (m) => { if (errEl) { errEl.textContent = m; errEl.style.display = 'block'; } };
+  const amount = Number(document.getElementById('gen-inv-amount')?.value || 0);
+  if (!(amount > 0)) { showErr('Total Amount must be greater than zero.'); return; }
+  const payload = {
+    invoice_date: document.getElementById('gen-inv-date')?.value || '',
+    due_date: document.getElementById('gen-inv-due')?.value || '',
+    payment_terms: document.getElementById('gen-inv-terms')?.value || '',
+    total_amount: amount,
+    notes: document.getElementById('gen-inv-notes')?.value || ''
+  };
+  try {
+    const res = await fetch(`/api/sales-management/records/${Number(id)}/generate-invoice`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.__CSRF_TOKEN__ || '' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 409 && data.invoice_number) {
+      showToast(`Invoice ${data.invoice_number} already exists for this delivery.`, 'info');
+      close(); await loadSalesRecords(); renderSalesRecords(); return;
+    }
+    if (!res.ok) { showErr(data.error || 'Unable to generate invoice.'); return; }
+    showToast(`Invoice ${data.invoice_number} created — PHP ${Number(data.total_amount || amount).toLocaleString('en-PH', { minimumFractionDigits: 2 })} for ${data.customer_name || ''}.`, 'success');
+    close(); await loadSalesRecords(); renderSalesRecords();
+  } catch (_) {
+    showErr('Unable to generate invoice.');
   }
-  if (!res.ok) {
-    showToast(data.error || 'Unable to generate invoice.', 'error');
-    return;
-  }
-
-  showToast(`Invoice ${data.invoice_number} created — PHP ${Number(data.total_amount || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })} for ${data.customer_name}. View it in Accounts Receivable.`, 'success');
-  await loadSalesRecords();
-  renderSalesRecords();
 }
 
 function promoteSalesRecord(id) {

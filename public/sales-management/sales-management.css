@@ -22,15 +22,71 @@
 
 /* ── Delivery Receipt serial-unit picker ──────────────────── */
 .sales-serial-picker {
-  max-height: 180px;
+  max-height: 300px;
   overflow-y: auto;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   padding: 8px 10px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
   background: #fff;
+}
+
+/* Per-product serial groups — mirrors the Goods Receipt serial capture. */
+.sales-serial-group {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #f8fafc;
+}
+
+.sales-serial-head {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #334155;
+}
+
+.sales-serial-qty {
+  font-weight: 400;
+  font-size: 0.78rem;
+  color: #64748b;
+}
+
+.sales-serial-count.is-ok {
+  color: #15803d;
+  font-weight: 600;
+}
+
+.sales-serial-count.is-bad {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.sales-serial-scan {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+  margin-bottom: 6px;
+}
+
+.sales-serial-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.sales-serial-error {
+  margin-top: 6px;
+  font-size: 0.75rem;
+  color: #b91c1c;
+}
+
+.sales-serial-error.is-hidden {
+  display: none;
 }
 
 .sales-serial-item {

@@ -9492,9 +9492,10 @@ async function advanceSalesRecordFlow(connection, recordId, req) {
   const status = normalizeSalesRecordStatus(record.status);
   const triggers = SALES_FLOW_ADVANCE_STATUS[type] || [];
 
-  // Delivery Receipt delivered/completed -> AR invoice (terminal stage).
+  // Delivery Receipt is the terminal stage. AR invoices are NO LONGER auto-generated when a DR is
+  // delivered — the user creates them MANUALLY via the "Generate Invoice" review modal on a
+  // delivered DR (so the invoice date / terms / amount can be reviewed before issuing).
   if (type === 'project-delivery') {
-    if (triggers.includes(status)) await createReceivableFromDeliveryRecord(connection, record, req);
     return;
   }
 

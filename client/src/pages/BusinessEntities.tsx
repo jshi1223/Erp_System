@@ -44,6 +44,8 @@ function EntityModal({ entity, onClose }: { entity: BusinessEntity | null; onClo
   const [form, setForm] = useState<EntityForm>(() => emptyForm(entity));
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [error, setError] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const fe = (k: string) => errors[k] ? <small style={{ display: 'block', color: '#b91c1c', fontSize: '0.72rem', marginTop: 2 }}>{errors[k]}</small> : null;
   const field = (key: keyof EntityForm) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [key]: e.target.value }));
 
@@ -70,14 +72,16 @@ function EntityModal({ entity, onClose }: { entity: BusinessEntity | null; onClo
   });
 
   // Mirrors the server: company name required; email/phone/TIN validated only if provided.
-  const validate = (): string | null => {
-    if (!form.company_name.trim()) return 'Company name is required.';
-    if (form.email.trim() && !isValidEmail(form.email)) return 'Please enter a valid email address.';
+  // Per-field — each message shows under its own field; optional fields never get an error.
+  const validate = (): Record<string, string> => {
+    const e: Record<string, string> = {};
+    if (!form.company_name.trim()) e.company_name = 'Company name is required.';
+    if (form.email.trim() && !isValidEmail(form.email)) e.email = 'Please enter a valid email address.';
     const phone = digitsOnly(form.phone, 11);
-    if (phone && phone.length < 7) return 'Phone must be 7 to 11 digits.';
+    if (phone && phone.length < 7) e.phone = 'Phone must be 7 to 11 digits.';
     const tin = digitsOnly(form.tin, 12);
-    if (tin && tin.length !== 12) return 'TIN must follow 000-000-000-000 (12 digits).';
-    return null;
+    if (tin && tin.length !== 12) e.tin = 'TIN must follow 000-000-000-000 (12 digits).';
+    return e;
   };
 
   return (
@@ -88,14 +92,14 @@ function EntityModal({ entity, onClose }: { entity: BusinessEntity | null; onClo
           <button className="rmodal-x" type="button" onClick={onClose}>×</button>
         </div>
         <div className="rmodal-body">
-          <form onSubmit={(e) => { e.preventDefault(); const v = validate(); if (v) { setError(v); return; } setError(''); mut.mutate(); }}>
+          <form onSubmit={(e) => { e.preventDefault(); const errs = validate(); setErrors(errs); if (Object.keys(errs).length) return; setError(''); mut.mutate(); }}>
             <div className="form-grid">
               <label className="form-field"><span>Entity code</span><input value={form.entity_code} onChange={field('entity_code')} placeholder="auto if blank" /></label>
-              <label className="form-field"><span>Company name *</span><input value={form.company_name} onChange={field('company_name')} autoFocus /></label>
+              <label className="form-field"><span>Company name *</span><input value={form.company_name} onChange={field('company_name')} autoFocus />{fe('company_name')}</label>
               <label className="form-field"><span>Contact person</span><input value={form.contact_person} onChange={field('contact_person')} /></label>
-              <label className="form-field"><span>Phone</span><input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: digitsOnly(e.target.value, 11) }))} maxLength={11} inputMode="numeric" placeholder="11 digits, e.g. 09171234567" /></label>
-              <label className="form-field"><span>Email</span><input type="email" value={form.email} onChange={field('email')} /></label>
-              <label className="form-field"><span>TIN</span><input value={form.tin} onChange={(e) => setForm((f) => ({ ...f, tin: formatTin(e.target.value) }))} maxLength={15} inputMode="numeric" placeholder="000-000-000-000" /></label>
+              <label className="form-field"><span>Phone</span><input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: digitsOnly(e.target.value, 11) }))} maxLength={11} inputMode="numeric" placeholder="11 digits, e.g. 09171234567" />{fe('phone')}</label>
+              <label className="form-field"><span>Email</span><input type="email" value={form.email} onChange={field('email')} />{fe('email')}</label>
+              <label className="form-field"><span>TIN</span><input value={form.tin} onChange={(e) => setForm((f) => ({ ...f, tin: formatTin(e.target.value) }))} maxLength={15} inputMode="numeric" placeholder="000-000-000-000" />{fe('tin')}</label>
               <label className="form-field full"><span>Address</span><input value={form.address} onChange={field('address')} /></label>
               <label className="form-field"><span>Status</span>
                 <select value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>

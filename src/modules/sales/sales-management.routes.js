@@ -476,6 +476,12 @@ module.exports = function createSalesManagementRouter(deps) {
       if (!['delivered', 'completed'].includes(status)) {
         return res.status(400).json({ error: 'Set the Delivery Receipt status to Delivered or Completed first.' });
       }
+      // Apply the reviewed values from the Generate Invoice modal (override the DR-derived defaults).
+      if (req.body.invoice_date) record.target_date = req.body.invoice_date;
+      if (req.body.payment_terms) record.payment_terms = String(req.body.payment_terms).trim();
+      if (req.body.total_amount != null && Number(req.body.total_amount) > 0) record.amount = Number(req.body.total_amount);
+      if (req.body.notes != null && String(req.body.notes).trim()) record.notes = String(req.body.notes).trim();
+
       if (!(Number(record.amount || 0) > 0)) {
         return res.status(400).json({ error: 'Delivery Receipt has no amount. Please set the amount before generating an invoice.' });
       }
@@ -483,8 +489,14 @@ module.exports = function createSalesManagementRouter(deps) {
         return res.status(400).json({ error: 'Delivery Receipt has no linked customer. Please link a company first.' });
       }
 
-      // Reuse the shared, idempotent AR builder (also used by the auto-sync chain).
-      const result = await withDbTransaction((connection) => createReceivableFromDeliveryRecord(connection, record, req));
+      // Reuse the shared, idempotent AR builder; honor a custom due date from the modal if given.
+      const result = await withDbTransaction(async (connection) => {
+        const created = await createReceivableFromDeliveryRecord(connection, record, req);
+        if (created && !created.existing && req.body.due_date) {
+          await queryDbAsync(connection, 'UPDATE accounts_receivable SET due_date = ? WHERE id = ?', [req.body.due_date, created.id]);
+        }
+        return created;
+      });
       if (!result) {
         return res.status(400).json({ error: 'Unable to generate invoice from this Delivery Receipt.' });
       }

@@ -709,6 +709,10 @@ module.exports = function createProcurementRouter(deps) {
         dropFile();
         return res.status(400).json({ error: 'Rejected RFQs are read-only.' });
       }
+      if (isFinalAwardedQuotationStatus(currentRows[0].status)) {
+        dropFile();
+        return res.status(400).json({ error: 'Awarded RFQs are read-only.' });
+      }
       const existingPoRows = await queryAsync('SELECT id, po_number FROM purchase_orders WHERE requisition_id IN (?, ?) LIMIT 1', [currentRows[0].requisition_id, requisitionId]);
       if (existingPoRows.length) {
         dropFile();
@@ -1152,6 +1156,13 @@ module.exports = function createProcurementRouter(deps) {
       const poRows = await queryAsync('SELECT id, business_entity_id FROM purchase_orders WHERE id = ? LIMIT 1', [poId]);
       if (!Array.isArray(poRows) || !poRows.length) {
         return res.status(404).json({ error: 'Purchase order not found.' });
+      }
+      // 3-way-match integrity: once the PO has a bill, its goods receipt is locked from editing.
+      // Changing the received quantities/mappings would move the received value the bill was matched
+      // against, leaving billed > received. Archive/void the bill first if a correction is needed.
+      const grnBillRows = await queryAsync('SELECT COUNT(*)::int AS count FROM accounts_payable WHERE po_id = ?', [poId]);
+      if (Number(grnBillRows?.[0]?.count || 0) > 0) {
+        return res.status(409).json({ error: 'May bill na ang PO ng goods receipt na ito — naka-lock na ito para hindi magkaiba sa bill (3-way match). I-archive/void muna ang bill bago baguhin ang receipt.' });
       }
       const businessEntityId = await resolveBusinessEntityId(poRows[0].business_entity_id || req.body.business_entity_id);
       await applyGoodsReceiptProductMappings({

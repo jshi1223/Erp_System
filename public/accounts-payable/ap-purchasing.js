@@ -961,6 +961,38 @@ function renderProcurementToolbarControls(tab) {
   actions.innerHTML = '';
 }
 
+// ── Real-time vendor quotations ─────────────────────────────────────────────
+// Vendors submit quotations through the public RFQ portal. Poll the quotations list so a new
+// submission appears WITHOUT a manual refresh. Lightweight: only re-fetches /quotations and
+// re-renders that table (+ a toast when a new one arrives) — never a full procurement reload.
+let _quotationPollTimer = null;
+let _lastQuotationSig = '';
+function quotationSignature(list) {
+  return (Array.isArray(list) ? list : []).map((q) => `${q.id}:${q.status}:${q.total_amount}`).sort().join('|');
+}
+async function pollVendorQuotations() {
+  if (document.visibilityState !== 'visible') return;
+  if (!document.getElementById('quote-body')) return; // not on the procurement UI
+  try {
+    const rows = await loadProcurementRows('/api/procurement/quotations', 'quotations');
+    if (!Array.isArray(rows)) return;
+    const sig = quotationSignature(rows);
+    if (sig === _lastQuotationSig) return; // nothing changed
+    const prevCount = Array.isArray(procurementState.quotations) ? procurementState.quotations.length : 0;
+    procurementState.quotations = rows;
+    _lastQuotationSig = sig;
+    renderQuotations();
+    renderSummary();
+    if (rows.length > prevCount) showToast('Bagong quotation mula sa vendor!', 'success');
+  } catch (_) { /* ignore transient poll errors — next tick retries */ }
+}
+function startQuotationPolling() {
+  if (_quotationPollTimer) return;
+  _quotationPollTimer = setInterval(pollVendorQuotations, 10000);
+  // Refresh immediately when the tab regains focus (catches anything missed while away).
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') pollVendorQuotations(); });
+}
+
 async function loadProcurementData() {
   const loadVersion = ++procurementLoadVersion;
   try {
@@ -992,6 +1024,7 @@ async function loadProcurementData() {
     });
     procurementState.requisitions = Array.isArray(requisitions) ? requisitions : [];
     procurementState.quotations = Array.isArray(quotations) ? quotations : [];
+    _lastQuotationSig = quotationSignature(procurementState.quotations); // keep the poll baseline in sync
     procurementState.purchaseOrders = Array.isArray(purchaseOrders) ? purchaseOrders : [];
     procurementState.goodsReceipts = Array.isArray(goodsReceipts) ? goodsReceipts : [];
     procurementState.products = Array.isArray(products) ? products : [];
@@ -1014,6 +1047,7 @@ async function loadProcurementData() {
     renderQuotations();
     renderPurchaseOrders();
     renderGoodsReceipts();
+    startQuotationPolling(); // begin real-time vendor-quotation polling (guarded: starts once)
     return true;
   } catch (err) {
     console.error('Load procurement data error:', err);
@@ -3615,10 +3649,10 @@ function renderRfqWorkspace() {
     const vendorPdfButton = quote && quote.vendor_pdf
       ? `<a class="btn btn-pdf btn-sm" href="/api/procurement/quotations/${Number(quote.id)}/vendor-pdf" target="_blank" rel="noopener">Vendor PDF</a>`
       : '';
-    const editButton = quote && !rejected
+    const editButton = quote && !rejected && !selected
       ? `<button class="btn btn-edit btn-sm" type="button" onclick="openQuotationModal(${Number(quote.id)})">Edit</button>`
       : quote
-        ? '<button class="btn btn-edit btn-sm" type="button" disabled title="Rejected RFQs are read-only">Edit</button>'
+        ? `<button class="btn btn-edit btn-sm" type="button" disabled title="${selected ? 'Awarded RFQs are read-only' : 'Rejected RFQs are read-only'}">Edit</button>`
         : '';
     const selectButton = quote && isAdmin && !selected && !rejected && !existingPurchaseOrder
       ? `<button class="btn btn-save btn-sm" type="button" onclick="selectQuotation(${Number(quote.id)})">Approve RFQ</button>`
@@ -3681,8 +3715,8 @@ function renderQuotations() {
       : isSelected && existingPurchaseOrder
         ? `<button class="btn btn-add btn-sm" type="button" disabled title="PO already exists">${escHtml(existingPurchaseOrder.po_number || 'PO Created')}</button>`
       : '';
-    const editButton = isRejected
-      ? '<button class="btn btn-edit btn-sm" type="button" disabled title="Rejected RFQs are read-only">Edit</button>'
+    const editButton = (isSelected || isRejected)
+      ? `<button class="btn btn-edit btn-sm" type="button" disabled title="${isSelected ? 'Awarded RFQs are read-only' : 'Rejected RFQs are read-only'}">Edit</button>`
       : `<button class="btn btn-edit btn-sm" type="button" onclick="openQuotationModal(${Number(row.id)})">Edit</button>`;
     const deleteButton = isAdmin
       ? `<button class="btn btn-cancel btn-sm" type="button" onclick="deleteQuotation(${Number(row.id)})">Archive</button>`
@@ -4360,19 +4394,40 @@ function renderGoodsReceipts() {
   ]);
 
   const canDelete = userCanApproveProcurement();
+  // One bill action per PO across the whole goods-receipts list (a PO can have many receipts), so
+  // the same PO is never offered "Create Bill" on two different receipt rows (which would double-bill).
+  const billPromptedPoKeys = new Set();
   tbody.innerHTML = rows.length ? rows.map((row) => {
-    // Shortcut: bill the received PO straight in AP, pre-filled. Only when the PO isn't billed yet.
+    // Shortcut: bill the received PO straight in AP, pre-filled with the unbilled received amount.
     const po = (procurementState.purchaseOrders || []).find((p) =>
       Number(p.id || 0) === Number(row.po_id || 0) || (row.po_number && String(p.po_number || '') === String(row.po_number)));
-    // Avoid double-billing from the receipt: the "Create Bill" shortcut only appears for a PO that
-    // has NO bill yet. Once a bill exists, the button is gone (it shows "Billed" instead). Any
-    // additional/partial bills are made deliberately from the AP Bills tab, where the 3-way-match
-    // guard still caps the total.
-    const alreadyBilled = po && Number(po.bill_count || 0) > 0;
-    const canBill = po && !alreadyBilled;
+    // Partial billing: the PO can still be billed while it has received-but-unbilled value (received
+    // total − already billed), so the rest of a short/partial delivery can be billed later. The
+    // server's 3-way-match guard caps the bill at the received value. Once the bills cover everything
+    // received it turns into "Fully billed".
+    const poBillLines = po && Array.isArray(po.line_items) ? po.line_items : [];
+    const receivedValue = poBillLines.reduce((sum, it) => {
+      const recv = Number(it.received_qty || 0) > 0 ? Number(it.received_qty || 0) : Number(it.quantity || 0);
+      return sum + recv * (Number(it.unit_price || 0) || 0);
+    }, 0);
+    const billedValue = (po && Array.isArray(po.bill_details) ? po.bill_details : [])
+      .reduce((sum, b) => sum + (Number(b.total_amount || 0) || 0), 0);
+    const remainingBillable = receivedValue - billedValue;
+    const hasBills = po && Number(po.bill_count || 0) > 0;
+    // Billing is per-PO, not per-receipt. Show the bill action on only the FIRST receipt row of each
+    // PO; the PO's other receipts show nothing, so you can never bill the same PO twice (magdoble).
+    const poKey = po ? `po:${Number(po.id || 0)}|${String(po.po_number || '')}` : '';
+    const firstReceiptForPo = !!po && !billPromptedPoKeys.has(poKey);
+    if (po) billPromptedPoKeys.add(poKey);
+    const canBill = firstReceiptForPo && remainingBillable > 0.01;
     const billButton = canBill
       ? `<button class="btn btn-add btn-sm" type="button" onclick="createBillForGoodsReceipt(${Number(row.id)})">Create Bill</button>`
-      : (alreadyBilled ? '<span class="pdf-empty">Billed</span>' : '');
+      : (firstReceiptForPo && hasBills ? '<span class="pdf-empty">Fully billed</span>' : '');
+    // Once the PO has a bill, lock the receipt from editing: its received value is the bill's
+    // 3-way-match basis, so editing it would conflict with the bill. Server enforces this too.
+    const editButton = hasBills
+      ? '<span class="pdf-empty" title="May bill na ang PO — naka-lock ang receipt para hindi magkaiba sa bill (3-way match).">Locked (billed)</span>'
+      : `<button class="btn btn-edit btn-sm" type="button" onclick="openGoodsReceiptModal(${Number(row.id)})">Edit</button>`;
     // Fulfillment status (table only): is the PO fully received yet, or still partial?
     // A PO can have several GRNs — it stays "Partial" until every line is fully received.
     const poItems = po && Array.isArray(po.line_items) ? po.line_items : [];
@@ -4393,7 +4448,7 @@ function renderGoodsReceipts() {
       <td>
         <div class="erp-actions" style="justify-content:center;">
           ${billButton}
-          <button class="btn btn-edit btn-sm" type="button" onclick="openGoodsReceiptModal(${Number(row.id)})">Edit</button>
+          ${editButton}
           ${canDelete ? `<button class="btn btn-cancel btn-sm" type="button" onclick="deleteGoodsReceipt(${Number(row.id)})">Archive</button>` : ''}
         </div>
       </td>

@@ -54,6 +54,8 @@ export function VendorModal({ vendor, draft, onClose }: { vendor?: Vendor | null
   const isCreate = !vendor && !draft;
   const [form, setForm] = useState<VendorForm>(() => (draft ? { ...emptyForm(null), ...draft.payload } : emptyForm(vendor ?? null)));
   const [error, setError] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const fe = (k: string) => errors[k] ? <small style={{ display: 'block', color: '#b91c1c', fontSize: '0.72rem', marginTop: 2 }}>{errors[k]}</small> : null;
   const field = (key: keyof VendorForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setForm((f) => ({ ...f, [key]: e.target.value }));
 
@@ -89,15 +91,16 @@ export function VendorModal({ vendor, draft, onClose }: { vendor?: Vendor | null
 
   // Client-side checks mirror the server (/api/vendors) so the user gets an instant,
   // specific message instead of a round-trip 400.
-  const validate = (): string | null => {
-    if (!form.vendor_name.trim()) return 'Vendor Name is required.';
-    if (!form.contact_person.trim()) return 'Contact Person is required.';
-    if (!form.email.trim()) return 'Email is required.';
-    if (!isValidEmail(form.email)) return 'Please enter a valid email address.';
-    if (digitsOnly(form.phone, 11).length < 7) return 'Phone must be 7 to 11 digits.';
-    if (digitsOnly(form.tin, 12).length !== 12) return 'TIN must follow 000-000-000-000 (12 digits).';
-    if (!form.address.trim()) return 'Address is required.';
-    return null;
+  const validate = (): Record<string, string> => {
+    const e: Record<string, string> = {};
+    if (!form.vendor_name.trim()) e.vendor_name = 'Vendor Name is required.';
+    if (!form.contact_person.trim()) e.contact_person = 'Contact Person is required.';
+    if (!form.email.trim()) e.email = 'Email is required.';
+    else if (!isValidEmail(form.email)) e.email = 'Please enter a valid email address.';
+    if (digitsOnly(form.phone, 11).length < 7) e.phone = 'Phone must be 7 to 11 digits.';
+    if (digitsOnly(form.tin, 12).length !== 12) e.tin = 'TIN must follow 000-000-000-000 (12 digits).';
+    if (!form.address.trim()) e.address = 'Address is required.';
+    return e;
   };
 
   const heading = draft ? 'Edit Vendor Request' : vendor ? 'Edit Vendor' : (isStaff ? 'Request Vendor' : 'Register Vendor');
@@ -111,15 +114,15 @@ export function VendorModal({ vendor, draft, onClose }: { vendor?: Vendor | null
           <button className="rmodal-x" type="button" onClick={onClose}>×</button>
         </div>
         <div className="rmodal-body">
-          <form onSubmit={(e) => { e.preventDefault(); const v = validate(); if (v) { setError(v); return; } setError(''); mut.mutate(); }}>
+          <form onSubmit={(e) => { e.preventDefault(); const errs = validate(); setErrors(errs); if (Object.keys(errs).length) return; setError(''); mut.mutate(); }}>
             <div className="form-grid">
               <label className="form-field"><span>Vendor No.</span><input value={form.vendor_no} readOnly placeholder="Auto-generated" /></label>
-              <label className="form-field"><span>Vendor Name *</span><input value={form.vendor_name} onChange={field('vendor_name')} autoFocus placeholder="Vendor / supplier name" /></label>
-              <label className="form-field"><span>Contact Person *</span><input value={form.contact_person} onChange={field('contact_person')} placeholder="Primary contact" /></label>
-              <label className="form-field"><span>Email *</span><input type="email" value={form.email} onChange={field('email')} placeholder="Contact email" /></label>
-              <label className="form-field"><span>Phone *</span><input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: digitsOnly(e.target.value, 11) }))} maxLength={11} inputMode="numeric" placeholder="11 digits, e.g. 09171234567" /></label>
-              <label className="form-field"><span>TIN *</span><input value={form.tin} onChange={(e) => setForm((f) => ({ ...f, tin: formatTin(e.target.value) }))} maxLength={15} inputMode="numeric" placeholder="000-000-000-000" /></label>
-              <label className="form-field full"><span>Address *</span><input value={form.address} onChange={field('address')} placeholder="Complete address" /></label>
+              <label className="form-field"><span>Vendor Name *</span><input value={form.vendor_name} onChange={field('vendor_name')} autoFocus placeholder="Vendor / supplier name" />{fe('vendor_name')}</label>
+              <label className="form-field"><span>Contact Person *</span><input value={form.contact_person} onChange={field('contact_person')} placeholder="Primary contact" />{fe('contact_person')}</label>
+              <label className="form-field"><span>Email *</span><input type="email" value={form.email} onChange={field('email')} placeholder="Contact email" />{fe('email')}</label>
+              <label className="form-field"><span>Phone *</span><input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: digitsOnly(e.target.value, 11) }))} maxLength={11} inputMode="numeric" placeholder="11 digits, e.g. 09171234567" />{fe('phone')}</label>
+              <label className="form-field"><span>TIN *</span><input value={form.tin} onChange={(e) => setForm((f) => ({ ...f, tin: formatTin(e.target.value) }))} maxLength={15} inputMode="numeric" placeholder="000-000-000-000" />{fe('tin')}</label>
+              <label className="form-field full"><span>Address *</span><input value={form.address} onChange={field('address')} placeholder="Complete address" />{fe('address')}</label>
             </div>
             {error && <div className="login-msg err">{error}</div>}
             <div className="modal-actions">
