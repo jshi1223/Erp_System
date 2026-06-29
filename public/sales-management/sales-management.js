@@ -30,19 +30,19 @@ const SALES_STAGE_FIELDS = {
   'sales-request': {
     sectionTitle: 'Sales Inquiry Details',
     descriptionLabel: 'Inquiry Details / Requirement',
-    fields: ['company', 'project', 'contact', 'requested-date', 'target-date', 'line-items', 'notes'],
+    fields: ['company', 'project', 'contact', 'requested-date', 'target-date', 'line-items', 'notes', 'pdf-file'],
     required: ['company', 'project', 'contact', 'requested-date', 'target-date', 'line-items']
   },
   'sales-order': {
     sectionTitle: 'Sales Order Details',
     descriptionLabel: 'Confirmed Scope',
-    fields: ['source', 'company', 'project', 'contact', 'requested-date', 'target-date', 'payment-terms', 'downpayment', 'customer-po-ref', 'line-items', 'description', 'notes'],
-    required: ['company', 'project', 'requested-date', 'line-items']
+    fields: ['source', 'company', 'project', 'contact', 'requested-date', 'target-date', 'payment-terms', 'downpayment', 'customer-po-ref', 'line-items', 'description', 'notes', 'pdf-file'],
+    required: ['company', 'project', 'requested-date', 'customer-po-ref', 'line-items']
   },
   'project-delivery': {
     sectionTitle: 'Delivery Receipt Details',
     descriptionLabel: 'Delivery Notes / Received Items',
-    fields: ['source', 'company', 'project', 'target-date', 'received-by', 'delivery-address', 'source-po', 'inventory-note', 'warehouse', 'line-items', 'serials', 'description', 'notes'],
+    fields: ['source', 'company', 'project', 'target-date', 'received-by', 'delivery-address', 'source-po', 'inventory-note', 'warehouse', 'line-items', 'serials', 'description', 'notes', 'pdf-file'],
     required: ['company', 'project', 'target-date', 'received-by', 'warehouse', 'line-items']
   }
 };
@@ -413,6 +413,11 @@ function populateReferenceSelects() {
 function populateSourceSelect(currentId = null, recordType = (activeSalesTab === 'requests' ? 'sales-request' : activeSalesTab)) {
   const sourceSelect = document.getElementById('sales-source-record-id');
   if (!sourceSelect) return;
+  // For Delivery Receipts, react to the chosen Sales Order to show remaining-to-deliver.
+  if (!sourceSelect.dataset.deliveryProgressBound) {
+    sourceSelect.addEventListener('change', onSalesSourceChange);
+    sourceSelect.dataset.deliveryProgressBound = '1';
+  }
   const meta = SALES_TYPES[recordType] || SALES_TYPES['sales-request'];
   const sourceField = document.getElementById('sales-source-field');
   const sourceLabel = document.getElementById('sales-source-label');
@@ -433,6 +438,53 @@ function populateSourceSelect(currentId = null, recordType = (activeSalesTab ===
   sourceSelect.innerHTML = `<option value="">Select ${escHtml(meta.sourceLabel.toLowerCase())}</option>` + sourceRows
     .map((row) => `<option value="${escAttr(row.id)}">${escHtml(row.document_no || '')} - ${escHtml(row.title || '')}</option>`)
     .join('');
+}
+
+// Ensure the small "remaining to deliver" hint element exists under the source field.
+function ensureDeliveryProgressHint() {
+  let hint = document.getElementById('sales-delivery-progress-hint');
+  if (!hint) {
+    const anchor = document.getElementById('sales-source-field') || document.getElementById('sales-source-record-id');
+    if (!anchor) return null;
+    hint = document.createElement('div');
+    hint.id = 'sales-delivery-progress-hint';
+    hint.style.cssText = 'margin-top:6px;font-size:.72rem;font-weight:600;';
+    (anchor.parentNode || anchor).appendChild(hint);
+  }
+  return hint;
+}
+
+// When a Sales Order is chosen for a Delivery Receipt, show Ordered/Delivered/Remaining
+// and default the quantity to the remaining units (partial deliveries — one SO, many DRs).
+async function onSalesSourceChange() {
+  const hint = ensureDeliveryProgressHint();
+  if (getValue('sales-record-type') !== 'project-delivery') { if (hint) hint.style.display = 'none'; return; }
+  const soId = Number(getValue('sales-source-record-id') || 0);
+  if (!soId) { if (hint) hint.style.display = 'none'; return; }
+  try {
+    const res = await fetch(`/api/sales-management/records/${soId}/delivery-progress`, { headers: { 'X-CSRF-Token': window.__CSRF_TOKEN__ || '' } });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { if (hint) hint.style.display = 'none'; return; }
+    const ordered = Number(data.ordered || 0);
+    const delivered = Number(data.delivered || 0);
+    const remaining = Number(data.remaining || 0);
+    if (hint) {
+      if (ordered > 0) {
+        hint.style.display = '';
+        hint.style.color = remaining > 0 ? 'var(--muted, #888)' : '#15803d';
+        hint.textContent = remaining > 0
+          ? `Ordered: ${ordered} · Na-deliver na: ${delivered} · Natitira: ${remaining}`
+          : `Fully delivered — Ordered: ${ordered}, Na-deliver na: ${delivered}`;
+      } else {
+        hint.style.display = 'none';
+      }
+    }
+    // Default quantity to remaining for a NEW delivery only (don't overwrite a typed value).
+    const qtyEl = document.getElementById('sales-quantity');
+    if (qtyEl && !editingSalesRecordId && ordered > 0 && !String(qtyEl.value || '').trim()) {
+      qtyEl.value = remaining > 0 ? remaining : '';
+    }
+  } catch (_) { if (hint) hint.style.display = 'none'; }
 }
 
 function updateSalesSummary() {
@@ -503,7 +555,7 @@ function renderSalesRecords() {
       });
 
     if (!rows.length) {
-      tbody.innerHTML = `<tr class="empty-row"><td colspan="10">${escHtml(isStaff ? 'No pending requests yet. Click Add Request to submit one.' : 'No pending requests.')}</td></tr>`;
+      tbody.innerHTML = `<tr class="empty-row"><td colspan="11">${escHtml(isStaff ? 'No pending requests yet. Click Add Request to submit one.' : 'No pending requests.')}</td></tr>`;
       return;
     }
     tbody.innerHTML = rows.map((row) => renderSalesRow(row, { showPromote: false, isRequestsTab: true })).join('');
@@ -533,7 +585,7 @@ function renderSalesRecords() {
     });
 
   if (!rows.length) {
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="10">No ${escHtml(SALES_TYPES[activeSalesTab].label.toLowerCase())} records yet.</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="11">No ${escHtml(SALES_TYPES[activeSalesTab].label.toLowerCase())} records yet.</td></tr>`;
     return;
   }
 
@@ -569,17 +621,20 @@ function renderSalesRow(row, options = {}) {
       <td>${escHtml(row.project_docno || '')}${row.project_docno ? '<br>' : ''}<span class="muted">${escHtml(row.project_name || '-')}</span></td>
       <td>${escHtml(row.title || '-')}<div class="muted">${escHtml(row.description || '')}</div>${renderSalesInventoryMeta(row)}</td>
       <td>${escHtml(row.source_document_no || '-')}<div class="muted">${escHtml(row.source_title || '')}</div></td>
+      <td>${escHtml(row.customer_po_ref || '-')}</td>
       <td>${formatDate(row.requested_date)}</td>
       <td>${targetDateHtml}</td>
       <td class="text-right">${formatCurrency(row.amount)}</td>
-      <td><span class="status-chip status-${escAttr(String(row.status || '').replace(/[^a-z0-9_ -]/gi, '').replace(/\s+/g, '_'))}">${escHtml(formatStatus(row.status))}</span></td>
+      <td><span class="status-chip status-${escAttr(String(row.status || '').replace(/[^a-z0-9_ -]/gi, '').replace(/\s+/g, '_'))}">${escHtml(formatStatus(row.status))}</span>${renderSalesDeliveryBadge(row)}</td>
       <td>
         <div class="sales-row-actions">
           ${showPromote ? renderPromoteButton(row) : ''}
           ${renderInvoiceButton(row)}
+          ${renderGeneratePrButton(row)}
           ${renderApproveButton(row, isRequestsTab)}
+          ${(row.pdffilename || row.pdfFilename) ? `<a class="btn btn-cancel btn-sm" href="/api/sales-management/records/${Number(row.id)}/pdf" target="_blank" rel="noopener" title="View attached PDF">View PDF</a>` : ''}
           ${!isSalesStaffView() ? `<button class="btn btn-cancel btn-sm" type="button" onclick="openRecordHistory('sales_record', ${Number(row.id)}, '${escHtml(String(row.document_no || ('Sales #' + Number(row.id))).replace(/'/g, ''))}')" title="View history">History</button>` : ''}
-          <button class="btn btn-cancel btn-sm" type="button" onclick="editSalesRecord(${Number(row.id)})">Edit</button>
+          ${salesRecordIsEditable(row) ? `<button class="btn btn-cancel btn-sm" type="button" onclick="editSalesRecord(${Number(row.id)})">Edit</button>` : ''}
           <button class="btn btn-danger btn-sm" type="button" onclick="deleteSalesRecord(${Number(row.id)})">Archive</button>
         </div>
       </td>
@@ -643,10 +698,101 @@ function renderSalesInventoryMeta(row = {}) {
   return `<div class="muted">${escHtml(product)}${qty ? ` x ${escHtml(qty.toLocaleString('en-PH'))}` : ''}${warehouse ? ` | ${escHtml(warehouse)}` : ''} | ${escHtml(posted)}</div>`;
 }
 
+// Ordered quantity for a Sales Order = sum of its line items (carried forward through
+// the flow), falling back to the header quantity. Mirrors the server's computeDeliveryProgress.
+function salesOrderedQty(row = {}) {
+  const items = Array.isArray(row.line_items) ? row.line_items : [];
+  const itemsQty = items.reduce((s, it) => s + (Number(it.quantity || 0) || 0), 0);
+  return itemsQty > 0 ? itemsQty : Math.max(0, Number(row.quantity || 0) || 0);
+}
+
+// Total already delivered for a Sales Order = sum of the LINE-ITEM quantities of its non-cancelled
+// Delivery Receipts (the line items are what post to inventory — keeps everything in agreement).
+function salesDeliveredQty(soId) {
+  const id = Number(soId || 0);
+  if (!id) return 0;
+  return (Array.isArray(salesRecords) ? salesRecords : [])
+    .filter((r) => Number(r.source_record_id || 0) === id
+      && String(r.record_type || '') === 'project-delivery'
+      && String(r.status || '').toLowerCase() !== 'cancelled')
+    .reduce((s, r) => s + (Array.isArray(r.line_items)
+      ? r.line_items.reduce((a, it) => a + (Number(it.quantity || 0) || 0), 0)
+      : (Number(r.quantity || 0) || 0)), 0);
+}
+
+// At-a-glance delivery badge on Sales Order rows: Partial (with remaining) vs Fully Delivered.
+function renderSalesDeliveryBadge(row = {}) {
+  if (String(row.record_type || '') !== 'sales-order') return '';
+  const ordered = salesOrderedQty(row);
+  if (!(ordered > 0)) return '';
+  const delivered = salesDeliveredQty(row.id);
+  if (delivered <= 0) return '';
+  const remaining = Math.max(0, ordered - delivered);
+  if (remaining <= 0) {
+    return `<br><span class="status-chip status-delivered" title="Ordered ${escAttr(ordered)} · Delivered ${escAttr(delivered)}">Fully Delivered</span>`;
+  }
+  return `<br><span class="status-chip status-partial" title="Ordered ${escAttr(ordered)} · Delivered ${escAttr(delivered)} · Remaining ${escAttr(remaining)}">Partial · ${escHtml(String(remaining))} left</span>`;
+}
+
+// A record is locked (no editing) once it is approved or past it — official / terminal states.
+function salesRecordIsEditable(row = {}) {
+  const status = String(row.status || '').toLowerCase();
+  return !['approved', 'won', 'sent', 'delivered', 'completed', 'cancelled'].includes(status);
+}
+
+// Sales-driven procurement: an approved Sales Order can raise a Purchase Requisition that lands
+// in the Approval Center. Hidden for staff (procurement is admin-side); once a PR exists it shows
+// the PR number instead of the button (no duplicate).
+function renderGeneratePrButton(row) {
+  if (String(row.record_type || '') !== 'sales-order') return '';
+  if (isSalesStaffView()) return '';
+  if (!['approved', 'won'].includes(String(row.status || '').toLowerCase())) return '';
+  if (row.generated_pr_number) {
+    return `<span class="status-chip status-draft" title="Purchase Requisition ${escAttr(row.generated_pr_number)} generated from this SO">PR: ${escHtml(row.generated_pr_number)}</span>`;
+  }
+  return `<button class="btn btn-primary btn-sm" type="button" onclick="generatePrFromSo(${Number(row.id)})">Generate PR</button>`;
+}
+
+async function generatePrFromSo(id) {
+  const ok = await showConfirm('Gumawa ng Purchase Requisition mula sa Sales Order na ito?\n\nPupunta ito sa Approval Center para i-review at i-approve.', { title: 'Generate PR', confirmLabel: 'Generate PR', type: 'default' });
+  if (!ok) return;
+  try {
+    const res = await fetch(`/api/procurement/requisitions/from-sales-order/${Number(id)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.__CSRF_TOKEN__ || '' },
+      body: '{}'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { showToast(data.error || 'Unable to generate PR.', 'error'); return; }
+    showToast(`PR ${data.pr_number} created — nasa Approval Center na.`, 'success');
+    await loadSalesRecords();
+    renderSalesRecords();
+  } catch (_) {
+    showToast('Unable to generate PR.', 'error');
+  }
+}
+
 function renderPromoteButton(row) {
   const next = SALES_TYPES[row.record_type]?.next;
   if (!next) return '';
-  return `<button class="btn btn-primary btn-sm" type="button" onclick="promoteSalesRecord(${Number(row.id)})">To ${escHtml(SALES_TYPES[next].label)}</button>`;
+  // Can only advance a record that is already approved.
+  if (!['approved', 'won'].includes(String(row.status || '').toLowerCase())) return '';
+  const label = SALES_TYPES[next].label;
+  if (next === 'project-delivery') {
+    // SO → Delivery: partial deliveries allowed — keep showing "Create" until fully delivered.
+    const ordered = salesOrderedQty(row);
+    const delivered = salesDeliveredQty(row.id);
+    if (ordered > 0 && delivered >= ordered) return '';
+  } else {
+    // One-to-one (SI → SO): hide once a non-cancelled next-stage doc already exists, so there is
+    // never a duplicate and no 409 — "wala na talaga ulit".
+    const exists = (Array.isArray(salesRecords) ? salesRecords : []).some((r) =>
+      Number(r.source_record_id || 0) === Number(row.id || 0)
+      && String(r.record_type || '') === next
+      && String(r.status || '').toLowerCase() !== 'cancelled');
+    if (exists) return '';
+  }
+  return `<button class="btn btn-primary btn-sm" type="button" onclick="promoteSalesRecord(${Number(row.id)})">Create ${escHtml(label)}</button>`;
 }
 
 let salesNumberPreviewToken = 0;
@@ -738,6 +884,17 @@ function openSalesModal(record = null) {
   // Load the serial checklist AFTER line items render (it reads the line products);
   // linked units are pre-checked via their sales_record_id.
   loadDeliverySerialOptions();
+  // Reset the PDF picker and show any existing attachment link (when editing).
+  const pdfInput = document.getElementById('sales-pdf-file');
+  if (pdfInput) pdfInput.value = '';
+  const pdfCurrent = document.getElementById('sales-pdf-current');
+  if (pdfCurrent) {
+    pdfCurrent.innerHTML = (isExistingRecord && record && (record.pdffilename || record.pdfFilename))
+      ? `<a href="/api/sales-management/records/${Number(record.id)}/pdf" target="_blank" rel="noopener">View attached PDF</a>`
+      : '';
+  }
+  // Show remaining-to-deliver when this is a Delivery Receipt tied to a Sales Order.
+  onSalesSourceChange();
   const backdrop = document.getElementById('sales-modal-backdrop');
   if (backdrop) {
     backdrop.hidden = false;
@@ -827,11 +984,15 @@ async function saveSalesRecord() {
   const errors = collectSalesValidationErrors(payload, lineItems);
 
   if (payload.record_type === 'project-delivery' && ['delivered', 'completed'].includes(payload.status)) {
-    const deliveryChecks = [
-      { key: 'product', ok: Boolean(payload.product_id) },
-      { key: 'warehouse', ok: Boolean(payload.warehouse_id) },
-      { key: 'quantity', ok: Number(payload.quantity || 0) > 0 }
-    ];
+    // Multi-line DR: the products + quantities live in the LINE ITEMS, so only the source warehouse
+    // is needed here. Single-product DR (no line items): require the header product + quantity.
+    const deliveryChecks = lineItems.items.length
+      ? [{ key: 'warehouse', ok: Boolean(payload.warehouse_id) }]
+      : [
+          { key: 'product', ok: Boolean(payload.product_id) },
+          { key: 'warehouse', ok: Boolean(payload.warehouse_id) },
+          { key: 'quantity', ok: Number(payload.quantity || 0) > 0 }
+        ];
     deliveryChecks.forEach(({ key, ok }) => {
       if (!ok && !errors.some((e) => e.key === key)) {
         const label = { product: 'Inventory Product', warehouse: 'Source Warehouse', quantity: 'Quantity' }[key];
@@ -842,6 +1003,26 @@ async function saveSalesRecord() {
 
   if (applySalesValidationErrors(errors)) return;
 
+  // Client-side stock warning for a Delivery Receipt — show "kulang stock" right away instead of
+  // waiting for the server round-trip. The server still does the authoritative per-warehouse check.
+  if (payload.record_type === 'project-delivery') {
+    for (const it of lineItems.items) {
+      const prod = getInventoryProductById(it.product_id);
+      const available = Number(prod?.quantity_on_hand || 0);
+      const need = Number(it.quantity || 0) || 0;
+      if (need > available) {
+        const name = prod?.product_name || it.item_name || 'item';
+        const msg = `Kulang ang stock para sa "${name}". Meron lang: ${available}, kailangan: ${need}. Magdagdag muna ng stock bago mag-deliver.`;
+        // Show it INLINE in the inventory area (under the warehouse field), not at the top.
+        clearSalesFieldErrors();
+        showSalesFieldError('warehouse', msg);
+        focusSalesField('warehouse');
+        showToast(msg, 'error');
+        return;
+      }
+    }
+  }
+
   const id = Number(getValue('sales-record-id') || 0);
   const res = await fetch(id ? `/api/sales-management/records/${id}` : '/api/sales-management/records', {
     method: id ? 'PUT' : 'POST',
@@ -850,14 +1031,25 @@ async function saveSalesRecord() {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const status = document.getElementById('sales-modal-status-message');
-    if (status) {
-      status.textContent = data.error || 'Unable to save sales record.';
-      status.classList.remove('is-hidden');
-    } else {
-      showToast(data.error || 'Unable to save sales record.', 'error');
-    }
+    // Server-side errors (e.g. insufficient stock) show as a toast (bottom) — not at the top near
+    // the DR number. Field-specific issues already surface inline under their field.
+    showToast(data.error || 'Unable to save sales record.', 'error');
     return;
+  }
+
+  // Attach the chosen PDF (if any) to the saved record — a two-step upload keeps this JSON form intact.
+  const savedId = Number((data && data.id) || id || 0);
+  const pdfInput = document.getElementById('sales-pdf-file');
+  if (savedId && pdfInput && pdfInput.files && pdfInput.files[0]) {
+    const fd = new FormData();
+    fd.append('pdf_file', pdfInput.files[0]);
+    try {
+      await fetch(`/api/sales-management/records/${savedId}/pdf`, {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': window.__CSRF_TOKEN__ || '' },
+        body: fd
+      });
+    } catch (_) { /* non-fatal: the record is saved; the PDF can be re-attached via Edit */ }
   }
 
   closeSalesModal();
@@ -883,6 +1075,7 @@ function collectSalesValidationErrors(payload = {}, lineItems = { items: [], inc
     product: 'Inventory Product',
     warehouse: 'Source Warehouse',
     quantity: 'Quantity',
+    'customer-po-ref': 'Customer PO Ref.',
     'received-by': 'Received By',
     'line-items': 'Items'
   };
@@ -898,6 +1091,7 @@ function collectSalesValidationErrors(payload = {}, lineItems = { items: [], inc
     product: payload.product_id,
     warehouse: payload.warehouse_id,
     quantity: payload.quantity,
+    'customer-po-ref': payload.customer_po_ref,
     'received-by': payload.received_by
   };
   const stageLabel = SALES_TYPES[payload.record_type]?.label || 'this stage';
@@ -966,14 +1160,9 @@ function focusSalesField(key) {
 function applySalesValidationErrors(errors = []) {
   clearSalesFieldErrors();
   if (!errors.length) return false;
+  // Show each error INLINE, directly under its own field (not as a summary at the top near the
+  // DR number) — so the user sees per-field which one is missing/wrong. Scroll to the first error.
   errors.forEach((err) => showSalesFieldError(err.key, err.message));
-  const status = document.getElementById('sales-modal-status-message');
-  if (status) {
-    status.textContent = errors.length === 1
-      ? errors[0].message
-      : `${errors.length} fields need to be filled out. Tingnan ang mga naka-highlight sa ibaba.`;
-    status.classList.remove('is-hidden');
-  }
   focusSalesField(errors[0].key);
   return true;
 }
@@ -985,9 +1174,17 @@ function syncSalesProjectContext(options = {}) {
   const project = projectRecords.find((row) => Number(row.id || 0) === projectId) || null;
   const companyId = Number(project?.company_id || project?.registry_company_id || 0) || 0;
   const companySelect = document.getElementById('sales-company-id');
-  if (!companySelect || !companyId) return;
-  if (options.preserveExistingCompany && Number(companySelect.value || 0)) return;
-  companySelect.value = String(companyId);
+  if (!companySelect) return;
+  // Auto-fill the customer/company from the chosen project (don't clobber a saved value on load).
+  if (companyId && !(options.preserveExistingCompany && Number(companySelect.value || 0))) {
+    companySelect.value = String(companyId);
+  }
+  // The customer/company is DERIVED from the project — lock it so it can't be changed
+  // independently. To switch the customer, change the Project. Unlocked when no project is chosen.
+  const lock = projectId > 0 && Number(companySelect.value || 0) > 0;
+  companySelect.disabled = lock;
+  companySelect.classList.toggle('is-locked', lock);
+  companySelect.title = lock ? 'Naka-set ayon sa napiling Project — palitan ang Project para mabago ang customer.' : '';
 }
 
 // Source PO dropdown for the Delivery Receipt: lists purchase orders tied to the

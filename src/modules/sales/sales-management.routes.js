@@ -4,6 +4,7 @@
 // drafts that become official on approval. Shared infra imported; the large set of sales-flow,
 // document-number, inventory-sync, transaction and approval helpers (plus SALES_RECORD_TYPES) injected.
 const express = require('express');
+const path = require('path');
 const { queryAsync, isPostgresUniqueViolation } = require('../../database');
 const { protectAdmin, protectAdminOnly, getAuthenticatedUser, isStaffRole } = require('../../middleware/auth');
 
@@ -52,9 +53,90 @@ module.exports = function createSalesManagementRouter(deps) {
     getApprovalComment,
     getApprovalActorName,
     appendApprovalComment,
-    logAction
+    logAction,
+    upload,
+    UPLOAD_DIR
   } = deps;
   const router = express.Router();
+
+  // ── Partial delivery support ────────────────────────────────────────────────
+  // One Sales Order may have MULTIPLE Delivery Receipts (deliver in batches). We
+  // track the SO's ordered quantity (sum of its line items, else its header qty)
+  // vs the total already delivered (sum of non-cancelled DR quantities) so the UI
+  // can show "remaining" and the server can block over-delivery. `q` is a query
+  // runner: queryAsync (standalone) or (sql,params)=>queryDbAsync(connection,...).
+  async function computeDeliveryProgress(q, soId, excludeDrId = 0) {
+    const id = Number(soId || 0);
+    if (!id) return { ordered: 0, delivered: 0, remaining: 0 };
+    const itemRows = await q('SELECT COALESCE(SUM(quantity), 0) AS qty FROM sales_record_items WHERE sales_record_id = ?', [id]);
+    let ordered = Number(itemRows?.[0]?.qty || 0) || 0;
+    if (!ordered) {
+      const soRows = await q('SELECT quantity FROM sales_management_records WHERE id = ? LIMIT 1', [id]);
+      ordered = Math.max(0, Number(soRows?.[0]?.quantity || 0) || 0);
+    }
+    // Delivered = sum of the LINE-ITEM quantities of every non-cancelled DR of this SO. Line items
+    // are what actually post to inventory, so tracking them keeps delivery, stock, and "complete"
+    // detection all in agreement (mirrors PO -> Goods Receipt received-qty matching).
+    const delRows = await q(
+      "SELECT COALESCE(SUM(i.quantity), 0) AS qty FROM sales_record_items i JOIN sales_management_records r ON r.id = i.sales_record_id WHERE r.source_record_id = ? AND r.record_type = 'project-delivery' AND COALESCE(r.status, '') <> 'cancelled' AND r.id <> ?",
+      [id, Number(excludeDrId || 0)]);
+    const delivered = Number(delRows?.[0]?.qty || 0) || 0;
+    return { ordered, delivered, remaining: Math.max(0, ordered - delivered) };
+  }
+
+  // Throws a 409 if this delivery would push total delivered past the ordered qty.
+  // Only enforced when the SO's ordered qty is known (> 0); otherwise permissive.
+  async function assertDeliveryWithinOrdered(q, soId, newQty, excludeDrId = 0) {
+    const { ordered, delivered, remaining } = await computeDeliveryProgress(q, soId, excludeDrId);
+    if (ordered > 0 && Number(newQty || 0) > remaining) {
+      const e = new Error(`Lampas sa natitirang dapat i-deliver. Ordered: ${ordered}, Na-deliver na: ${delivered}, Natitira: ${remaining}.`);
+      e.statusCode = 409;
+      throw e;
+    }
+  }
+
+  router.get('/api/sales-management/records/:id/delivery-progress', protectAdmin, async (req, res) => {
+    try {
+      const soId = Number(req.params.id || 0);
+      if (!soId) return res.status(400).json({ error: 'Invalid sales record ID.' });
+      res.json(await computeDeliveryProgress(queryAsync, soId, 0));
+    } catch (err) {
+      res.status(500).json({ error: err.message || 'Unable to compute delivery progress.' });
+    }
+  });
+
+  // PDF attachment for a sales record (e.g. a signed Sales Order). Two-step upload from the
+  // modal: the record is saved as JSON first, then the PDF is posted here against its id.
+  router.post('/api/sales-management/records/:id/pdf', protectAdmin, upload.single('pdf_file'), async (req, res) => {
+    const id = Number(req.params.id || 0);
+    if (!id) return res.status(400).json({ error: 'Invalid sales record ID.' });
+    if (!req.file) return res.status(400).json({ error: 'No PDF received.' });
+    try {
+      const rows = await queryAsync('SELECT id, document_no, business_entity_id FROM sales_management_records WHERE id = ? LIMIT 1', [id]);
+      if (!rows.length) return res.status(404).json({ error: 'Sales record not found.' });
+      await queryAsync('UPDATE sales_management_records SET pdfFilename = ?, updated_at = NOW() WHERE id = ?', [req.file.filename, id]);
+      logAction(req, 'ATTACH_SALES_PDF', `Attached PDF to sales record ${rows[0].document_no || ('#' + id)}`, 'sales', { entityType: 'sales_record', entityId: id, businessEntityId: rows[0].business_entity_id });
+      res.json({ success: true, pdfFilename: req.file.filename });
+    } catch (err) {
+      res.status(500).json({ error: err.message || 'Unable to save PDF.' });
+    }
+  });
+
+  router.get('/api/sales-management/records/:id/pdf', protectAdmin, async (req, res) => {
+    const id = Number(req.params.id || 0);
+    if (!id) return res.status(400).json({ error: 'Invalid sales record ID.' });
+    try {
+      const rows = await queryAsync('SELECT pdfFilename FROM sales_management_records WHERE id = ? LIMIT 1', [id]);
+      const stored = rows && rows[0] ? (rows[0].pdffilename || rows[0].pdfFilename) : '';
+      const fn = stored ? path.basename(stored) : '';
+      if (!fn) return res.status(404).json({ error: 'No PDF attached to this record.' });
+      res.type('application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fn)}"`);
+      return res.sendFile(path.join(UPLOAD_DIR, fn), (err) => { if (err && !res.headersSent) res.status(404).json({ error: 'PDF file not found.' }); });
+    } catch (err) {
+      res.status(500).json({ error: err.message || 'Unable to load PDF.' });
+    }
+  });
 
   router.get('/api/sales-management/records', protectAdmin, async (req, res) => {
     const recordType = normalizeSalesRecordType(req.query.type);
@@ -95,7 +177,8 @@ module.exports = function createSalesManagementRouter(deps) {
           ), '[]') AS line_items,
           ar_inv.id AS ar_invoice_id,
           ar_inv.invoice_number AS ar_invoice_number,
-          ar_inv.status AS ar_invoice_status
+          ar_inv.status AS ar_invoice_status,
+          (SELECT pr.pr_number FROM purchase_requisitions pr WHERE pr.source_sales_record_id = smr.id AND COALESCE(pr.status, '') <> 'cancelled' ORDER BY pr.id ASC LIMIT 1) AS generated_pr_number
         FROM sales_management_records smr
         LEFT JOIN company_registry c ON c.id = smr.company_id
         LEFT JOIN projects p ON p.id = smr.project_id
@@ -154,14 +237,27 @@ module.exports = function createSalesManagementRouter(deps) {
       const actorIsStaff = isStaffRole(actor.role);
       if (actorIsStaff && !['draft', 'submitted'].includes(payload.status)) {
         payload.status = 'draft';
-      } else if (!actorIsStaff && ['draft', 'submitted', 'in_review'].includes(payload.status)) {
-        payload.status = payload.recordType === 'project-delivery' ? 'delivered' : 'approved';
+      } else if (!actorIsStaff) {
+        // Admin-created Sales Orders route through the Approval Center as pending (submitted),
+        // becoming official on approval — NOT auto-approved.
+        if (payload.recordType === 'sales-order') {
+          payload.status = 'submitted';
+        } else if (payload.recordType === 'project-delivery') {
+          // A Delivery Receipt posts stock-OUT the moment it's created — mirrors PO -> Goods Receipt
+          // (create = receive). So an admin DR is 'delivered' on save: stock is checked + deducted
+          // right away, and it never sits as a non-deducting 'approved' doc. Short stock => blocked.
+          payload.status = 'delivered';
+        } else if (['draft', 'submitted', 'in_review'].includes(payload.status)) {
+          payload.status = 'approved';
+        }
       }
       const created = await withDbTransaction(async (connection) => {
         // Guard: one source advances to exactly one next-stage doc. Block creating a duplicate
         // sibling (same source + record_type) so we never strand an orphan draft — e.g. an
         // auto-created SO draft sitting alongside a manually-created SO from the same Sales Request.
-        if (payload.sourceRecordId) {
+        // EXCEPTION: Delivery Receipts — one Sales Order may have MULTIPLE partial deliveries,
+        // so DRs are not one-to-one; instead they are capped by the ordered quantity below.
+        if (payload.sourceRecordId && payload.recordType !== 'project-delivery') {
           const dup = await queryDbAsync(connection,
             "SELECT id, document_no FROM sales_management_records WHERE source_record_id = ? AND record_type = ? AND COALESCE(status, '') <> 'cancelled' ORDER BY id ASC LIMIT 1",
             [payload.sourceRecordId, payload.recordType]);
@@ -171,9 +267,16 @@ module.exports = function createSalesManagementRouter(deps) {
             throw dupErr;
           }
         }
+        // Partial delivery: block a Delivery Receipt whose line items would exceed the SO's remaining qty.
+        if (payload.recordType === 'project-delivery' && payload.sourceRecordId) {
+          const incomingQty = (Array.isArray(req.body.items) ? req.body.items : []).reduce((s, it) => s + (Number(it.quantity || 0) || 0), 0);
+          await assertDeliveryWithinOrdered((sql, params) => queryDbAsync(connection, sql, params), payload.sourceRecordId, incomingQty, 0);
+        }
         const seqMeta = getSalesDocumentSequenceMeta(payload.recordType);
         const businessEntityId = await resolveBusinessEntityId(payload.businessEntityId);
-        const documentNo = actorIsStaff
+        // Staff drafts AND admin-created Sales Orders (pending) get a DFT- number that the
+        // Approval Center promotes to the official sequence on approval.
+        const documentNo = (actorIsStaff || payload.recordType === 'sales-order')
           ? await generateNextDraftEntityDocumentNo({
               businessEntityId,
               documentType: seqMeta.documentType,
@@ -255,6 +358,10 @@ module.exports = function createSalesManagementRouter(deps) {
     try {
       const existing = await queryAsync('SELECT id, record_type, document_no, status, amount, quantity, unit_price, title FROM sales_management_records WHERE id = ? LIMIT 1', [recordId]);
       if (!existing.length) return res.status(404).json({ error: 'Sales record not found.' });
+      // Locked once approved or past it — no edits after approval (matches the UI hiding the Edit button).
+      if (['approved', 'won', 'sent', 'delivered', 'completed', 'cancelled'].includes(String(existing[0].status || '').toLowerCase())) {
+        return res.status(409).json({ error: 'Hindi na puwedeng baguhin ang naka-approve nang record.' });
+      }
       const payload = normalizeSalesRecordPayload(req.body, existing[0].record_type);
       validateSalesRecordStageRequirements(payload);
       validateSalesDeliveryReceiptInventory(payload, req.body.items);
@@ -264,6 +371,12 @@ module.exports = function createSalesManagementRouter(deps) {
         payload.status = 'draft';
       }
       const updated = await withDbTransaction(async (connection) => {
+        // Partial delivery: editing a DR's quantity must still respect the SO's remaining
+        // (exclude this DR from the already-delivered total).
+        if (payload.recordType === 'project-delivery' && payload.sourceRecordId) {
+          const incomingQty = (Array.isArray(req.body.items) ? req.body.items : []).reduce((s, it) => s + (Number(it.quantity || 0) || 0), 0);
+          await assertDeliveryWithinOrdered((sql, params) => queryDbAsync(connection, sql, params), payload.sourceRecordId, incomingQty, recordId);
+        }
         const rows = await queryDbAsync(connection, `
           UPDATE sales_management_records
           SET record_type = ?,

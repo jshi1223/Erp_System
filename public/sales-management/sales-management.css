@@ -88,6 +88,12 @@
   display: flex;
 }
 
+/* Keep the error/success toast ABOVE the modal backdrop (z-index 5000 + blur) so the
+   "Kulang ang stock…" message is sharp — not obscured/blurred behind the modal. */
+#toast {
+  z-index: 100050 !important;
+}
+
 .sales-management-page .modal-close {
   position: absolute;
   top: 12px;

@@ -4,7 +4,8 @@
 //   - 'pending'  : submitted, awaiting approval (i.e. actually IN the Approval Center).
 //   - 'draft'    : work-in-progress, NOT yet submitted (lives in its module, NOT the Approval Center).
 // Role-aware:
-//   - STAFF  → non-official only (pending + draft), scoped to their current workspace.
+//   - STAFF  → everything they can open from their sidebar (official + their own drafts/pending),
+//              scoped to their current workspace; admin-only module types are excluded.
 //   - ADMIN  → everything; a result is routed to the Approval Center ONLY if it's truly pending AND
 //              of a type the Approval Center tracks (`ac:true`). Plain drafts/leads go to their module.
 // `ac` matters because the Approval Center only lists pending PR/PO/Bill/Project/Sales (+ master-data
@@ -137,11 +138,11 @@ module.exports = function createSearchRouter() {
 
     let out;
     if (staff) {
-      // Staff see only non-official docs from modules they can open, scoped to their workspace
-      // (sources without an entity column pass through). Archived + hidden modules never appear
-      // (staff have no Archive Center).
-      out = results.filter((r) => r.state !== 'official'
-        && !r.archived
+      // Staff see whatever they can open from their sidebar — official AND their own drafts/pending,
+      // scoped to their workspace (sources without an entity column pass through). Only types whose
+      // module is hidden to staff (AP/AR/PO/RFQ/GRN/Serial Units) and archived docs are excluded
+      // (staff have no Archive Center). Mirrors what staff can actually browse in their modules.
+      out = results.filter((r) => !r.archived
         && STAFF_SEARCHABLE_TYPES.has(r.type)
         && (!scopeEntityId || r.entityId == null || Number(r.entityId) === scopeEntityId));
     } else {

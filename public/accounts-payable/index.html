@@ -1463,6 +1463,7 @@
           <input id="f-bill-vendor" type="hidden" />
           <div id="f-bill-vendor-results" class="search-results-list" role="listbox" aria-label="Vendor search results" style="display:none;"></div>
         </div>
+        <div class="modal-inline-message is-hidden" data-bill-field-message="vendor" aria-live="polite"></div>
       </div>
       <!-- 3. PO Reference (auto-fills GR ref, items, vendor, amount) -->
       <div class="form-group">
@@ -1496,6 +1497,7 @@
       <div class="form-group">
         <label>Total Amount *</label>
         <input id="f-bill-amount" type="text" inputmode="decimal" class="js-money-input" placeholder="0.00" required aria-required="true" />
+        <div class="modal-inline-message is-hidden" data-bill-field-message="total_amount" aria-live="polite"></div>
       </div>
       <!-- Bill date + due date (side by side) -->
       <div class="form-group bill-date-row" style="display:flex; gap:12px; align-items:flex-start;">
@@ -1556,6 +1558,7 @@
       <div class="form-group">
         <label>Bill *</label>
         <select id="f-payment-bill" required onchange="syncPaymentFromBill()"></select>
+        <div class="modal-inline-message is-hidden" data-payment-field-message="bill" aria-live="polite"></div>
       </div>
       <div class="form-group">
         <label>Payment Date *</label>
@@ -1564,6 +1567,7 @@
       <div class="form-group">
         <label>Amount Paid *</label>
         <input id="f-payment-amount" type="text" inputmode="decimal" class="js-money-input" placeholder="0.00" required aria-required="true" />
+        <div class="modal-inline-message is-hidden" data-payment-field-message="amount" aria-live="polite"></div>
       </div>
       <div class="form-group">
         <label>Payment Method</label>

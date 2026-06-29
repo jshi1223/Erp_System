@@ -103,6 +103,7 @@
               <th>Project</th>
               <th>Title</th>
               <th>Source</th>
+              <th>Customer PO</th>
               <th>Date</th>
               <th>Target</th>
               <th class="text-right">Amount</th>
@@ -111,7 +112,7 @@
             </tr>
           </thead>
           <tbody id="sales-records-body">
-            <tr class="empty-row"><td colspan="10">Loading sales records...</td></tr>
+            <tr class="empty-row"><td colspan="11">Loading sales records...</td></tr>
           </tbody>
         </table>
       </div>
@@ -249,14 +250,15 @@
           <input id="sales-downpayment" type="number" min="0" step="0.01" placeholder="0.00" />
         </div>
         <div class="field" data-sales-field="customer-po-ref">
-          <label>Customer PO Ref.</label>
-          <input id="sales-customer-po-ref" type="text" maxlength="100" placeholder="Customer's PO number (optional)" />
+          <label>Customer PO Ref. <span class="req-star">*</span> <span class="field-hint">(PO number na ipinadala ng customer)</span></label>
+          <input id="sales-customer-po-ref" type="text" maxlength="100" placeholder="Customer's PO number" />
+          <div class="modal-inline-message is-hidden" data-sales-field-message="customer-po-ref" aria-live="polite"></div>
         </div>
 
         <!-- Delivery Receipt: received by + delivery address (mirrors GRN) -->
         <div class="field" data-sales-field="received-by">
-          <label>Received By</label>
-          <input id="sales-received-by" type="text" maxlength="150" placeholder="Customer representative" />
+          <label>Received By <span class="req-star delivery-required">*</span> <span class="field-hint">(sino ang tumanggap ng delivery)</span></label>
+          <input id="sales-received-by" type="text" maxlength="150" placeholder="Pangalan ng tumanggap" />
           <div class="modal-inline-message is-hidden" data-sales-field-message="received-by" aria-live="polite"></div>
         </div>
         <div class="field full" data-sales-field="delivery-address">
@@ -285,7 +287,7 @@
           <div class="modal-inline-message is-hidden" data-sales-field-message="product" aria-live="polite"></div>
         </div>
         <div class="field" data-sales-field="warehouse">
-          <label>Source Warehouse <span class="req-star delivery-required">*</span></label>
+          <label>Source Warehouse <span class="req-star delivery-required">*</span> <span class="field-hint">(saan kukunin ang stock na ide-deliver)</span></label>
           <select id="sales-warehouse-id"></select>
           <div class="modal-inline-message is-hidden" data-sales-field-message="warehouse" aria-live="polite"></div>
         </div>
@@ -340,6 +342,13 @@
         <div class="field full" data-sales-field="notes">
           <label>Notes</label>
           <textarea id="sales-notes" style="height:60px" placeholder="Internal notes..."></textarea>
+        </div>
+
+        <!-- PDF attachment (e.g. signed Sales Order / supporting document) -->
+        <div class="field full" data-sales-field="pdf-file">
+          <label>Attachment (PDF)</label>
+          <input id="sales-pdf-file" type="file" accept="application/pdf" />
+          <div id="sales-pdf-current" class="muted" style="margin-top:4px"></div>
         </div>
 
       </div>

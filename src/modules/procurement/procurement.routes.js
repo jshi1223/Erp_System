@@ -1578,6 +1578,61 @@ module.exports = function createProcurementRouter(deps) {
     }
   });
 
+  // Generate a Purchase Requisition from an approved Sales Order (sales-driven procurement).
+  // The PR lands in the Approval Center (status 'submitted' + DFT- number → official on approval),
+  // pre-filled with the SO's project, customer, Customer PO ref and line items — editable before approve.
+  router.post('/api/procurement/requisitions/from-sales-order/:soId', protectAdmin, async (req, res) => {
+    const soId = Number(req.params.soId || 0);
+    if (!soId) return res.status(400).json({ error: 'Invalid sales order ID.' });
+    try {
+      const soRows = await queryAsync(
+        'SELECT id, document_no, record_type, status, project_id, company_id, business_entity_id, customer_po_ref, target_date FROM sales_management_records WHERE id = ? LIMIT 1',
+        [soId]);
+      const so = soRows && soRows[0];
+      if (!so || String(so.record_type) !== 'sales-order') return res.status(404).json({ error: 'Sales Order not found.' });
+      if (!['approved', 'won'].includes(String(so.status || '').toLowerCase())) {
+        return res.status(400).json({ error: 'Only an approved Sales Order can generate a Purchase Requisition.' });
+      }
+      if (!Number(so.project_id || 0)) {
+        return res.status(400).json({ error: 'The Sales Order has no linked project to raise a project PR against.' });
+      }
+      // One PR per SO — block a duplicate.
+      const dup = await queryAsync(
+        "SELECT id, pr_number FROM purchase_requisitions WHERE source_sales_record_id = ? AND COALESCE(status, '') <> 'cancelled' ORDER BY id ASC LIMIT 1",
+        [soId]);
+      if (dup && dup.length) {
+        return res.status(409).json({ error: `May Purchase Requisition na (${dup[0].pr_number}) para sa Sales Order na ito.` });
+      }
+      const items = await queryAsync('SELECT product_id, warehouse_id, description, quantity, unit_price FROM sales_record_items WHERE sales_record_id = ? ORDER BY id ASC', [soId]);
+      if (!items.length) return res.status(400).json({ error: 'The Sales Order has no line items to requisition.' });
+
+      const businessEntityId = await resolveBusinessEntityId(so.business_entity_id);
+      const prNumber = await generateNextDraftEntityDocumentNo({
+        businessEntityId, documentType: 'purchase-requisition', prefix: 'PR',
+        tableName: 'purchase_requisitions', columnName: 'pr_number'
+      });
+      const actorName = getApprovalActorName(req) || getAuthenticatedUser(req)?.fullname || 'System';
+      const requestedByEmail = await getAuthenticatedUserEmail(req);
+      const notes = `From Sales Order ${so.document_no || ('#' + soId)}${so.customer_po_ref ? ` · Customer PO: ${so.customer_po_ref}` : ''}`;
+      const reqResult = await queryAsync(
+        "INSERT INTO purchase_requisitions (pr_number, business_entity_id, company_id, project_id, pr_type, request_date, department, requested_by, requested_by_email, needed_by, status, notes, source_sales_record_id, submitted_by, submitted_at) VALUES (?, ?, ?, ?, 'project', ?, NULL, ?, ?, ?, 'submitted', ?, ?, ?, NOW())",
+        [prNumber, businessEntityId, Number(so.company_id || 0) || null, Number(so.project_id), getManilaYmd(), actorName, requestedByEmail || null, so.target_date || getManilaYmd(), notes, soId, actorName]);
+      await claimEntityDocumentNo({ businessEntityId, documentType: 'purchase-requisition', prefix: 'PR', documentNo: prNumber });
+      for (const it of items) {
+        const qty = Number(it.quantity || 0) || 0;
+        const price = Number(it.unit_price || 0) || 0;
+        await queryAsync(
+          'INSERT INTO purchase_requisition_items (pr_id, product_id, category, warehouse_id, item_name, description, quantity, unit, estimated_unit_price, line_total) VALUES (?, ?, NULL, ?, ?, ?, ?, NULL, ?, ?)',
+          [reqResult.insertId, it.product_id || null, it.warehouse_id || null, String(it.description || 'Item'), String(it.description || ''), qty, price, qty * price]);
+      }
+      logAction(req, 'GENERATE_PR_FROM_SO', `Generated PR ${prNumber} from Sales Order ${so.document_no || ('#' + soId)}`, 'procurement', { entityType: 'purchase_requisition', entityId: reqResult.insertId, businessEntityId });
+      res.json({ id: reqResult.insertId, pr_number: prNumber, status: 'submitted' });
+    } catch (err) {
+      console.error('Generate PR from SO error:', err);
+      res.status(500).json({ error: err.message || 'Unable to generate Purchase Requisition.' });
+    }
+  });
+
   router.put('/api/procurement/requisitions/:id', protectAdmin, async (req, res) => {
     const requisitionId = Number(req.params.id || 0);
     let prNumber = String(req.body.pr_number || '').trim();

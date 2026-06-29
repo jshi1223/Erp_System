@@ -1046,12 +1046,27 @@ function setupInventoryModalCloseHandlers() {
   });
 }
 
+// Per-field error message for inventory modals (under the field). Required/invalid only —
+// optional fields never get an error.
+function setInventoryFieldMessage(fieldName, message = '') {
+  const text = String(message || '').trim();
+  document.querySelectorAll(`[data-inv-field-message="${fieldName}"]`).forEach((notice) => {
+    notice.textContent = text;
+    notice.style.display = text ? 'block' : 'none';
+    const field = notice.closest('.field');
+    if (field) field.classList.toggle('has-error', !!text);
+  });
+}
+
 async function saveProduct(event) {
   event.preventDefault();
   setStatus('');
+  setInventoryFieldMessage('category', '');
   const category = getSelectedProductCategory();
   if (!category) {
-    setStatus('Please choose or add a category.');
+    setInventoryFieldMessage('category', 'Please choose or add a category.');
+    const el = document.getElementById('product-category');
+    if (el) { el.focus(); el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
     return;
   }
   const payload = {
@@ -1097,10 +1112,13 @@ async function saveProduct(event) {
 async function saveUnit(event) {
   event.preventDefault();
   setStatus('');
+  setInventoryFieldMessage('warranty_end', '');
   const start = document.getElementById('unit-warranty-start').value;
   const end = document.getElementById('unit-warranty-end').value;
   if (start && end && end < start) {
-    setStatus('Warranty end date cannot be before the start date.');
+    setInventoryFieldMessage('warranty_end', 'Warranty end date cannot be before the start date.');
+    const el = document.getElementById('unit-warranty-end');
+    if (el) { el.focus(); el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
     return;
   }
   const payload = {

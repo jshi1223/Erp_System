@@ -8,7 +8,7 @@ const { db, queryAsync } = require('../../database');
 const { protectAdmin, protectAdminOnly } = require('../../middleware/auth');
 
 module.exports = function createReceivablesRouter(deps) {
-  const { syncReceivableBalance } = deps;
+  const { syncReceivableBalance, logAction } = deps;
   const router = express.Router();
 
   router.get('/api/receivables', protectAdmin, (req, res) => {
@@ -32,11 +32,19 @@ module.exports = function createReceivablesRouter(deps) {
     const receivableId = Number(req.params.id || 0);
     if (!receivableId) return res.status(400).json({ error: 'Invalid receivable id' });
     try {
+      const existingRows = await queryAsync('SELECT invoice_number, status, business_entity_id FROM accounts_receivable WHERE id = ? LIMIT 1', [receivableId]);
+      const existing = existingRows && existingRows[0];
       const result = await queryAsync(
         "UPDATE accounts_receivable SET archived = TRUE, archived_at = CURRENT_TIMESTAMP, status = 'cancelled' WHERE id = ?",
         [receivableId]
       );
       await syncReceivableBalance(receivableId);
+      if (existing && typeof logAction === 'function') {
+        logAction(req, 'ARCHIVE_RECEIVABLE', `Archived receivable ${existing.invoice_number || receivableId}`, 'finance', {
+          entityType: 'ar_invoice', entityId: receivableId, businessEntityId: existing.business_entity_id, severity: 'warning',
+          changes: [{ field: 'status', from: existing.status, to: 'cancelled' }, { field: 'archived', from: false, to: true }]
+        });
+      }
       res.json({ success: true, affectedRows: result.affectedRows || 0 });
     } catch (err) {
       console.error('Archive receivable error:', err);
@@ -48,11 +56,19 @@ module.exports = function createReceivablesRouter(deps) {
     const receivableId = Number(req.params.id || 0);
     if (!receivableId) return res.status(400).json({ error: 'Invalid receivable id' });
     try {
+      const existingRows = await queryAsync('SELECT invoice_number, business_entity_id FROM accounts_receivable WHERE id = ? LIMIT 1', [receivableId]);
+      const existing = existingRows && existingRows[0];
       const result = await queryAsync(
         'UPDATE accounts_receivable SET archived = FALSE, archived_at = NULL WHERE id = ?',
         [receivableId]
       );
       await syncReceivableBalance(receivableId);
+      if (existing && typeof logAction === 'function') {
+        logAction(req, 'RESTORE_RECEIVABLE', `Restored receivable ${existing.invoice_number || receivableId}`, 'finance', {
+          entityType: 'ar_invoice', entityId: receivableId, businessEntityId: existing.business_entity_id,
+          changes: [{ field: 'archived', from: true, to: false }]
+        });
+      }
       res.json({ success: true, affectedRows: result.affectedRows || 0 });
     } catch (err) {
       console.error('Restore receivable error:', err);

@@ -322,6 +322,7 @@
           <div class="field full">
             <label>Category <span class="field-label-status is-required">Required</span></label>
             <select id="product-category" required onchange="onProductCategoryChange()"></select>
+            <div data-inv-field-message="category" aria-live="polite" style="color:#b91c1c;font-size:.75rem;margin-top:4px;display:none;"></div>
           </div>
           <div class="field full" id="product-category-new-wrap" hidden>
             <div class="inventory-field-head">
@@ -471,6 +472,7 @@
           <div class="field">
             <label>Warranty End <span class="field-label-status is-optional">Optional</span></label>
             <input id="unit-warranty-end" type="date" />
+            <div data-inv-field-message="warranty_end" aria-live="polite" style="color:#b91c1c;font-size:.75rem;margin-top:4px;display:none;"></div>
           </div>
           <div class="field full">
             <label>Notes <span class="field-label-status is-optional">Optional</span></label>

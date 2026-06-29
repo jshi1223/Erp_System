@@ -2062,25 +2062,38 @@ function closeBillModal() {
   setBillModalMode(false);
 }
 
+// Per-field error messages for the Bill modal (shown under each field, mirroring procurement).
+function setBillFieldMessage(fieldName, message = '') {
+  const text = String(message || '').trim();
+  document.querySelectorAll(`[data-bill-field-message="${fieldName}"]`).forEach((notice) => {
+    const field = notice.closest('.form-group, .field');
+    notice.textContent = text;
+    notice.classList.toggle('is-hidden', !text);
+    if (field) field.classList.toggle('has-error', !!text);
+  });
+}
+function clearBillFieldMessages() {
+  ['vendor', 'total_amount'].forEach((f) => setBillFieldMessage(f, ''));
+}
+
 async function saveBill() {
   const vendorId = resolveBillVendorSelection();
   const billNumber = document.getElementById('f-bill-number').value.trim();
   const totalAmount = parseMoneyInput(document.getElementById('f-bill-amount').value);
 
+  // Per-field validation: show each error inline under its own field (not a top toast).
+  clearBillFieldMessages();
+  let firstInvalidBillField = null;
+  if (!vendorId) { setBillFieldMessage('vendor', 'Vendor is required.'); firstInvalidBillField = firstInvalidBillField || 'f-bill-vendor-search'; }
+  if (!totalAmount) { setBillFieldMessage('total_amount', 'Total Amount is required.'); firstInvalidBillField = firstInvalidBillField || 'f-bill-amount'; }
   if (!billNumber) {
-    showToast('Bill Number is required.', 'error');
-    document.getElementById('f-bill-number')?.focus();
+    // Bill No. is auto-generated / read-only; if blank the modal didn't initialize — keep a toast.
+    showToast('Bill Number is missing (auto-generated). Re-open the modal.', 'error');
     return;
   }
-  
-  if (!vendorId) {
-    showToast('Vendor is required.', 'error');
-    document.getElementById('f-bill-vendor-search')?.focus();
-    return;
-  }
-
-  if (!totalAmount) {
-    showToast('Total Amount is required.', 'error');
+  if (firstInvalidBillField) {
+    const el = document.getElementById(firstInvalidBillField);
+    if (el) { el.focus(); el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
     return;
   }
   
@@ -2609,12 +2622,29 @@ function closePaymentModal() {
   document.getElementById('payment-modal-backdrop').classList.remove('open');
 }
 
+function setPaymentFieldMessage(fieldName, message = '') {
+  const text = String(message || '').trim();
+  document.querySelectorAll(`[data-payment-field-message="${fieldName}"]`).forEach((notice) => {
+    const field = notice.closest('.form-group, .field');
+    notice.textContent = text;
+    notice.classList.toggle('is-hidden', !text);
+    if (field) field.classList.toggle('has-error', !!text);
+  });
+}
+
 async function savePayment() {
   const billId = document.getElementById('f-payment-bill').value;
   const amount = parseMoneyInput(document.getElementById('f-payment-amount').value);
-  
-  if (!billId || !amount) {
-    showToast('Bill and payment amount are required.', 'error');
+
+  // Per-field validation: show each error inline under its own field (not a top toast).
+  setPaymentFieldMessage('bill', '');
+  setPaymentFieldMessage('amount', '');
+  let firstInvalidPaymentField = null;
+  if (!billId) { setPaymentFieldMessage('bill', 'Bill is required.'); firstInvalidPaymentField = firstInvalidPaymentField || 'f-payment-bill'; }
+  if (!amount) { setPaymentFieldMessage('amount', 'Payment amount is required.'); firstInvalidPaymentField = firstInvalidPaymentField || 'f-payment-amount'; }
+  if (firstInvalidPaymentField) {
+    const el = document.getElementById(firstInvalidPaymentField);
+    if (el) { el.focus(); el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
     return;
   }
   

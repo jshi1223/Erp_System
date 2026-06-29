@@ -418,6 +418,18 @@ function editLead(id) {
 
 function closeLeadModal() { closeBackdrop('lead-modal'); }
 
+// Per-field error message for CRM modals (shown under the field). Required fields only —
+// optional fields never get an error.
+function setCrmFieldMessage(fieldName, message = '') {
+  const text = String(message || '').trim();
+  document.querySelectorAll(`[data-crm-field-message="${fieldName}"]`).forEach((notice) => {
+    notice.textContent = text;
+    notice.style.display = text ? 'block' : 'none';
+    const field = notice.closest('.field');
+    if (field) field.classList.toggle('has-error', !!text);
+  });
+}
+
 async function saveLead(event) {
   event.preventDefault();
   const payload = {
@@ -438,7 +450,13 @@ async function saveLead(event) {
     lost_reason: document.getElementById('lead-lost-reason').value.trim(),
     notes: document.getElementById('lead-notes').value.trim()
   };
-  if (!payload.lead_name) { showCrmStatus('Lead name is required.', 'error'); return; }
+  setCrmFieldMessage('lead_name', '');
+  if (!payload.lead_name) {
+    setCrmFieldMessage('lead_name', 'Lead name is required.');
+    const el = document.getElementById('lead-name');
+    if (el) { el.focus(); el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+    return;
+  }
   try {
     if (editingLeadId) {
       await fetchJson(`/api/crm/leads/${editingLeadId}`, { method: 'PUT', body: JSON.stringify(payload) });
@@ -579,7 +597,13 @@ async function saveContact(event) {
     phone: document.getElementById('contact-phone').value.trim(),
     notes: document.getElementById('contact-notes').value.trim()
   };
-  if (!payload.contact_name) { showCrmStatus('Contact name is required.', 'error'); return; }
+  setCrmFieldMessage('contact_name', '');
+  if (!payload.contact_name) {
+    setCrmFieldMessage('contact_name', 'Contact name is required.');
+    const el = document.getElementById('contact-name');
+    if (el) { el.focus(); el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+    return;
+  }
   try {
     if (editingContactId) {
       await fetchJson(`/api/crm/contacts/${editingContactId}`, { method: 'PUT', body: JSON.stringify(payload) });

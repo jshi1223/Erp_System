@@ -3752,6 +3752,12 @@ function initApp() {
   db.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS pdfFilename VARCHAR(255)`, (err) => {
     if (err) console.error('Projects pdfFilename migration error:', err);
   });
+  db.query(`ALTER TABLE sales_management_records ADD COLUMN IF NOT EXISTS pdfFilename VARCHAR(255)`, (err) => {
+    if (err) console.error('Sales records pdfFilename migration error:', err);
+  });
+  db.query(`ALTER TABLE purchase_requisitions ADD COLUMN IF NOT EXISTS source_sales_record_id integer NULL`, (err) => {
+    if (err) console.error('Purchase requisitions source_sales_record_id migration error:', err);
+  });
   db.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS is_archived boolean NOT NULL DEFAULT false`, (err) => {
     if (err) console.error('Projects archived migration error:', err);
   });
@@ -5376,7 +5382,7 @@ async function assertInventorySaleCanPost({ businessEntityId, productId, warehou
   }
   const available = Number(stockRows[0]?.quantity_on_hand || 0);
   if (available < quantity) {
-    const err = new Error(`Not enough stock for this sale. Available: ${available}.`);
+    const err = new Error(`Kulang ang stock para sa "${productRows[0]?.product_name || 'item'}" sa "${warehouseRows[0]?.warehouse_name || 'warehouse'}". Meron lang: ${available}, kailangan: ${quantity}. Magdagdag muna ng stock bago mag-deliver.`);
     err.statusCode = 400;
     throw err;
   }
@@ -9495,6 +9501,12 @@ async function advanceSalesRecordFlow(connection, recordId, req) {
   const nextType = SALES_FLOW_NEXT[type];
   if (!nextType) return;
 
+  // Sales Inquiry / Sales Order no longer auto-create their next stage. The admin clicks
+  // "Create SO" / "Create Delivery Receipt" manually — mirroring how a PO does NOT auto-create a
+  // Goods Receipt (you create the GRN/DR only when goods physically move). The DR -> AR step
+  // (handled in the project-delivery branch above) still auto-runs once a DR is delivered.
+  if (type === 'sales-request' || type === 'sales-order') return;
+
   // Already has a downstream record: keep it in sync only while it is still a draft.
   const downstream = await queryDbAsync(connection,
     `SELECT id, status FROM sales_management_records WHERE source_record_id = ? AND record_type = ? ORDER BY id ASC LIMIT 1`,
@@ -9595,7 +9607,8 @@ function validateSalesRecordStageRequirements(payload = {}) {
       ['companyId', 'Customer / Company is required for SO.'],
       ['projectId', 'Linked Project is required for SO.'],
       ['title', 'Title is required for SO.'],
-      ['requestedDate', 'SO date is required.']
+      ['requestedDate', 'SO date is required.'],
+      ['customerPoRef', 'Customer PO is required for SO.']
     ],
     'project-delivery': [
       ['companyId', 'Customer / Company is required for Delivery Receipt.'],
@@ -9918,10 +9931,10 @@ async function syncDeliverySerialUnits(connection, recordId, serialUnitIds, req)
 }
 
 // Sales Management routes (records CRUD + next-number + generate-invoice + approve/reject) — extracted to src/modules/sales (step 12).
-app.use(require('./src/modules/sales/sales-management.routes')({ SALES_RECORD_TYPES, normalizeSalesRecordType, normalizeSalesRecordPayload, normalizeSalesRecordStatus, getSalesDocumentSequenceMeta, validateSalesRecordStageRequirements, validateSalesDeliveryReceiptInventory, resolveBusinessEntityId, peekNextDraftEntityDocumentNo, peekNextEntityDocumentNo, generateNextDraftEntityDocumentNo, generateNextEntityDocumentNo, claimEntityDocumentNo, isDraftDocumentNo, withDbTransaction, queryDbAsync, saveSalesRecordItems, syncSalesRecordInventory, syncDeliverySerialUnits, advanceSalesRecordFlow, createReceivableFromDeliveryRecord, getApprovalComment, getApprovalActorName, appendApprovalComment, logAction }));
+app.use(require('./src/modules/sales/sales-management.routes')({ SALES_RECORD_TYPES, normalizeSalesRecordType, normalizeSalesRecordPayload, normalizeSalesRecordStatus, getSalesDocumentSequenceMeta, validateSalesRecordStageRequirements, validateSalesDeliveryReceiptInventory, resolveBusinessEntityId, peekNextDraftEntityDocumentNo, peekNextEntityDocumentNo, generateNextDraftEntityDocumentNo, generateNextEntityDocumentNo, claimEntityDocumentNo, isDraftDocumentNo, withDbTransaction, queryDbAsync, saveSalesRecordItems, syncSalesRecordInventory, syncDeliverySerialUnits, advanceSalesRecordFlow, createReceivableFromDeliveryRecord, getApprovalComment, getApprovalActorName, appendApprovalComment, logAction, upload, UPLOAD_DIR }));
 
 // Receivables (Accounts Receivable) routes — extracted to src/modules/accounts-receivable (step 7).
-app.use(require('./src/modules/accounts-receivable/receivables.routes')({ syncReceivableBalance }));
+app.use(require('./src/modules/accounts-receivable/receivables.routes')({ syncReceivableBalance, logAction }));
 
 
 // ==================== ERP FOUNDATION API ====================
