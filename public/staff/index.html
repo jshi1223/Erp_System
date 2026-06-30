@@ -266,6 +266,36 @@
 
     </div>
 
+    <!-- My Requests & Status — unified view of everything the staff submitted across modules
+         (Sales, Procurement, Inventory, Master Data, Projects), with live approval status. -->
+    <section class="dashboard-section staff-my-requests" id="staff-my-requests-section">
+      <div class="section-divider">My Requests &amp; Status</div>
+      <div class="staff-mr-filters" id="staff-my-requests-filters">
+        <button type="button" class="staff-mr-filter active" data-mr-filter="all" onclick="setStaffMyRequestsFilter('all')">All</button>
+        <button type="button" class="staff-mr-filter" data-mr-filter="action" onclick="setStaffMyRequestsFilter('action')">Needs Action</button>
+        <button type="button" class="staff-mr-filter" data-mr-filter="pending" onclick="setStaffMyRequestsFilter('pending')">Pending</button>
+        <button type="button" class="staff-mr-filter" data-mr-filter="approved" onclick="setStaffMyRequestsFilter('approved')">Approved</button>
+      </div>
+      <div class="table-wrap">
+        <table class="public-table staff-mr-table">
+          <thead><tr><th>Type</th><th>Reference</th><th>Status</th><th class="text-right">Action</th></tr></thead>
+          <tbody id="staff-my-requests-body"><tr><td colspan="4" style="text-align:center;color:var(--muted);padding:14px;">Loading&hellip;</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+    <style>
+      body.staff-page:not([data-dashboard-panel="home"]) #staff-my-requests-section { display: none !important; }
+      .staff-my-requests { margin-top: 18px; }
+      .staff-mr-filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+      .staff-mr-filter { border: 1px solid var(--border, #e5d9d2); background: #fff; color: var(--text, #3a2c25); border-radius: 999px; padding: 6px 14px; font-size: .8rem; font-weight: 700; cursor: pointer; }
+      .staff-mr-filter.active { background: var(--primary, #7a1f1f); color: #fff; border-color: var(--primary, #7a1f1f); }
+      .mr-type { display: inline-block; font-size: .66rem; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; color: var(--primary, #7a1f1f); background: #f3e6e2; border-radius: 6px; padding: 3px 8px; }
+      .mr-chip { display: inline-block; font-size: .66rem; font-weight: 800; border-radius: 999px; padding: 3px 10px; }
+      .mr-chip-action { color: #b42318; background: #fdecea; border: 1px solid #f6c9c2; }
+      .mr-chip-pending { color: #b45309; background: #fff4e2; border: 1px solid #f6d9a8; }
+      .mr-chip-approved { color: #1b6b3a; background: #e8f6ed; border: 1px solid #bfe6cd; }
+    </style>
+
     <div class="dashboard-section is-hidden" id="project-records-section">
       <div class="module-page-toolbar">
         <button class="btn btn-cancel btn-sm section-back-btn" type="button" data-smart-back="1" data-back-force-fallback="1" data-back-fallback="/staff" onclick="goBackSmart('/staff', true)" aria-label="Go back to Dashboard">Back to Dashboard</button>
@@ -551,6 +581,7 @@
       </button>
       <div class="sidebar-group-items">
         <a href="/sales-management?tab=sales-request" class="sidebar-link is-subitem" id="menu-sales-management">Sales Inquiry</a>
+        <a href="/sales-management?tab=sales-order" class="sidebar-link is-subitem" id="menu-sales-management-so">Sales Order</a>
         <a href="/sales-management?tab=requests" class="sidebar-link is-subitem" id="menu-sales-management-requests">Requests</a>
       </div>
     </div>

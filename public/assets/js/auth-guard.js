@@ -1383,6 +1383,7 @@
             label: 'Sales Management',
             items: [
               { href: '/sales-management?tab=sales-request', label: 'Sales Inquiry', id: 'menu-sales-management', aliases: ['/sales-management'] },
+              { href: '/sales-management?tab=sales-order', label: 'Sales Order' },
               { href: '/sales-management?tab=requests', label: 'Requests' }
             ]
           },
@@ -1409,7 +1410,8 @@
               { href: '/inventory?tab=products', label: 'Products', id: 'menu-inventory', aliases: ['/inventory'] },
               { href: '/inventory?tab=warehouses', label: 'Warehouses' },
               { href: '/inventory?tab=stock', label: 'Stock Levels' },
-              { href: '/inventory?tab=movements', label: 'Stock Movements' }
+              { href: '/inventory?tab=movements', label: 'Stock Movements' },
+              { href: '/inventory?tab=requests', label: 'Requests' }
             ]
           }
         ]

@@ -90,7 +90,7 @@ function getInitialSalesTab() {
   const params = new URLSearchParams(window.location.search || '');
   const tab = String(params.get('tab') || stored || 'sales-request').trim().toLowerCase();
   if (isSalesStaffView()) {
-    const staffAllowed = new Set(['sales-request', 'requests']);
+    const staffAllowed = new Set(['sales-request', 'sales-order', 'requests']);
     return staffAllowed.has(tab) ? tab : 'sales-request';
   }
   if (tab === 'requests') return 'requests';
@@ -150,7 +150,7 @@ function applySalesTabVisibility() {
   const isStaff = isSalesStaffView();
   // Staff sees: Sales Inquiry (approved ones) + Requests (their drafts)
   // Admin sees: all tabs
-  const staffAllowedTabs = new Set(['sales-request', 'requests']);
+  const staffAllowedTabs = new Set(['sales-request', 'sales-order', 'requests']);
   document.querySelectorAll('[data-sales-tab]').forEach((btn) => {
     const tab = btn.dataset.salesTab;
     if (isStaff) btn.hidden = !staffAllowedTabs.has(tab);
@@ -201,7 +201,7 @@ async function loadPurchaseOrders() {
 
 function switchSalesTab(tab, options = {}) {
   if (isSalesStaffView()) {
-    const staffAllowed = new Set(['sales-request', 'requests']);
+    const staffAllowed = new Set(['sales-request', 'sales-order', 'requests']);
     activeSalesTab = staffAllowed.has(tab) ? tab : 'requests';
   } else {
     // Treat retired/virtual stages (e.g. the removed Sales Quotation) as invalid
@@ -270,7 +270,7 @@ function renderSalesToolbarControls(tab) {
     <div class="search-wrap top-search-bar module-toolbar-search">
       <input id="sales-search" type="text" placeholder="${escAttr(placeholder)}" oninput="renderSalesRecords()" />
     </div>
-    <button class="btn btn-add btn-sm" type="button" onclick="openSalesModal()">Add ${escHtml(label)}</button>
+    <button class="btn btn-add btn-sm" type="button" onclick="openSalesModal()">${isStaff ? `New ${escHtml(label)} Request` : `Add ${escHtml(label)}`}</button>
   `;
   applyInitialSalesSearchValue();
 }
@@ -565,9 +565,17 @@ function renderSalesRecords() {
     return;
   }
 
+  // Staff drafting: on the Sales Order stage tab, staff see only their OWN records — including the
+  // drafts they're still preparing for approval. The Sales Inquiry tab keeps its approved/read-only
+  // behavior; admin keeps the official-only view.
+  const staffOwnStage = isSalesStaffView() && activeSalesTab === 'sales-order';
+  const stageUserId = window.currentUser?.id || null;
   const rows = salesRecords
     .filter((row) => {
       if (row.record_type !== activeSalesTab) return false;
+      if (staffOwnStage) {
+        return !stageUserId || Number(row.created_by || 0) === Number(stageUserId);
+      }
       // Hide drafts / pending-approval records from the main stage tables — they
       // live in the Approval Center (admin) and the Requests tab (staff) instead.
       // The table shows only official/processed records.

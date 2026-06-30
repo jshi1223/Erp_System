@@ -150,6 +150,59 @@
     return normalized.replace(/\b\w/g, match => match.toUpperCase());
   }
 
+  // ── My Requests & Status panel (home dashboard) — renders the same watchedItems the badge poll
+  // builds, so the staff sees ALL their submissions (Sales/Procurement/Inventory/Master Data/Project)
+  // and live status in one place. ───────────────────────────────────────────────────────────────
+  let staffMyRequestsItems = [];
+  let staffMyRequestsFilter = 'all';
+  const STAFF_MR_ACTION = ['needs_revision', 'rejected'];
+  const STAFF_MR_APPROVED = ['approved', 'won', 'sent', 'delivered', 'completed'];
+
+  function staffMrBucket(status) {
+    const s = normalizeStaffStatus(status);
+    if (STAFF_MR_ACTION.includes(s)) return 'action';
+    if (STAFF_MR_APPROVED.includes(s)) return 'approved';
+    return 'pending';
+  }
+
+  function renderStaffMyRequests(items) {
+    staffMyRequestsItems = Array.isArray(items) ? items.slice() : [];
+    renderStaffMyRequestsTable();
+  }
+
+  function renderStaffMyRequestsTable() {
+    const body = document.getElementById('staff-my-requests-body');
+    if (!body) return;
+    const order = { action: 0, pending: 1, approved: 2 };
+    const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const rows = staffMyRequestsItems
+      .filter((it) => staffMyRequestsFilter === 'all' || staffMrBucket(it.status) === staffMyRequestsFilter)
+      .sort((a, b) => (order[staffMrBucket(a.status)] - order[staffMrBucket(b.status)]) || String(a.type).localeCompare(String(b.type)));
+    if (!rows.length) {
+      body.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:14px;">Walang submission${staffMyRequestsFilter !== 'all' ? ' sa filter na ito' : ' pa'}.</td></tr>`;
+      return;
+    }
+    body.innerHTML = rows.map((it) => {
+      const bucket = staffMrBucket(it.status);
+      const chipClass = bucket === 'action' ? 'mr-chip-action' : (bucket === 'approved' ? 'mr-chip-approved' : 'mr-chip-pending');
+      return `<tr>
+        <td><span class="mr-type">${esc(it.type)}</span></td>
+        <td>${esc(it.title)}</td>
+        <td><span class="mr-chip ${chipClass}">${esc(formatStaffStatusLabel(it.status))}</span></td>
+        <td class="text-right"><a class="btn btn-cancel btn-sm" href="${esc(it.url)}">View</a></td>
+      </tr>`;
+    }).join('');
+  }
+
+  function setStaffMyRequestsFilter(filter) {
+    staffMyRequestsFilter = filter || 'all';
+    document.querySelectorAll('#staff-my-requests-filters [data-mr-filter]').forEach((b) => {
+      b.classList.toggle('active', b.dataset.mrFilter === staffMyRequestsFilter);
+    });
+    renderStaffMyRequestsTable();
+  }
+  window.setStaffMyRequestsFilter = setStaffMyRequestsFilter;
+
   function openStaffStatusToastTarget(url = '/staff') {
     if (typeof navigateDashboardCard === 'function') {
       navigateDashboardCard(url);
@@ -255,6 +308,17 @@
     }
 
     try {
+      const soStaffId = getStaffUserId();
+      const salesOrders = await fetchStaffJson('/api/sales-management/records?type=sales-order');
+      const ownedSO = salesOrders.filter(row => !soStaffId || Number(row.created_by || 0) === Number(soStaffId));
+      addStaffWatchedItems(watchedItems, ownedSO, {
+        type: 'Sales Order',
+        url: '/sales-management?tab=sales-order',
+        title: row => row.document_no || row.title || row.company_name
+      });
+    } catch (_) { /* sales-order drafts optional */ }
+
+    try {
       const requisitions = await fetchStaffJson('/api/procurement/requisitions');
       const prRequests = requisitions.filter(row => staffStatusIn(row.status, requestStatuses));
       const prActions = prRequests.filter(row => staffStatusIn(row.status, actionStatuses));
@@ -302,6 +366,7 @@
       setStaffSidebarBadge('menu-service-operations', 0);
     }
 
+    renderStaffMyRequests(watchedItems);
     return watchedItems;
   }
 
