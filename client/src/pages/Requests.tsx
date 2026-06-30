@@ -109,6 +109,9 @@ export function RequestsTab({ tabBar }: { tabBar?: ReactNode }) {
 
   return (
     <>
+      <div className="toolbar" style={{ justifyContent: 'flex-start' }}>
+        <button className="btn btn-cancel btn-sm section-back-btn" type="button" onClick={() => (window.location.href = '/admin?view=dashboard')}>&larr; Back to Dashboard</button>
+      </div>
       {tabBar}
       {isLoading && <div className="state">Loading…</div>}
       {!isLoading && (

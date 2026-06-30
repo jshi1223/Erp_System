@@ -46,7 +46,7 @@ export default function MasterDataPage() {
   );
 
   return (
-    <AppShell title="Master Data Management" subtitle="Maintain the company and vendor master records used across procurement, projects, and finance.">
+    <AppShell title="Master Data Management" subtitle="Maintain the company and vendor master records used across procurement, projects, and finance." hideBack>
       {activeTab === 'companies' && <CompaniesTab tabBar={tabBar} />}
       {activeTab === 'vendors' && <VendorsTab tabBar={tabBar} />}
       {activeTab === 'requests' && isStaff && <RequestsTab tabBar={tabBar} />}

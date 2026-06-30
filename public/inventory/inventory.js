@@ -26,6 +26,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadInventory();
   if (isInventoryStaffRole()) await loadInventoryRequests();
   applyInitialInventorySearch();
+  // Near-real-time: auto-refresh the inventory data + current tab (no manual reload).
+  if (typeof registerAutoRefresh === 'function') {
+    registerAutoRefresh(async () => {
+      await loadInventory();
+      if (isInventoryStaffRole()) await loadInventoryRequests();
+    });
+  }
 });
 
 // Pre-fill a tab's search box from ?q= so global dashboard search links land filtered.
@@ -1087,6 +1094,7 @@ function setupInventoryModalCloseHandlers() {
 // optional fields never get an error.
 function setInventoryFieldMessage(fieldName, message = '') {
   const text = String(message || '').trim();
+  if (text && typeof window.notifyFieldError === 'function') window.notifyFieldError(text);
   document.querySelectorAll(`[data-inv-field-message="${fieldName}"]`).forEach((notice) => {
     notice.textContent = text;
     notice.style.display = text ? 'block' : 'none';

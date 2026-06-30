@@ -3001,18 +3001,12 @@ function setProjectModalValue(id, value) {
 }
 
 function setProjectModalNotice(message = '') {
+  // Validation feedback now uses the system toast (bottom-right, error style) instead of the old
+  // in-modal pink box — keep the legacy box hidden.
   const notice = document.getElementById('project-modal-notice');
-  if (!notice) return;
-
+  if (notice) { notice.textContent = ''; notice.classList.add('is-hidden'); }
   const text = String(message || '').trim();
-  if (!text) {
-    notice.textContent = '';
-    notice.classList.add('is-hidden');
-    return;
-  }
-
-  notice.textContent = text;
-  notice.classList.remove('is-hidden');
+  if (text && typeof showToast === 'function') showToast(text, 'error');
 }
 
 async function saveProject() {

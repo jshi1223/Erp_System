@@ -2121,7 +2121,7 @@ mark {
 
 #project-modal-notice {
   position: absolute;
-  top: 152px;
+  bottom: 24px;
   left: 16px;
   z-index: 2001;
   width: min(260px, calc(100% - 32px));
@@ -2522,7 +2522,7 @@ mark {
   position: fixed;
   bottom: 24px;
   right: 24px;
-  z-index: 999;
+  z-index: 100002;
   background: linear-gradient(135deg, #b42318 0%, #4b1210 100%);
   color: #fff;
   border-radius: var(--radius);

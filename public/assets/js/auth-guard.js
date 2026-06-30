@@ -46,6 +46,63 @@
     head.appendChild(style);
   }
 
+  // ── Near-real-time auto-refresh ──────────────────────────────────────────────
+  // Pages register a reload function; it re-runs on an interval, but ONLY when the tab is visible
+  // AND no modal/dialog is open (so it never disrupts the user mid-edit). Also fires when the tab
+  // regains focus. This is the shared "no need to manually refresh" mechanism across the app.
+  var __autoRefreshFns = [];
+  var __autoRefreshTimer = null;
+  function __autoRefreshModalOpen() {
+    var nodes = document.querySelectorAll('.modal-backdrop, .rmodal-backdrop, #sales-modal-backdrop, #gen-invoice-backdrop, .dialog-backdrop, [data-modal-open="1"]');
+    for (var j = 0; j < nodes.length; j++) {
+      var el = nodes[j];
+      if (!el || el.hidden) continue;
+      var cs = window.getComputedStyle ? window.getComputedStyle(el) : null;
+      if (cs && (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0')) continue;
+      return true; // a visible modal/dialog → the user may be editing; skip this refresh
+    }
+    return false;
+  }
+  function __autoRefreshRun() {
+    if (document.visibilityState && document.visibilityState !== 'visible') return;
+    if (__autoRefreshModalOpen()) return;
+    for (var i = 0; i < __autoRefreshFns.length; i++) {
+      try { __autoRefreshFns[i](); } catch (e) { /* ignore one failing reloader */ }
+    }
+  }
+  window.registerAutoRefresh = function (fn, opts) {
+    if (typeof fn !== 'function') return;
+    __autoRefreshFns.push(fn);
+    if (!__autoRefreshTimer) {
+      var interval = (opts && opts.intervalMs) || 12000;
+      __autoRefreshTimer = window.setInterval(__autoRefreshRun, interval);
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'visible') __autoRefreshRun();
+      });
+    }
+  };
+
+  // ── Save-validation toast ────────────────────────────────────────────────────
+  // When 2+ field errors are set within the same tick (a save revealed multiple missing/invalid
+  // fields), surface ONE bottom-right toast listing them. A single field error (typing) does NOT
+  // toast. Modules call window.notifyFieldError(text) from their per-field error setters.
+  var __fieldErrBatch = [];
+  var __fieldErrTimer = null;
+  window.notifyFieldError = function (message) {
+    var msg = String(message || '').trim();
+    if (!msg) return;
+    if (__fieldErrBatch.indexOf(msg) === -1) __fieldErrBatch.push(msg);
+    if (__fieldErrTimer) clearTimeout(__fieldErrTimer);
+    __fieldErrTimer = setTimeout(function () {
+      var batch = __fieldErrBatch.slice();
+      __fieldErrBatch = [];
+      __fieldErrTimer = null;
+      if (batch.length >= 2 && typeof window.showToast === 'function') {
+        window.showToast('Kulang/mali pa ang ilang field:\n' + batch.map(function (m) { return '• ' + m; }).join('\n'), 'error');
+      }
+    }, 60);
+  };
+
   function uiShowConfirm(message, opts) {
     opts = opts || {};
     var title = opts.title || 'Are you sure?';

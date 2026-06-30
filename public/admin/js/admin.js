@@ -3221,13 +3221,17 @@ async function openProjectLedger(projectId) {
     return;
   }
 
-  const url = new URL(getWorkspaceHomePath(), window.location.origin);
-  url.searchParams.set('panel', 'project-ledger');
-  url.searchParams.set('project_id', String(id));
-  const opened = window.open(url.toString(), '_blank', 'noopener');
-  if (!opened) {
-    window.location.href = url.toString();
+  // Open the Project Overview IN-PLACE (panel switch on the SAME tab) — never a new tab. Opening a
+  // new tab left THIS tab idle, which tripped the inactivity auto-logout even while you kept working
+  // in the other tab (one session → both get logged out). Staying in one tab keeps activity alive.
+  currentProjectLedgerId = id;
+  if (window.history && window.history.replaceState) {
+    const u = new URL(window.location.href);
+    u.searchParams.set('panel', 'project-ledger');
+    u.searchParams.set('project_id', String(id));
+    window.history.replaceState({}, '', u.toString());
   }
+  openDashboardPanel('project-ledger');
   return;
 
   const backdrop = document.getElementById('project-ledger-modal-backdrop');
@@ -6075,18 +6079,12 @@ function setProjectModalValue(id, value) {
 }
 
 function setProjectModalNotice(message = '') {
+  // Validation feedback now uses the system toast (bottom-right, error style) instead of the old
+  // in-modal pink box — keep the legacy box hidden.
   const notice = document.getElementById('project-modal-notice');
-  if (!notice) return;
-
+  if (notice) { notice.textContent = ''; notice.classList.add('is-hidden'); }
   const text = String(message || '').trim();
-  if (!text) {
-    notice.textContent = '';
-    notice.classList.add('is-hidden');
-    return;
-  }
-
-  notice.textContent = text;
-  notice.classList.remove('is-hidden');
+  if (text && typeof showToast === 'function') showToast(text, 'error');
 }
 
 function getProjectFieldMessageNode(fieldName) {

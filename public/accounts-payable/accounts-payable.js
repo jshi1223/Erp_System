@@ -2065,6 +2065,7 @@ function closeBillModal() {
 // Per-field error messages for the Bill modal (shown under each field, mirroring procurement).
 function setBillFieldMessage(fieldName, message = '') {
   const text = String(message || '').trim();
+  if (text && typeof window.notifyFieldError === 'function') window.notifyFieldError(text);
   document.querySelectorAll(`[data-bill-field-message="${fieldName}"]`).forEach((notice) => {
     const field = notice.closest('.form-group, .field');
     notice.textContent = text;
@@ -2624,6 +2625,7 @@ function closePaymentModal() {
 
 function setPaymentFieldMessage(fieldName, message = '') {
   const text = String(message || '').trim();
+  if (text && typeof window.notifyFieldError === 'function') window.notifyFieldError(text);
   document.querySelectorAll(`[data-payment-field-message="${fieldName}"]`).forEach((notice) => {
     const field = notice.closest('.form-group, .field');
     notice.textContent = text;

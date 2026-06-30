@@ -50,7 +50,11 @@ const procurementToolbarState = {
   goodsReceipts: { search: '' }
 };
 
-document.addEventListener('DOMContentLoaded', initProcurementPage);
+document.addEventListener('DOMContentLoaded', () => {
+  initProcurementPage();
+  // Near-real-time: auto-refresh procurement data (PRs, POs, GRNs, quotations) without manual reload.
+  if (typeof registerAutoRefresh === 'function') registerAutoRefresh(loadProcurementData);
+});
 
 function $(id) {
   return document.getElementById(id);
@@ -547,6 +551,7 @@ function getProcurementFieldNodes(fieldName) {
 function setProcurementFieldMessage(fieldName, message = '') {
   const notices = Array.from(document.querySelectorAll(`[data-procurement-field-message="${fieldName}"]`));
   const text = String(message || '').trim();
+  if (text && typeof window.notifyFieldError === 'function') window.notifyFieldError(text);
 
   notices.forEach((notice) => {
     const field = notice.closest('.field') || null;

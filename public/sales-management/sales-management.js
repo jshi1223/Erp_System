@@ -83,6 +83,10 @@ let initialSalesSearchValue = getInitialSalesSearchValue();
 document.addEventListener('DOMContentLoaded', () => {
   bindSalesEvents();
   loadSalesModule();
+  // Near-real-time: refresh the records + re-render the current tab automatically (no manual reload).
+  if (typeof registerAutoRefresh === 'function') {
+    registerAutoRefresh(async () => { await loadSalesRecords(); renderSalesRecords(); });
+  }
 });
 
 function getInitialSalesTab() {
@@ -1284,6 +1288,10 @@ function applySalesValidationErrors(errors = []) {
   // DR number) — so the user sees per-field which one is missing/wrong. Scroll to the first error.
   errors.forEach((err) => showSalesFieldError(err.key, err.message));
   focusSalesField(errors[0].key);
+  // Also surface a bottom-right error toast listing what's missing (same feedback as the others).
+  if (typeof showToast === 'function') {
+    showToast('Kulang/mali pa ang ilang field:\n' + errors.map((e) => '• ' + e.message).join('\n'), 'error');
+  }
   return true;
 }
 

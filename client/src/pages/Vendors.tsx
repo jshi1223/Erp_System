@@ -174,9 +174,12 @@ export function VendorsTab({ tabBar }: { tabBar?: ReactNode }) {
 
   return (
     <>
-      <div className="toolbar">
-        <input className="search" placeholder="Search vendor no, name, or contact…" value={q} onChange={(e) => setQ(e.target.value)} />
-        <button className="btn btn-add btn-sm" onClick={() => setModal({ open: true, vendor: null })}>{isStaff ? '+ Request Vendor' : '+ Add Vendor'}</button>
+      <div className="toolbar" style={{ justifyContent: 'space-between' }}>
+        <button className="btn btn-cancel btn-sm section-back-btn" type="button" onClick={() => (window.location.href = '/admin?view=dashboard')}>&larr; Back to Dashboard</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <input className="search" placeholder="Search vendor no, name, or contact…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <button className="btn btn-add btn-sm" onClick={() => setModal({ open: true, vendor: null })}>{isStaff ? '+ Request Vendor' : '+ Add Vendor'}</button>
+        </div>
       </div>
 
       <section className="module-summary-grid" aria-label="Summary">

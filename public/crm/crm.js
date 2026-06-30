@@ -23,6 +23,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadBusinessEntities();
   await loadCrm();
   applyInitialSearch();
+  // Near-real-time: auto-refresh leads/contacts (no manual reload).
+  if (typeof registerAutoRefresh === 'function') registerAutoRefresh(loadCrm);
 });
 
 // Pre-fill the search box from ?q= so links from the global dashboard search land filtered.
@@ -422,6 +424,7 @@ function closeLeadModal() { closeBackdrop('lead-modal'); }
 // optional fields never get an error.
 function setCrmFieldMessage(fieldName, message = '') {
   const text = String(message || '').trim();
+  if (text && typeof window.notifyFieldError === 'function') window.notifyFieldError(text);
   document.querySelectorAll(`[data-crm-field-message="${fieldName}"]`).forEach((notice) => {
     notice.textContent = text;
     notice.style.display = text ? 'block' : 'none';
