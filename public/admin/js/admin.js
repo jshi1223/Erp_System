@@ -4154,12 +4154,9 @@ function findProjectForRecord(record) {
 }
 
 async function doLogout() {
-  const confirmed = await openConfirmDialog({
-    title: 'Logout?',
-    message: 'Maglo-logout ka na. Gusto mo bang ituloy?',
-    noText: 'No',
-    yesText: 'Yes'
-  });
+  const confirmed = (typeof window.showConfirm === 'function')
+    ? await window.showConfirm('Sigurado ka bang gusto mong mag-logout?', { title: 'Logout?', confirmLabel: 'Oo, mag-logout', cancelLabel: 'Cancel', type: 'danger' })
+    : await openConfirmDialog({ title: 'Logout?', message: 'Sigurado ka bang gusto mong mag-logout?', noText: 'Cancel', yesText: 'Oo, mag-logout' });
   if (!confirmed) return;
   localStorage.removeItem('kinaadman_activeTab');
   localStorage.removeItem('kinaadman_dashboardPanel');

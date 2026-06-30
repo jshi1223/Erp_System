@@ -305,7 +305,7 @@
         try {
           return Promise.resolve(window.showConfirm(message, {
             title: 'Logout?',
-            confirmLabel: 'Yes, log out',
+            confirmLabel: 'Oo, mag-logout',
             cancelLabel: 'Cancel',
             type: 'danger'
           }));
@@ -335,7 +335,7 @@
         noBtn.style.cssText = 'padding:9px 16px;border-radius:8px;border:1px solid #d0d7e2;background:#f3f4f6;color:#374151;font-weight:700;cursor:pointer;';
         var yesBtn = document.createElement('button');
         yesBtn.type = 'button';
-        yesBtn.textContent = 'Yes, log out';
+        yesBtn.textContent = 'Oo, mag-logout';
         yesBtn.style.cssText = 'padding:9px 16px;border-radius:8px;border:1px solid #b42318;background:#b42318;color:#fff;font-weight:700;cursor:pointer;';
         function cleanup(result) {
           document.removeEventListener('keydown', onKey);
@@ -363,7 +363,7 @@
 
     if (typeof window.doLogout !== 'function') {
       window.doLogout = function () {
-        confirmLogout('Maglo-logout ka na. Gusto mo bang ituloy?').then(function (confirmed) {
+        confirmLogout('Sigurado ka bang gusto mong mag-logout?').then(function (confirmed) {
           if (!confirmed) return;
           localStorage.removeItem('kinaadman_activeTab');
           localStorage.removeItem('kinaadman_dashboardPanel');

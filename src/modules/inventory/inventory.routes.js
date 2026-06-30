@@ -480,6 +480,30 @@ module.exports = function createInventoryRouter(deps) {
         return res.status(400).json({ error: 'This unit has no open RMA to resolve.' });
       }
 
+      // Replacement: hand the chosen in-stock serial to the SAME customer + sale (the purchase
+      // continues under a new serial) and take it out of stock. The old unit becomes the defective,
+      // unlinked one below. Capture the old unit's customer/sale NOW, before it gets cleared.
+      let replacementUnit = null;
+      if (resolution === 'replace') {
+        const replacementId = Number(req.body.replacement_unit_id || 0) || 0;
+        if (replacementId) {
+          if (replacementId === id) return res.status(400).json({ error: 'Ang replacement ay dapat ibang serial unit.' });
+          const repRows = await queryAsync('SELECT * FROM product_units WHERE id = ? LIMIT 1', [replacementId]);
+          replacementUnit = repRows[0];
+          if (!replacementUnit) return res.status(404).json({ error: 'Replacement unit not found.' });
+          if (String(replacementUnit.status || '') !== 'in_stock') return res.status(400).json({ error: 'Ang replacement ay dapat in-stock na serial.' });
+          if (Number(replacementUnit.product_id || 0) !== Number(unit.product_id || 0)) return res.status(400).json({ error: 'Ang replacement ay dapat parehong produkto.' });
+          await queryAsync(
+            `UPDATE product_units SET status = 'sold', customer_name = ?, sales_record_id = ?, project_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+            [unit.customer_name || null, unit.sales_record_id || null, unit.project_id || null, replacementId]
+          );
+          logAction(req, 'RMA_REPLACE', `Replacement serial ${replacementUnit.serial_number || ('#' + replacementId)} issued for ${unit.serial_number || ('#' + id)} (customer ${unit.customer_name || '-'})`, 'inventory', {
+            entityType: 'product_unit', entityId: replacementId, businessEntityId: unit.business_entity_id,
+            changes: { status: { from: 'in_stock', to: 'sold' } }, severity: 'info'
+          });
+        }
+      }
+
       const note = String(req.body.note || '').trim();
       const mergedReason = note
         ? `${String(unit.rma_reason || '').trim()}${unit.rma_reason ? '\n— ' : ''}Resolution note: ${note}`
@@ -496,12 +520,12 @@ module.exports = function createInventoryRouter(deps) {
          RETURNING *`,
         [rule.status, mergedReason, resolution, id]
       );
-      logAction(req, 'RMA_RESOLVE', `Resolved RMA for serial ${unit.serial_number || `#${id}`}: ${rule.label}`, 'inventory', {
+      logAction(req, 'RMA_RESOLVE', `Resolved RMA for serial ${unit.serial_number || `#${id}`}: ${rule.label}${replacementUnit ? ` (replaced by ${replacementUnit.serial_number || ('#' + replacementUnit.id)})` : ''}`, 'inventory', {
         entityType: 'product_unit', entityId: id, businessEntityId: unit.business_entity_id,
         changes: { status: { from: 'rma', to: rule.status }, resolution: { from: null, to: resolution } },
         severity: 'info'
       });
-      res.json(rows[0]);
+      res.json({ ...rows[0], replacement: replacementUnit ? { id: replacementUnit.id, serial_number: replacementUnit.serial_number } : null });
     } catch (err) {
       console.error('Inventory RMA resolve error:', err);
       res.status(500).json({ error: err.message || 'Unable to resolve RMA.' });

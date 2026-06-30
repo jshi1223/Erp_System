@@ -23,8 +23,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function doLogout() {
   const confirmed = (typeof showConfirm === 'function')
-    ? await showConfirm('Maglo-logout ka na. Gusto mo bang ituloy?', { title: 'Logout?', confirmLabel: 'Yes, log out', cancelLabel: 'Cancel', type: 'danger' })
-    : window.confirm('Maglo-logout ka na. Gusto mo bang ituloy?');
+    ? await showConfirm('Sigurado ka bang gusto mong mag-logout?', { title: 'Logout?', confirmLabel: 'Oo, mag-logout', cancelLabel: 'Cancel', type: 'danger' })
+    : window.confirm('Sigurado ka bang gusto mong mag-logout?');
   if (!confirmed) return;
   fetch('/logout', { method: 'POST' }).then(() => { window.location.href = '/'; });
 }

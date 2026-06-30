@@ -14,6 +14,16 @@ const money = (n: number | undefined) =>
 
 const todayStr = () => new Date().toISOString().split('T')[0];
 
+// Stored dates serialize to a UTC timestamp (e.g. 2026-06-28T16:00:00.000Z), so slicing the raw
+// string is off by the timezone. Render a clean YYYY-MM-DD in Manila time instead.
+const fmtDate = (v?: string | null) => {
+  if (!v) return '-';
+  const s = String(v);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? s : d.toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+};
+
 function isArchived(r: Receivable) { return Number(r.archived) === 1 || r.archived === true; }
 function balanceOf(r: Receivable) { return Math.max(0, Number(r.total_amount || 0) - Number(r.paid_amount || 0)); }
 
@@ -256,11 +266,14 @@ export default function AccountsReceivablePage() {
   const collectionTotal = collections.reduce((s, c) => s + Number(c.amount || 0), 0);
 
   return (
-    <AppShell title="Accounts Receivable" subtitle="Invoices, collections, customer balances, and AR aging.">
-      <div className="toolbar">
-        {(tab === 'invoices') && <input className="search" placeholder="Search customer or invoice number…" value={q} onChange={(e) => setQ(e.target.value)} />}
-        {tab === 'invoices' && <button className="btn btn-add btn-sm" onClick={() => setAddInvoice(true)}>+ Add Invoice</button>}
-        {tab === 'collections' && <button className="btn btn-add btn-sm" onClick={() => setCollection(true)}>+ Record Collection</button>}
+    <AppShell title="Accounts Receivable" subtitle="Invoices, collections, customer balances, and AR aging." hideBack>
+      <div className="toolbar" style={{ justifyContent: 'space-between' }}>
+        <button className="btn btn-cancel btn-sm section-back-btn" type="button" onClick={() => (window.location.href = '/admin?view=dashboard')}>&larr; Back to Dashboard</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {(tab === 'invoices') && <input className="search" placeholder="Search customer or invoice number…" value={q} onChange={(e) => setQ(e.target.value)} />}
+          {tab === 'invoices' && <button className="btn btn-add btn-sm" onClick={() => setAddInvoice(true)}>+ Add Invoice</button>}
+          {tab === 'collections' && <button className="btn btn-add btn-sm" onClick={() => setCollection(true)}>+ Record Collection</button>}
+        </div>
       </div>
 
       <section className="module-summary-grid" aria-label="Summary">
@@ -316,10 +329,13 @@ export default function AccountsReceivablePage() {
                   <tr key={r.id}>
                     <td>{r.invoice_number || '-'}</td>
                     <td className="strong">{r.customer_name || '-'}</td>
-                    <td>{r.sales_document_no ? `${r.sales_document_no} (Delivery Receipt)` : 'Manual'}</td>
-                    <td>{r.invoice_date || '-'}</td>
+                    <td>
+                      {r.sales_document_no ? `${r.sales_document_no} (Delivery Receipt)` : 'Manual'}
+                      {r.source_sales_order_no && <span style={{ display: 'block', fontSize: '.72rem', color: 'var(--muted, #888)' }}>SO: {r.source_sales_order_no}</span>}
+                    </td>
+                    <td>{fmtDate(r.invoice_date)}</td>
                     <td>{r.payment_terms || '-'}</td>
-                    <td>{r.due_date || '-'}</td>
+                    <td>{fmtDate(r.due_date)}</td>
                     <td>{money(r.total_amount)}</td>
                     <td>{money(r.paid_amount)}</td>
                     <td>{money(bal)}</td>
@@ -346,7 +362,7 @@ export default function AccountsReceivablePage() {
             <tbody>
               {collections.map((c) => (
                 <tr key={c.id}>
-                  <td>{c.payment_date || '-'}</td>
+                  <td>{fmtDate(c.payment_date)}</td>
                   <td>{c.invoice_number || (c.ar_id ? `AR #${c.ar_id}` : '-')}</td>
                   <td>{c.customer_name || '-'}</td>
                   <td>{String(c.payment_method || '-').replace(/_/g, ' ')}</td>
@@ -408,7 +424,7 @@ export default function AccountsReceivablePage() {
                   <td>Invoice</td>
                   <td>{r.invoice_number || `INV #${r.id}`}</td>
                   <td>{r.customer_name || '-'}</td>
-                  <td>{r.invoice_date || '-'}</td>
+                  <td>{fmtDate(r.invoice_date)}</td>
                   <td><span className={`status-pill ${uiStatus(r).className}`}>{uiStatus(r).label}</span></td>
                 </tr>
               ))}

@@ -16,10 +16,12 @@ module.exports = function createReceivablesRouter(deps) {
     const whereClause = includeArchived ? '' : 'WHERE COALESCE(ar.archived, FALSE) = FALSE';
     db.query(`
       SELECT ar.*, p.project_name, p.project_docno AS linked_project_docno, COALESCE(p.is_archived, FALSE) AS project_is_archived,
-             smr.document_no AS source_delivery_no, smr.title AS source_delivery_title
+             smr.document_no AS source_delivery_no, smr.title AS source_delivery_title,
+             so.document_no AS source_sales_order_no
       FROM accounts_receivable ar
       LEFT JOIN projects p ON p.id = ar.project_id
       LEFT JOIN sales_management_records smr ON smr.id = ar.sales_record_id
+      LEFT JOIN sales_management_records so ON so.id = smr.source_record_id
       ${whereClause}
       ORDER BY ar.invoice_date DESC, ar.created_at DESC
     `, (err, rows) => {

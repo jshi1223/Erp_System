@@ -4788,6 +4788,7 @@ async function generateNextEntityDocumentNo({
     'procurement_quotations',
     'goods_receipts',
     'accounts_payable',
+    'accounts_receivable',
     'sales_management_records'
   ]);
   const safeColumns = new Set([
@@ -4798,6 +4799,7 @@ async function generateNextEntityDocumentNo({
     'quote_number',
     'grn_number',
     'bill_number',
+    'invoice_number',
     'document_no'
   ]);
   if (!safeTables.has(tableName) || !safeColumns.has(columnName)) {
@@ -4876,6 +4878,7 @@ async function peekNextEntityDocumentNo({
     'procurement_quotations',
     'goods_receipts',
     'accounts_payable',
+    'accounts_receivable',
     'sales_management_records'
   ]);
   const safeColumns = new Set([
@@ -4886,6 +4889,7 @@ async function peekNextEntityDocumentNo({
     'quote_number',
     'grn_number',
     'bill_number',
+    'invoice_number',
     'document_no'
   ]);
   if (!safeTables.has(tableName) || !safeColumns.has(columnName)) {
@@ -9425,7 +9429,16 @@ async function createReceivableFromDeliveryRecord(connection, record, req) {
   if (!(totalAmount > 0) || !customerName) return null;
 
   const businessEntityId = await resolveBusinessEntityId(record.business_entity_id || null);
-  const invoiceNumber = generateCode('INV');
+  // Clean entity-scoped invoice number (INV-KVSK-2026-004), mirroring AP bill numbers — not the old
+  // timestamp code. Runs in the same transaction so the sequence reservation is consistent.
+  const invoiceNumber = await generateNextEntityDocumentNo({
+    businessEntityId,
+    documentType: 'ar-invoice',
+    prefix: 'INV',
+    tableName: 'accounts_receivable',
+    columnName: 'invoice_number',
+    dbClient: connection
+  });
   const invoiceDate = String(record.target_date || record.requested_date || '').slice(0, 10) || getManilaYmd();
   const paymentTerms = String(record.payment_terms || 'Net 30').trim();
   const dueDate = deriveReceivableDueDate(invoiceDate, paymentTerms);
@@ -9609,7 +9622,8 @@ function validateSalesRecordStageRequirements(payload = {}) {
       ['projectId', 'Linked Project is required for SO.'],
       ['title', 'Title is required for SO.'],
       ['requestedDate', 'SO date is required.'],
-      ['customerPoRef', 'Customer PO is required for SO.']
+      ['customerPoRef', 'Customer PO is required for SO.'],
+      ['paymentTerms', 'Payment Terms is required for SO.']
     ],
     'project-delivery': [
       ['companyId', 'Customer / Company is required for Delivery Receipt.'],

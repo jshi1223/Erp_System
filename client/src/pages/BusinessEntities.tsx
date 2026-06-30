@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiFetch, apiGet, apiPost, apiPut } from '../lib/api';
 import { digitsOnly, formatTin, isValidEmail } from '../lib/format';
@@ -39,6 +39,57 @@ function emptyForm(e: BusinessEntity | null): EntityForm {
   };
 }
 
+// ── Realtime workspace theming (mirrors public/assets/js/workspace-switcher.js) ──────────────
+// Lighten (+%) / darken (-%) a #rrggbb toward white/black.
+function shadeHex(hex: string, percent: number): string {
+  const h = String(hex || '').replace('#', '');
+  if (!/^[0-9a-fA-F]{6}$/.test(h)) return hex;
+  const t = percent < 0 ? 0 : 255, p = Math.abs(percent) / 100;
+  const ch = (i: number) => {
+    const c = parseInt(h.slice(i, i + 2), 16);
+    return Math.max(0, Math.min(255, Math.round((t - c) * p) + c));
+  };
+  return '#' + [ch(0), ch(2), ch(4)].map((x) => ('0' + x.toString(16)).slice(-2)).join('');
+}
+
+// Apply the brand color as the live workspace theme (CSS vars + persisted theme) WITHOUT a reload,
+// so the header/UI re-colors the moment you save. Mirrors entityThemeColors + applyThemeVars.
+function applyEntityThemeLive(entity: { id: number; brand_color?: string; company_name?: string }) {
+  const c = /^#[0-9a-fA-F]{6}$/.test(String(entity.brand_color || '')) ? String(entity.brand_color) : '';
+  const t = c
+    ? { theme: 'entity', brand_color: c, primary: c, primaryLight: shadeHex(c, 38), primaryDark: shadeHex(c, -42), accent: c, accent2: shadeHex(c, -72) }
+    : { theme: 'neutral', brand_color: '', primary: '#334155', primaryLight: '#64748b', primaryDark: '#1e293b', accent: '#475569', accent2: '#0f172a' };
+  [document.documentElement, document.body].forEach((el) => {
+    if (!el?.style) return;
+    el.style.setProperty('--primary', t.primary);
+    el.style.setProperty('--primary-light', t.primaryLight);
+    el.style.setProperty('--primary-dark', t.primaryDark);
+    el.style.setProperty('--accent', t.accent);
+    el.style.setProperty('--accent2', t.accent2);
+    if (el.dataset) el.dataset.businessEntityTheme = t.theme;
+  });
+  try {
+    const tp = JSON.parse(localStorage.getItem('kinaadman_businessEntityTheme') || 'null') || {};
+    Object.assign(tp, { theme: t.theme, brand_color: t.brand_color, primary: t.primary, primaryLight: t.primaryLight, primaryDark: t.primaryDark, accent: t.accent, accent2: t.accent2, company_name: entity.company_name || 'All Companies' });
+    localStorage.setItem('kinaadman_businessEntityTheme', JSON.stringify(tp));
+  } catch { /* ignore */ }
+}
+
+// The active workspace context: '' / 'all' = All Companies (ALWAYS neutral slate, never an entity
+// color), otherwise a specific entity id.
+function currentWorkspaceContext(): string {
+  try { return String(localStorage.getItem('kinaadman_businessEntityContext') || '').trim().toLowerCase(); } catch { return ''; }
+}
+
+// Re-color the live workspace theme to match the CURRENT context (heals any stale/wrong theme):
+// All Companies → neutral; a specific workspace → that entity's brand color.
+function applyWorkspaceTheme(entities: BusinessEntity[]) {
+  const ctx = currentWorkspaceContext();
+  if (!ctx || ctx === 'all') { applyEntityThemeLive({ id: 0, brand_color: '', company_name: 'All Companies' }); return; }
+  const active = entities.find((e) => String(e.id) === ctx);
+  if (active) applyEntityThemeLive({ id: active.id, brand_color: (active as { brand_color?: string }).brand_color, company_name: active.company_name });
+}
+
 function EntityModal({ entity, onClose }: { entity: BusinessEntity | null; onClose: () => void }) {
   const qc = useQueryClient();
   const [form, setForm] = useState<EntityForm>(() => emptyForm(entity));
@@ -64,8 +115,18 @@ function EntityModal({ entity, onClose }: { entity: BusinessEntity | null; onClo
       }
       return res.data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['business-entities'] });
+      // Realtime (no refresh): re-color only what the CURRENT workspace shows. "All Companies" stays
+      // neutral no matter which entity you edit; a specific workspace re-colors only when you edit
+      // its OWN entity. Other entities just refresh their table swatch (via the invalidation above).
+      const savedId = entity?.id ?? (data as { id?: number } | undefined)?.id ?? 0;
+      const ctx = currentWorkspaceContext();
+      if (!ctx || ctx === 'all') {
+        applyEntityThemeLive({ id: 0, brand_color: '', company_name: 'All Companies' });
+      } else if (savedId && ctx === String(savedId)) {
+        applyEntityThemeLive({ id: savedId, brand_color: form.brand_color, company_name: form.company_name });
+      }
       onClose();
     },
     onError: (e: Error) => setError(e.message),
@@ -135,6 +196,12 @@ export default function BusinessEntitiesPage() {
   const [q, setQ] = useState('');
   const [modal, setModal] = useState<{ open: boolean; entity: BusinessEntity | null }>({ open: false, entity: null });
   const { data, isLoading, isError } = useQuery({ queryKey: ['business-entities'], queryFn: fetchEntities });
+
+  // Self-heal the workspace theme whenever the entity list loads/changes: re-assert neutral for
+  // "All Companies" (so a stale dark/black theme can't stick) or the active entity's current color.
+  useEffect(() => {
+    if (data) applyWorkspaceTheme(data);
+  }, [data]);
 
   const all = data ?? [];
   const rows = useMemo(() => {

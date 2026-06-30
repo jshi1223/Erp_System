@@ -240,8 +240,9 @@
           <div class="modal-inline-message is-hidden" data-sales-field-message="amount" aria-live="polite"></div>
         </div>
         <div class="field" data-sales-field="payment-terms">
-          <label>Payment Terms</label>
-          <input id="sales-payment-terms" type="text" maxlength="100" />
+          <label>Payment Terms <span class="req-star">*</span></label>
+          <input id="sales-payment-terms" type="text" maxlength="100" placeholder="e.g. Net 30" />
+          <div class="modal-inline-message is-hidden" data-sales-field-message="payment-terms" aria-live="polite"></div>
         </div>
 
         <!-- Sales Order: downpayment + customer PO ref (mirrors PO) -->
@@ -301,16 +302,8 @@
           <input id="sales-unit-price" type="number" min="0" step="0.01" />
         </div>
 
-        <!-- Delivery Receipt: pick which serial units are going out (auto-marks
-             them Sold when the DR is saved as Delivered/Completed) -->
-        <div class="field full" data-sales-field="serials">
-          <label>Serial Units <span class="field-hint">(piliin ang mga lalabas � auto-Sold kapag Delivered)</span></label>
-          <div id="sales-serial-picker" class="sales-serial-picker">
-            <div class="sales-serial-empty">Pumili muna ng Inventory Product.</div>
-          </div>
-        </div>
-
-        <!-- Requested Items (same as PR � full width, inside grid) -->
+        <!-- Requested Items come FIRST; Serial Units sit right under them (magkadugtong): the
+             serials you ship are tied to these line items and their quantities. -->
         <div class="field full po-lines-field" data-sales-field="line-items">
           <div class="po-line-toolbar">
             <div>
@@ -320,7 +313,7 @@
           </div>
           <div class="po-line-items" id="sales-line-items"></div>
           <div class="po-line-add-row">
-            <button class="btn btn-add btn-sm" type="button" onclick="addSalesLineItem()">Add Item</button>
+            <button class="btn btn-add btn-sm" type="button" id="sales-add-item-btn" onclick="addSalesLineItem()">Add Item</button>
           </div>
           <div class="po-line-footer">
             <div>
@@ -330,6 +323,15 @@
             <div class="po-line-footer-total" id="sales-total-display">PHP 0.00</div>
           </div>
           <div class="modal-inline-message is-hidden" data-sales-field-message="line-items" aria-live="polite"></div>
+        </div>
+
+        <!-- Delivery Receipt: pick which serial units go out (auto-marks them Sold when the DR is
+             saved as Delivered/Completed). Sits directly below Requested Items. -->
+        <div class="field full" data-sales-field="serials">
+          <label>Serial Units <span class="field-hint">(per requested item; i-scan o piliin ang lalabas -&gt; auto-Sold kapag Delivered)</span></label>
+          <div id="sales-serial-picker" class="sales-serial-picker">
+            <div class="sales-serial-empty">Magdagdag muna ng Requested Item.</div>
+          </div>
         </div>
 
         <!-- Description (other stages) -->

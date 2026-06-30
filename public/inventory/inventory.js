@@ -483,6 +483,10 @@ function openRmaModal(id) {
   if (label) label.value = unitLabel(row);
   const reason = document.getElementById('rma-reason');
   if (reason) reason.value = '';
+  const returnType = document.getElementById('rma-return-type');
+  if (returnType) returnType.value = 'Defective on arrival';
+  const returnDate = document.getElementById('rma-return-date');
+  if (returnDate) returnDate.value = new Date().toISOString().slice(0, 10);
 }
 
 async function submitRma(event) {
@@ -490,8 +494,12 @@ async function submitRma(event) {
   setStatus('');
   const id = Number(rmaTargetUnitId || 0) || 0;
   if (!id) { setStatus('No serial unit selected.'); return; }
-  const reason = String(document.getElementById('rma-reason')?.value || '').trim();
-  if (!reason) { setStatus('RMA reason is required.'); return; }
+  // Build a structured RMA reason (return type + details + return date) stored in rma_reason.
+  const returnType = String(document.getElementById('rma-return-type')?.value || '').trim();
+  const returnDate = String(document.getElementById('rma-return-date')?.value || '').trim();
+  const details = String(document.getElementById('rma-reason')?.value || '').trim();
+  if (!details) { setStatus('RMA details / reason is required.'); return; }
+  const reason = [returnType, details].filter(Boolean).join(' — ') + (returnDate ? ` (binalik: ${returnDate})` : '');
   try {
     await fetchJson(`/api/inventory/units/${id}/rma`, { method: 'POST', body: JSON.stringify({ reason }) });
     closeInventoryModal();
@@ -516,6 +524,29 @@ function openRmaResolveModal(id) {
   if (note) note.value = '';
   const resolution = document.getElementById('rma-resolution');
   if (resolution) resolution.value = 'restock';
+  populateRmaReplacementOptions(row);
+  onRmaResolutionChange();
+}
+
+// Fill the replacement picker with in-stock serials of the SAME product (used by a Replace).
+function populateRmaReplacementOptions(row) {
+  const select = document.getElementById('rma-replacement-unit');
+  if (!select) return;
+  const pid = Number(row?.product_id || 0) || 0;
+  const opts = (Array.isArray(unitsDb) ? unitsDb : [])
+    .filter(u => Number(u.product_id || 0) === pid && String(u.status || '') === 'in_stock' && Number(u.id) !== Number(row?.id || 0))
+    .map(u => {
+      const meta = [u.warehouse_code || u.warehouse_name || '', u.warranty_end ? `warranty ${String(u.warranty_end).slice(0, 10)}` : ''].filter(Boolean).join(' · ');
+      return `<option value="${escAttr(u.id)}">${escHtml(u.serial_number || ('Unit #' + u.id))}${meta ? ` (${escHtml(meta)})` : ''}</option>`;
+    }).join('');
+  select.innerHTML = `<option value="">— Pumili ng bagong in-stock serial —</option>${opts}`;
+}
+
+// Show the replacement serial picker only for the "Replace" resolution.
+function onRmaResolutionChange() {
+  const resolution = String(document.getElementById('rma-resolution')?.value || '');
+  const field = document.getElementById('rma-replacement-field');
+  if (field) field.style.display = resolution === 'replace' ? '' : 'none';
 }
 
 async function submitRmaResolve(event) {
@@ -525,8 +556,14 @@ async function submitRmaResolve(event) {
   if (!id) { setStatus('No serial unit selected.'); return; }
   const resolution = String(document.getElementById('rma-resolution')?.value || '').trim();
   const note = String(document.getElementById('rma-resolve-note')?.value || '').trim();
+  const body = { resolution, note };
+  if (resolution === 'replace') {
+    const replacementId = Number(document.getElementById('rma-replacement-unit')?.value || 0) || 0;
+    if (!replacementId) { setStatus('Pumili ng replacement (bagong in-stock serial) para sa Replace.'); return; }
+    body.replacement_unit_id = replacementId;
+  }
   try {
-    await fetchJson(`/api/inventory/units/${id}/rma/resolve`, { method: 'POST', body: JSON.stringify({ resolution, note }) });
+    await fetchJson(`/api/inventory/units/${id}/rma/resolve`, { method: 'POST', body: JSON.stringify(body) });
     closeInventoryModal();
     await loadInventory();
     switchInventoryTab('rma');

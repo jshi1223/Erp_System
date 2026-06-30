@@ -95,6 +95,31 @@ module.exports = function createSalesManagementRouter(deps) {
     }
   }
 
+  // The Customer PO must be UNIQUE across Sales Orders in the same workspace — one customer PO =
+  // one order, bawal magdoble. Blank is allowed (optional). Only sales-orders are checked; DRs and
+  // other downstream stages inherit the SO's PO so they would otherwise false-positive.
+  async function assertCustomerPoRefUnique(q, recordType, customerPoRef, businessEntityId, excludeId = 0) {
+    if (recordType !== 'sales-order') return;
+    const po = String(customerPoRef || '').trim();
+    if (!po) return;
+    const beId = Number(businessEntityId || 0) || 0;
+    const rows = await q(
+      `SELECT document_no FROM sales_management_records
+         WHERE record_type = 'sales-order'
+           AND LOWER(TRIM(COALESCE(customer_po_ref, ''))) = LOWER(?)
+           AND COALESCE(archived, FALSE) = FALSE
+           AND COALESCE(status, '') <> 'cancelled'
+           AND (? = 0 OR business_entity_id = ?)
+           AND id <> ?
+         LIMIT 1`,
+      [po, beId, beId, Number(excludeId || 0)]);
+    if (rows.length) {
+      const e = new Error(`Ginamit na ang Customer PO "${po}" sa ${rows[0].document_no}. Dapat unique ang Customer PO — bawal magdoble.`);
+      e.statusCode = 409;
+      throw e;
+    }
+  }
+
   router.get('/api/sales-management/records/:id/delivery-progress', protectAdmin, async (req, res) => {
     try {
       const soId = Number(req.params.id || 0);
@@ -272,6 +297,7 @@ module.exports = function createSalesManagementRouter(deps) {
           const incomingQty = (Array.isArray(req.body.items) ? req.body.items : []).reduce((s, it) => s + (Number(it.quantity || 0) || 0), 0);
           await assertDeliveryWithinOrdered((sql, params) => queryDbAsync(connection, sql, params), payload.sourceRecordId, incomingQty, 0);
         }
+        await assertCustomerPoRefUnique((sql, params) => queryDbAsync(connection, sql, params), payload.recordType, payload.customerPoRef, await resolveBusinessEntityId(payload.businessEntityId), 0);
         const seqMeta = getSalesDocumentSequenceMeta(payload.recordType);
         const businessEntityId = await resolveBusinessEntityId(payload.businessEntityId);
         // Staff drafts AND admin-created Sales Orders (pending) get a DFT- number that the
@@ -377,6 +403,7 @@ module.exports = function createSalesManagementRouter(deps) {
           const incomingQty = (Array.isArray(req.body.items) ? req.body.items : []).reduce((s, it) => s + (Number(it.quantity || 0) || 0), 0);
           await assertDeliveryWithinOrdered((sql, params) => queryDbAsync(connection, sql, params), payload.sourceRecordId, incomingQty, recordId);
         }
+        await assertCustomerPoRefUnique((sql, params) => queryDbAsync(connection, sql, params), payload.recordType, payload.customerPoRef, payload.businessEntityId, recordId);
         const rows = await queryDbAsync(connection, `
           UPDATE sales_management_records
           SET record_type = ?,
@@ -476,17 +503,29 @@ module.exports = function createSalesManagementRouter(deps) {
       if (!['delivered', 'completed'].includes(status)) {
         return res.status(400).json({ error: 'Set the Delivery Receipt status to Delivered or Completed first.' });
       }
+      // 3-way-match analog (mirrors PO -> Goods Receipt -> Bill): an invoice can never exceed what was
+      // actually DELIVERED on this DR. Capture the delivered value (the DR's own total) BEFORE the
+      // modal overrides can change record.amount.
+      const deliveredValue = Number(record.amount || 0) || 0;
       // Apply the reviewed values from the Generate Invoice modal (override the DR-derived defaults).
       if (req.body.invoice_date) record.target_date = req.body.invoice_date;
       if (req.body.payment_terms) record.payment_terms = String(req.body.payment_terms).trim();
       if (req.body.total_amount != null && Number(req.body.total_amount) > 0) record.amount = Number(req.body.total_amount);
       if (req.body.notes != null && String(req.body.notes).trim()) record.notes = String(req.body.notes).trim();
 
+      if (deliveredValue > 0 && Number(record.amount || 0) > deliveredValue + 0.005) {
+        const fmt = (n) => `₱${Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        return res.status(409).json({ error: `Lampas sa na-deliver na halaga. Na-deliver: ${fmt(deliveredValue)} — hindi pwedeng mag-invoice nang higit dito (3-way match).` });
+      }
+
       if (!(Number(record.amount || 0) > 0)) {
         return res.status(400).json({ error: 'Delivery Receipt has no amount. Please set the amount before generating an invoice.' });
       }
       if (!String(record.company_name || '').trim()) {
         return res.status(400).json({ error: 'Delivery Receipt has no linked customer. Please link a company first.' });
+      }
+      if (!String(record.payment_terms || '').trim()) {
+        return res.status(400).json({ error: 'Payment Terms is required — punan ito sa Generate Invoice modal.' });
       }
 
       // Reuse the shared, idempotent AR builder; honor a custom due date from the modal if given.

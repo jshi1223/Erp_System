@@ -2104,13 +2104,13 @@ async function doLogout() {
   // Management) do not include — there it fell back to the native browser
   // "<host> says" confirm. showConfirm is consistent on every page.
   const confirmed = (typeof showConfirm === 'function')
-    ? await showConfirm('Maglo-logout ka na. Gusto mo bang ituloy?', {
+    ? await showConfirm('Sigurado ka bang gusto mong mag-logout?', {
         title: 'Logout?',
-        confirmLabel: 'Yes, log out',
+        confirmLabel: 'Oo, mag-logout',
         cancelLabel: 'Cancel',
         type: 'danger'
       })
-    : await openConfirmDialog({ title: 'Logout?', message: 'Maglo-logout ka na. Gusto mo bang ituloy?', noText: 'No', yesText: 'Yes' });
+    : await openConfirmDialog({ title: 'Logout?', message: 'Sigurado ka bang gusto mong mag-logout?', noText: 'Cancel', yesText: 'Oo, mag-logout' });
   if (!confirmed) return;
   localStorage.removeItem('kinaadman_activeTab');
   localStorage.removeItem('kinaadman_dashboardPanel');

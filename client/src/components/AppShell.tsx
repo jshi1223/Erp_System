@@ -114,7 +114,7 @@ function visibleGroups(role: Role): NavGroup[] {
 }
 
 // Mirrors the classic page shell (same classes + classic CSS) so it looks identical.
-export default function AppShell({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
+export default function AppShell({ title, subtitle, children, hideBack }: { title: string; subtitle?: string; children: ReactNode; hideBack?: boolean }) {
   const { data: me } = useMe();
   const role = (me?.role as Role) || 'user';
   const [open, setOpen] = useState(false);
@@ -233,11 +233,20 @@ export default function AppShell({ title, subtitle, children }: { title: string;
       </div>
 
       <main>
-        <div className="page-hero">
+        <div className="page-hero" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div className="page-hero-copy">
             <div className="page-title">{title}</div>
             {subtitle && <div className="page-sub">{subtitle}</div>}
           </div>
+          {!hideBack && (
+            <button
+              className="btn btn-cancel btn-sm section-back-btn"
+              type="button"
+              onClick={() => (window.location.href = '/admin?view=dashboard')}
+            >
+              &larr; Back to Dashboard
+            </button>
+          )}
         </div>
         {children}
       </main>

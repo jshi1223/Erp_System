@@ -78,6 +78,7 @@ export interface Receivable {
   invoice_number?: string;
   customer_name?: string;
   sales_document_no?: string;
+  source_sales_order_no?: string;
   project_docno?: string;
   invoice_date?: string;
   due_date?: string;

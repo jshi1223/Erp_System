@@ -37,7 +37,7 @@ const SALES_STAGE_FIELDS = {
     sectionTitle: 'Sales Order Details',
     descriptionLabel: 'Confirmed Scope',
     fields: ['source', 'company', 'project', 'contact', 'requested-date', 'target-date', 'payment-terms', 'downpayment', 'customer-po-ref', 'line-items', 'description', 'notes', 'pdf-file'],
-    required: ['company', 'project', 'requested-date', 'customer-po-ref', 'line-items']
+    required: ['company', 'project', 'requested-date', 'customer-po-ref', 'payment-terms', 'line-items']
   },
   'project-delivery': {
     sectionTitle: 'Delivery Receipt Details',
@@ -60,6 +60,7 @@ const SALES_FIELD_CONTROLS = {
   quantity: 'sales-quantity',
   downpayment: 'sales-downpayment',
   'customer-po-ref': 'sales-customer-po-ref',
+  'payment-terms': 'sales-payment-terms',
   'received-by': 'sales-received-by',
   'delivery-address': 'sales-delivery-address',
   'source-po': 'sales-source-po-id'
@@ -253,12 +254,14 @@ function renderSalesToolbarControls(tab) {
     'project-delivery': 'Search customer, project, or delivery...'
   }[tab] || 'Search...';
 
-  // Staff on Sales Inquiry tab sees approved records only — hide add button
+  // Staff on the Sales Inquiry tab see APPROVED inquiries (read-only), but can still file a NEW
+  // request right here — it becomes a DFT draft that goes to admin for approval (same as Requests).
   if (isStaff && tab === 'sales-request') {
     actions.innerHTML = `
       <div class="search-wrap top-search-bar module-toolbar-search">
         <input id="sales-search" type="text" placeholder="${escAttr(placeholder)}" oninput="renderSalesRecords()" />
-      </div>`;
+      </div>
+      <button class="btn btn-add btn-sm" type="button" onclick="openSalesModal()">New Request</button>`;
     applyInitialSalesSearchValue();
     return;
   }
@@ -631,6 +634,7 @@ function renderSalesRow(row, options = {}) {
           ${showPromote ? renderPromoteButton(row) : ''}
           ${renderInvoiceButton(row)}
           ${renderGeneratePrButton(row)}
+          ${renderSalesOrderInvoiceRef(row)}
           ${renderApproveButton(row, isRequestsTab)}
           ${(row.pdffilename || row.pdfFilename) ? `<a class="btn btn-cancel btn-sm" href="/api/sales-management/records/${Number(row.id)}/pdf" target="_blank" rel="noopener" title="View attached PDF">View PDF</a>` : ''}
           ${!isSalesStaffView() ? `<button class="btn btn-cancel btn-sm" type="button" onclick="openRecordHistory('sales_record', ${Number(row.id)}, '${escHtml(String(row.document_no || ('Sales #' + Number(row.id))).replace(/'/g, ''))}')" title="View history">History</button>` : ''}
@@ -687,6 +691,22 @@ function renderInvoiceButton(row) {
   return `<button class="btn btn-primary btn-sm" type="button" onclick="generateDeliveryInvoice(${Number(row.id)})">Generate Invoice</button>`;
 }
 
+// Sales Order rows: show the AR invoice(s) generated from this SO — mirrors the PO table's "Bills
+// generated" reference. Invoices attach to the SO's Delivery Receipts (DR.sales_record_id), and the
+// DRs point back to this SO (source_record_id), so we aggregate the invoice numbers across them.
+function renderSalesOrderInvoiceRef(row) {
+  if (String(row.record_type || '') !== 'sales-order') return '';
+  const drs = (Array.isArray(salesRecords) ? salesRecords : []).filter((r) =>
+    Number(r.source_record_id || 0) === Number(row.id || 0)
+    && String(r.record_type || '') === 'project-delivery'
+    && String(r.status || '').toLowerCase() !== 'cancelled');
+  const invoices = [...new Set(drs.map((d) => String(d.ar_invoice_number || '').trim()).filter(Boolean))];
+  if (!invoices.length) return '';
+  const title = `Invoice${invoices.length > 1 ? 's' : ''} na-generate mula sa SO na ito: ${invoices.join(', ')}`;
+  const label = invoices.length === 1 ? `Invoice: ${invoices[0]}` : `Invoices: ${invoices.length}`;
+  return `<span class="status-chip status-paid" title="${escAttr(title)}">&#x2713; ${escHtml(label)}</span>`;
+}
+
 function renderSalesInventoryMeta(row = {}) {
   const product = String(row.product_name || row.sku || '').trim();
   if (!product) return '';
@@ -718,6 +738,92 @@ function salesDeliveredQty(soId) {
     .reduce((s, r) => s + (Array.isArray(r.line_items)
       ? r.line_items.reduce((a, it) => a + (Number(it.quantity || 0) || 0), 0)
       : (Number(r.quantity || 0) || 0)), 0);
+}
+
+// Approved quantity PER PRODUCT on a Sales Order (its line items) — the per-line delivery ceiling.
+function salesApprovedByProduct(soRow = {}) {
+  const m = new Map();
+  (Array.isArray(soRow.line_items) ? soRow.line_items : []).forEach((it) => {
+    const pid = Number(it.product_id || 0) || 0;
+    if (!pid) return;
+    m.set(pid, (m.get(pid) || 0) + Math.max(0, Number(it.quantity || 0) || 0));
+  });
+  return m;
+}
+
+// Already-delivered PER PRODUCT for a Sales Order (sum across its other non-cancelled DRs). Excludes
+// the DR currently being edited so it doesn't cap against itself. This is what shrinks the remaining
+// ceiling as each partial delivery is recorded — same as PO -> Goods Receipt received-qty.
+function salesDeliveredByProduct(soId, excludeDrId = 0) {
+  const id = Number(soId || 0);
+  const m = new Map();
+  if (!id) return m;
+  (Array.isArray(salesRecords) ? salesRecords : [])
+    .filter((r) => Number(r.source_record_id || 0) === id
+      && String(r.record_type || '') === 'project-delivery'
+      && String(r.status || '').toLowerCase() !== 'cancelled'
+      && Number(r.id || 0) !== Number(excludeDrId || 0))
+    .forEach((r) => (Array.isArray(r.line_items) ? r.line_items : []).forEach((it) => {
+      const pid = Number(it.product_id || 0) || 0;
+      if (!pid) return;
+      m.set(pid, (m.get(pid) || 0) + Math.max(0, Number(it.quantity || 0) || 0));
+    }));
+  return m;
+}
+
+// Small per-line message element under a Qty field (created on demand).
+function ensureDeliveryQtyMsg(row) {
+  const qtyField = row.querySelector('.sales-line-qty')?.closest('.field');
+  if (!qtyField) return null;
+  let msg = qtyField.querySelector('.sales-line-qty-msg');
+  if (!msg) {
+    msg = document.createElement('div');
+    msg.className = 'sales-line-qty-msg';
+    msg.style.cssText = 'display:none;color:#b91c1c;font-size:.7rem;margin-top:2px;line-height:1.2;';
+    qtyField.appendChild(msg);
+  }
+  return msg;
+}
+
+// Cap each Delivery Receipt line at what was approved on the source SO MINUS what other DRs already
+// shipped — you can't deliver more than ordered (bawal mag-51 kung 50 lang), and the ceiling shrinks
+// per partial delivery. Mirrors the per-line cap of PO -> Goods Receipt. Server backstops the total.
+function enforceDeliveryQtyCaps() {
+  if (getValue('sales-record-type') !== 'project-delivery') return;
+  const container = getSalesLineItemsContainer();
+  if (!container) return;
+  const soId = Number(getValue('sales-source-record-id') || 0) || 0;
+  const so = soId ? salesRecords.find((r) => Number(r.id || 0) === soId) : null;
+  const approved = so ? salesApprovedByProduct(so) : new Map();
+  const deliveredOther = so ? salesDeliveredByProduct(soId, Number(editingSalesRecordId || 0) || 0) : new Map();
+  let clampedAny = false;
+  container.querySelectorAll('[data-sales-line-item]').forEach((row) => {
+    const pid = Number(row.querySelector('.sales-line-product')?.value || 0) || 0;
+    const qtyEl = row.querySelector('.sales-line-qty');
+    if (!qtyEl) return;
+    const msgEl = ensureDeliveryQtyMsg(row);
+    // No approved source (free DR) or product not on the SO → no ceiling to enforce.
+    if (!so || !approved.has(pid)) { qtyEl.removeAttribute('max'); if (msgEl) msgEl.style.display = 'none'; return; }
+    const ordered = approved.get(pid) || 0;
+    const already = deliveredOther.get(pid) || 0;
+    const cap = Math.max(0, ordered - already);
+    qtyEl.max = String(cap);
+    const v = Math.max(0, Number(qtyEl.value || 0) || 0);
+    if (v > cap) {
+      qtyEl.value = String(cap);
+      clampedAny = true;
+      if (msgEl) {
+        msgEl.textContent = cap > 0
+          ? `Max ${cap} lang ang pwede dito (Ordered ${ordered} · Na-deliver na ${already}).`
+          : `Fully delivered na ang item na ito (Ordered ${ordered}).`;
+        msgEl.style.display = 'block';
+      }
+    } else if (msgEl) {
+      msgEl.style.display = 'none';
+    }
+  });
+  if (clampedAny) recalculateSalesLineTotals();
+  refreshDeliverySerialNeeded();
 }
 
 // At-a-glance delivery badge on Sales Order rows: Partial (with remaining) vs Fully Delivered.
@@ -895,6 +1001,10 @@ function openSalesModal(record = null) {
   }
   // Show remaining-to-deliver when this is a Delivery Receipt tied to a Sales Order.
   onSalesSourceChange();
+  // Freeze the item list for final records / approved-source deliveries (no adding/swapping items).
+  refreshSalesItemsLockState();
+  // Cap each delivery line at what's still deliverable per product (bawal lumampas sa na-approve).
+  enforceDeliveryQtyCaps();
   const backdrop = document.getElementById('sales-modal-backdrop');
   if (backdrop) {
     backdrop.hidden = false;
@@ -1076,6 +1186,7 @@ function collectSalesValidationErrors(payload = {}, lineItems = { items: [], inc
     warehouse: 'Source Warehouse',
     quantity: 'Quantity',
     'customer-po-ref': 'Customer PO Ref.',
+    'payment-terms': 'Payment Terms',
     'received-by': 'Received By',
     'line-items': 'Items'
   };
@@ -1092,6 +1203,7 @@ function collectSalesValidationErrors(payload = {}, lineItems = { items: [], inc
     warehouse: payload.warehouse_id,
     quantity: payload.quantity,
     'customer-po-ref': payload.customer_po_ref,
+    'payment-terms': payload.payment_terms,
     'received-by': payload.received_by
   };
   const stageLabel = SALES_TYPES[payload.record_type]?.label || 'this stage';
@@ -1299,6 +1411,11 @@ function onSalesSourceChange() {
     setSalesLineItems(source.line_items);
     onSalesLineItemsChanged();
   }
+  // An approved/official source (e.g. the SO behind this DR) freezes the item list — deliver only
+  // what was sent. Quantities stay editable for partial delivery.
+  refreshSalesItemsLockState();
+  // Cap each line at the remaining-to-deliver for its product (shrinks per partial delivery).
+  enforceDeliveryQtyCaps();
 }
 
 // Per-product serial groups, mirroring the Goods Receipt capture: one box per product line on the
@@ -1394,6 +1511,56 @@ function applyDeliverySerialScan(input) {
   else { matched.checked = true; clearErr(); }
   input.value = '';
   syncDeliverySerialNeeded();
+}
+
+// Quantity changed on a requested item → retarget each serial group's "needed" count live (without
+// refetching the unit lists), so the serial selection tracks the requested quantity. Adding/removing
+// a PRODUCT is handled by the full reload in onSalesLineItemsChanged.
+function refreshDeliverySerialNeeded() {
+  if (getValue('sales-record-type') !== 'project-delivery') return;
+  const groups = document.querySelectorAll('#sales-serial-picker .sales-serial-group');
+  if (!groups.length) return;
+  const neededByProduct = new Map();
+  collectSalesLineItems().items.forEach((it) => {
+    const pid = Number(it.product_id || 0) || 0;
+    if (!pid) return;
+    neededByProduct.set(pid, (neededByProduct.get(pid) || 0) + Math.max(0, Number(it.quantity || 0) || 0));
+  });
+  groups.forEach((group) => {
+    const pid = Number(group.dataset.serialProduct || 0) || 0;
+    const neededEl = group.querySelector('.sales-serial-needed');
+    if (neededEl) neededEl.textContent = String(neededByProduct.get(pid) || 0);
+  });
+  syncDeliverySerialNeeded();
+}
+
+// Lock the requested-items LIST when delivering against an approved/official source (or when the
+// record itself is final): you can't add or swap items — "ayun lang naman ang sinend." Quantities
+// stay editable for partial delivery (and to keep serials in sync) unless the record itself is final.
+function applySalesLineItemsLock(locked, opts = {}) {
+  const keepQty = !!opts.keepQty;
+  const addBtn = document.getElementById('sales-add-item-btn');
+  if (addBtn) addBtn.style.display = locked ? 'none' : '';
+  const container = getSalesLineItemsContainer();
+  if (!container) return;
+  container.querySelectorAll('[data-sales-line-item]').forEach((row) => {
+    row.querySelectorAll('.sales-line-category, .sales-line-product, .sales-line-unit, .sales-line-unit-price')
+      .forEach((el) => { el.disabled = locked; });
+    const qty = row.querySelector('.sales-line-qty');
+    if (qty) qty.disabled = locked && !keepQty;
+    const rm = row.querySelector('.sales-line-remove');
+    if (rm) rm.style.display = locked ? 'none' : '';
+  });
+}
+
+function refreshSalesItemsLockState() {
+  const editingId = Number(editingSalesRecordId || 0) || 0;
+  const record = editingId ? salesRecords.find((r) => Number(r.id || 0) === editingId) : null;
+  const recordFinal = record ? !salesRecordIsEditable(record) : false;
+  const sourceId = Number(getValue('sales-source-record-id') || 0) || 0;
+  const source = sourceId ? salesRecords.find((r) => Number(r.id || 0) === sourceId) : null;
+  const sourceFinal = source ? !salesRecordIsEditable(source) : false;
+  applySalesLineItemsLock(recordFinal || sourceFinal, { keepQty: !recordFinal });
 }
 
 function collectSelectedSerialIds() {
@@ -1494,7 +1661,7 @@ function renderSalesLineItemRow(item = {}, index = 0) {
         </div>
         <div class="field sales-line-action-field">
           <label>&nbsp;</label>
-          <button class="btn btn-cancel btn-sm" type="button" onclick="removeSalesLineItem(this)">Remove</button>
+          <button class="btn btn-cancel btn-sm sales-line-remove" type="button" onclick="removeSalesLineItem(this)">Remove</button>
         </div>
       </div>
     </div>
@@ -1609,6 +1776,9 @@ function syncSalesLineItem(source) {
   const totalNode = row.querySelector('.sales-line-total');
   if (totalNode) totalNode.textContent = formatCurrency(total);
   recalculateSalesLineTotals();
+  // Requested qty drives both the delivery ceiling and the serials: cap each line at what is still
+  // deliverable (bawal lumampas sa approved), then retarget the serial "needed" count to match.
+  enforceDeliveryQtyCaps();
 }
 
 function recalculateSalesLineTotals() {
@@ -1746,8 +1916,8 @@ function generateDeliveryInvoice(id) {
           <label style="flex:1;display:block;margin-bottom:12px;">${lbl('Invoice Date')}<input type="date" id="gen-inv-date" value="${escAttr(invoiceDate)}" style="${inp}" /></label>
           <label style="flex:1;display:block;margin-bottom:12px;">${lbl('Due Date')}<input type="date" id="gen-inv-due" value="${escAttr(dueDate)}" style="${inp}" /></label>
         </div>
-        <label style="display:block;margin-bottom:12px;">${lbl('Payment Terms')}<input id="gen-inv-terms" value="${escAttr(terms)}" placeholder="e.g. Net 30" style="${inp}" /></label>
-        <label style="display:block;margin-bottom:12px;">${lbl('Total Amount (PHP)')}<input type="number" min="0" step="0.01" id="gen-inv-amount" value="${escAttr(String(amount))}" style="${inp}" /></label>
+        <label style="display:block;margin-bottom:12px;">${lbl('Payment Terms *')}<input id="gen-inv-terms" value="${escAttr(terms)}" placeholder="e.g. Net 30" style="${inp}" /></label>
+        <label style="display:block;margin-bottom:12px;">${lbl('Total Amount (PHP)')}<input type="number" min="0" step="0.01" max="${escAttr(String(amount))}" id="gen-inv-amount" value="${escAttr(String(amount))}" style="${inp}" /><span style="display:block;font-size:.68rem;color:#6b7280;margin-top:4px;">Max (na-deliver): ${amount > 0 ? `₱${amount.toLocaleString('en-PH', { minimumFractionDigits: 2 })}` : '—'} — hindi pwedeng lumampas (3-way match, tulad ng GR &rarr; Bill).</span></label>
         <label style="display:block;margin-bottom:4px;">${lbl('Notes (optional)')}<textarea id="gen-inv-notes" rows="2" style="${inp}resize:vertical;"></textarea></label>
         <div id="gen-inv-error" style="color:#b91c1c;font-size:.75rem;margin-top:8px;display:none;"></div>
         <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;">
@@ -1777,6 +1947,14 @@ async function submitGenerateInvoice(id, close) {
   const showErr = (m) => { if (errEl) { errEl.textContent = m; errEl.style.display = 'block'; } };
   const amount = Number(document.getElementById('gen-inv-amount')?.value || 0);
   if (!(amount > 0)) { showErr('Total Amount must be greater than zero.'); return; }
+  if (!String(document.getElementById('gen-inv-terms')?.value || '').trim()) { showErr('Payment Terms is required.'); return; }
+  // 3-way-match cap (mirror ng GR -> Bill): bawal mag-invoice nang higit sa na-deliver na halaga.
+  const rec = (Array.isArray(salesRecords) ? salesRecords : []).find((r) => Number(r.id || 0) === Number(id || 0));
+  const deliveredMax = Number(rec?.amount || 0) || 0;
+  if (deliveredMax > 0 && amount > deliveredMax + 0.005) {
+    showErr(`Lampas sa na-deliver na halaga. Max: ₱${deliveredMax.toLocaleString('en-PH', { minimumFractionDigits: 2 })}.`);
+    return;
+  }
   const payload = {
     invoice_date: document.getElementById('gen-inv-date')?.value || '',
     due_date: document.getElementById('gen-inv-due')?.value || '',

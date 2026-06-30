@@ -492,9 +492,26 @@
             <label>Serial Unit</label>
             <input id="rma-unit-label" readonly />
           </div>
+          <div class="field">
+            <label>Return Type <span class="field-label-status is-required">Required</span></label>
+            <select id="rma-return-type" required>
+              <option value="Defective on arrival">Defective on arrival</option>
+              <option value="Damaged in transit">Damaged in transit</option>
+              <option value="Wrong item delivered">Wrong item delivered</option>
+              <option value="Warranty claim">Warranty claim</option>
+              <option value="Not as described">Not as described</option>
+              <option value="Missing parts/accessories">Missing parts/accessories</option>
+              <option value="Change of mind">Change of mind</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Return Date</label>
+            <input id="rma-return-date" type="date" />
+          </div>
           <div class="field full">
-            <label>Reason <span class="field-label-status is-required">Required</span></label>
-            <textarea id="rma-reason" rows="3" placeholder="e.g. Defective on arrival, warranty claim, wrong item delivered" required></textarea>
+            <label>Details (ano ang binalik / depekto) <span class="field-label-status is-required">Required</span></label>
+            <textarea id="rma-reason" rows="3" placeholder="e.g. basag ang screen, hindi nag-power on, kulang ang accessories" required></textarea>
           </div>
         </div>
         <div class="modal-actions">
@@ -512,12 +529,19 @@
           </div>
           <div class="field full">
             <label>Resolution <span class="field-label-status is-required">Required</span></label>
-            <select id="rma-resolution" required>
+            <select id="rma-resolution" required onchange="onRmaResolutionChange()">
               <option value="restock">Restock — balik sa sellable stock</option>
               <option value="repair_return">Repair &amp; Return — ayos na, balik sa customer</option>
               <option value="replace">Replace — palitan ng ibang unit (ito patay)</option>
               <option value="scrap">Scrap — write-off / defective</option>
             </select>
+          </div>
+          <div class="field full" id="rma-replacement-field" style="display:none;">
+            <label>Replacement Serial <span class="field-label-status is-required">Required</span></label>
+            <select id="rma-replacement-unit">
+              <option value="">— Pumili ng bagong in-stock serial —</option>
+            </select>
+            <div class="field-hint">Ililipat ang customer + benta sa napiling bagong serial; mababawas ito sa stock. Ang lumang unit ay magiging defective.</div>
           </div>
           <div class="field full">
             <label>Note <span class="field-label-status is-optional">Optional</span></label>
