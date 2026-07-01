@@ -2554,6 +2554,11 @@ app.get(['/notifications', '/notifications/'], protectAdmin, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'notifications', 'index.html'));
 });
 
+app.get('/favicon.ico', (req, res) => {
+  noCache(res);
+  res.sendFile(path.join(__dirname, 'public', 'favicon.svg'));
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   index: false,
   etag: true,
