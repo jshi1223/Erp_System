@@ -700,6 +700,11 @@ function openDashboardPanel(panel = 'home', opts = {}) {
   }
   currentDashboardPanel = panel;
   document.body.dataset.dashboardPanel = panel;
+  // Keep the anti-flicker attribute in sync with the ACTIVE panel. admin.css forces the section that
+  // matches [data-initial-dashboard-panel] to `display:block !important` (higher specificity than
+  // .is-hidden) — so a STALE value kept the previous panel (e.g. the project list) forced-visible
+  // underneath the new one. Updating it lets .is-hidden hide the panels we switch away from.
+  document.body.dataset.initialDashboardPanel = panel;
   localStorage.setItem('kinaadman_dashboardPanel', panel);
   if (opts.syncUrl !== false) {
     syncAdminViewUrl(panel, activeTab);
@@ -2594,7 +2599,55 @@ function renderProjectRelationshipCard(title, subtitle, items = []) {
   `;
 }
 
+// One-time CSS for the project-flow stepper + the progress-bar grid. Injected from JS so it works on
+// both the admin AND staff dashboards (admin.js renders the overview on both).
+function ensureProjectOverviewExtraStyles() {
+  if (document.getElementById('po-extra-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'po-extra-styles';
+  style.textContent = `
+    .project-overview-stepper{display:flex;align-items:flex-start;flex-wrap:wrap;gap:4px;margin-top:8px;}
+    .po-step{display:flex;flex-direction:column;align-items:center;gap:6px;min-width:58px;flex:1;}
+    .po-step-dot{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.8rem;border:2px solid #dcdcdc;background:#f4f4f4;color:#9a9a9a;}
+    .po-step.is-done .po-step-dot{background:#15803d;border-color:#15803d;color:#fff;}
+    .po-step.is-current .po-step-dot{background:#fff;border-color:#b42318;color:#b42318;box-shadow:0 0 0 3px rgba(180,35,24,.15);}
+    .po-step-label{font-size:.68rem;font-weight:700;color:#666;text-align:center;line-height:1.2;}
+    .po-step.is-done .po-step-label{color:#15803d;}
+    .po-step.is-current .po-step-label{color:#b42318;}
+    .po-step-line{flex:1;height:2px;background:#ddd;min-width:14px;margin-top:14px;}
+    .project-overview-bars{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:14px;}
+  `;
+  document.head.appendChild(style);
+}
+
+// A labelled progress bar — reuses the existing .project-budget-progress (burn-rate) styling.
+function renderProjectOverviewBar(label, percent, note = '', tone = '') {
+  const pct = Math.round(Number(percent) || 0);
+  const w = Math.max(0, Math.min(100, Number(percent) || 0));
+  return `
+    <div class="project-budget-progress" data-tone="${escHtml(tone)}">
+      <div class="project-budget-progress-head"><span>${escHtml(label)}</span><strong>${escHtml(String(pct))}%</strong></div>
+      <div class="project-budget-progress-track" aria-hidden="true"><span style="width:${w}%;"></span></div>
+      <em>${escHtml(note)}</em>
+    </div>
+  `;
+}
+
+// Horizontal project-flow stepper: each stage is "done" (green check), "current" (the first not-done),
+// or "pending". Gives an at-a-glance read of where the project is in the SI -> SO -> DR -> AR flow.
+function renderProjectOverviewStepper(steps) {
+  let currentMarked = false;
+  return `<div class="project-overview-stepper">${(steps || []).map((s, i) => {
+    let state = 'pending';
+    if (s.done) state = 'done';
+    else if (!currentMarked) { state = 'current'; currentMarked = true; }
+    const icon = s.done ? '&#10003;' : (state === 'current' ? '&bull;' : String(i + 1));
+    return `<div class="po-step is-${state}"><span class="po-step-dot">${icon}</span><span class="po-step-label">${escHtml(s.label)}</span></div>`;
+  }).join('<span class="po-step-line"></span>')}</div>`;
+}
+
 function renderProjectOverview(snapshot) {
+  ensureProjectOverviewExtraStyles();
   const project = snapshot?.project || {};
   const totals = snapshot?.totals || {};
   const arBalance = Math.max(0, Number(totals.arTotal || 0) - Number(totals.collectedTotal || 0));
@@ -2786,6 +2839,25 @@ function renderProjectOverview(snapshot) {
     </div>
   `;
 
+  const projectFlowStepper = `
+    <div class="project-overview-card">
+      <div class="project-overview-kicker">Project Flow</div>
+      ${renderProjectOverviewStepper([
+        { label: 'Inquiry', done: preSalesCount > 0 },
+        { label: 'Sales Order', done: salesOrderCount > 0 },
+        { label: 'Delivery', done: deliveryCount > 0 },
+        { label: 'Invoice', done: receivableCount > 0 },
+        { label: 'Collected', done: Number(totals.collectedTotal || 0) > 0 }
+      ])}
+    </div>
+  `;
+  const moneyBars = `
+    <div class="project-overview-bars">
+      ${renderProjectOverviewBar('Collection Rate', collectionRate, `${formatPhpCurrency(totals.collectedTotal || 0)} collected of ${formatPhpCurrency(totals.arTotal || 0)} billed`, collectionRate >= 80 ? 'positive' : (collectionRate > 0 ? 'warning' : 'muted'))}
+      ${renderProjectOverviewBar('Supplier Paid', apPaidRate, `${formatPhpCurrency(totals.apPaidTotal || 0)} paid of ${formatPhpCurrency(totals.apTotal || 0)} billed`, apPaidRate >= 80 ? 'positive' : (apPaidRate > 0 ? 'warning' : 'muted'))}
+    </div>
+  `;
+
   return `
     <section class="project-overview-shell">
       <div class="project-overview-card project-overview-hero">
@@ -2803,17 +2875,18 @@ function renderProjectOverview(snapshot) {
 
       ${verdictBanner}
 
-      <div class="project-overview-layout">
-        <div class="project-overview-card">
-          <div class="project-overview-section-head">
-            <div>
-              <div class="project-overview-kicker">Money Summary</div>
-              <h4>Contract, collections, and supplier exposure</h4>
-            </div>
-            <span class="project-overview-health is-${escHtml(netTone)}">${escHtml(netTotal >= 0 ? 'Positive position' : 'Negative position')}</span>
+      ${projectFlowStepper}
+
+      <div class="project-overview-card">
+        <div class="project-overview-section-head">
+          <div>
+            <div class="project-overview-kicker">Money Summary</div>
+            <h4>Contract, collections, and supplier exposure</h4>
           </div>
-          <div class="project-overview-metric-grid">${compactMoneyMetrics}</div>
+          <span class="project-overview-health is-${escHtml(netTone)}">${escHtml(netTotal >= 0 ? 'Positive position' : 'Negative position')}</span>
         </div>
+        <div class="project-overview-metric-grid">${compactMoneyMetrics}</div>
+        ${moneyBars}
       </div>
 
       ${budgetAnalyticsCard}
@@ -3232,6 +3305,10 @@ async function openProjectLedger(projectId) {
     window.history.replaceState({}, '', u.toString());
   }
   openDashboardPanel('project-ledger');
+  // Land on the overview from the TOP. The panel switch hides the project list, but the page kept the
+  // scroll position from the (possibly long) list — so the overview looked like it opened "at the
+  // bottom." Scrolling up makes it feel like a clean tab/panel switch.
+  window.scrollTo({ top: 0, behavior: 'auto' });
   return;
 
   const backdrop = document.getElementById('project-ledger-modal-backdrop');

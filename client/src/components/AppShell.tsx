@@ -49,7 +49,6 @@ const NAV_GROUPS: NavGroup[] = [
   { key: 'projects', label: 'Projects', staffHidden: true, links: [
     { href: '/admin?panel=project-records', label: 'Project Records' },
     { href: '/admin?panel=project-records&tab=ledger', label: 'Project Overview' },
-    { href: '/gantt-chart', label: 'Gantt Chart' },
   ] },
   { key: 'sales-management', label: 'Sales Management', links: [
     { href: '/sales-management?tab=sales-request', label: 'Sales Request' },

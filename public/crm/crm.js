@@ -255,6 +255,9 @@ document.addEventListener('click', (e) => {
 });
 
 function renderLeads() {
+  ensureCrmPipelineStyles();
+  renderLeadsBoard();
+  renderLeadsPipelineMetrics();
   const tbody = document.getElementById('leads-tbody');
   if (!tbody) return;
   const stageFilter = String(document.getElementById('leads-stage-filter')?.value || '').toLowerCase();
@@ -310,6 +313,176 @@ function renderLeads() {
       </td>
     </tr>`;
   }).join('');
+}
+
+// ── Pipeline board (Kanban) + metrics + drag-to-change-stage ──────────────────
+let crmLeadsView = 'table';
+let crmDraggedLeadId = null;
+
+function ensureCrmPipelineStyles() {
+  if (document.getElementById('crm-pipeline-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'crm-pipeline-styles';
+  style.textContent = `
+    .crm-pipeline-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin:12px 0;}
+    .crm-metric{border:1px solid #eadfda;border-radius:10px;padding:10px 14px;background:#fff;}
+    .crm-metric span{display:block;font-size:.64rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:#8a7d75;}
+    .crm-metric strong{display:block;font-size:1.1rem;font-weight:800;color:#3a2c25;margin-top:2px;}
+    .crm-metric em{font-size:.7rem;color:#a08a80;font-style:normal;}
+    .crm-metric.is-won strong{color:#15803d;}
+    .crm-view-toggle{display:inline-flex;border:1px solid #e5d9d2;border-radius:8px;overflow:hidden;}
+    .crm-view-btn{border:0;background:#fff;color:#6b5d55;font-size:.78rem;font-weight:700;padding:7px 14px;cursor:pointer;}
+    .crm-view-btn.active{background:var(--primary,#7a1f1f);color:#fff;}
+    .crm-pipeline-board{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;align-items:start;}
+    .crm-board-col{background:#f7f1ed;border:1px solid #eadfda;border-radius:12px;padding:8px;min-height:120px;transition:background .15s,border-color .15s;}
+    .crm-board-col.is-drop-target{background:#fdeee9;border-color:var(--primary,#7a1f1f);}
+    .crm-board-col-head{display:flex;align-items:center;justify-content:space-between;padding:4px 6px;}
+    .crm-board-col-title{font-size:.74rem;font-weight:800;color:#3a2c25;text-transform:uppercase;letter-spacing:.03em;}
+    .crm-board-col-count{font-size:.68rem;font-weight:800;color:#fff;background:var(--primary,#7a1f1f);border-radius:999px;padding:1px 8px;}
+    .crm-board-col-total{font-size:.72rem;font-weight:700;color:#8a7d75;padding:0 6px 6px;}
+    .crm-board-col-body{display:flex;flex-direction:column;gap:8px;min-height:40px;}
+    .crm-board-card{background:#fff;border:1px solid #eadfda;border-radius:10px;padding:9px 11px;cursor:grab;box-shadow:0 1px 3px rgba(0,0,0,.04);}
+    .crm-board-card:active{cursor:grabbing;}
+    .crm-board-card.is-dragging{opacity:.45;}
+    .crm-board-card-name{font-size:.82rem;font-weight:800;color:#3a2c25;}
+    .crm-board-card-company{font-size:.72rem;color:#8a7d75;margin-top:1px;}
+    .crm-board-card-foot{display:flex;align-items:center;justify-content:space-between;margin-top:6px;gap:6px;}
+    .crm-board-card-value{font-size:.76rem;font-weight:800;color:#7a1f1f;}
+    .crm-board-card-owner{font-size:.64rem;color:#a08a80;background:#f3e6e2;border-radius:999px;padding:1px 7px;white-space:nowrap;}
+    .crm-board-empty{font-size:.72rem;color:#bbb;text-align:center;padding:8px;}
+    @media(max-width:900px){.crm-pipeline-board{grid-template-columns:repeat(2,1fr);}}
+  `;
+  document.head.appendChild(style);
+}
+
+function setCrmLeadsView(view) {
+  crmLeadsView = (view === 'board') ? 'board' : 'table';
+  document.querySelectorAll('#crm-leads-view-toggle [data-crm-view]').forEach((b) => b.classList.toggle('active', b.dataset.crmView === crmLeadsView));
+  const tableWrap = document.getElementById('leads-table-wrap');
+  const board = document.getElementById('leads-board');
+  const stageFilter = document.getElementById('leads-stage-filter');
+  if (tableWrap) tableWrap.classList.toggle('is-hidden', crmLeadsView === 'board');
+  if (board) board.classList.toggle('is-hidden', crmLeadsView !== 'board');
+  if (stageFilter) stageFilter.style.display = crmLeadsView === 'board' ? 'none' : '';
+}
+
+// Board uses the search filter only (the stages ARE the columns), unlike the table's stage filter.
+function leadsBoardSearchFiltered() {
+  const search = String(document.getElementById('leads-search')?.value || '').trim().toLowerCase();
+  return (Array.isArray(leadsDb) ? leadsDb : []).filter((row) => !search
+    || [row.lead_docno, row.lead_name, row.company_name, row.contact_name, row.email, row.source, row.owner]
+      .some((v) => String(v || '').toLowerCase().includes(search)));
+}
+
+function renderLeadCard(l) {
+  return `<div class="crm-board-card" draggable="true" data-lead-id="${Number(l.id)}"
+       ondragstart="onLeadDragStart(event, ${Number(l.id)})" ondragend="onLeadDragEnd(event)"
+       onclick="editLead(${Number(l.id)})" title="I-drag papunta sa ibang stage, o i-click para i-edit">
+    <div class="crm-board-card-name">${escHtml(l.lead_name || '-')}</div>
+    <div class="crm-board-card-company">${escHtml(l.company_name || '-')}</div>
+    <div class="crm-board-card-foot">
+      <span class="crm-board-card-value">${money(l.estimated_value)}</span>
+      ${l.owner ? `<span class="crm-board-card-owner">${escHtml(l.owner)}</span>` : ''}
+    </div>
+  </div>`;
+}
+
+function renderLeadsBoard() {
+  const board = document.getElementById('leads-board');
+  if (!board) return;
+  const filtered = leadsBoardSearchFiltered();
+  board.innerHTML = STAGES.map((stage) => {
+    const stageLeads = filtered.filter((l) => String(l.stage || 'new').toLowerCase() === stage.key);
+    const total = stageLeads.reduce((s, l) => s + Number(l.estimated_value || 0), 0);
+    const cards = stageLeads.length ? stageLeads.map(renderLeadCard).join('') : '<div class="crm-board-empty">&mdash;</div>';
+    return `
+      <div class="crm-board-col crm-board-col-${escHtml(stage.key)}" data-stage="${escHtml(stage.key)}"
+           ondragover="onLeadDragOver(event)" ondragleave="onLeadDragLeave(event)" ondrop="onLeadDrop(event, '${escHtml(stage.key)}')">
+        <div class="crm-board-col-head">
+          <span class="crm-board-col-title">${escHtml(stage.label)}</span>
+          <span class="crm-board-col-count">${stageLeads.length}</span>
+        </div>
+        <div class="crm-board-col-total">${money(total)}</div>
+        <div class="crm-board-col-body">${cards}</div>
+      </div>`;
+  }).join('');
+}
+
+function renderLeadsPipelineMetrics() {
+  const el = document.getElementById('leads-pipeline-metrics');
+  if (!el) return;
+  const all = Array.isArray(leadsDb) ? leadsDb : [];
+  const open = all.filter((l) => !['won', 'lost'].includes(String(l.stage || 'new').toLowerCase()));
+  const won = all.filter((l) => String(l.stage || '').toLowerCase() === 'won');
+  const lost = all.filter((l) => String(l.stage || '').toLowerCase() === 'lost');
+  const openValue = open.reduce((s, l) => s + Number(l.estimated_value || 0), 0);
+  const wonValue = won.reduce((s, l) => s + Number(l.estimated_value || 0), 0);
+  const closed = won.length + lost.length;
+  const winRate = closed ? Math.round((won.length / closed) * 100) : 0;
+  el.innerHTML = `
+    <div class="crm-metric"><span>Open Pipeline</span><strong>${money(openValue)}</strong><em>${open.length} active lead${open.length === 1 ? '' : 's'}</em></div>
+    <div class="crm-metric is-won"><span>Won Value</span><strong>${money(wonValue)}</strong><em>${won.length} won</em></div>
+    <div class="crm-metric"><span>Win Rate</span><strong>${winRate}%</strong><em>${won.length}W / ${lost.length}L</em></div>
+  `;
+}
+
+function onLeadDragStart(e, id) {
+  crmDraggedLeadId = Number(id) || 0;
+  try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(id)); } catch (_) {}
+  if (e.target && e.target.classList) e.target.classList.add('is-dragging');
+}
+function onLeadDragEnd(e) {
+  if (e.target && e.target.classList) e.target.classList.remove('is-dragging');
+  document.querySelectorAll('.crm-board-col.is-drop-target').forEach((c) => c.classList.remove('is-drop-target'));
+}
+function onLeadDragOver(e) {
+  e.preventDefault();
+  try { e.dataTransfer.dropEffect = 'move'; } catch (_) {}
+  if (e.currentTarget && e.currentTarget.classList) e.currentTarget.classList.add('is-drop-target');
+}
+function onLeadDragLeave(e) {
+  if (e.currentTarget && e.currentTarget.classList) e.currentTarget.classList.remove('is-drop-target');
+}
+async function onLeadDrop(e, stageKey) {
+  e.preventDefault();
+  if (e.currentTarget && e.currentTarget.classList) e.currentTarget.classList.remove('is-drop-target');
+  const id = crmDraggedLeadId || Number((e.dataTransfer && e.dataTransfer.getData('text/plain')) || 0);
+  crmDraggedLeadId = null;
+  if (!id) return;
+  const row = (Array.isArray(leadsDb) ? leadsDb : []).find((l) => Number(l.id) === Number(id));
+  if (!row) return;
+  if (String(row.stage || 'new').toLowerCase() === String(stageKey).toLowerCase()) return;
+  await updateLeadStage(row, stageKey);
+}
+
+// Move a lead to a new stage (drag-and-drop). Re-sends the lead's existing fields with the new stage,
+// then reloads. The server enforces who may edit (e.g. staff/approval rules).
+async function updateLeadStage(row, stageKey) {
+  const payload = {
+    business_entity_id: row.business_entity_id,
+    lead_name: row.lead_name,
+    company_name: row.company_name,
+    company_id: row.company_id || null,
+    contact_name: row.contact_name,
+    email: row.email,
+    phone: row.phone,
+    stage: stageKey,
+    priority: row.priority,
+    estimated_value: Number(row.estimated_value || 0) || 0,
+    expected_close_date: row.expected_close_date || null,
+    next_follow_up_date: row.next_follow_up_date || null,
+    source: row.source,
+    owner: row.owner,
+    lost_reason: row.lost_reason,
+    notes: row.notes
+  };
+  try {
+    await fetchJson(`/api/crm/leads/${Number(row.id)}`, { method: 'PUT', body: JSON.stringify(payload) });
+    if (typeof showToast === 'function') showToast(`Lead na-move sa "${stageLabel(stageKey)}".`, 'success');
+    await loadCrm();
+  } catch (err) {
+    if (typeof showToast === 'function') showToast(err.message || 'Hindi ma-move ang lead.', 'error');
+  }
 }
 
 function renderContacts() {

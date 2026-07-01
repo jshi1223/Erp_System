@@ -120,9 +120,14 @@
             <option value="lost">Lost</option>
           </select>
           <input id="leads-search" type="search" placeholder="Search lead, company, contact..." oninput="renderLeads()">
+          <div class="crm-view-toggle" id="crm-leads-view-toggle" role="tablist" aria-label="Leads view">
+            <button type="button" class="crm-view-btn active" data-crm-view="table" onclick="setCrmLeadsView('table')">Table</button>
+            <button type="button" class="crm-view-btn" data-crm-view="board" onclick="setCrmLeadsView('board')">Board</button>
+          </div>
         </div>
       </div>
-      <div class="table-wrap">
+      <div class="crm-pipeline-metrics" id="leads-pipeline-metrics"></div>
+      <div class="table-wrap" id="leads-table-wrap">
         <table>
           <thead>
             <tr>
@@ -140,6 +145,7 @@
           <tbody id="leads-tbody"></tbody>
         </table>
       </div>
+      <div class="crm-pipeline-board is-hidden" id="leads-board"></div>
     </section>
 
     <section class="content-section crm-panel crm-section" id="crm-tab-contacts">

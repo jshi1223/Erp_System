@@ -1490,8 +1490,7 @@
             label: 'Projects',
             items: [
               { href: '/admin?panel=project-records', label: 'Project Records', id: 'menu-projects', aliases: ['/admin?view=project-records'] },
-              { href: '/admin?panel=project-records&tab=ledger', label: 'Project Overview', id: 'menu-project-ledger', aliases: ['/admin?panel=project-ledger'] },
-              { href: '/gantt-chart', label: 'Gantt Chart', id: 'menu-gantt-chart' }
+              { href: '/admin?panel=project-records&tab=ledger', label: 'Project Overview', id: 'menu-project-ledger', aliases: ['/admin?panel=project-ledger'] }
             ]
           },
           {
