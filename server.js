@@ -2554,7 +2554,7 @@ app.get(['/notifications', '/notifications/'], protectAdmin, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'notifications', 'index.html'));
 });
 
-app.use(express.static('public', {
+app.use(express.static(path.join(__dirname, 'public'), {
   index: false,
   etag: true,
   lastModified: true,
