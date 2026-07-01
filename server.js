@@ -2559,7 +2559,7 @@ app.get('/favicon.ico', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'favicon.svg'));
 });
 
-app.use(express.static(path.join(__dirname, 'public'), {
+const publicStaticOptions = {
   index: false,
   etag: true,
   lastModified: true,
@@ -2575,7 +2575,10 @@ app.use(express.static(path.join(__dirname, 'public'), {
       res.setHeader('Cache-Control', 'no-cache');
     }
   }
-}));
+};
+
+app.use('/react', express.static(path.join(__dirname, 'public', 'react'), publicStaticOptions));
+app.use(express.static(path.join(__dirname, 'public'), publicStaticOptions));
 
 // ==================== Database Bootstrap ====================
 // db, queryAsync, and the pg error helpers now live in src/database (imported at top).
